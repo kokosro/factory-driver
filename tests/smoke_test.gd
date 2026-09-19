@@ -20,6 +20,11 @@ const MAIN_SCENE := "res://scenes/main.tscn"
 ## is for), not a slide to recover from.
 const HANDBRAKE_TAP_FRAMES := 24
 
+## How long after the stop the held-accelerate exit from reverse gets to be
+## under way [physics frames], 0.75 s: FORWARD_ENGAGE_GRACE (12 frames) plus
+## margin to pick up speed.
+const FORWARD_ENGAGE_FRAMES := 45
+
 var _failures := 0
 
 
@@ -116,15 +121,55 @@ func _run() -> void:
 	_check(speed_label.text.begins_with("R"), "HUD flags reverse ('%s')" % speed_label.text)
 	Input.action_release("brake")
 
-	# In reverse the accelerate key is the brake: it stops and holds the car, and
-	# only a fresh press at a standstill engages forward again.
+	# In reverse the accelerate key is the brake: it stops the car. Held through
+	# the stop it engages forward after FORWARD_ENGAGE_GRACE and drives away, the
+	# key never released (the J-turn exit in one motion).
 	Input.action_press("accelerate")
-	await _step(240)
-	_check(absf(car.forward_speed) < 0.01 and car.reverse_engaged, "held accelerate stops the reversing car and holds it (%.2f m/s)" % car.forward_speed)
+	var stop_frame := -1
+	var engage_frame := -1
+	var rolling_back_at_press := car.forward_speed
+	for frame in 240:
+		await physics_frame
+		if stop_frame < 0 and car.reverse_engaged and absf(car.forward_speed) < 0.01:
+			stop_frame = frame
+		if stop_frame >= 0 and engage_frame < 0 and not car.reverse_engaged:
+			engage_frame = frame
+		if stop_frame >= 0 and frame == stop_frame + FORWARD_ENGAGE_FRAMES:
+			break
+	_check(rolling_back_at_press < -1.0 and stop_frame > 0, "held accelerate stops the reversing car, still in reverse (from %.1f m/s, stopped at frame %d)" % [rolling_back_at_press, stop_frame])
+	_check(engage_frame > stop_frame and engage_frame - stop_frame <= FORWARD_ENGAGE_FRAMES, "accelerate held through the stop engages forward within the grace (%d frames after the stop)" % (engage_frame - stop_frame))
+	_check(not car.reverse_engaged and car.forward_speed > 1.0, "the same held accelerate drives away in one motion (%.1f m/s, %d frames after the stop)" % [car.forward_speed, FORWARD_ENGAGE_FRAMES])
+	_check(not speed_label.text.begins_with("R"), "HUD stops flagging reverse after the held exit ('%s')" % speed_label.text)
 	Input.action_release("accelerate")
+
+	# Both keys held at a standstill in reverse cancel out: forward never engages.
+	Input.action_press("brake")
+	await _step(120)
+	Input.action_release("brake")
+	await _step(5)
+	Input.action_press("brake")
+	await _step(1)
+	Input.action_release("brake")
+	await _step(2)
+	var in_reverse_before := car.reverse_engaged
+	Input.action_press("accelerate")
+	Input.action_press("brake")
+	var highest_speed := car.forward_speed
+	for frame in 180:
+		await physics_frame
+		highest_speed = maxf(highest_speed, car.forward_speed)
+	_check(in_reverse_before and car.reverse_engaged, "both keys held at a standstill in reverse never engage forward (reverse %s -> %s)" % [in_reverse_before, car.reverse_engaged])
+	_check(absf(car.forward_speed) < 0.01 and highest_speed < 0.01, "both keys held hold the car (%.2f m/s, highest %.2f)" % [car.forward_speed, highest_speed])
+	Input.action_release("accelerate")
+	Input.action_release("brake")
+
+	# A fresh press-and-hold of accelerate at a standstill engages forward and
+	# drives in one motion too, without waiting for the grace.
 	await _step(5)
 	Input.action_press("accelerate")
-	await _step(60)
+	await _step(2)
+	_check(not car.reverse_engaged and car.forward_speed > 0.0, "a fresh accelerate press at a standstill engages forward at once (%.2f m/s after 2 frames)" % car.forward_speed)
+	await _step(58)
 	_check(not car.reverse_engaged and car.forward_speed > 1.0, "a fresh accelerate press at a standstill drives forward again (%.1f m/s)" % car.forward_speed)
 	Input.action_release("accelerate")
 
