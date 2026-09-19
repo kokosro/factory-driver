@@ -62,6 +62,14 @@ const CG_HEIGHT := 0.48
 ## and less weight moves between the axles. (Real 986: 2.415 m wheelbase.)
 const AXLE_DISTANCE := 1.3
 
+## Radius of gyration about the vertical axis [m]: yaw inertia is
+## CAR_MASS * radius^2 (~2000 kg m^2 here). How much the mass resists being
+## turned: the front tyres have to wind the car up into a corner and back out
+## of it. A mid-engined car keeps its mass near the middle (~1.2); a 911 with
+## the engine slung out behind the rear axle gets more. Higher = lazier
+## turn-in that carries on longer, lower = darty.
+const YAW_GYRATION_RADIUS := 1.25
+
 # --- Engine ------------------------------------------------------------------
 
 ## Torque curve at full throttle: Vector2(rpm, torque [Nm]) anchor points,
@@ -147,9 +155,16 @@ const MAX_SPEED := 66.0
 
 # --- Longitudinal: brakes, reverse, rolling resistance -----------------------
 
-## Deceleration while braking, i.e. pressing the key that opposes the current
-## direction of travel [m/s^2]. 1 g is about 9.8; arcade brakes are stronger.
-const BRAKE_DECEL := 26.0
+## How much of the tyres' grip a full brake application uses (0..1+). The
+## brakes themselves are stronger than the tyres, so the tyres set the limit:
+## 1.0 = a threshold-braking stop right at the grip limit, below 1 = a driver
+## who leaves a margin, above 1 = stickier than the tyres really are (arcade).
+const BRAKE_DECEL_G := 1.0
+
+## Deceleration while braking [m/s^2]: what the tyres can hold, ~9.3 (0.95 g).
+## Was a flat 26.0 (2.7 g), which no 1300 kg road car can do: 72 km/h -> 0 took
+## ~8 m. Now it takes ~22 m, 90 km/h ~34 m, 125 km/h ~66 m. Brake earlier.
+const BRAKE_DECEL := BRAKE_DECEL_G * TYRE_MU * 9.8
 
 ## Rolling resistance [m/s^2], always on while the car rolls. With engine
 ## braking and aero drag it makes up the coast-down.
@@ -202,8 +217,7 @@ const RPM_RESPONSE := 20.0
 const LOAD_GRIP_EXPONENT := 0.7
 
 ## Largest share of the car's weight that can move between the axles (0..1).
-## Caps the transfer from the arcade brakes, which pull harder than tyres
-## really could.
+## A safety net: tyre-limited braking and drive stay inside it.
 const MAX_LOAD_TRANSFER := 0.18
 
 ## How quickly the load follows acceleration changes [1/s]: the suspension
@@ -217,16 +231,14 @@ const MIN_COMBINED_GRIP := 0.4
 
 # --- Steering ----------------------------------------------------------------
 
-## Steering rate: the highest yaw rate the car can reach, at low speed with full
-## lock [rad/s]. 2.0 rad/s is about 115 degrees per second.
+## Upper bound on the yaw rate the steering can ask for [rad/s], about 115
+## degrees per second. Only matters around 5-10 m/s; below that the turning
+## circle is the limit, above it the tyres are (see _steering_yaw_limit).
+## Was the whole steering feel: MAX_YAW_RATE / (1 + speed / 9), a kinematic
+## curve with no mass in it that asked for up to 1.8 g of cornering. Now the
+## tyres cap the yaw rate (TYRE_MU * g / speed, ~0.95 g of cornering) and the
+## yaw inertia caps how fast it builds (YAW_GYRATION_RADIUS).
 const MAX_YAW_RATE := 2.0
-
-## Speed-sensitive steering falloff [m/s]. Available yaw rate is
-## MAX_YAW_RATE / (1 + speed / STEER_FALLOFF_SPEED): halved at this speed,
-## a third at twice this speed, and so on. At high speed cornering force
-## levels off near MAX_YAW_RATE * STEER_FALLOFF_SPEED (18 m/s^2, ~1.8 g).
-## Lower = calmer, more stable at speed. Higher = twitchier at speed.
-const STEER_FALLOFF_SPEED := 9.0
 
 ## Tightest turning circle radius [m]. Caps yaw rate at speed / radius so the
 ## car cannot spin on the spot: no steering at standstill, and parking-speed
@@ -268,7 +280,7 @@ const SPIN_MIN_SPEED := 2.0
 ## slip exponentially (the *_LATERAL_GRIP rates); past it the tyres just drag at
 ## this constant rate, so a car thrown sideways keeps moving and can spin
 ## instead of stopping dead. Sits above the hardest steady cornering the
-## steering can ask for (see STEER_FALLOFF_SPEED), so grip driving never
+## steering can ask for (TYRE_MU * g), so grip driving never
 ## touches it. Scaled like the grip rates (load, drive force, handbrake).
 const TYRE_SLIDE_DECEL := 16.0
 
@@ -330,6 +342,10 @@ var yaw_rate := 0.0
 ## Extra yaw from the tail sliding out [rad/s], on top of what the steering
 ## asks for. Near zero in normal driving, large during a handbrake slide.
 var slide_yaw_rate := 0.0
+
+## Yaw rate from the steering [rad/s]. Follows what the steering asks for only
+## as fast as the front tyres can wind up the car's yaw inertia.
+var steer_yaw_rate := 0.0
 
 ## Smoothed steering input, -1 (full right) .. +1 (full left).
 var steer := 0.0
@@ -476,7 +492,8 @@ func _physics_process(delta: float) -> void:
 	#    *before* the turn, so the nose rotates away from the direction of travel
 	#    and the difference shows up as lateral slip on the next tick.
 	steer = move_toward(steer, steer_input, STEER_RESPONSE * delta)
-	yaw_rate = _compute_yaw_rate(steer, forward_speed) + slide_yaw_rate
+	steer_yaw_rate = move_toward(steer_yaw_rate, _compute_yaw_rate(steer, forward_speed), _steering_yaw_accel() * delta)
+	yaw_rate = steer_yaw_rate + slide_yaw_rate
 
 	if not is_on_floor():
 		vertical_speed -= _gravity * delta
@@ -506,6 +523,7 @@ func reset_to(target: Transform3D) -> void:
 	lateral_speed = 0.0
 	yaw_rate = 0.0
 	slide_yaw_rate = 0.0
+	steer_yaw_rate = 0.0
 	steer = 0.0
 	_handbrake_amount = 0.0
 	reverse_engaged = false
@@ -687,15 +705,29 @@ func _scrub_slip(slip: float, grip: float, static_grip: float, delta: float) -> 
 	return move_toward(slip, slip * exp(-grip * delta), max_scrub)
 
 
-## Returns the yaw rate [rad/s] for a steering amount (-1..1) at a given speed.
+## Returns the yaw rate [rad/s] the steering asks for with a steering amount
+## (-1..1) at a given speed.
 func _compute_yaw_rate(steer_amount: float, speed: float) -> float:
-	var abs_speed := absf(speed)
-	# Speed-sensitive falloff: less yaw available the faster the car goes.
-	var available := MAX_YAW_RATE / (1.0 + abs_speed / STEER_FALLOFF_SPEED)
-	# Turning circle limit: no yaw at standstill, ramps in with speed.
-	available = minf(available, abs_speed / MIN_TURN_RADIUS)
 	# In reverse the same steering lock swings the nose the other way.
-	return steer_amount * available * signf(speed)
+	return steer_amount * _steering_yaw_limit(absf(speed)) * signf(speed)
+
+
+## Highest yaw rate [rad/s] the car can hold at `abs_speed`.
+func _steering_yaw_limit(abs_speed: float) -> float:
+	# Turning circle limit: no yaw at standstill, ramps in with speed.
+	var available := minf(MAX_YAW_RATE, abs_speed / MIN_TURN_RADIUS)
+	# Grip limit: cornering at yaw rate r needs speed * r of sideways
+	# acceleration, and the tyres have TYRE_MU * g to give.
+	return minf(available, TYRE_MU * _gravity / maxf(abs_speed, 0.01))
+
+
+## How fast the steering can change the yaw rate [rad/s^2]: the most sideways
+## force the front axle can make at its current load, on its lever arm about
+## the centre of mass, against the yaw inertia. Braking loads the front tyres
+## and sharpens turn-in; accelerating lightens them and dulls it.
+func _steering_yaw_accel() -> float:
+	var front_force := TYRE_MU * CAR_MASS * _gravity * front_load_fraction
+	return front_force * AXLE_DISTANCE / (CAR_MASS * YAW_GYRATION_RADIUS * YAW_GYRATION_RADIUS)
 
 
 ## Cosmetic motion: wheel spin, front wheel steering and body roll / pitch.

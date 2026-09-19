@@ -83,7 +83,10 @@ func _run() -> void:
 	speed_before = car.forward_speed
 	Input.action_press("brake")
 	await _step(20)
-	_check(car.forward_speed < speed_before - 5.0, "brakes hard (%.1f -> %.1f m/s)" % [speed_before, car.forward_speed])
+	# 20 frames on the brakes: the tyres' full grip, no more (drag adds a little).
+	var brake_drop := speed_before - car.forward_speed
+	var grip_drop := ArcadeCar.BRAKE_DECEL * 20.0 / 60.0
+	_check(brake_drop > grip_drop * 0.95 and brake_drop < grip_drop * 1.2, "brakes hard, at the tyres' limit (%.1f -> %.1f m/s, grip gives %.1f)" % [speed_before, car.forward_speed, grip_drop])
 	var z_stopped := 0.0
 	var lowest_speed := 0.0
 	for frame in 240:
@@ -132,7 +135,7 @@ func _run() -> void:
 	var drop := speed_start - car.forward_speed
 	var coast_drop := ArcadeCar.COAST_DECEL * 1.0
 	_check(car.forward_speed > 0.0 and drop > coast_drop + 3.0, "handbrake slows the car without throttle (%.1f -> %.1f m/s)" % [speed_start, car.forward_speed])
-	_check(drop < ArcadeCar.BRAKE_DECEL * 0.5, "handbrake is gentler than the brake (lost %.1f m/s in 1 s)" % drop)
+	_check(drop < ArcadeCar.BRAKE_DECEL * 0.75, "handbrake is gentler than the brake (lost %.1f m/s in 1 s, the brake takes %.1f)" % [drop, ArcadeCar.BRAKE_DECEL])
 	_check(absf(car.global_position.x) < 0.01 and absf(car.lateral_speed) < 0.01, "handbrake in a straight line stays straight (x = %.3f)" % car.global_position.x)
 
 	# Same corner twice, without and with the handbrake: steer left off the
