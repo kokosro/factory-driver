@@ -19,3 +19,6 @@ Desktop.ini
 *~
 .vscode/
 .idea/
+
+# Browser session artifacts
+.playwright-mcp/
