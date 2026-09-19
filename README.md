@@ -20,9 +20,10 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Accelerate                              | `Up` or `W`     |
 | Brake; keep holding at a stop to reverse | `Down` or `S`   |
 | Steer left / right                      | `Left` / `Right` or `A` / `D` |
+| Handbrake (hold mid-corner to slide)    | `Space`         |
 | Reset the car to the start line         | `R`             |
 
-While reversing, `Up` / `W` brakes. The HUD shows speed in km/h (prefixed with `R` in reverse).
+While reversing, `Up` / `W` brakes. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` in reverse).
 
 ### Driving feel
 
