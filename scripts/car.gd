@@ -210,9 +210,19 @@ const MAX_REVERSE_SPEED := 12.0
 ## Below this speed [m/s] the car counts as stopped. The brake only ever slows
 ## the car to a stop and holds it there; the direction changes on a FRESH key
 ## press at a standstill: brake pressed anew engages reverse, accelerate
-## pressed anew engages forward again (see reverse_engaged). A key that is
-## still held from the braking never changes direction.
+## pressed anew engages forward again (see reverse_engaged). A brake key that
+## is still held from the braking never changes direction; a held accelerate
+## key does, after FORWARD_ENGAGE_GRACE.
 const STANDSTILL_SPEED := 0.5
+
+## Time the car has to stand still in reverse under a held accelerate key
+## before forward engages by itself [s]. Forward is the home direction, like an
+## automatic's D: holding the throttle through the stop of a J-turn drives away
+## in one motion, no release and re-press. 0.2 s is long enough that the stop
+## reads as a stop, short enough not to feel like a stall. Deliberately not
+## mirrored: reverse is a fresh decision, a brake held through a forward stop
+## must never engage it.
+const FORWARD_ENGAGE_GRACE := 0.2
 
 # --- Gear shifting -----------------------------------------------------------
 
@@ -395,10 +405,12 @@ var gear := 1
 
 ## True while reverse is selected. The keys then swap roles: the brake key is
 ## the throttle (backwards) and the accelerate key is the brake. Engaged by a
-## fresh press of the brake key at a standstill; left by a fresh press of the
-## accelerate key at a standstill or while the car rolls nose-first (the way
-## out of a J-turn: selecting drive while already rolling forwards is harmless,
-## selecting reverse on the move is what a gearbox locks out).
+## fresh press of the brake key at a standstill, never by a held one; left by
+## a fresh press of the accelerate key at a standstill or while the car rolls
+## nose-first (the way out of a J-turn: selecting drive while already rolling
+## forwards is harmless, selecting reverse on the move is what a gearbox locks
+## out), or by the accelerate key held through the stop for
+## FORWARD_ENGAGE_GRACE.
 var reverse_engaged := false
 
 ## True = the gearbox shifts by itself. The shift keys switch to manual.
@@ -445,6 +457,10 @@ var _handbrake_amount := 0.0
 ## a fresh press from a held key.
 var _accelerate_was_pressed := false
 var _brake_was_pressed := false
+
+## How long the car has stood still in reverse with the accelerate key held
+## [s]. Forward engages at FORWARD_ENGAGE_GRACE.
+var _forward_engage_timer := 0.0
 
 ## Time left in the current gear change [s].
 var _shift_timer := 0.0
@@ -497,7 +513,7 @@ func _physics_process(delta: float) -> void:
 	lateral_speed = velocity.dot(right_dir)
 	var vertical_speed := velocity.y
 	var cg_lateral_speed := lateral_speed + yaw_rate * CG_OFFSET
-	_update_direction(forward_speed)
+	_update_direction(forward_speed, drive_input, delta)
 	if handbrake_held:
 		_handbrake_amount = 1.0
 	else:
@@ -599,6 +615,7 @@ func reset_to(target: Transform3D) -> void:
 	steer = 0.0
 	_handbrake_amount = 0.0
 	reverse_engaged = false
+	_forward_engage_timer = 0.0
 	gear = 1
 	automatic = true
 	engine_rpm = IDLE_RPM
@@ -654,15 +671,25 @@ static func engine_torque(rpm: float) -> float:
 	return TORQUE_CURVE[-1].y
 
 
-## Forward / reverse selection: only a fresh key press changes direction, so a
-## brake key held through a stop just holds the car (see STANDSTILL_SPEED).
-func _update_direction(speed: float) -> void:
+## Forward / reverse selection. A fresh key press changes direction; a brake
+## key held through a stop just holds the car (see STANDSTILL_SPEED). The one
+## exception is deliberate: forward is the home direction, so an accelerate key
+## held through the stop in reverse engages forward after FORWARD_ENGAGE_GRACE
+## and drives away in one motion. `drive` is the same signal the speed update
+## uses, so both keys held cancel out and never engage anything.
+func _update_direction(speed: float, drive: float, delta: float) -> void:
 	var accelerate_pressed := Input.is_action_pressed("accelerate")
 	var brake_pressed := Input.is_action_pressed("brake")
 	var fresh_accelerate := accelerate_pressed and not _accelerate_was_pressed
 	var fresh_brake := brake_pressed and not _brake_was_pressed
 	_accelerate_was_pressed = accelerate_pressed
 	_brake_was_pressed = brake_pressed
+	if reverse_engaged and drive > 0.0 and absf(speed) <= STANDSTILL_SPEED:
+		_forward_engage_timer += delta
+		if _forward_engage_timer >= FORWARD_ENGAGE_GRACE:
+			reverse_engaged = false
+	else:
+		_forward_engage_timer = 0.0
 	if fresh_accelerate == fresh_brake:
 		return
 	if fresh_brake and not reverse_engaged and absf(speed) <= STANDSTILL_SPEED:
