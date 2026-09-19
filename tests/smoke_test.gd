@@ -6,11 +6,19 @@ extends SceneTree
 ##
 ## Loads the main scene, checks the key nodes exist, then drives the car with
 ## simulated input and checks it accelerates, steers, brakes, holds, reverses,
-## slides under the handbrake, shifts gears and moves load between the axles,
-## and checks the pad's ground texture, course queries and drive-through cones.
+## slides under the handbrake, turns in less on the brakes, shifts gears and
+## moves load between the axles, and checks the pad's ground texture, course
+## queries and drive-through cones.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
+
+## How long the handbrake corner holds the handbrake [physics frames], 0.4 s:
+## a tap that kicks the tail out and lets the car catch it again. Was 60 (1 s):
+## with tyre forces and yaw inertia, a full second at full lock from 60 km/h
+## is a committed handbrake turn that ends up facing backwards (what SPIN_180
+## is for), not a slide to recover from.
+const HANDBRAKE_TAP_FRAMES := 24
 
 var _failures := 0
 
@@ -138,8 +146,8 @@ func _run() -> void:
 	_check(drop < ArcadeCar.BRAKE_DECEL * 0.75, "handbrake is gentler than the brake (lost %.1f m/s in 1 s, the brake takes %.1f)" % [drop, ArcadeCar.BRAKE_DECEL])
 	_check(absf(car.global_position.x) < 0.01 and absf(car.lateral_speed) < 0.01, "handbrake in a straight line stays straight (x = %.3f)" % car.global_position.x)
 
-	# Same corner twice, without and with the handbrake: steer left off the
-	# throttle for 1 s, then keep steering for 1.5 s with the handbrake released.
+	# Same corner twice, without and with a tap of the handbrake: steer left off
+	# the throttle for 2.5 s, the handbrake on for the first HANDBRAKE_TAP_FRAMES.
 	var grip := await _corner(car, false)
 	var slide := await _corner(car, true)
 	_check(slide.peak_slip > grip.peak_slip * 1.5 and slide.peak_slip > grip.peak_slip + 1.5, "handbrake corner slides more (peak slip %.2f vs %.2f m/s)" % [slide.peak_slip, grip.peak_slip])
@@ -149,6 +157,13 @@ func _run() -> void:
 	_check(absf(slide.end_slide_yaw) < 0.1, "tail catches after releasing the handbrake (slide yaw %.3f rad/s)" % slide.end_slide_yaw)
 	_check(grip.finite and slide.finite, "no NaN / inf in speeds or position while cornering")
 	_check(maxf(grip.max_step, slide.max_step) < 1.5, "no teleporting while cornering (largest step %.2f m)" % maxf(grip.max_step, slide.max_step))
+
+	# Friction ellipse: grip spent on braking is not there for turning. The same
+	# turn-in on the brakes turns the car less, but still turns it.
+	var free_turn := await _turn_in(car, false)
+	var braked_turn := await _turn_in(car, true)
+	_check(braked_turn < free_turn * 0.8, "braking while turning costs turn-in (%.2f vs %.2f rad in 0.75 s)" % [braked_turn, free_turn])
+	_check(braked_turn > free_turn * 0.2, "the car still steers on the brakes (%.2f vs %.2f rad in 0.75 s)" % [braked_turn, free_turn])
 
 	car.reset_to_spawn()
 	await _step(5)
@@ -370,7 +385,7 @@ func _get_up_to_speed(car: ArcadeCar) -> void:
 	Input.action_release("accelerate")
 
 
-## Drives one left corner (optionally handbraking for the first second) and
+## Drives one left corner (optionally with a tap of the handbrake going in) and
 ## returns peak slip / yaw, the end state and per-frame sanity stats.
 func _corner(car: ArcadeCar, handbrake: bool) -> Dictionary:
 	await _get_up_to_speed(car)
@@ -383,8 +398,9 @@ func _corner(car: ArcadeCar, handbrake: bool) -> Dictionary:
 	if handbrake:
 		Input.action_press("handbrake")
 	for frame in 150:
-		if frame == 60:
+		if frame == HANDBRAKE_TAP_FRAMES:
 			Input.action_release("handbrake")
+		if frame == 60:
 			stats.speed_drop = speed_start - car.forward_speed
 		var before := car.global_position
 		await physics_frame
@@ -396,9 +412,27 @@ func _corner(car: ArcadeCar, handbrake: bool) -> Dictionary:
 			stats.peak_slip = maxf(stats.peak_slip, absf(car.lateral_speed))
 			stats.peak_yaw = maxf(stats.peak_yaw, absf(car.yaw_rate))
 	Input.action_release("steer_left")
-	stats.end_slip = car.lateral_speed
+	# Slip where the tyres are: the rear axle's sideways speed. (lateral_speed is
+	# taken at the middle of the wheelbase, where a car rolling round a corner
+	# with no slip at all still shows yaw rate x AXLE_DISTANCE of it, more the
+	# slower and tighter it turns.)
+	stats.end_slip = tan(car.rear_slip_angle) * absf(car.forward_speed)
 	stats.end_slide_yaw = car.slide_yaw_rate
 	return stats
+
+
+## Turns in to the left for 0.75 s from ~60 km/h, off the throttle, optionally
+## hard on the brakes; returns how far the car turned [rad].
+func _turn_in(car: ArcadeCar, braking: bool) -> float:
+	await _get_up_to_speed(car)
+	var yaw_before := car.global_rotation.y
+	Input.action_press("steer_left")
+	if braking:
+		Input.action_press("brake")
+	await _step(45)
+	Input.action_release("steer_left")
+	Input.action_release("brake")
+	return angle_difference(yaw_before, car.global_rotation.y)
 
 
 ## Full throttle for 0.5 s; returns the average acceleration [m/s^2].
