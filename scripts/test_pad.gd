@@ -1,3 +1,4 @@
+class_name TestPad
 extends Node3D
 ## Factory test pad: builds the visual reference markers that make speed and
 ## steering readable on an otherwise featureless plane. Everything is generated
