@@ -1,7 +1,13 @@
 extends Camera3D
-## Third-person chase camera. Swings in behind the car's heading and trails its
-## position with a little lag, so the car visibly moves against the frame when
-## it accelerates, brakes or turns.
+## The game's one camera. Starts as a third-person chase camera that swings in
+## behind the car's heading and trails its position with a little lag, so the
+## car visibly moves against the frame when it accelerates, brakes or turns.
+## The camera_cycle action steps through the other views: cockpit, front
+## (bonnet) and overhead, then back to chase.
+
+enum Mode { CHASE, COCKPIT, FRONT, OVERHEAD }
+
+const MODE_NAMES: Array[String] = ["chase", "cockpit", "front", "overhead"]
 
 # --- Tuning ------------------------------------------------------------------
 
@@ -26,9 +32,92 @@ const POSITION_FOLLOW_RATE := 14.0
 const FOV_AT_REST := 65.0
 const FOV_AT_MAX_SPEED := 82.0
 
+# --- Modes -------------------------------------------------------------------
+# Offsets are in the car's own space: origin on the ground under the middle of
+# the car, nose towards -Z, +X to the driver's right, +Y up. Cockpit and front
+# are fixed rigidly to the car, with no lag.
+
+## Cockpit: the driver's eye, inside the cabin box on the left-hand seat [m].
+## The cabin's walls face outwards, so from in here they are not drawn; the
+## bonnet ahead and the roof above are.
+const COCKPIT_EYE := Vector3(-0.32, 1.12, 0.1)
+
+## Cockpit: downward tilt of the view [degrees].
+const COCKPIT_PITCH_DEG := 3.0
+
+## Cockpit: field of view at standstill and at top speed [degrees].
+const COCKPIT_FOV_AT_REST := 72.0
+const COCKPIT_FOV_AT_MAX_SPEED := 84.0
+
+## Cockpit: near clip plane [m], close enough to keep the steering wheel whole.
+const COCKPIT_NEAR := 0.03
+
+## Cockpit dashboard silhouette: centre and size of the panel across the base
+## of the windscreen [m] ...
+const DASH_PANEL_CENTRE := Vector3(0.0, 0.91, -0.6)
+const DASH_PANEL_SIZE := Vector3(1.4, 0.12, 0.5)
+
+## ... the instrument cowl on top of it, in front of the driver [m] ...
+const DASH_COWL_CENTRE := Vector3(-0.32, 0.995, -0.5)
+const DASH_COWL_SIZE := Vector3(0.36, 0.05, 0.2)
+
+## ... a dark floor over the cabin's footprint, so a glance down does not show
+## the top of the painted body [m] ...
+const DASH_FLOOR_CENTRE := Vector3(0.0, 0.86, 0.25)
+const DASH_FLOOR_SIZE := Vector3(1.4, 0.02, 1.9)
+
+## ... and the steering wheel: hub position, rim radius, rim thickness [m], how
+## far the wheel leans back from upright, and how far it turns at full lock
+## [degrees].
+const WHEEL_CENTRE := Vector3(-0.32, 0.95, -0.27)
+const WHEEL_RADIUS := 0.16
+const WHEEL_RIM_THICKNESS := 0.022
+const WHEEL_LEAN_DEG := 20.0
+const WHEEL_LOCK_DEG := 100.0
+
+const DASH_COLOR := Color(0.035, 0.035, 0.04, 1)
+const WHEEL_COLOR := Color(0.1, 0.1, 0.11, 1)
+
+## Front: on the bonnet, far enough back that its leading edge is in shot [m].
+const FRONT_EYE := Vector3(0.0, 1.0, -1.0)
+
+## Front: downward tilt of the view [degrees].
+const FRONT_PITCH_DEG := 5.0
+
+## Front: field of view at standstill and at top speed [degrees].
+const FRONT_FOV_AT_REST := 70.0
+const FRONT_FOV_AT_MAX_SPEED := 86.0
+
+## Overhead: straight down, north (-Z, the way the tests run) always up the
+## screen. The view does not turn with the car, so spins stay readable and the
+## ground holds still for parking. Height above the car at standstill and at
+## top speed [m]: low for placing the car in a box, high to see ahead.
+const OVERHEAD_HEIGHT_AT_REST := 26.0
+const OVERHEAD_HEIGHT_AT_MAX_SPEED := 40.0
+
+## Overhead: field of view [degrees].
+const OVERHEAD_FOV := 55.0
+
+## Overhead: the view centres on where the car will be in this many seconds ...
+const OVERHEAD_LEAD_TIME := 0.25
+
+## ... and how quickly that lead and the height follow the car's speed [1/s].
+const OVERHEAD_FOLLOW_RATE := 3.0
+
+## Overhead: screen-right is +X, screen-up is -Z, and the camera looks down -Y.
+const OVERHEAD_BASIS := Basis(Vector3(1, 0, 0), Vector3(0, 0, -1), Vector3(0, 1, 0))
+
 @export var target: ArcadeCar
 
+## The active view. Change it with set_mode() or cycle_mode().
+var mode := Mode.CHASE
+
 var _yaw := 0.0
+var _default_near := 0.05
+var _overhead_lead := Vector3.ZERO
+var _overhead_height := OVERHEAD_HEIGHT_AT_REST
+var _dashboard: Node3D
+var _steering_wheel: Node3D
 
 
 func _ready() -> void:
@@ -36,16 +125,70 @@ func _ready() -> void:
 	# transform, so engine physics interpolation must stay out of its way.
 	physics_interpolation_mode = Node.PHYSICS_INTERPOLATION_MODE_OFF
 	top_level = true
+	_default_near = near
 	if target:
-		_yaw = target.global_rotation.y
-		global_position = _ideal_position(target.global_position)
-		_aim_at(target.global_position)
+		_build_dashboard()
+		set_mode(Mode.CHASE)
+
+
+func _physics_process(_delta: float) -> void:
+	# Polled here, like the car's own keys.
+	if Input.is_action_just_pressed("camera_cycle"):
+		cycle_mode()
 
 
 func _process(delta: float) -> void:
 	if not target:
 		return
 	var target_xform := target.get_global_transform_interpolated()
+	match mode:
+		Mode.CHASE:
+			_update_chase(target_xform, delta)
+		Mode.COCKPIT:
+			_update_cockpit(target_xform)
+		Mode.FRONT:
+			_update_front(target_xform)
+		Mode.OVERHEAD:
+			_update_overhead(target_xform, delta)
+
+
+## Name of the active view: "chase", "cockpit", "front" or "overhead".
+func mode_name() -> String:
+	return MODE_NAMES[mode]
+
+
+## Steps to the next view, wrapping back to chase after the last.
+func cycle_mode() -> void:
+	set_mode(((mode + 1) % Mode.size()) as Mode)
+
+
+## Cuts straight to a view, placing the camera where that view wants it now.
+func set_mode(new_mode: Mode) -> void:
+	mode = new_mode
+	near = COCKPIT_NEAR if mode == Mode.COCKPIT else _default_near
+	if _dashboard:
+		_dashboard.visible = mode == Mode.COCKPIT
+	if not target:
+		return
+	var target_xform := target.global_transform
+	match mode:
+		Mode.CHASE:
+			_yaw = target.global_rotation.y
+			global_position = _ideal_position(target_xform.origin)
+			_update_chase(target_xform, 0.0)
+		Mode.COCKPIT:
+			_update_cockpit(target_xform)
+		Mode.FRONT:
+			_update_front(target_xform)
+		Mode.OVERHEAD:
+			_overhead_lead = _overhead_lead_target()
+			_overhead_height = _overhead_height_target()
+			_update_overhead(target_xform, 0.0)
+
+
+# --- Chase ---------------------------------------------------------------------
+
+func _update_chase(target_xform: Transform3D, delta: float) -> void:
 	var target_yaw := target_xform.basis.get_euler().y
 
 	_yaw = lerp_angle(_yaw, target_yaw, 1.0 - exp(-YAW_FOLLOW_RATE * delta))
@@ -64,3 +207,93 @@ func _ideal_position(target_position: Vector3) -> Vector3:
 
 func _aim_at(target_position: Vector3) -> void:
 	look_at(target_position + Vector3.UP * LOOK_AT_HEIGHT, Vector3.UP)
+
+
+# --- Cockpit and front -----------------------------------------------------------
+
+func _update_cockpit(target_xform: Transform3D) -> void:
+	_mount(target_xform, COCKPIT_EYE, COCKPIT_PITCH_DEG)
+	fov = lerpf(COCKPIT_FOV_AT_REST, COCKPIT_FOV_AT_MAX_SPEED, target.speed_ratio)
+	_steering_wheel.rotation.y = target.steer * deg_to_rad(WHEEL_LOCK_DEG)
+
+
+func _update_front(target_xform: Transform3D) -> void:
+	_mount(target_xform, FRONT_EYE, FRONT_PITCH_DEG)
+	fov = lerpf(FRONT_FOV_AT_REST, FRONT_FOV_AT_MAX_SPEED, target.speed_ratio)
+
+
+## Fixes the camera to the car at `eye` (car space), looking along the nose and
+## tilted down by `pitch_deg`.
+func _mount(target_xform: Transform3D, eye: Vector3, pitch_deg: float) -> void:
+	var view := target_xform.basis.orthonormalized() * Basis(Vector3.RIGHT, -deg_to_rad(pitch_deg))
+	global_transform = Transform3D(view, target_xform * eye)
+
+
+## The cockpit's dashboard: a dark panel, an instrument cowl, a floor and a
+## steering wheel, all primitives. It rides on the car and only shows in the cockpit view.
+func _build_dashboard() -> void:
+	var dash_material := StandardMaterial3D.new()
+	dash_material.albedo_color = DASH_COLOR
+	dash_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var wheel_material := StandardMaterial3D.new()
+	wheel_material.albedo_color = WHEEL_COLOR
+	wheel_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+
+	_dashboard = Node3D.new()
+	_dashboard.name = "CockpitDashboard"
+	_dashboard.visible = false
+	target.add_child(_dashboard)
+	_add_dash_box(DASH_PANEL_CENTRE, DASH_PANEL_SIZE, dash_material)
+	_add_dash_box(DASH_COWL_CENTRE, DASH_COWL_SIZE, dash_material)
+	_add_dash_box(DASH_FLOOR_CENTRE, DASH_FLOOR_SIZE, dash_material)
+
+	# The column points back and up at the driver; the wheel turns about it.
+	var column := Node3D.new()
+	column.position = WHEEL_CENTRE
+	column.rotation.x = deg_to_rad(90.0 - WHEEL_LEAN_DEG)
+	_dashboard.add_child(column)
+	_steering_wheel = Node3D.new()
+	column.add_child(_steering_wheel)
+	var rim_mesh := TorusMesh.new()
+	rim_mesh.inner_radius = WHEEL_RADIUS - WHEEL_RIM_THICKNESS
+	rim_mesh.outer_radius = WHEEL_RADIUS
+	rim_mesh.material = wheel_material
+	_add_part(_steering_wheel, rim_mesh, Vector3.ZERO)
+	var spoke_mesh := BoxMesh.new()
+	spoke_mesh.size = Vector3(WHEEL_RADIUS * 2.0 - WHEEL_RIM_THICKNESS, WHEEL_RIM_THICKNESS, WHEEL_RIM_THICKNESS * 1.6)
+	spoke_mesh.material = wheel_material
+	_add_part(_steering_wheel, spoke_mesh, Vector3.ZERO)
+
+
+func _add_dash_box(centre: Vector3, size: Vector3, material: Material) -> void:
+	var mesh := BoxMesh.new()
+	mesh.size = size
+	mesh.material = material
+	_add_part(_dashboard, mesh, centre)
+
+
+func _add_part(parent: Node3D, mesh: Mesh, at: Vector3) -> void:
+	var part := MeshInstance3D.new()
+	part.mesh = mesh
+	part.position = at
+	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	parent.add_child(part)
+
+
+# --- Overhead --------------------------------------------------------------------
+
+func _update_overhead(target_xform: Transform3D, delta: float) -> void:
+	var blend := 1.0 - exp(-OVERHEAD_FOLLOW_RATE * delta)
+	_overhead_lead = _overhead_lead.lerp(_overhead_lead_target(), blend)
+	_overhead_height = lerpf(_overhead_height, _overhead_height_target(), blend)
+	var centre := target_xform.origin + _overhead_lead
+	global_transform = Transform3D(OVERHEAD_BASIS, centre + Vector3.UP * _overhead_height)
+	fov = OVERHEAD_FOV
+
+
+func _overhead_lead_target() -> Vector3:
+	return Vector3(target.velocity.x, 0.0, target.velocity.z) * OVERHEAD_LEAD_TIME
+
+
+func _overhead_height_target() -> float:
+	return lerpf(OVERHEAD_HEIGHT_AT_REST, OVERHEAD_HEIGHT_AT_MAX_SPEED, target.speed_ratio)
