@@ -473,7 +473,17 @@ func _physics_process(delta: float) -> void:
 
 ## Puts the car back where the scene placed it, at rest, in 1st, automatic.
 func reset_to_spawn() -> void:
-	global_transform = _spawn_transform
+	reset_to(_spawn_transform)
+
+
+## Where the scene placed the car. Missions offset their start points from it.
+func get_spawn_transform() -> Transform3D:
+	return _spawn_transform
+
+
+## Puts the car at `target`, at rest, in 1st, automatic.
+func reset_to(target: Transform3D) -> void:
+	global_transform = target
 	velocity = Vector3.ZERO
 	forward_speed = 0.0
 	lateral_speed = 0.0
