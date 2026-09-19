@@ -10,7 +10,7 @@ extends CharacterBody3D
 ## curve, rising to TYRE_MU times the axle's load at *_PEAK_SLIP_ANGLE, then
 ## easing off to TYRE_SLIDE_GRIP of that as the tyre slides; the SLIP RATIO
 ## (wheel speed vs road speed, wound up by engine and brake torque) gives the
-## force along the wheel from the same curve. Both share one friction ellipse:
+## force along the wheel from the same curve. Both share one friction circle:
 ## grip spent along the wheel is not there across it. The forces act at the
 ## contact patches, along and across each wheel's heading: their sum
 ## accelerates the 1300 kg, their moments about the centre of mass (front force
@@ -128,8 +128,8 @@ const GEAR_RATIOS: Array[float] = [0.0, 3.82, 2.20, 1.52, 1.22, 0.97]
 ## Final drive (differential) ratio.
 const FINAL_DRIVE := 3.89
 
-## Reverse gear ratio. Only drives the tach; reversing itself stays simple
-## (REVERSE_ACCEL / MAX_REVERSE_SPEED).
+## Reverse gear ratio. Only drives the tach; the drive force in reverse is a
+## flat one (REVERSE_ACCEL / MAX_REVERSE_SPEED), through the driven tyres.
 const REVERSE_RATIO := 3.55
 
 ## Share of engine torque that reaches the wheels (0..1); the rest is lost in
@@ -144,7 +144,7 @@ const WHEEL_RADIUS := 0.34
 
 ## Which wheels the engine drives. Nothing else about the layouts is scripted;
 ## the differences come out of where the drive force meets the road:
-##   RWD  the rear tyres push. Drive uses up rear grip (friction ellipse) while
+##   RWD  the rear tyres push. Drive uses up rear grip (friction circle) while
 ##        the fronts are free to steer: power in a corner loosens the tail and
 ##        tightens the line (power oversteer); lifting tucks it back. Under
 ##        acceleration load moves ONTO the driven axle, so traction is good.
@@ -921,7 +921,7 @@ func shift_to(new_gear: int) -> bool:
 	return true
 
 
-## Engine speed [rpm] the rear wheels would turn the engine at in `in_gear`
+## Engine speed [rpm] the road would turn the engine at in `in_gear`
 ## at the current speed (0 in neutral).
 func wheel_rpm(in_gear: int) -> float:
 	return absf(forward_speed) / WHEEL_RADIUS * GEAR_RATIOS[in_gear] * FINAL_DRIVE * 60.0 / TAU
@@ -1067,8 +1067,9 @@ func _advance_slip_ratio(slip_ratio: float, demand: float, slip_angle: float, pe
 ## curve; drive or braking in a corner takes from the sideways force; a locked
 ## wheel (slip ratio -1) just drags against its direction of travel, with next
 ## to no sideways hold at small slip angles.
-## The exception is MIN_COMBINED_GRIP: the sideways force never drops below
-## that share of what the slip angle alone would give.
+## The exception is MIN_COMBINED_GRIP: under drive and ABS braking the
+## sideways force never drops below that share of what the slip angle alone
+## would give. A wheel on its way to locked (the handbrake) loses the floor.
 func _tyre_force(slip_ratio: float, slip_angle: float, peak_slip_angle: float) -> Vector2:
 	var along := slip_ratio / PEAK_SLIP_RATIO
 	var across := tan(slip_angle) / tan(peak_slip_angle)
@@ -1076,12 +1077,13 @@ func _tyre_force(slip_ratio: float, slip_angle: float, peak_slip_angle: float) -
 	if slip < 0.0001:
 		return Vector2.ZERO
 	var share := _tyre_curve(slip) / slip
-	var sideways := maxf(share * absf(across), MIN_COMBINED_GRIP * absf(_tyre_curve(across)))
+	var floor_share := MIN_COMBINED_GRIP * (1.0 - smoothstep(DRIVE_SLIP_RATIO, 1.0, absf(slip_ratio)))
+	var sideways := maxf(share * absf(across), floor_share * absf(_tyre_curve(across)))
 	return Vector2(share * along, -sideways * signf(across))
 
 
 ## Share of a tyre's grip that goes along the wheel at `slip_ratio` (0..1), for
-## the friction ellipse: the tyre curve up to the peak, all of it from there.
+## tests and the HUD: the tyre curve up to the peak, all of it from there.
 func _traction_use(slip_ratio: float) -> float:
 	var x := absf(slip_ratio) / PEAK_SLIP_RATIO
 	return 1.0 if x >= 1.0 else absf(_tyre_curve(x))

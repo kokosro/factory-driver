@@ -114,13 +114,13 @@ const SPIN_360_ENTRY_SPEED := 35.0
 # was SPIN_180_FEINT_TIME 0.6 s of steering right first, then the flick -> no
 # feint - the feint was there to cancel the sideways drift of a car that spun
 # round a body rotated for it. With the tyres bending the path themselves the
-# flick alone keeps the car on its line (ends 7 degrees past 180); a feint now
+# flick alone keeps the car on its line (ends 9 degrees past 180); a feint now
 # swings the path and the car settles along it, 25 - 30 degrees off.
 # was 150.0 -> 155.0 - travelling backwards the held lock slows the rotation
-# (the steered wheels trail): held all the way, the spin tops out at ~164
-# degrees and the car drags to a stop at ~142. Let go just short of the top,
-# the rotation is nearly spent and the car lines up along its path from there
-# (150 ends at 193, 157 at 186, 163 at 182).
+# (the steered wheels trail): held all the way, the spin tops out at ~165
+# degrees and the car drags to a stop well short of 180. Let go just short of
+# the top, the rotation is nearly spent and the car lines up along its path
+# from there (145 ends at 198, 155 at 189, 162 at 188).
 const SPIN_180_CATCH_DEG := 155.0
 
 ## ... and how long it then lets the car settle, rolling backwards with the
