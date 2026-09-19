@@ -24,6 +24,9 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Shift down / up (switches to manual)    | `Q` / `E`       |
 | Toggle automatic / manual gearbox       | `M`             |
 | Reset the car to the start line         | `R`             |
+| Cycle camera: chase, cockpit, front, overhead | `C`       |
+| Start handling test 1 - 4 (mission mode) | `1` - `4`      |
+| Abort the running test / close its result | `Esc` (`R` also aborts) |
 
 While reversing, `Up` / `W` brakes. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` in reverse). Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual) and turns red near the redline. The gearbox starts in automatic and goes back to automatic when you reset the car.
 
@@ -54,7 +57,11 @@ tests/run_tests.sh
 ```
 
 Runs a headless import, then `tests/smoke_test.gd`, which loads the main scene and
-drives the car with simulated input, then the handling tests below.
+drives the car with simulated input, then the handling tests below, then
+`tests/camera_test.gd` (cycles the camera through its four views and drives under each)
+and `tests/mission_test.gd` (plays every mission through the mission manager with the
+scripted driver pressing the keys, plus one run with its steering held off that has to
+come out FAILED, and an abort).
 
 ### Handling tests
 
@@ -82,3 +89,29 @@ the car, run one test with a trace:
 ```sh
 godot --headless --fixed-fps 60 --path . --script res://tests/handling_test.gd -- --only=SPIN_360 --trace
 ```
+
+### Mission mode
+
+The same four tests, playable. Press `1` (slalom), `2` (180 spin), `3` (360 spin) or
+`4` (stop box): the car is put on that test's start point, the cones stand back up and
+the run starts at once. While it runs, the line under the controls text shows the test,
+live progress and the clock, e.g. `GATE 5/14  12.3 s`, `ROTATION 213° / 360°  12.3 s` or
+`BRAKE! 62 m to box  12.3 s`, with the objective under it. A run ends by itself: the
+slalom after the last cone, the spins and the stop box once the car has come to a stop
+(or when the time limit runs out). A banner then says `PASSED` or `FAILED` with the
+measured numbers and, on a fail, the checks that were missed. It stays for 5 seconds or
+until `Esc`; the car stays drivable under it. Press the same number to retry, another
+number for a different test. `Esc` or `R` aborts a run (`R` also puts the car back on
+the start line); other number keys are ignored until then.
+
+The verdict is always the test's own (`HandlingTests.result()`), the one the headless
+harness prints. `scripts/mission_manager.gd` only picks the test, runs it
+(idle, running, result shown) and hands the HUD its strings.
+
+### Camera
+
+`C` cycles the one camera (`scripts/chase_camera.gd`) through chase (default), cockpit
+(driver's eye, with a dashboard and steering wheel silhouette), front (on the bonnet) and
+overhead (straight down, north always up so the pad holds still; rises with speed). It
+works at any time, including during a test. Every offset, height and field of view is a
+commented constant in the `Modes` block of that file.
