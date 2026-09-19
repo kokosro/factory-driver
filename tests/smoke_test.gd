@@ -96,10 +96,15 @@ func _run() -> void:
 	speed_before = car.forward_speed
 	Input.action_press("brake")
 	await _step(20)
-	# 20 frames on the brakes: the tyres' full grip, no more (drag adds a little).
+	# 20 frames on the brakes: what the tyres can hold, no more (drag adds a
+	# little). Lower bound was 0.95 -> 0.85 of the all-tyres-at-the-limit figure:
+	# the brake force is now split by BRAKE_BIAS_FRONT, the fronts run at their
+	# limit under ABS and the rears stay under theirs, so a real stop comes out
+	# at ~0.9 of it. The upper bound is the one that matters: never more than
+	# the tyres have.
 	var brake_drop := speed_before - car.forward_speed
 	var grip_drop := ArcadeCar.BRAKE_DECEL * 20.0 / 60.0
-	_check(brake_drop > grip_drop * 0.95 and brake_drop < grip_drop * 1.2, "brakes hard, at the tyres' limit (%.1f -> %.1f m/s, grip gives %.1f)" % [speed_before, car.forward_speed, grip_drop])
+	_check(brake_drop > grip_drop * 0.85 and brake_drop < grip_drop * 1.0, "brakes hard, at the tyres' limit (%.1f -> %.1f m/s, all four at the limit would give %.1f)" % [speed_before, car.forward_speed, grip_drop])
 	var z_stopped := 0.0
 	var lowest_speed := 0.0
 	for frame in 240:
@@ -199,7 +204,12 @@ func _run() -> void:
 	_check(slide.peak_yaw > grip.peak_yaw * 1.3, "handbrake corner rotates more (peak yaw %.2f vs %.2f rad/s)" % [slide.peak_yaw, grip.peak_yaw])
 	_check(slide.speed_drop > grip.speed_drop, "handbrake corner scrubs more speed (%.1f vs %.1f m/s)" % [slide.speed_drop, grip.speed_drop])
 	_check(absf(slide.end_slip) < absf(grip.end_slip) + 0.75, "slip recovers after releasing the handbrake (%.2f vs %.2f m/s)" % [slide.end_slip, grip.end_slip])
-	_check(absf(slide.end_slide_yaw) < 0.1, "tail catches after releasing the handbrake (slide yaw %.3f rad/s)" % slide.end_slide_yaw)
+	# slide_yaw_rate is now the nose swinging relative to the direction of travel
+	# (was: yaw beyond the steering's aim). In this left corner positive = the
+	# tail still stepping out, negative = the slide coming back, which is what a
+	# caught tail does with the steering still held; it must not be snapping back
+	# either.
+	_check(slide.end_slide_yaw < 0.1 and slide.end_slide_yaw > -0.3, "tail catches after releasing the handbrake (slide yaw %.3f rad/s, negative = coming back)" % slide.end_slide_yaw)
 	_check(grip.finite and slide.finite, "no NaN / inf in speeds or position while cornering")
 	_check(maxf(grip.max_step, slide.max_step) < 1.5, "no teleporting while cornering (largest step %.2f m)" % maxf(grip.max_step, slide.max_step))
 

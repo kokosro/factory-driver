@@ -2,34 +2,45 @@ class_name ArcadeCar
 extends CharacterBody3D
 ## Custom arcade vehicle controller (no VehicleBody3D / VehicleWheel3D).
 ##
-## Model in one paragraph: a two-axle ("bicycle") model driven by tyre forces.
-## Every physics tick the car's horizontal velocity is split into a FORWARD
-## component (along the nose) and a LATERAL component (sideways slip), and the
-## car carries a yaw rate. Throttle and brake change the forward component.
-## Steering turns the front wheels; nothing turns the body directly. Each axle
-## looks at its own slip angle (the angle between where its wheels point and
-## where that end of the car is actually moving) and answers with a sideways
-## force from a tyre curve: rising to TYRE_MU times the axle's load at
-## *_PEAK_SLIP_ANGLE, then easing off to TYRE_SLIDE_GRIP of that as the tyre
-## slides. The two forces push the car's mass sideways and, on their lever
-## arms about the centre of mass, wind its yaw inertia up and down
-## (YAW_GYRATION_RADIUS). Brake or drive force uses up part of a tyre's grip
-## and leaves less for cornering (friction ellipse). The handbrake locks the
-## rear wheels: a locked tyre just drags against its direction of travel, with
-## next to no sideways hold at small slip angles, so the tail comes round. An
-## arcade stability assist damps yaw the steering did not ask for; it fades at
-## big slip angles (SPIN_COMMIT_ANGLE), so a committed flick becomes a 180 or
-## a 360.
+## Model in one paragraph: a rigid body on two axles ("bicycle" model) that
+## goes where its tyres push it. The car carries a velocity and a yaw rate;
+## nothing else moves it. Every physics tick each axle looks at how its contact
+## patch really moves over the road: the SLIP ANGLE (where the wheels point vs
+## where that end of the car is going) gives a sideways force from a tyre
+## curve, rising to TYRE_MU times the axle's load at *_PEAK_SLIP_ANGLE, then
+## easing off to TYRE_SLIDE_GRIP of that as the tyre slides; the SLIP RATIO
+## (wheel speed vs road speed, wound up by engine and brake torque) gives the
+## force along the wheel from the same curve. Both share one friction ellipse:
+## grip spent along the wheel is not there across it. The forces act at the
+## contact patches, along and across each wheel's heading: their sum
+## accelerates the 1300 kg, their moments about the centre of mass (front force
+## x front arm, rear force x rear arm) wind the yaw inertia up and down
+## (YAW_GYRATION_RADIUS). Heading and direction of travel are separate things,
+## tied together only by the tyres. The steering sets the front wheel angle
+## and nothing else.
 ##
-## Drivetrain: throttle drives the rear wheels through a torque curve, a
-## 5-speed gearbox and a final drive; the resulting force is capped by what the
-## rear tyres can transmit. Engine RPM follows the rear wheels in gear.
+## Drivetrain: the engine works through a torque curve, a 5-speed gearbox and a
+## final drive on the DRIVEN wheels (DRIVEN_WHEELS: rear, front or all four).
+## That is where the layouts get their character, nobody scripts it: a
+## rear-driven car spends rear grip on drive and pushes from behind, so power
+## in a corner loosens the tail (power oversteer); a front-driven car asks its
+## front tyres to pull and steer at once, so power pushes the nose wide and a
+## launch is traction-limited as the load moves off the driven axle; all-wheel
+## drive splits the torque (TORQUE_DISTRIBUTION) and sits in between. The
+## brakes split their force front / rear (BRAKE_BIAS_FRONT), each axle capped
+## by its own grip; the handbrake locks the rear wheels, which then only drag
+## against their direction of travel, so the tail comes round.
 ##
-## Weight: the axle loads start from the car's static weight distribution and
-## shift forward under braking / rearward under acceleration. Each axle's
-## grip scales with its load (braking sharpens turn-in, power dulls it), and
-## drive force spent at the rear leaves less rear grip for cornering (power
-## oversteer).
+## Weight and aero: the axle loads start from the static weight distribution,
+## shift forward under braking / rearward under acceleration, and grow with
+## speed from downforce (DOWNFORCE_COEFF). Each axle's grip follows its load.
+##
+## Two helpers sit on top, both documented where they live: below
+## LOW_SPEED_BLEND_END the tyre forces are blended with plain rolling geometry
+## (a force model degenerates at a standstill), and an arcade stability assist
+## damps the nose swinging relative to the direction of travel; it fades at big
+## slip angles (SPIN_COMMIT_ANGLE), so a committed flick becomes a 180 or a
+## 360.
 ##
 ## Conventions: the car's nose points along local -Z, +X is the car's right,
 ## positive yaw (rotation about +Y) is a LEFT turn. The car is assumed to drive
@@ -129,12 +140,94 @@ const DRIVETRAIN_EFFICIENCY := 0.88
 ## torque into force and wheel speed into engine RPM.
 const WHEEL_RADIUS := 0.34
 
+# --- Drivetrain layout ---------------------------------------------------------
+
+## Which wheels the engine drives. Nothing else about the layouts is scripted;
+## the differences come out of where the drive force meets the road:
+##   RWD  the rear tyres push. Drive uses up rear grip (friction ellipse) while
+##        the fronts are free to steer: power in a corner loosens the tail and
+##        tightens the line (power oversteer); lifting tucks it back. Under
+##        acceleration load moves ONTO the driven axle, so traction is good.
+##   FWD  the front tyres pull along their own heading and steer at once: power
+##        in a corner uses up front grip and the nose pushes wide (power
+##        understeer); lifting brings it back in. Load moves OFF the driven
+##        axle under acceleration, so a launch is traction-limited.
+##   AWD  the torque is split (TORQUE_DISTRIBUTION), each axle gives up less
+##        grip: more drive out of a corner, balance between the two above.
+enum DrivenWheels { RWD, FWD, AWD }
+
+## The Boxster is mid-engined and rear-wheel drive. (Cars copy this into
+## `driven_wheels`, which tests may switch to compare the layouts.)
+const DRIVEN_WHEELS := DrivenWheels.RWD
+
+## AWD only: share of the drive torque that goes to the FRONT axle (0..1), the
+## rest goes to the rear. 0.4 = a rear-biased 40 / 60 split, 964 Carrera 4
+## style (that one is 31 / 69).
+const TORQUE_DISTRIBUTION := 0.4
+
+## Share of the foot brake's force that goes to the FRONT axle (0..1), the rest
+## to the rear. Braking moves load onto the front tyres, so they can take more.
+## At 0.6 a full stop has the fronts at their limit with the rears a little
+## under theirs: on the brakes the nose pushes wide and the tail stays planted.
+## Lower = the rears give up first and braking into a corner swings the tail;
+## higher = longer stops, the rears hardly working.
+const BRAKE_BIAS_FRONT := 0.6
+
 # --- Tyres and aero ----------------------------------------------------------
 
-## Tyre friction coefficient: the rear tyres can push with at most this times
-## the rear axle's load (1997 road tyres, ~0.95). Full throttle in 1st from
-## ~3500 rpm hits this limit; 2nd and up stay under it.
+## Tyre friction coefficient: a tyre can push with at most this times its load,
+## in any direction (1997 road tyres, ~0.95). Full throttle in 1st from
+## ~3500 rpm is more than the rear tyres can transmit; 2nd and up stay under
+## it.
 const TYRE_MU := 0.95
+
+## Grip of each axle's tyres relative to TYRE_MU (no unit). The Boxster's 255
+## rears grip their share of the weight a little better than its 205 fronts
+## grip theirs (the two average out to 1.0 over the static weight split). That
+## is what makes the car safe at the limit, as it does the real one: with both
+## ends sliding the front gives up first, the nose pushes wide and the tail
+## pulls the car straight again, until power or the handbrake says otherwise.
+## Equal = neutral: a slide, once started, just carries on.
+const FRONT_TYRE_GRIP := 0.94
+const REAR_TYRE_GRIP := 1.04
+
+## Slip ratio at which a tyre makes its peak force ALONG the wheel (no unit):
+## (wheel surface speed - road speed) / road speed, 0.1 = the wheel turning
+## 10 % faster than the road (drive) or slower (braking). The same curve shape
+## as sideways (_tyre_curve): up to the peak the tyre hooks up, past it the
+## wheel spins up or locks and the force eases to TYRE_SLIDE_GRIP of the peak.
+const PEAK_SLIP_RATIO := 0.1
+
+## Slip ratio the ABS holds a braked wheel at when the pedal asks for more than
+## the tyre has (no unit). A little past the peak, as real systems run: in a
+## straight line that costs ~3 % of the stop, and braking and steering at once
+## it gives the stop the bigger share of the front tyres' grip rather than the
+## other way round.
+const ABS_SLIP_RATIO := 0.15
+
+## Slip ratio the driver's right foot holds a spinning driven wheel at when
+## the engine has more than the tyre can take (no unit): on / off keys cannot
+## feather a throttle, so this does. 0.25 is proper wheelspin, 2.5 times the
+## peak: the tyre pushes with ~0.9 of its grip and has next to nothing left
+## for holding the car sideways (MIN_COMBINED_GRIP is what it keeps), so full
+## throttle in 1st still lights the driven tyres up and lets that end of the
+## car go. Without the limit the wheels would spin on at any slip until the
+## lift, which no driver does. Higher = wilder wheelspin, less drive.
+const DRIVE_SLIP_RATIO := 0.25
+
+## A slip angle is sideways speed over rolling speed; this is the least
+## rolling speed it is worked out against [m/s]. Keeps the angle (and its
+## tangent) finite with a tyre moving dead sideways, and stops the last
+## millimetres per second of a car coming to rest reading as 90 degrees of
+## slip.
+const SLIP_ANGLE_MIN_SPEED := 1.0
+
+## How quickly a wheel's slip ratio moves towards the slip where the tyre force
+## balances the torque on the wheel, and runs away past the peak when the
+## torque is more than the tyre can hold [1/s]. Stands in for the wheel's
+## inertia: 12 means full throttle in 1st lights the rear tyres up in ~0.2 s,
+## and they hook up again within ~0.1 s of a lift.
+const SLIP_RATIO_RESPONSE := 12.0
 
 ## Slip angle at which the front tyres make their peak sideways force [rad]
 ## (0.11 = 6.3 degrees). Up to the peak the force rises along a smooth curve
@@ -170,13 +263,30 @@ const TYRE_SLIDE_GRIP := 0.85
 ## TYRE_SLIDE_GRIP, in peak slip angles. Higher = a wider, more forgiving top.
 const TYRE_SLIDE_ONSET := 2.0
 
-## Aerodynamic drag, 0.5 * air density * Cd * frontal area [kg/m]. Drag force
-## is this times speed squared. Balances full power in 5th at ~65 m/s
-## (~235 km/h), just under the rev limiter.
-const AERO_DRAG := 0.40
+## Drag coefficient Cd (no unit). Drag force is
+## 0.5 * AIR_DENSITY * DRAG_COEFF * FRONTAL_AREA * speed^2 (~0.40 kg/m in
+## all). 986: 0.31 roof up; 0.34 allows for the roof down. Balances full power
+## in 5th at ~65 m/s (~234 km/h), just under the rev limiter.
+## Replaces the flat AERO_DRAG 0.40 [kg/m], the same number in one lump.
+const DRAG_COEFF := 0.34
+
+## Frontal area [m^2] (986: 1.93).
+const FRONTAL_AREA := 1.93
+
+## Downforce [N per (m/s)^2]: force pressing the car onto the road is this
+## times speed squared, ~90 N at 60 km/h, ~490 N at 140, ~1250 N at 215 (a
+## tenth of the car's weight). More load = more grip, so fast corners hold
+## more than TYRE_MU g while slow ones are untouched. The road 986 makes next
+## to none; this is the arcade aero kit. 0 = none.
+const DOWNFORCE_COEFF := 0.35
+
+## Share of the downforce that lands on the FRONT axle (0..1). Below the static
+## front weight share (0.38) the rear gains more than the front: the faster the
+## car goes, the more planted the tail and the less eager the nose.
+const AERO_BALANCE_FRONT := 0.35
 
 ## Nominal top speed [m/s], ~237 km/h. Not a hard cap: the real top speed
-## comes out of AERO_DRAG vs engine power (a touch below this). Used to scale
+## comes out of drag vs engine power (a touch below this). Used to scale
 ## camera effects (speed_ratio).
 const MAX_SPEED := 66.0
 
@@ -192,20 +302,33 @@ const MAX_SPEED := 66.0
 ## who leaves a margin, above 1 = stickier than the tyres really are (arcade).
 const BRAKE_DECEL_G := 1.0
 
-## Deceleration while braking [m/s^2]: what the tyres can hold, ~9.3 (0.95 g).
-## Was a flat 26.0 (2.7 g), which no 1300 kg road car can do: 72 km/h -> 0 took
-## ~8 m. Now it takes ~22 m, 90 km/h ~34 m, 125 km/h ~66 m. Brake earlier.
+## Deceleration a full brake application asks for [m/s^2]: what the tyres
+## could hold with every one of them at its limit, ~9.3 (0.95 g). The force
+## (this times CAR_MASS) is split by BRAKE_BIAS_FRONT and each axle delivers
+## what its grip allows (ABS holds a wheel at ABS_SLIP_RATIO, it never locks):
+## with the fronts at their limit and the rears under theirs, a real stop
+## comes out at ~0.9 of this, ~8.4 m/s^2 plus drag.
 const BRAKE_DECEL := BRAKE_DECEL_G * TYRE_MU * 9.8
+
+## Density of air [kg/m^3], for the drag force.
+const AIR_DENSITY := 1.225
 
 ## Rolling resistance [m/s^2], always on while the car rolls. With engine
 ## braking and aero drag it makes up the coast-down.
 const COAST_DECEL := 0.15
 
-## Acceleration in reverse gear [m/s^2].
+## Acceleration in reverse gear [m/s^2]: drive force at the driven wheels of
+## this times CAR_MASS (about what the engine gives through REVERSE_RATIO),
+## through the tyres like any other drive force.
 const REVERSE_ACCEL := 6.0
 
 ## Top speed in reverse [m/s]. 12 m/s is about 43 km/h.
 const MAX_REVERSE_SPEED := 12.0
+
+## How sharply the drive in reverse tails off into MAX_REVERSE_SPEED [1/s]: the
+## acceleration left is this times the speed still to go, so 4.0 starts
+## easing off 1.5 m/s short of the top.
+const REVERSE_LIMITER_RATE := 4.0
 
 ## Below this speed [m/s] the car counts as stopped. The brake only ever slows
 ## the car to a stop and holds it there; the direction changes on a FRESH key
@@ -214,6 +337,10 @@ const MAX_REVERSE_SPEED := 12.0
 ## is still held from the braking never changes direction; a held accelerate
 ## key does, after FORWARD_ENGAGE_GRACE.
 const STANDSTILL_SPEED := 0.5
+
+## Below this speed [m/s] the car is at rest for the tyre forces: nothing but
+## the engine sets it rolling (see _physics_process step 6).
+const REST_SPEED := 0.01
 
 ## Time the car has to stand still in reverse under a held accelerate key
 ## before forward engages by itself [s]. Forward is the home direction, like an
@@ -265,11 +392,12 @@ const MAX_LOAD_TRANSFER := 0.18
 ## taking a moment to pitch.
 const LOAD_TRANSFER_RESPONSE := 8.0
 
-## Friction ellipse: a tyre using the share `use` (0..1) of its grip along the
-## car, for braking or drive, has sqrt(1 - use^2) of its sideways grip left.
-## Braking while turning costs turn-in; trailing off the brake gives it back;
-## power at the rear loosens the tail. This is the floor: the sideways grip
-## left at full use (0..1), where a bare ellipse leaves none. It stands for
+## Friction circle: a tyre has one grip to share between pushing along the
+## wheel (drive, braking) and holding across it (see _tyre_force). Braking
+## while turning costs turn-in; trailing off the brake gives it back; power at
+## the driven wheels loosens that end of the car. This is the floor: the share
+## of its plain sideways force (0..1) a tyre keeps whatever happens along the
+## wheel, where a bare friction circle leaves next to none under wheelspin. It stands for
 ## the ABS (and a driver's right foot) giving up a little of the stop to keep
 ## the car steerable, which on/off keys cannot do themselves. Lower = braking
 ## and turning exclude each other more, snappier power oversteer.
@@ -277,26 +405,24 @@ const MIN_COMBINED_GRIP := 0.4
 
 # --- Steering ----------------------------------------------------------------
 
-## Upper bound on the yaw rate the steering aims for [rad/s], about 115 degrees
-## per second. A safety net: with this car's turning circle and tyres the aim
-## (see _steering_yaw_limit) peaks at ~1.4 rad/s around 25 km/h.
-## Was the whole steering feel: MAX_YAW_RATE / (1 + speed / 9), a kinematic
-## curve with no mass in it that asked for up to 1.8 g of cornering. Now the
-## front wheels are steered to the angle that aims for the tightest corner the
-## tyres can hold (TYRE_MU * g / speed, ~0.95 g), and the tyre forces have to
-## wind the yaw inertia up to it (YAW_GYRATION_RADIUS).
-const MAX_YAW_RATE := 2.0
+## Front wheel angle at full steering lock [rad], ~27.5 degrees: a 5 m
+## turning circle radius at parking speed. The steering sets this angle and
+## nothing else; what the car does with it is up to the front tyres. Also what
+## the front wheels show.
+## Replaces MIN_TURN_RADIUS 5.0 (the same lock, as a radius) and MAX_YAW_RATE
+## 2.0, the cap of a yaw rate the steering used to aim for: there is no such
+## aim any more.
+const MAX_STEER_LOCK := 0.48
 
-## How far past their peak slip angle full steering lock pushes the front
-## tyres, in peak slip angles. At speed, full lock is the angle of the
-## tightest corner the tyres can hold plus this much slip: 1.0 stops right on
-## the peak, a little more makes sure the front tyres are used up (the car
-## pushes wide at the limit rather than the driver never reaching it).
+## Slip-sensitive steering: a key press cannot mean 27 degrees of lock at
+## speed, which would just scrub the front tyres. Full lock points the front
+## wheels this many peak slip angles past the way the front of the car is
+## travelling (see _steering_lock): 1.0 stops right on the front tyres' peak,
+## a little more makes sure they are used up (the car pushes wide at the limit
+## rather than the driver never reaching it). The tighter corner that follows
+## is the tyres' doing; at speed there is little of it to be had, so the
+## wheels visibly move less the faster the car goes.
 const STEER_SLIP_REACH := 1.2
-
-## Tightest turning circle radius [m]: full lock at low speed is the wheel
-## angle that rolls round this circle (~27 degrees).
-const MIN_TURN_RADIUS := 5.0
 
 ## How fast the steering input moves towards the pressed key, and back to
 ## centre on release [1/s]. 5.0 means centre to full lock in 0.2 s. Smooths out
@@ -305,23 +431,50 @@ const STEER_RESPONSE := 5.0
 
 # --- Slides ------------------------------------------------------------------
 
-## Arcade stability assist: how quickly yaw the steering did not ask for dies
-## away [1/s]. "Asked for" is anything from zero up to the yaw rate of the
-## corner the steering aims at, so the assist never helps the car turn in (the
-## tyres have to do that); it only checks the tail swinging further, and the
-## car rotating on after the steering has come off. Keeps a handbrake slide
-## controllable instead of an instant spin.
+## Arcade stability assist: how quickly the nose swinging relative to the
+## direction of travel dies away [1/s]. The assist compares the yaw rate with
+## the rate at which the tyre forces are really bending the car's path, and
+## leans on the difference with a yaw moment (as a stability system does with
+## single wheel brakes). Rolling round a steady corner the two match and the
+## assist does nothing; it has no idea where the steering points and never
+## turns the car for the driver. It checks the tail stepping out and the car
+## rotating on after the tyres have stopped turning it, which keeps a power
+## slide or a handbrake slide catchable instead of an instant spin.
 ## Lower = wilder slides that spin more easily, higher = tamer.
 const SLIDE_YAW_DAMPING := 8.0
+
+## The assist only leans on a slide that is getting deeper; it comes in over
+## this much angle between nose and direction of travel [rad] (~1 degree), so
+## it never switches on with a step.
+const SLIDE_ASSIST_EASE_ANGLE := 0.02
+
+## Share of the assist (0..1) that also works on a slide that is coming back.
+## The tyres straighten the car by themselves; at 160 km/h and up they do it
+## with a swing back past straight, and this much takes that out. At 1.0 the
+## assist would hold on to a slide as hard as it checks one.
+const SLIDE_RECOVERY_ASSIST := 0.4
+
+## Most yaw acceleration the assist can apply [rad/s^2]. It works through the
+## tyres like everything else, so it is bounded: ~2000 kg m^2 of yaw inertia
+## times 6 is a 12 kNm moment, about what braking both wheels of one side at
+## their limit gives. Past that the slide wins.
+const MAX_ASSIST_YAW_ACCEL := 6.0
 
 ## Stability assist left once the car is committed to a spin [1/s]. Low, so
 ## the rotation carries on under its own momentum through a 180 or a 360.
 const SPIN_YAW_DAMPING := 0.3
 
-## Slip angle (nose vs direction of travel) from which steering further into a
-## slide starts to count as yaw nobody asked for [rad]. Grip driving stays
-## under ~0.1 even at the limit, so this only touches real slides.
-const SLIDE_CATCH_ANGLE := 0.2
+## Slip angle (nose vs direction of travel) from which steering held further
+## into a slide starts to lose its bite [rad]: the assist eases the lock off
+## the front wheels, down to none of it at SPIN_COMMIT_ANGLE, and lets them
+## trail into line with the direction of travel instead (see _slide_feed), so
+## a slide settles instead of the held key feeding it into a spin. Opposite
+## lock is never touched. Grip driving stays under ~0.1 even at the limit, so
+## this only touches real slides.
+const SLIDE_CATCH_ANGLE := 0.14
+
+## Slip angle from which none of a lock held into the slide gets through [rad].
+const SLIDE_RELEASE_ANGLE := 0.3
 
 ## Slip angle (nose vs direction of travel) where the stability assist starts
 ## to fade [rad]. Below it slides stay tame and catchable.
@@ -335,6 +488,31 @@ const SPIN_FREE_ANGLE := 1.05
 ## Below this speed [m/s] the slip angle means nothing and the full assist
 ## applies.
 const SPIN_MIN_SPEED := 2.0
+
+# --- Low-speed blend -----------------------------------------------------------
+
+# A tyre-force model degenerates at a standstill: slip angles are a ratio of
+# two speeds that both go to zero, so they turn into noise. Below
+# LOW_SPEED_BLEND_END the forces are therefore blended with plain rolling
+# geometry: the car is eased onto the circle its front wheels point round
+# (yaw rate = speed * tan(wheel angle) / wheelbase, no sideways speed at the
+# rear axle), fully so at LOW_SPEED_BLEND_START and below. The blend goes by
+# the car's speed over the ground in any direction, so a car sliding sideways
+# through the middle of a spin stays on its tyres. There is no switch: the
+# weight is smooth in speed and the geometry is what the tyre forces settle on
+# by themselves at parking pace, only without the noise.
+
+## Speed over the ground from which the car runs on tyre forces alone [m/s],
+## ~14 km/h.
+const LOW_SPEED_BLEND_END := 4.0
+
+## Speed at and below which rolling geometry has its full say [m/s].
+const LOW_SPEED_BLEND_START := 1.0
+
+## How quickly the car is eased onto the rolling circle where the geometry has
+## its full say [1/s]; less in between. 10 = within about a tenth of a second,
+## so the last of a slide still visibly scrubs off instead of stopping dead.
+const LOW_SPEED_ALIGN_RATE := 10.0
 
 # --- Handbrake ---------------------------------------------------------------
 
@@ -352,9 +530,6 @@ const SPIN_MIN_SPEED := 2.0
 const HANDBRAKE_RECOVERY_RATE := 2.5
 
 # --- Visual only (no effect on handling) -------------------------------------
-
-## Front wheel visual steering angle at full lock [rad].
-const MAX_WHEEL_STEER_ANGLE := 0.5
 
 ## Cap on the visual wheel spin [rad/s], kept under half a turn per physics
 ## tick so the wheels never appear to spin backwards at high speed.
@@ -387,17 +562,31 @@ var forward_speed := 0.0
 var lateral_speed := 0.0
 
 ## Current yaw rate [rad/s]. Positive = turning left. Wound up and down by the
-## tyre forces against the yaw inertia.
+## moments of the tyre forces against the yaw inertia, nothing else.
 var yaw_rate := 0.0
 
-## Yaw the steering is not asking for [rad/s]: the part of yaw_rate outside
-## zero .. the yaw rate of the corner the steering aims at. Near zero in
-## normal driving, large during a handbrake slide. What the stability assist
-## works on.
+## How fast the nose swings relative to the direction of travel [rad/s]: the
+## yaw rate minus the rate at which the tyre forces bend the car's path. Near
+## zero rolling round a corner, large during a handbrake slide. What the
+## stability assist works on.
 var slide_yaw_rate := 0.0
 
 ## Smoothed steering input, -1 (full right) .. +1 (full left).
 var steer := 0.0
+
+## Angle of the front wheels to the car [rad], positive = left. All the
+## steering ever sets.
+var wheel_angle := 0.0
+
+## Which wheels are driven; starts as DRIVEN_WHEELS. A variable so tests (and
+## later cars) can compare the layouts on the same chassis.
+var driven_wheels := DRIVEN_WHEELS
+
+## Acceleration of the centre of mass from this tick's forces [m/s^2], in the
+## car's frame: along the nose, and towards the INSIDE of a left turn
+## (positive = pushed left).
+var longitudinal_accel := 0.0
+var lateral_accel := 0.0
 
 ## Selected gear: 0 = neutral, 1..5 forward. Reversing is handled separately
 ## (reverse_engaged) and does not change this.
@@ -423,16 +612,25 @@ var engine_rpm := IDLE_RPM
 var front_load_fraction := 1.0 - REAR_WEIGHT_FRACTION
 var rear_load_fraction := REAR_WEIGHT_FRACTION
 
-## How much of the rear tyres' traction the drive force uses, 0..1.
-var rear_traction_use := 0.0
+## Load on each axle right now [N]: its share of the weight plus its share of
+## the downforce.
+var front_axle_load := 0.0
+var rear_axle_load := 0.0
 
-## How much of every tyre's grip the brakes are using, 0..1.
-var brake_grip_use := 0.0
+## How much of each axle's grip goes along the wheel, into drive or braking,
+## 0..1. 1 = at or past the peak: wheelspin, or ABS holding the wheel.
+var front_traction_use := 0.0
+var rear_traction_use := 0.0
 
 ## Slip angle of each axle's tyres [rad], for tuning and tests. Positive =
 ## the tyres slide towards their right.
 var front_slip_angle := 0.0
 var rear_slip_angle := 0.0
+
+## Slip ratio of each axle's tyres (no unit): positive = the wheels turn faster
+## than the road passes (pushing the car forwards), negative = slower.
+var front_slip_ratio := 0.0
+var rear_slip_ratio := 0.0
 
 ## Speedometer value [km/h], always positive.
 var speed_kmh: float:
@@ -503,32 +701,26 @@ func _physics_process(delta: float) -> void:
 	var steer_input := Input.get_axis("steer_right", "steer_left")
 	var handbrake_held := Input.is_action_pressed("handbrake")
 
-	# 1. Split the current horizontal velocity into the car's own frame. Reading
-	#    it back from `velocity` means collisions are respected automatically.
-	#    `velocity` belongs to the car's origin, the middle of the wheelbase;
-	#    the forces work on the centre of mass, CG_OFFSET behind it.
+	# 1. The state: the velocity in the car's own frame, and the yaw rate.
+	#    Reading the velocity back from `velocity` means collisions are
+	#    respected automatically. `velocity` belongs to the car's origin, the
+	#    middle of the wheelbase; the forces work on the centre of mass,
+	#    CG_OFFSET behind it.
 	var forward_dir := -global_basis.z
 	var right_dir := global_basis.x
 	forward_speed = velocity.dot(forward_dir)
 	lateral_speed = velocity.dot(right_dir)
 	var vertical_speed := velocity.y
 	var cg_lateral_speed := lateral_speed + yaw_rate * CG_OFFSET
+	var ground_speed := Vector2(forward_speed, cg_lateral_speed).length()
 	_update_direction(forward_speed, drive_input, delta)
 	if handbrake_held:
 		_handbrake_amount = 1.0
 	else:
 		_handbrake_amount = move_toward(_handbrake_amount, 0.0, HANDBRAKE_RECOVERY_RATE * delta)
 
-	# 2. Longitudinal: engine through the gearbox, brakes, reverse, coasting,
-	#    and the drag of the locked rear wheels under the handbrake.
-	var previous_forward_speed := forward_speed
-	var rear_slip_speed := lateral_speed + yaw_rate * AXLE_DISTANCE
-	forward_speed = _update_forward_speed(forward_speed, drive_input, delta)
-	forward_speed = move_toward(forward_speed, 0.0, _handbrake_drag(forward_speed, rear_slip_speed) * delta)
-	var longitudinal_accel := (forward_speed - previous_forward_speed) / delta
-
-	# 3. Weight transfer: acceleration pitches load onto the rear axle, braking
-	#    onto the front, eased in at the suspension's pace.
+	# 2. Axle loads: the static split, shifted by the acceleration of the last
+	#    tick (eased in at the suspension's pace), plus downforce.
 	var target_transfer := clampf(
 		longitudinal_accel * CG_HEIGHT / (_gravity * 2.0 * AXLE_DISTANCE),
 		-MAX_LOAD_TRANSFER, MAX_LOAD_TRANSFER
@@ -537,52 +729,131 @@ func _physics_process(delta: float) -> void:
 	var transfer := lerpf(current_transfer, target_transfer, 1.0 - exp(-LOAD_TRANSFER_RESPONSE * delta))
 	rear_load_fraction = REAR_WEIGHT_FRACTION + transfer
 	front_load_fraction = 1.0 - rear_load_fraction
+	var weight := CAR_MASS * _gravity
+	var downforce := DOWNFORCE_COEFF * ground_speed * ground_speed
+	front_axle_load = weight * front_load_fraction + downforce * AERO_BALANCE_FRONT
+	rear_axle_load = weight * rear_load_fraction + downforce * (1.0 - AERO_BALANCE_FRONT)
+	var front_grip := FRONT_TYRE_GRIP * _axle_grip(front_axle_load, weight * (1.0 - REAR_WEIGHT_FRACTION))
+	var rear_grip := REAR_TYRE_GRIP * _axle_grip(rear_axle_load, weight * REAR_WEIGHT_FRACTION)
 
-	# 4. Tyres: each axle makes a sideways force from its slip angle. The front
-	#    axle sits ahead of the centre of mass and its wheels are steered, so
-	#    its slip is measured across the wheels, not across the car; the rear
-	#    sits behind and points where the car points. A positive (left) yaw
-	#    rate moves the nose left and the tail right.
+	# 3. How each contact patch moves over the road. The front axle sits ahead
+	#    of the centre of mass and its wheels are steered, so its motion is
+	#    split along and across the wheels, not the car; the rear sits behind
+	#    and points where the car points. A positive (left) yaw rate moves the
+	#    nose left and the tail right.
 	steer = move_toward(steer, steer_input, STEER_RESPONSE * delta)
 	var front_arm := AXLE_DISTANCE + CG_OFFSET
 	var rear_arm := AXLE_DISTANCE - CG_OFFSET
 	var yaw_inertia := CAR_MASS * YAW_GYRATION_RADIUS * YAW_GYRATION_RADIUS
 	var front_lateral := cg_lateral_speed - yaw_rate * front_arm
 	var rear_lateral := cg_lateral_speed + yaw_rate * rear_arm
-	var steer_angle := steer * _steering_lock(absf(forward_speed), atan2(front_lateral, absf(forward_speed)))
-	var front_across := front_lateral * cos(steer_angle) + forward_speed * sin(steer_angle)
-	var front_along := forward_speed * cos(steer_angle) - front_lateral * sin(steer_angle)
-	front_slip_angle = atan2(front_across, absf(front_along))
-	rear_slip_angle = atan2(rear_lateral, absf(forward_speed))
+	var front_travel_angle := atan2(front_lateral, maxf(absf(forward_speed), SLIP_ANGLE_MIN_SPEED))
+	var lock := _steering_lock(steer, front_travel_angle)
+	# In a slide the assist takes lock held into it off the wheels and lets
+	# them trail into line with the way the front travels, as the caster of a
+	# real front axle does with the wheel let go (see _slide_feed).
+	var feed := _slide_feed(forward_speed, rear_lateral, steer)
+	var trail := (1.0 - feed) * (1.0 - smoothstep(SPIN_COMMIT_ANGLE, SPIN_FREE_ANGLE, absf(atan2(rear_lateral, forward_speed))))
+	wheel_angle = clampf(steer * lock * feed - trail * front_travel_angle, -MAX_STEER_LOCK, MAX_STEER_LOCK)
+	var front_across := front_lateral * cos(wheel_angle) + forward_speed * sin(wheel_angle)
+	var front_along := forward_speed * cos(wheel_angle) - front_lateral * sin(wheel_angle)
+	front_slip_angle = atan2(front_across, maxf(absf(front_along), SLIP_ANGLE_MIN_SPEED))
+	rear_slip_angle = atan2(rear_lateral, maxf(absf(forward_speed), SLIP_ANGLE_MIN_SPEED))
 
-	var front_grip := _axle_grip(front_load_fraction, 1.0 - REAR_WEIGHT_FRACTION) * _combined_grip(brake_grip_use)
-	var rear_grip := _axle_grip(rear_load_fraction, REAR_WEIGHT_FRACTION)
-	var front_force := -front_grip * _tyre_curve(front_slip_angle / FRONT_PEAK_SLIP_ANGLE)
-	var rear_rolling := -rear_grip * _combined_grip(maxf(brake_grip_use, rear_traction_use)) * _tyre_curve(rear_slip_angle / REAR_PEAK_SLIP_ANGLE)
-	var rear_locked := -rear_grip * TYRE_SLIDE_GRIP * sin(rear_slip_angle)
-	var rear_force := lerpf(rear_rolling, rear_locked, _handbrake_amount)
-	# A tyre can stop its end of the car sliding, not throw it back the other
-	# way: no more force than brings that axle's slip to zero this tick. At
-	# walking pace this is what makes the car roll where its wheels point.
-	front_force = _limit_to_stick(front_force, front_across, front_arm, yaw_inertia, delta)
-	rear_force = _limit_to_stick(rear_force, rear_lateral, rear_arm, yaw_inertia, delta)
+	# 4. Slip ratios: engine and brake torque wind each axle's wheels up or
+	#    down against the road (see _advance_slip_ratio). The handbrake locks
+	#    the rear wheels outright: slip ratio -1 (+1 rolling backwards).
+	var demand := _longitudinal_demand(forward_speed, drive_input, delta)
+	var front_share := _front_drive_share()
+	var abs_active: bool = demand.brake > 0.0
+	var front_demand: float = demand.engine * front_share - signf(front_along) * demand.brake * BRAKE_BIAS_FRONT
+	var rear_demand: float = demand.engine * (1.0 - front_share) - signf(forward_speed) * demand.brake * (1.0 - BRAKE_BIAS_FRONT)
+	front_slip_ratio = _advance_slip_ratio(front_slip_ratio, front_demand / front_grip, front_slip_angle, FRONT_PEAK_SLIP_ANGLE, abs_active, delta)
+	rear_slip_ratio = _advance_slip_ratio(rear_slip_ratio, rear_demand / rear_grip, rear_slip_angle, REAR_PEAK_SLIP_ANGLE, abs_active, delta)
+	rear_slip_ratio = lerpf(rear_slip_ratio, -signf(forward_speed), _handbrake_amount)
+	front_traction_use = _traction_use(front_slip_ratio)
+	rear_traction_use = _traction_use(rear_slip_ratio)
 
-	# The forces push the mass sideways and turn the car about its centre of
-	# mass. The steered front force also points a little backwards: cornering
-	# drag.
-	forward_speed += front_force * sin(steer_angle) / CAR_MASS * delta
-	cg_lateral_speed += (front_force * cos(steer_angle) + rear_force) / CAR_MASS * delta
-	yaw_rate += (rear_force * rear_arm - front_force * cos(steer_angle) * front_arm) / yaw_inertia * delta
+	# 5. Tyre forces, along (x) and across (y) each axle's wheels, from slip
+	#    ratio and slip angle together (see _tyre_force).
+	var front_tyre := front_grip * _tyre_force(front_slip_ratio, front_slip_angle, FRONT_PEAK_SLIP_ANGLE)
+	var rear_tyre := rear_grip * _tyre_force(rear_slip_ratio, rear_slip_angle, REAR_PEAK_SLIP_ANGLE)
+	# A tyre can stop its contact patch sliding, not throw it back the other
+	# way: no more force than brings that slip to zero this tick, sideways and
+	# (for a braked or locked wheel) along the wheel. At walking pace this is
+	# what makes the car roll where its wheels point, and stand still on the
+	# brake with the wheels turned.
+	var front_force := _limit_to_stick(front_tyre.y, front_across, front_arm, yaw_inertia, delta)
+	var rear_force := _limit_to_stick(rear_tyre.y, rear_lateral, rear_arm, yaw_inertia, delta)
+	var front_drive := front_tyre.x
+	if front_drive * front_along < 0.0:
+		front_drive = _limit_to_stick(front_drive, front_along, front_arm * sin(wheel_angle), yaw_inertia, delta)
+	var rear_drive := rear_tyre.x
 
-	# 5. Stability assist: yaw beyond what the steering aims for dies away.
-	var aim := _compute_yaw_rate(steer, forward_speed) * _slide_feed(forward_speed, cg_lateral_speed, steer)
-	var asked := clampf(yaw_rate, minf(aim, 0.0), maxf(aim, 0.0))
-	slide_yaw_rate = (yaw_rate - asked) * exp(-_slide_yaw_damping(forward_speed, cg_lateral_speed) * delta)
-	yaw_rate = asked + slide_yaw_rate
+	# 6. Add it all up at the centre of mass, in the car's frame. The front
+	#    forces act along and across the steered wheels: the sideways force of
+	#    a steered wheel also points a little backwards (cornering drag), the
+	#    pull of a driven one a little into the corner.
+	var front_forward := front_drive * cos(wheel_angle) + front_force * sin(wheel_angle)
+	var front_right := front_force * cos(wheel_angle) - front_drive * sin(wheel_angle)
+	var air_drag := 0.5 * AIR_DENSITY * DRAG_COEFF * FRONTAL_AREA * forward_speed * forward_speed
+	var rolling_drag := COAST_DECEL * CAR_MASS
+	var right_force := front_right + rear_force
+	var yaw_moment := rear_force * rear_arm - front_right * front_arm
+	# Forces that push the car along, and forces that only ever slow it down
+	# (brakes, engine braking, locked wheels, drag): the second kind stops the
+	# car at most, it never pushes it back the other way. At rest only a force
+	# the engine is asking for counts as a push; that is what holds the car on
+	# the brake.
+	var pushing := 0.0
+	var slowing := air_drag + rolling_drag
+	var at_rest := absf(forward_speed) < REST_SPEED
+	for force: float in [front_forward, rear_drive]:
+		if force * (demand.engine if at_rest else forward_speed) > 0.0:
+			pushing += force
+		else:
+			slowing += absf(force)
+	var speed_before := forward_speed
+	forward_speed += pushing / CAR_MASS * delta
+	forward_speed = move_toward(forward_speed, 0.0, slowing / CAR_MASS * delta)
+	longitudinal_accel = (forward_speed - speed_before) / delta
+	lateral_accel = -right_force / CAR_MASS
 
-	# 6. Move. The velocity is rebuilt from the directions of *before* the turn:
-	#    the mass carries straight on while the body rotates, and the
-	#    difference shows up as slip on the next tick.
+	# 7. Stability assist: a bounded yaw moment against the nose swinging
+	#    relative to the direction of travel. The path bends at the rate the
+	#    forces turn the velocity vector: (v x a) / v^2.
+	var blend := smoothstep(LOW_SPEED_BLEND_START, LOW_SPEED_BLEND_END, ground_speed)
+	var rolling_yaw_rate := forward_speed * tan(wheel_angle) / (2.0 * AXLE_DISTANCE)
+	var path_yaw_rate := (cg_lateral_speed * longitudinal_accel + forward_speed * lateral_accel) / maxf(ground_speed * ground_speed, 0.01)
+	slide_yaw_rate = yaw_rate - lerpf(rolling_yaw_rate, path_yaw_rate, blend)
+	# A slide that is getting deeper is leaned on in full: the nose already
+	# pointing to one side of the way the car travels, and still swinging
+	# further that way. A slide coming back is the tyres' own work and only
+	# gets SLIDE_RECOVERY_ASSIST of it, none from a real slide (the weight
+	# eases between the two over SLIDE_ASSIST_EASE_ANGLE, no step).
+	var nose_angle := atan2(rear_lateral, absf(forward_speed)) * signf(forward_speed)
+	var recovery := SLIDE_RECOVERY_ASSIST * (1.0 - smoothstep(SLIDE_CATCH_ANGLE, SPIN_COMMIT_ANGLE, absf(nose_angle)))
+	var deepening := clampf(nose_angle * signf(slide_yaw_rate) / SLIDE_ASSIST_EASE_ANGLE, recovery, 1.0)
+	var assist := clampf(
+		-_slide_yaw_damping(forward_speed, rear_lateral) * slide_yaw_rate * deepening,
+		-MAX_ASSIST_YAW_ACCEL, MAX_ASSIST_YAW_ACCEL
+	)
+
+	# 8. Integrate: force / mass into the velocity, moment / yaw inertia into
+	#    the yaw rate. Nothing else turns the car or bends its path.
+	cg_lateral_speed += right_force / CAR_MASS * delta
+	yaw_rate += (yaw_moment / yaw_inertia + assist) * delta
+
+	# 9. Low-speed blend (see LOW_SPEED_BLEND_END): ease the car onto the circle
+	#    its front wheels roll round, where the forces lose their meaning.
+	var align := (1.0 - blend) * (1.0 - exp(-LOW_SPEED_ALIGN_RATE * delta))
+	yaw_rate = lerpf(yaw_rate, rolling_yaw_rate, align)
+	cg_lateral_speed = lerpf(cg_lateral_speed, -rolling_yaw_rate * rear_arm, align)
+
+	# 10. Move. The velocity is put together from the directions of *before*
+	#     the turn: rotating the body does not touch where the mass is going.
+	#     Heading and velocity only ever meet through the tyres, on the next
+	#     tick, as slip.
 	if not is_on_floor():
 		vertical_speed -= _gravity * delta
 	var cg_velocity := forward_dir * forward_speed + right_dir * cg_lateral_speed + Vector3.UP * vertical_speed
@@ -591,7 +862,7 @@ func _physics_process(delta: float) -> void:
 	velocity = cg_velocity - global_basis.x * (yaw_rate * CG_OFFSET)
 	move_and_slide()
 
-	_update_visuals(longitudinal_accel, delta)
+	_update_visuals(delta)
 
 
 ## Puts the car back where the scene placed it, at rest, in 1st, automatic.
@@ -623,10 +894,15 @@ func reset_to(target: Transform3D) -> void:
 	_since_shift = AUTO_SHIFT_HOLD
 	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
 	rear_load_fraction = REAR_WEIGHT_FRACTION
+	front_traction_use = 0.0
 	rear_traction_use = 0.0
-	brake_grip_use = 0.0
 	front_slip_angle = 0.0
 	rear_slip_angle = 0.0
+	front_slip_ratio = 0.0
+	rear_slip_ratio = 0.0
+	wheel_angle = 0.0
+	longitudinal_accel = 0.0
+	lateral_accel = 0.0
 	_body.rotation = Vector3.ZERO
 	reset_physics_interpolation()
 
@@ -698,10 +974,13 @@ func _update_direction(speed: float, drive: float, delta: float) -> void:
 		reverse_engaged = false
 
 
-## Returns the new forward speed after one tick of engine / brake / coasting,
-## and updates the gearbox, engine RPM and rear traction use on the way.
-## `drive` is +1 for the accelerate key and -1 for the brake key.
-func _update_forward_speed(speed: float, drive: float, delta: float) -> float:
+## What the pedals ask of the wheels this tick, as { engine, brake }, and the
+## gearbox and engine RPM update on the way. `engine` is the force at the
+## driven wheels [N], signed along the nose: drive under throttle, engine
+## braking with the throttle closed, reverse gear. `brake` is the total brake
+## force asked for [N], always positive; it works against the way each wheel
+## rolls. `drive` is +1 for the accelerate key and -1 for the brake key.
+func _longitudinal_demand(speed: float, drive: float, delta: float) -> Dictionary:
 	# The key of the selected direction is the throttle, the other one the
 	# brake: it slows the car to a stop whichever way it rolls, and holds it
 	# there. The throttle key also brakes while the car still rolls against the
@@ -715,35 +994,97 @@ func _update_forward_speed(speed: float, drive: float, delta: float) -> float:
 
 	_update_gearbox(speed, throttle, reversing, delta)
 
-	# Engine force at the rear wheels: drive under throttle, engine braking with
-	# the throttle closed. Both need the clutch in and a gear engaged.
-	var drive_force := 0.0
-	if gear > 0 and not is_shifting and not reversing:
+	# Engine force at the driven wheels: drive under throttle, engine braking
+	# with the throttle closed. Both need the clutch in and a gear engaged.
+	var engine := 0.0
+	if reversing:
+		if drive < 0.0 and not braking:
+			# Tails off into the top speed in reverse (a rev limiter).
+			engine = -clampf((speed + MAX_REVERSE_SPEED) * REVERSE_LIMITER_RATE, 0.0, REVERSE_ACCEL * -drive) * CAR_MASS
+	elif gear > 0 and not is_shifting:
 		var ratio: float = GEAR_RATIOS[gear] * FINAL_DRIVE
 		if throttle > 0.0:
-			drive_force = engine_torque(engine_rpm) * throttle * ratio * DRIVETRAIN_EFFICIENCY / WHEEL_RADIUS
+			engine = engine_torque(engine_rpm) * throttle * ratio * DRIVETRAIN_EFFICIENCY / WHEEL_RADIUS
 		elif speed > STANDSTILL_SPEED:
-			drive_force = -ENGINE_BRAKE_TORQUE_PER_RPM * maxf(engine_rpm - IDLE_RPM, 0.0) * ratio / WHEEL_RADIUS
-	# Traction limit: the rear tyres cannot push harder than their load allows.
-	var traction_limit := TYRE_MU * CAR_MASS * _gravity * rear_load_fraction
-	drive_force = clampf(drive_force, -traction_limit, traction_limit)
-	rear_traction_use = absf(drive_force) / traction_limit
+			engine = -ENGINE_BRAKE_TORQUE_PER_RPM * maxf(engine_rpm - IDLE_RPM, 0.0) * ratio / WHEEL_RADIUS
+	var brake := BRAKE_DECEL * absf(drive) * CAR_MASS if braking else 0.0
+	return {"engine": engine, "brake": brake}
 
-	brake_grip_use = clampf(BRAKE_DECEL_G * absf(drive), 0.0, 1.0) if braking and is_moving else 0.0
-	if braking:
-		speed = move_toward(speed, 0.0, BRAKE_DECEL * absf(drive) * delta)
-	elif reversing and drive < 0.0:
-		speed = move_toward(speed, -MAX_REVERSE_SPEED, REVERSE_ACCEL * -drive * delta)
 
-	if drive_force >= 0.0:
-		speed += drive_force / CAR_MASS * delta
-	else:
-		# Engine braking slows the car but never pushes it backwards.
-		speed = move_toward(speed, 0.0, -drive_force / CAR_MASS * delta)
+## Share of the engine's force that goes to the front axle (0..1).
+func _front_drive_share() -> float:
+	match driven_wheels:
+		DrivenWheels.FWD:
+			return 1.0
+		DrivenWheels.AWD:
+			return TORQUE_DISTRIBUTION
+	return 0.0
 
-	# Rolling resistance and aero drag always oppose the motion.
-	var resistance := COAST_DECEL + AERO_DRAG * speed * speed / CAR_MASS
-	return move_toward(speed, 0.0, resistance * delta)
+
+## One tick of an axle's slip ratio. `demand` is the force the engine and the
+## brakes ask of the axle as a share of its grip, signed along the nose. Below
+## the tyre's limit the wheel settles at the slip where the tyre's force along
+## the wheel matches the demand; ask for more than the tyre has left (less,
+## the harder it is cornering) and the slip runs away: wheelspin, up to
+## DRIVE_SLIP_RATIO, with the force easing towards TYRE_SLIDE_GRIP and the
+## sideways hold going with it. Under the foot brake the ABS holds the wheel at
+## ABS_SLIP_RATIO instead, it never locks; only the handbrake locks wheels.
+## This is the wheel's spin-up written as a relaxation: no wheel speed is
+## carried, so nothing divides by a road speed going to zero. The step divides
+## by the tyre curve's slope (semi-implicit), which keeps it stable at any tick
+## length on the steep part of the curve.
+func _advance_slip_ratio(slip_ratio: float, demand: float, slip_angle: float, peak_slip_angle: float, abs_active: bool, delta: float) -> float:
+	var force := _tyre_force(slip_ratio, slip_angle, peak_slip_angle).x
+	var probe := 0.01 * PEAK_SLIP_RATIO
+	var slope := maxf((_tyre_force(slip_ratio + probe, slip_angle, peak_slip_angle).x - force) / probe, 0.0)
+	var gain := SLIP_RATIO_RESPONSE * delta
+	var limit := ABS_SLIP_RATIO if abs_active else DRIVE_SLIP_RATIO
+	demand = clampf(demand, -2.0, 2.0)
+	var next := clampf(slip_ratio + gain * (demand - force) / (1.0 + gain * slope), -limit, limit)
+	if (demand - force) * (demand - _tyre_force(next, slip_angle, peak_slip_angle).x) < 0.0:
+		# Stepped over the slip where force and demand balance (a wheel hooking
+		# up again after a lift): home in on it instead of overshooting into
+		# the opposite force.
+		var near := slip_ratio
+		for i in 8:
+			var middle := (near + next) * 0.5
+			if (demand - force) * (demand - _tyre_force(middle, slip_angle, peak_slip_angle).x) > 0.0:
+				near = middle
+			else:
+				next = middle
+		next = (near + next) * 0.5
+	return next
+
+
+## Force of an axle's tyres as a share of their grip: x along the wheels
+## (positive = pushing the car towards its nose), y across them (positive =
+## pushing it to the right). Combined slip: the slip ratio (in peak slip
+## ratios) and the tangent of the slip angle (in that of the peak slip angle)
+## are the two components of ONE slip vector. Its length goes through the
+## tyre curve, and the force points against it. That is the friction circle:
+## a tyre has one grip to give, and it gives it against the way its contact
+## patch slides over the road. Pure cornering and pure drive get the plain
+## curve; drive or braking in a corner takes from the sideways force; a locked
+## wheel (slip ratio -1) just drags against its direction of travel, with next
+## to no sideways hold at small slip angles.
+## The exception is MIN_COMBINED_GRIP: the sideways force never drops below
+## that share of what the slip angle alone would give.
+func _tyre_force(slip_ratio: float, slip_angle: float, peak_slip_angle: float) -> Vector2:
+	var along := slip_ratio / PEAK_SLIP_RATIO
+	var across := tan(slip_angle) / tan(peak_slip_angle)
+	var slip := Vector2(along, across).length()
+	if slip < 0.0001:
+		return Vector2.ZERO
+	var share := _tyre_curve(slip) / slip
+	var sideways := maxf(share * absf(across), MIN_COMBINED_GRIP * absf(_tyre_curve(across)))
+	return Vector2(share * along, -sideways * signf(across))
+
+
+## Share of a tyre's grip that goes along the wheel at `slip_ratio` (0..1), for
+## the friction ellipse: the tyre curve up to the peak, all of it from there.
+func _traction_use(slip_ratio: float) -> float:
+	var x := absf(slip_ratio) / PEAK_SLIP_RATIO
+	return 1.0 if x >= 1.0 else absf(_tyre_curve(x))
 
 
 ## Automatic shifting and engine speed for this tick.
@@ -783,16 +1124,15 @@ func _update_gearbox(speed: float, throttle: float, reversing: bool, delta: floa
 	engine_rpm = lerpf(engine_rpm, target, 1.0 - exp(-RPM_RESPONSE * delta))
 
 
-## Most sideways force [N] an axle carrying `load` of the car's weight can make
-## when it carries `static_load` at rest: TYRE_MU times the load at rest,
-## sub-linear in load from there (LOAD_GRIP_EXPONENT).
+## Most force [N] the tyres of an axle can make, in any direction, under
+## `load` [N] when the axle carries `static_load` [N] at rest: TYRE_MU times
+## the load at rest, sub-linear in load from there (LOAD_GRIP_EXPONENT).
 func _axle_grip(load: float, static_load: float) -> float:
-	var load_factor := pow(maxf(load, 0.0) / static_load, LOAD_GRIP_EXPONENT)
-	return TYRE_MU * CAR_MASS * _gravity * static_load * load_factor
+	return TYRE_MU * static_load * pow(maxf(load, 0.0) / static_load, LOAD_GRIP_EXPONENT)
 
 
-## The tyre curve: share of the peak sideways force (-1..1) at `slip`, the slip
-## angle in peak slip angles. Rises smoothly into the peak at 1 (slope 1.5 at
+## The tyre curve: share of the peak force (-1..1) at `slip`, the slip angle in
+## peak slip angles (or the slip ratio in peak slip ratios). Rises smoothly into the peak at 1 (slope 1.5 at
 ## zero, flat at the top), then eases down to TYRE_SLIDE_GRIP.
 func _tyre_curve(slip: float) -> float:
 	var x := absf(slip)
@@ -802,29 +1142,12 @@ func _tyre_curve(slip: float) -> float:
 	return signf(slip) * lerpf(1.0, TYRE_SLIDE_GRIP, sliding)
 
 
-## Friction ellipse: share of its sideways grip a tyre has left while `use`
-## (0..1) of its grip goes into braking or drive. See MIN_COMBINED_GRIP.
-func _combined_grip(use: float) -> float:
-	return maxf(sqrt(maxf(1.0 - use * use, 0.0)), MIN_COMBINED_GRIP)
-
-
-## Caps an axle's sideways `force` [N] at what stops its sideways `slip_speed`
-## [m/s] within this tick. A push at an axle `arm` metres from the centre of
+## Caps a tyre `force` [N] at what stops its contact patch's `slip_speed` [m/s]
+## in the force's direction within this tick. A push at an axle `arm` metres from the centre of
 ## mass moves that axle as if it weighed 1 / (1 / mass + arm^2 / yaw inertia).
 func _limit_to_stick(force: float, slip_speed: float, arm: float, yaw_inertia: float, delta: float) -> float:
 	var stopping_force := absf(slip_speed) / ((1.0 / CAR_MASS + arm * arm / yaw_inertia) * delta)
 	return clampf(force, -stopping_force, stopping_force)
-
-
-## Deceleration along the car [m/s^2] from the locked rear wheels: their
-## sliding grip, pointed against the way the rear axle is moving, minus what
-## the foot brake already takes from the rear tyres.
-func _handbrake_drag(speed: float, rear_slip_speed: float) -> float:
-	if _handbrake_amount <= 0.0:
-		return 0.0
-	var rear_grip := _axle_grip(rear_load_fraction, REAR_WEIGHT_FRACTION) / CAR_MASS
-	var along := absf(speed) / maxf(Vector2(speed, rear_slip_speed).length(), 0.01)
-	return maxf(_handbrake_amount * TYRE_SLIDE_GRIP * along - brake_grip_use, 0.0) * rear_grip
 
 
 ## Stability assist strength right now [1/s]: SLIDE_YAW_DAMPING while the car
@@ -843,60 +1166,54 @@ func _slide_yaw_damping(along: float, across: float) -> float:
 	return lerpf(SLIDE_YAW_DAMPING, SPIN_YAW_DAMPING, spin)
 
 
-## How much of the steering's aim the assist still counts as asked for (0..1)
-## while the car slides: all of it up to SLIDE_CATCH_ANGLE of slip, none from
-## SPIN_COMMIT_ANGLE, if the steering is turning the nose further into the
-## slide. Steering held into a slide then no longer feeds it, and the slide
-## settles at a catchable angle instead of creeping on into a spin.
+## How much of the steering lock reaches the front wheels (0..1) while the car
+## slides: all of it up to SLIDE_CATCH_ANGLE of slip, none from
+## SPIN_COMMIT_ANGLE, unless the steering works against the slide (opposite
+## lock always gets through). What the lock loses, the trail of the front
+## wheels gets: they swing into line with the way the front of the car
+## travels and stop pushing the nose round, so the rear tyres can pull the car
+## straight. A key held into a slide, or let go, then no longer feeds it, and
+## the slide settles instead of creeping on into a spin. Past SPIN_COMMIT_ANGLE
+## the trail fades again (gone at SPIN_FREE_ANGLE): that car is spinning, and
+## it is left to. Off while the handbrake is held and in reverse, like the
+## rest of the assist.
 func _slide_feed(along: float, across: float, steer_amount: float) -> float:
-	if steer_amount * across * along <= 0.0:
+	if reverse_engaged or steer_amount * across * along < 0.0 or Vector2(along, across).length() < SPIN_MIN_SPEED:
 		return 1.0
-	return 1.0 - smoothstep(SLIDE_CATCH_ANGLE, SPIN_COMMIT_ANGLE, absf(atan2(across, along)))
+	var eased := 1.0 - smoothstep(SLIDE_CATCH_ANGLE, SLIDE_RELEASE_ANGLE, absf(atan2(across, along)))
+	return lerpf(eased, 1.0, _handbrake_amount)
 
 
-## Returns the yaw rate [rad/s] the steering aims for with a steering amount
-## (-1..1) at a given speed: that of the tightest corner the car can hold.
-func _compute_yaw_rate(steer_amount: float, speed: float) -> float:
-	# In reverse the same steering lock swings the nose the other way.
-	return steer_amount * _steering_yaw_limit(absf(speed)) * signf(speed)
-
-
-## Highest yaw rate [rad/s] the car can hold at `abs_speed`.
-func _steering_yaw_limit(abs_speed: float) -> float:
-	# Turning circle limit: no yaw at standstill, ramps in with speed.
-	var available := minf(MAX_YAW_RATE, abs_speed / MIN_TURN_RADIUS)
-	# Grip limit: cornering at yaw rate r needs speed * r of sideways
-	# acceleration, and the tyres have TYRE_MU * g to give.
-	return minf(available, TYRE_MU * _gravity / maxf(abs_speed, 0.01))
-
-
-## Front wheel angle at full steering lock [rad] at `abs_speed`: the angle that
-## rolls round the tightest corner the car can hold at that speed, plus the
-## slip the front tyres need to make the force for it (STEER_SLIP_REACH), and
-## never more than the turning circle's lock. In a slide the front of the car
-## travels at an angle to where it points (`front_travel_angle`); the driver
-## winds that much more lock on, as opposite lock needs, so the keys keep
-## their bite on the front tyres however sideways the car is.
-func _steering_lock(abs_speed: float, front_travel_angle: float) -> float:
-	var wheelbase := 2.0 * AXLE_DISTANCE
-	var full_lock := atan(wheelbase / MIN_TURN_RADIUS)
-	var corner := atan(wheelbase * _steering_yaw_limit(abs_speed) / maxf(abs_speed, 0.01))
-	return minf(full_lock, corner + FRONT_PEAK_SLIP_ANGLE * STEER_SLIP_REACH + absf(front_travel_angle))
+## Front wheel angle at full steering lock [rad]: the key asks the front tyres
+## for their grip, and this is the wheel angle that takes. The front of the car travels at `front_travel_angle` to where the
+## nose points (positive = towards the car's right). Steering the way the
+## front already travels (any corner, and opposite lock in a slide), full lock
+## is that angle plus the slip the tyres need for their peak force
+## (STEER_SLIP_REACH): the wheels lead the way the car goes by a tyre's worth,
+## at any speed, however sideways the car is. Steering against it (holding
+## lock into a slide) it is just that slip, measured from the nose. Never more
+## than MAX_STEER_LOCK, which is what parking-pace corners run into.
+func _steering_lock(steer_amount: float, front_travel_angle: float) -> float:
+	var leading := maxf(-front_travel_angle * signf(steer_amount), 0.0)
+	return minf(MAX_STEER_LOCK, FRONT_PEAK_SLIP_ANGLE * STEER_SLIP_REACH + leading)
 
 
 ## Cosmetic motion: wheel spin, front wheel steering and body roll / pitch.
-func _update_visuals(longitudinal_accel: float, delta: float) -> void:
-	var spin_speed := clampf(forward_speed / WHEEL_RADIUS, -MAX_WHEEL_SPIN, MAX_WHEEL_SPIN)
-	for spinner in _wheel_spinners:
+func _update_visuals(delta: float) -> void:
+	# Each axle turns at road speed plus its slip: driven wheels visibly spin
+	# up when they break traction, handbraked rears stand still.
+	var rolling := forward_speed / WHEEL_RADIUS
+	var front_spin := clampf(rolling * (1.0 + front_slip_ratio * signf(forward_speed)), -MAX_WHEEL_SPIN, MAX_WHEEL_SPIN)
+	var rear_spin := clampf(rolling * (1.0 + rear_slip_ratio * signf(forward_speed)) * (1.0 - _handbrake_amount), -MAX_WHEEL_SPIN, MAX_WHEEL_SPIN)
+	for i in _wheel_spinners.size():
 		# Rolling towards -Z is a negative rotation about +X.
-		spinner.rotate_x(-spin_speed * delta)
+		_wheel_spinners[i].rotate_x(-(front_spin if i < 2 else rear_spin) * delta)
 
 	for wheel in _front_wheels:
-		wheel.rotation.y = steer * MAX_WHEEL_STEER_ANGLE
+		wheel.rotation.y = wheel_angle
 
 	# Weight transfer: the body leans out of the corner, squats under power and
 	# dives under braking.
-	var lateral_accel := forward_speed * yaw_rate
 	var target_roll := clampf(-lateral_accel * BODY_ROLL_PER_ACCEL, -MAX_BODY_TILT, MAX_BODY_TILT)
 	var target_pitch := clampf(longitudinal_accel * BODY_PITCH_PER_ACCEL, -MAX_BODY_TILT, MAX_BODY_TILT)
 	var blend := 1.0 - exp(-BODY_TILT_RESPONSE * delta)
