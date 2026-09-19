@@ -7,8 +7,11 @@ extends SceneTree
 ## Loads the main scene, checks the key nodes exist, then drives the car with
 ## simulated input and checks it accelerates, steers, brakes, holds, reverses,
 ## slides under the handbrake, turns in less on the brakes, shifts gears and
-## moves load between the axles, and checks the pad's ground texture, course
-## queries and drive-through cones.
+## moves load between the axles, that it goes by its tyre forces (power against
+## coasting in a corner, the path bending only as fast as the tyres can bend
+## it, rear / front / all-wheel drive, brake bias, downforce, the low-speed
+## blend), and checks the pad's ground texture, course queries and
+## drive-through cones.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -24,6 +27,43 @@ const HANDBRAKE_TAP_FRAMES := 24
 ## under way [physics frames], 0.75 s: FORWARD_ENGAGE_GRACE (12 frames) plus
 ## margin to pick up speed.
 const FORWARD_ENGAGE_FRAMES := 45
+
+## Power against coasting through the same corner: least difference in heading
+## gained over POWER_CORNER_FRAMES [rad], ~6 degrees. Measured: ~0.35 rad (the
+## powered car runs wider: it gains speed, and load moves off the steered
+## axle). A car whose throttle does not reach its tyres shows 0.
+const POWER_COAST_MIN_YAW_DIFFERENCE := 0.1
+
+## ... and least distance between where the two runs end up [m]. Measured: ~9.
+const POWER_COAST_MIN_POSITION_DIFFERENCE := 2.0
+
+## Speed the 2nd gear corners start from [m/s], ~65 km/h, and the 1st gear
+## ones, ~32 km/h.
+const CORNER_ENTRY_SPEED := 18.0
+const LOW_GEAR_ENTRY_SPEED := 9.0
+
+## How long the power / coast corners last [physics frames], 2 s; the 1st gear
+## ones 1 s, so the automatic stays in 1st throughout.
+const POWER_CORNER_FRAMES := 120
+const LOW_GEAR_CORNER_FRAMES := 60
+
+## Turn-in: sideways acceleration on the first tick of steering must stay under
+## this share of the peak it builds to ...
+const TURN_IN_FIRST_TICK_SHARE := 0.1
+
+## ... and take at least this many ticks to get to half of it (0.1 s): the
+## steering ramps, the tyres build slip, the mass answers. A body rotated by
+## fiat shows its full sideways acceleration on the first tick.
+const TURN_IN_MIN_BUILD_TICKS := 6
+
+## No tick may accelerate the car harder than the tyres and the air can push
+## [g]: TYRE_MU x the better axle's grip factor plus downforce and drag come
+## to ~1.1 at these speeds.
+const MAX_PLAUSIBLE_ACCEL_G := 1.2
+
+## Parking pace for the low-speed blend checks [m/s], inside the blend
+## (LOW_SPEED_BLEND_START .. LOW_SPEED_BLEND_END).
+const CRAWL_SPEED := 2.0
 
 var _failures := 0
 
@@ -225,6 +265,8 @@ func _run() -> void:
 	_check(car.global_position.length() < 0.1 and car.slide_yaw_rate == 0.0, "reset also clears the slide")
 
 	await _check_drivetrain(car, main.get_node_or_null("HUD/RpmLabel") as Label)
+	await _check_force_dynamics(car)
+	await _check_low_speed_blend(car)
 	await _check_high_speed_stability(car)
 	await _check_course(main.get_node("TestPad") as TestPad, car)
 
@@ -358,6 +400,152 @@ func _check_high_speed_stability(car: ArcadeCar) -> void:
 	_check(absf(angle_difference(heading, car.global_rotation.y)) < 0.001, "holds its new heading afterwards")
 
 
+## The car goes by its tyres: what the throttle does in a corner, how a corner
+## builds up, what the driven wheels and the brake bias change, and downforce.
+func _check_force_dynamics(car: ArcadeCar) -> void:
+	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+
+	# (a) The same corner, same entry speed, same steering: coasting against
+	# wide-open throttle. The user's complaint was that the two felt the same.
+	var coast := await _steady_corner(car, CORNER_ENTRY_SPEED, POWER_CORNER_FRAMES, false, ArcadeCar.DrivenWheels.RWD)
+	var power := await _steady_corner(car, CORNER_ENTRY_SPEED, POWER_CORNER_FRAMES, true, ArcadeCar.DrivenWheels.RWD)
+	var yaw_difference := absf(power.yaw - coast.yaw)
+	var position_difference: float = power.end_position.distance_to(coast.end_position)
+	_check(absf(power.entry_speed - coast.entry_speed) < 0.5, "power / coast corners start from the same speed (%.1f vs %.1f m/s)" % [power.entry_speed, coast.entry_speed])
+	_check(yaw_difference > POWER_COAST_MIN_YAW_DIFFERENCE, "throttle changes the corner: heading gained %.2f rad on power vs %.2f coasting (differs by %.2f, margin %.2f)" % [power.yaw, coast.yaw, yaw_difference, POWER_COAST_MIN_YAW_DIFFERENCE])
+	_check(position_difference > POWER_COAST_MIN_POSITION_DIFFERENCE, "throttle changes the line: the two runs end %.1f m apart (margin %.1f)" % [position_difference, POWER_COAST_MIN_POSITION_DIFFERENCE])
+	_check(power.radius > coast.radius * 1.15, "on power the car runs a wider line than coasting (radius %.1f vs %.1f m)" % [power.radius, coast.radius])
+	var again := await _steady_corner(car, CORNER_ENTRY_SPEED, POWER_CORNER_FRAMES, true, ArcadeCar.DrivenWheels.RWD)
+	_check(again.end_position == power.end_position and again.yaw == power.yaw, "the same corner driven twice ends in the same place, to the bit")
+
+	# (b) Heading and velocity only meet through the tyres. Turning in, the
+	# sideways acceleration has to BUILD: steering ramps, slip angles grow, the
+	# mass answers; the nose leads and the direction of travel follows.
+	var turn_in := await _turn_in_trace(car, CORNER_ENTRY_SPEED)
+	var peak: float = turn_in.peak_accel
+	_check(peak > 0.5 * gravity, "turning in builds real cornering force (peak %.1f m/s^2)" % peak)
+	_check(turn_in.first_tick_accel < peak * TURN_IN_FIRST_TICK_SHARE, "no sideways jolt on the first tick of steering (%.2f m/s^2, peak %.1f)" % [turn_in.first_tick_accel, peak])
+	_check(turn_in.ticks_to_half >= TURN_IN_MIN_BUILD_TICKS, "sideways acceleration builds over several ticks (%d ticks to half the peak, at least %d)" % [turn_in.ticks_to_half, TURN_IN_MIN_BUILD_TICKS])
+	_check(turn_in.largest_rise < peak * 0.25, "it builds smoothly, no single tick adds a quarter of it (largest rise %.2f m/s^2)" % turn_in.largest_rise)
+	_check(turn_in.heading_lead > 0.01, "the nose turns first and the direction of travel follows (nose leads by up to %.3f rad)" % turn_in.heading_lead)
+	_check(turn_in.travel_turned > 0.1, "the direction of travel does follow (turned %.2f rad in 1 s)" % turn_in.travel_turned)
+	_check(turn_in.peak_world_accel < MAX_PLAUSIBLE_ACCEL_G * gravity, "the velocity never changes faster than tyres and air can push (peak %.2f g, limit %.2f)" % [turn_in.peak_world_accel / gravity, MAX_PLAUSIBLE_ACCEL_G])
+
+	# (e) The driven wheels give the car its character. 1st gear, moderate
+	# speed, wide open in a corner: rear drive spends the rear tyres' grip and
+	# the tail steps out; front drive spends the fronts' and the nose pushes
+	# wide; all-wheel drive sits in between.
+	var low_coast := await _steady_corner(car, LOW_GEAR_ENTRY_SPEED, LOW_GEAR_CORNER_FRAMES, false, ArcadeCar.DrivenWheels.RWD)
+	var rwd := await _steady_corner(car, LOW_GEAR_ENTRY_SPEED, LOW_GEAR_CORNER_FRAMES, true, ArcadeCar.DrivenWheels.RWD)
+	var fwd := await _steady_corner(car, LOW_GEAR_ENTRY_SPEED, LOW_GEAR_CORNER_FRAMES, true, ArcadeCar.DrivenWheels.FWD)
+	var awd := await _steady_corner(car, LOW_GEAR_ENTRY_SPEED, LOW_GEAR_CORNER_FRAMES, true, ArcadeCar.DrivenWheels.AWD)
+	_check(rwd.peak_rear_slip > low_coast.peak_rear_slip * 1.5 and rwd.peak_rear_slip > low_coast.peak_rear_slip + 0.03, "RWD: power in a low gear steps the tail out (peak rear slip angle %.3f rad vs %.3f coasting)" % [rwd.peak_rear_slip, low_coast.peak_rear_slip])
+	_check(rwd.peak_rear_use > 0.999 and rwd.peak_front_use < 0.01, "RWD: the drive goes through the rear tyres only (grip use rear %.2f, front %.2f)" % [rwd.peak_rear_use, rwd.peak_front_use])
+	_check(fwd.peak_front_use > 0.999 and fwd.peak_rear_use < 0.01, "FWD: the drive goes through the front tyres only (grip use front %.2f, rear %.2f)" % [fwd.peak_front_use, fwd.peak_rear_use])
+	_check(fwd.yaw < low_coast.yaw * 0.9 and fwd.yaw < rwd.yaw * 0.9, "FWD: power pushes the nose wide (heading gained %.2f rad vs %.2f coasting, %.2f RWD)" % [fwd.yaw, low_coast.yaw, rwd.yaw])
+	_check(fwd.peak_rear_slip < rwd.peak_rear_slip * 0.7, "FWD: the tail stays planted on power (peak rear slip angle %.3f rad vs %.3f RWD)" % [fwd.peak_rear_slip, rwd.peak_rear_slip])
+	_check(awd.peak_front_use > 0.1 and awd.peak_rear_use > 0.1, "AWD: both axles drive (grip use front %.2f, rear %.2f)" % [awd.peak_front_use, awd.peak_rear_use])
+	_check(awd.peak_rear_slip < rwd.peak_rear_slip * 0.7, "AWD: with the torque shared the tail stays in line (peak rear slip angle %.3f rad vs %.3f RWD)" % [awd.peak_rear_slip, rwd.peak_rear_slip])
+	# In 1st all three have more torque than tyre. One gear up, where the tyres
+	# can take it, the balance lines up: FWD pushes widest, RWD turns most.
+	var fwd_second := await _steady_corner(car, CORNER_ENTRY_SPEED, POWER_CORNER_FRAMES, true, ArcadeCar.DrivenWheels.FWD)
+	var awd_second := await _steady_corner(car, CORNER_ENTRY_SPEED, POWER_CORNER_FRAMES, true, ArcadeCar.DrivenWheels.AWD)
+	_check(fwd_second.yaw < awd_second.yaw and awd_second.yaw < power.yaw, "in 2nd AWD sits between the two (heading gained: FWD %.2f, AWD %.2f, RWD %.2f rad)" % [fwd_second.yaw, awd_second.yaw, power.yaw])
+	_check(awd.speed_gain > rwd.speed_gain and awd.speed_gain > fwd.speed_gain, "AWD puts the most power down out of the corner (+%.1f m/s vs RWD +%.1f, FWD +%.1f)" % [awd.speed_gain, rwd.speed_gain, fwd.speed_gain])
+	var rwd_launch := await _launch(car, ArcadeCar.DrivenWheels.RWD)
+	var fwd_launch := await _launch(car, ArcadeCar.DrivenWheels.FWD)
+	_check(fwd_launch.speed < rwd_launch.speed * 0.8, "FWD launch is traction-limited: load moves off the driven axle (%.1f m/s after 2 s vs %.1f RWD)" % [fwd_launch.speed, rwd_launch.speed])
+	_check(fwd_launch.driven_load < rwd_launch.driven_load, "... the driven axle carries %.0f N launching FWD, %.0f N RWD" % [fwd_launch.driven_load, rwd_launch.driven_load])
+	for run: Dictionary in [coast, power, low_coast, rwd, fwd, awd, fwd_second, awd_second]:
+		_check(run.finite and run.max_step < 1.5, "no NaN / inf / teleporting in the %s corner (largest step %.2f m)" % [run.label, run.max_step])
+	_check(car.driven_wheels == ArcadeCar.DRIVEN_WHEELS, "the car is back on its own driven wheels")
+
+	# Brake bias: a full stop in a straight line has the fronts at their limit
+	# (ABS) and the rears under theirs.
+	await _get_up_to_speed(car)
+	Input.action_press("brake")
+	await _step(30)
+	_check(car.front_traction_use > 0.999 and car.rear_traction_use < 0.95 and car.rear_traction_use > 0.3, "brake bias: fronts at the limit, rears working under theirs (grip use front %.2f, rear %.2f)" % [car.front_traction_use, car.rear_traction_use])
+	_check(is_equal_approx(car.front_slip_ratio, -ArcadeCar.ABS_SLIP_RATIO) and car.rear_slip_ratio > -ArcadeCar.PEAK_SLIP_RATIO, "ABS holds the front wheels, the rears never reach their peak (slip ratio front %.3f, rear %.3f)" % [car.front_slip_ratio, car.rear_slip_ratio])
+	Input.action_release("brake")
+
+	# Downforce: at speed the axles carry more than the car weighs, the rear
+	# more so than the front.
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	await _step(900)
+	Input.action_release("accelerate")
+	await _step(30)
+	var weight := ArcadeCar.CAR_MASS * gravity
+	var carried := car.front_axle_load + car.rear_axle_load
+	var expected := ArcadeCar.DOWNFORCE_COEFF * car.forward_speed * car.forward_speed
+	_check(absf(carried - weight - expected) < 1.0 and expected > 0.04 * weight, "downforce adds to the axle loads at speed (+%.0f N at %.0f km/h, the car weighs %.0f N)" % [carried - weight, car.speed_kmh, weight])
+	car.reset_to_spawn()
+	await _step(5)
+
+
+## (c) The low-speed blend: parking stays precise, the car stands still on the
+## brake with the wheels turned, reverse still takes a fresh press, and there
+## is no step in the steering on the way up through the blend.
+func _check_low_speed_blend(car: ArcadeCar) -> void:
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	for frame in 120:
+		if car.forward_speed >= CRAWL_SPEED:
+			break
+		await physics_frame
+	Input.action_release("accelerate")
+	Input.action_press("steer_left")
+	await _step(60)
+	# Rolling round at full lock: the turning circle of the wheel angle, no slip.
+	var turning_radius := car.forward_speed / car.yaw_rate
+	var geometric_radius := 2.0 * ArcadeCar.AXLE_DISTANCE / tan(ArcadeCar.MAX_STEER_LOCK)
+	_check(car.forward_speed > ArcadeCar.LOW_SPEED_BLEND_START and car.forward_speed < ArcadeCar.LOW_SPEED_BLEND_END, "crawling inside the low-speed blend (%.1f m/s)" % car.forward_speed)
+	_check(is_equal_approx(car.wheel_angle, ArcadeCar.MAX_STEER_LOCK), "full lock reaches the wheels at parking pace (%.2f rad)" % car.wheel_angle)
+	_check(absf(turning_radius - geometric_radius) < geometric_radius * 0.1, "crawl steering rolls round the turning circle (radius %.2f m, geometry says %.2f)" % [turning_radius, geometric_radius])
+	_check(absf(car.rear_slip_angle) < 0.02, "... with no slip at the rear axle (%.3f rad)" % car.rear_slip_angle)
+
+	# Brake to a stop with the wheels still turned, and hold: no creep, no yaw.
+	Input.action_press("brake")
+	await _step(60)
+	var held_position := car.global_position
+	var held_yaw := car.global_rotation.y
+	await _step(120)
+	_check(car.global_position.distance_to(held_position) < 0.005 and absf(angle_difference(held_yaw, car.global_rotation.y)) < 0.001, "holds still on the brake with the wheels turned (moved %.4f m, turned %.5f rad in 2 s)" % [car.global_position.distance_to(held_position), absf(angle_difference(held_yaw, car.global_rotation.y))])
+	_check(not car.reverse_engaged, "the held brake still never engages reverse")
+	Input.action_release("brake")
+	await _step(5)
+	Input.action_press("brake")
+	await _step(60)
+	_check(car.reverse_engaged and car.forward_speed < -1.0, "a fresh brake press at the stop still reverses, steering held (%.1f m/s)" % car.forward_speed)
+	_check(car.yaw_rate < -0.05, "... and the same lock swings the nose the other way in reverse (yaw %.2f rad/s)" % car.yaw_rate)
+	Input.action_release("brake")
+	Input.action_release("steer_left")
+
+	# Up through the blend with the steering held: geometry hands over to the
+	# tyres without a step in the yaw rate.
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("steer_left")
+	Input.action_press("accelerate")
+	var largest_yaw_step := 0.0
+	var yaw_rate_before := 0.0
+	var finite := true
+	for frame in 150:
+		await physics_frame
+		largest_yaw_step = maxf(largest_yaw_step, absf(car.yaw_rate - yaw_rate_before))
+		yaw_rate_before = car.yaw_rate
+		finite = finite and is_finite(car.yaw_rate) and is_finite(car.lateral_speed) and car.global_position.is_finite()
+	Input.action_release("accelerate")
+	Input.action_release("steer_left")
+	_check(car.forward_speed > ArcadeCar.LOW_SPEED_BLEND_END + 2.0, "accelerated up through the blend and out of it (%.1f m/s)" % car.forward_speed)
+	_check(largest_yaw_step < 0.06 and finite, "no step in the yaw rate on the way through the blend (largest change %.3f rad/s in a tick)" % largest_yaw_step)
+	car.reset_to_spawn()
+	await _step(5)
+
+
 ## Ground texture, course queries and drive-through cones.
 func _check_course(pad: TestPad, car: ArcadeCar) -> void:
 	_check(pad != null, "test pad is a TestPad")
@@ -474,6 +662,114 @@ func _corner(car: ArcadeCar, handbrake: bool) -> Dictionary:
 	stats.end_slip = tan(car.rear_slip_angle) * absf(car.forward_speed)
 	stats.end_slide_yaw = car.slide_yaw_rate
 	return stats
+
+
+## Accelerates to `entry_speed` on the car's own drivetrain, then holds full
+## left steering for `frames` with the throttle wide open or closed on
+## `layout`. Returns the heading gained [rad], the mean radius of the line [m],
+## where it ended, peak slip angles / grip use, the speed gained and per-frame
+## sanity stats.
+func _steady_corner(car: ArcadeCar, entry_speed: float, frames: int, on_power: bool, layout: ArcadeCar.DrivenWheels) -> Dictionary:
+	await _reach_speed(car, entry_speed)
+	var run := {
+		"label": "%s %s" % [ArcadeCar.DrivenWheels.keys()[layout], "power" if on_power else "coast"],
+		"entry_speed": car.forward_speed, "yaw": 0.0, "radius": 0.0, "end_position": Vector3.ZERO, "speed_gain": 0.0,
+		"peak_front_slip": 0.0, "peak_rear_slip": 0.0, "peak_front_use": 0.0, "peak_rear_use": 0.0,
+		"finite": true, "max_step": 0.0,
+	}
+	var yaw_before := car.global_rotation.y
+	var travelled := 0.0
+	car.driven_wheels = layout
+	Input.action_press("steer_left")
+	if on_power:
+		Input.action_press("accelerate")
+	for frame in frames:
+		var before := car.global_position
+		await physics_frame
+		var moved := car.global_position.distance_to(before)
+		travelled += moved
+		run.max_step = maxf(run.max_step, moved)
+		run.yaw += angle_difference(yaw_before, car.global_rotation.y)
+		yaw_before = car.global_rotation.y
+		run.peak_front_slip = maxf(run.peak_front_slip, absf(car.front_slip_angle))
+		run.peak_rear_slip = maxf(run.peak_rear_slip, absf(car.rear_slip_angle))
+		if on_power:
+			run.peak_front_use = maxf(run.peak_front_use, car.front_traction_use)
+			run.peak_rear_use = maxf(run.peak_rear_use, car.rear_traction_use)
+		if not (is_finite(car.forward_speed) and is_finite(car.lateral_speed) and is_finite(car.yaw_rate) and car.global_position.is_finite()):
+			run.finite = false
+	Input.action_release("steer_left")
+	Input.action_release("accelerate")
+	car.driven_wheels = ArcadeCar.DRIVEN_WHEELS
+	run.radius = travelled / maxf(absf(run.yaw), 0.001)
+	run.end_position = car.global_position
+	run.speed_gain = car.forward_speed - run.entry_speed
+	return run
+
+
+## Coasts straight at `entry_speed`, then holds full left steering for 1 s and
+## follows, tick by tick, the sideways acceleration the tyres make, the change
+## of the world velocity, and how far the nose and the direction of travel
+## have each turned.
+func _turn_in_trace(car: ArcadeCar, entry_speed: float) -> Dictionary:
+	await _reach_speed(car, entry_speed)
+	var trace := {
+		"first_tick_accel": 0.0, "peak_accel": 0.0, "ticks_to_half": 0, "largest_rise": 0.0,
+		"heading_lead": 0.0, "travel_turned": 0.0, "peak_world_accel": 0.0,
+	}
+	var accels: Array[float] = []
+	var heading_start := car.global_rotation.y
+	var travel_start := atan2(-car.velocity.x, -car.velocity.z)
+	var velocity_before := car.velocity
+	Input.action_press("steer_left")
+	for frame in 60:
+		await physics_frame
+		accels.append(car.lateral_accel)
+		var horizontal_change := Vector2(car.velocity.x - velocity_before.x, car.velocity.z - velocity_before.z)
+		trace.peak_world_accel = maxf(trace.peak_world_accel, horizontal_change.length() * 60.0)
+		velocity_before = car.velocity
+		var heading_turned := angle_difference(heading_start, car.global_rotation.y)
+		trace.travel_turned = angle_difference(travel_start, atan2(-car.velocity.x, -car.velocity.z))
+		trace.heading_lead = maxf(trace.heading_lead, heading_turned - trace.travel_turned)
+	Input.action_release("steer_left")
+	trace.first_tick_accel = absf(accels[0])
+	for accel in accels:
+		trace.peak_accel = maxf(trace.peak_accel, accel)
+	for i in accels.size():
+		if i > 0:
+			trace.largest_rise = maxf(trace.largest_rise, accels[i] - accels[i - 1])
+		if trace.ticks_to_half == 0 and accels[i] >= trace.peak_accel * 0.5:
+			trace.ticks_to_half = i + 1
+	return trace
+
+
+## Full throttle from rest for 2 s on `layout`; returns the speed reached and
+## the load on the driven axle at the end.
+func _launch(car: ArcadeCar, layout: ArcadeCar.DrivenWheels) -> Dictionary:
+	car.reset_to_spawn()
+	await _step(10)
+	car.driven_wheels = layout
+	Input.action_press("accelerate")
+	await _step(120)
+	Input.action_release("accelerate")
+	var launch := {
+		"speed": car.forward_speed,
+		"driven_load": car.front_axle_load if layout == ArcadeCar.DrivenWheels.FWD else car.rear_axle_load,
+	}
+	car.driven_wheels = ArcadeCar.DRIVEN_WHEELS
+	return launch
+
+
+## Resets the car and accelerates it in a straight line to `speed`, then lifts.
+func _reach_speed(car: ArcadeCar, speed: float) -> void:
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	for frame in 600:
+		if car.forward_speed >= speed:
+			break
+		await physics_frame
+	Input.action_release("accelerate")
 
 
 ## Turns in to the left for 0.75 s from ~60 km/h, off the throttle, optionally
