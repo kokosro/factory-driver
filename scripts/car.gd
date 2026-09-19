@@ -748,7 +748,7 @@ func _physics_process(delta: float) -> void:
 	var front_lateral := cg_lateral_speed - yaw_rate * front_arm
 	var rear_lateral := cg_lateral_speed + yaw_rate * rear_arm
 	var front_travel_angle := atan2(front_lateral, maxf(absf(forward_speed), SLIP_ANGLE_MIN_SPEED))
-	var lock := _steering_lock(steer, front_travel_angle)
+	var lock := _steering_lock(steer * signf(forward_speed), front_travel_angle)
 	# In a slide the assist takes lock held into it off the wheels and lets
 	# them trail into line with the way the front travels, as the caster of a
 	# real front axle does with the wheel let go (see _slide_feed).
@@ -1193,8 +1193,12 @@ func _slide_feed(along: float, across: float, steer_amount: float) -> float:
 ## at any speed, however sideways the car is. Steering against it (holding
 ## lock into a slide) it is just that slip, measured from the nose. Never more
 ## than MAX_STEER_LOCK, which is what parking-pace corners run into.
-func _steering_lock(steer_amount: float, front_travel_angle: float) -> float:
-	var leading := maxf(-front_travel_angle * signf(steer_amount), 0.0)
+## `steer_direction` is the steering's sign, flipped while the car rolls
+## backwards: there the wheels meet the road the other way round, and the
+## lock that keeps the tyres biting as the nose swings out is more of the
+## same, up to full lock. That is the flick of a J-turn.
+func _steering_lock(steer_direction: float, front_travel_angle: float) -> float:
+	var leading := maxf(-front_travel_angle * signf(steer_direction), 0.0)
 	return minf(MAX_STEER_LOCK, FRONT_PEAK_SLIP_ANGLE * STEER_SLIP_REACH + leading)
 
 

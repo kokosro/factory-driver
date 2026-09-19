@@ -109,18 +109,26 @@ const SLALOM_START_OFFSET := 3.0
 const SPIN_180_ENTRY_SPEED := 25.0
 const SPIN_360_ENTRY_SPEED := 35.0
 
-## How long the 180's opening feint to the right lasts [s].
-# was 1.0 -> 0.6 - with real mass the feint works as a pendulum: a short one
-# loads the car up and the flick back throws it round; a long one just turns.
-const SPIN_180_FEINT_TIME := 0.6
+## How far round the 180 driver holds the lock, handbrake on, before centring
+## the steering [degrees] ...
+# was SPIN_180_FEINT_TIME 0.6 s of steering right first, then the flick -> no
+# feint - the feint was there to cancel the sideways drift of a car that spun
+# round a body rotated for it. With the tyres bending the path themselves the
+# flick alone keeps the car on its line (ends 7 degrees past 180); a feint now
+# swings the path and the car settles along it, 25 - 30 degrees off.
+# was 150.0 -> 155.0 - travelling backwards the held lock slows the rotation
+# (the steered wheels trail): held all the way, the spin tops out at ~164
+# degrees and the car drags to a stop at ~142. Let go just short of the top,
+# the rotation is nearly spent and the car lines up along its path from there
+# (150 ends at 193, 157 at 186, 163 at 182).
+const SPIN_180_CATCH_DEG := 155.0
 
-## How far round the 180 driver lets the car come before centring the steering
-## and braking [degrees]; the rotation it still carries does the rest.
-# was: hold the lock to 150, wait 0.8 s, brake with the accelerate key -> let
-# go at 150 and brake with the brake key - going backwards the held lock now
-# unwinds the spin (the steered wheels trail), and the brake key now brakes
-# whichever way the car rolls, which is what a driver reaches for.
-const SPIN_180_CATCH_DEG := 150.0
+## ... and how long it then lets the car settle, rolling backwards with the
+## locked rears leading like the head of a dart, before it brakes [s].
+# was: brake at once -> wait 0.5 s - braked front tyres (brake bias puts most
+# of the stop on them) have little left to line the car up with; on the brakes
+# at once the rotation ran on to ~220.
+const SPIN_180_SETTLE_TIME := 0.5
 
 ## Reverse 180: reversing speed at which the scripted driver flicks the car
 ## round [m/s], ~41 km/h; reverse gear tops out at 43 ...
@@ -141,9 +149,12 @@ const STOP_BOX_APPROACH_SPEED := 25.0
 ## ... and how far before the centre of the box it hits the brakes [m].
 # was 8.4 -> 30.6 - the brakes went from 26 m/s^2 to tyre-limited 9.3: from
 # 25 m/s that is 25^2 / (2 * 9.3) = 33.6 m, less ~3 m that engine braking,
-# drag and rolling resistance take off it. Measured: stops 0.08 m from the
-# centre of the box.
-const STOP_BOX_BRAKE_DISTANCE := 30.6
+# drag and rolling resistance take off it.
+# was 30.6 -> 36.0 - the brake force is now split front / rear (BRAKE_BIAS_FRONT
+# 0.6): the fronts stop at their limit under ABS, the rears stay under theirs,
+# and the stop comes out at ~8.7 m/s^2 all in: 25^2 / (2 * 8.7) = 35.9 m.
+# Measured: stops 0.05 m from the centre of the box.
+const STOP_BOX_BRAKE_DISTANCE := 36.0
 
 var test: Dictionary
 var car: ArcadeCar
@@ -239,13 +250,12 @@ static func spin_180_test() -> Dictionary:
 		"start_heading_deg": 0.0,
 		"steps": [
 			{"when": {}, "press": [&"accelerate"]},
-			# Feint right first: the slide carries the car off to the left, and the
-			# feint cancels that so it ends up facing back down its own line.
-			{"when": {"speed_above": SPIN_180_ENTRY_SPEED}, "press": [&"steer_right"]},
-			{"when": {"after": SPIN_180_FEINT_TIME}, "release": [&"accelerate", &"steer_right"], "press": [&"steer_left", &"handbrake"], "mark": true},
-			# Nearly round and rolling backwards: centre the steering and hit the
-			# brakes. The brake stops the car whichever way it rolls, and holds it.
-			{"when": {"rotation_deg": SPIN_180_CATCH_DEG}, "release": [&"steer_left"], "press": [&"brake"]},
+			{"when": {"speed_above": SPIN_180_ENTRY_SPEED}, "release": [&"accelerate"], "press": [&"steer_left", &"handbrake"], "mark": true},
+			# Round and rolling backwards: centre the steering and let the car line
+			# itself up, then hit the brakes. The brake stops the car whichever way
+			# it rolls, and holds it.
+			{"when": {"rotation_deg": SPIN_180_CATCH_DEG}, "release": [&"steer_left"]},
+			{"when": {"after": SPIN_180_SETTLE_TIME}, "press": [&"brake"]},
 			{"when": {"speed_below": STOPPED_SPEED}},
 		],
 		"settle": 1.5,
