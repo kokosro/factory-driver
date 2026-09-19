@@ -8,7 +8,8 @@ extends RefCounted
 ##   title, objective       what a human driver is shown: a short name and
 ##                          one line on what to do,
 ##   start_offset/heading   where the car starts, relative to its spawn point,
-##   hold_speed             optional cruise control for the scripted driver,
+##   hold_speed             optional cruise control for the scripted driver
+##                          (until it brakes),
 ##   steps                  the scripted driver: an ordered list of
 ##                          { when, press, release, mark } entries,
 ##   settle, time_limit     how the run ends.
@@ -92,10 +93,14 @@ const SLALOM_STEER_LEAD := 9.0
 
 ## ... (a swing from one side to the other covers about twice this [m]; the
 ## turn-in is timed so the middle of the swing lands beside the cone) ...
-const SLALOM_HALF_SWING_DISTANCE := 6.0
+# was 6.0 -> 7.0 - the yaw inertia takes longer to wind up and back down, so a
+# swing covers more road (tyre-force model).
+const SLALOM_HALF_SWING_DISTANCE := 7.0
 
 ## ... holds the lock until the nose points this far across the line [degrees] ...
-const SLALOM_SWING_DEG := 22.0
+# was 22.0 -> 19.0 - the car's yaw momentum carries the nose ~8 degrees on
+# after the lock comes off; letting go earlier keeps the weave on the cones.
+const SLALOM_SWING_DEG := 19.0
 
 ## ... and lines up this far to the right of the cones at the start [m].
 const SLALOM_START_OFFSET := 3.0
@@ -105,7 +110,17 @@ const SPIN_180_ENTRY_SPEED := 25.0
 const SPIN_360_ENTRY_SPEED := 35.0
 
 ## How long the 180's opening feint to the right lasts [s].
-const SPIN_180_FEINT_TIME := 1.0
+# was 1.0 -> 0.6 - with real mass the feint works as a pendulum: a short one
+# loads the car up and the flick back throws it round; a long one just turns.
+const SPIN_180_FEINT_TIME := 0.6
+
+## How far round the 180 driver lets the car come before centring the steering
+## and braking [degrees]; the rotation it still carries does the rest.
+# was: hold the lock to 150, wait 0.8 s, brake with the accelerate key -> let
+# go at 150 and brake with the brake key - going backwards the held lock now
+# unwinds the spin (the steered wheels trail), and the brake key now brakes
+# whichever way the car rolls, which is what a driver reaches for.
+const SPIN_180_CATCH_DEG := 150.0
 
 ## Reverse 180: reversing speed at which the scripted driver flicks the car
 ## round [m/s], ~41 km/h; reverse gear tops out at 43 ...
@@ -118,11 +133,17 @@ const REVERSE_180_CATCH_DEG := 140.0
 ## ... and the speed it drives away to before the run ends [m/s].
 const REVERSE_180_DRIVE_AWAY_SPEED := 10.0
 
-## Stop box: speed the scripted driver builds before coasting in [m/s] ...
+## Stop box: speed the scripted driver holds up to its braking point [m/s] ...
+# was: build 25.0, lift, coast ~45 m (down to ~22 m/s) -> hold 25.0 to the
+# braking point - so the stop is a full one from 90 km/h.
 const STOP_BOX_APPROACH_SPEED := 25.0
 
 ## ... and how far before the centre of the box it hits the brakes [m].
-const STOP_BOX_BRAKE_DISTANCE := 8.4
+# was 8.4 -> 30.6 - the brakes went from 26 m/s^2 to tyre-limited 9.3: from
+# 25 m/s that is 25^2 / (2 * 9.3) = 33.6 m, less ~3 m that engine braking,
+# drag and rolling resistance take off it. Measured: stops 0.08 m from the
+# centre of the box.
+const STOP_BOX_BRAKE_DISTANCE := 30.6
 
 var test: Dictionary
 var car: ArcadeCar
@@ -222,12 +243,10 @@ static func spin_180_test() -> Dictionary:
 			# feint cancels that so it ends up facing back down its own line.
 			{"when": {"speed_above": SPIN_180_ENTRY_SPEED}, "press": [&"steer_right"]},
 			{"when": {"after": SPIN_180_FEINT_TIME}, "release": [&"accelerate", &"steer_right"], "press": [&"steer_left", &"handbrake"], "mark": true},
-			# Past 90 degrees the car rolls backwards, where the same lock steers the
-			# other way: holding it now checks the swing instead of feeding it.
-			{"when": {"rotation_deg": 150.0}},
-			# Settled and rolling backwards: the accelerate key is the brake.
-			{"when": {"after": 0.8}, "release": [&"steer_left"], "press": [&"accelerate"]},
-			{"when": {"speed_below": 1.0}, "release": [&"accelerate"]},
+			# Nearly round and rolling backwards: centre the steering and hit the
+			# brakes. The brake stops the car whichever way it rolls, and holds it.
+			{"when": {"rotation_deg": SPIN_180_CATCH_DEG}, "release": [&"steer_left"], "press": [&"brake"]},
+			{"when": {"speed_below": STOPPED_SPEED}},
 		],
 		"settle": 1.5,
 		"time_limit": 30.0,
@@ -270,9 +289,8 @@ static func stop_box_test() -> Dictionary:
 		"objective": "Reach %.0f km/h or more, then stop with the whole car inside the hatched box ahead." % (STOP_BOX_MIN_ENTRY_SPEED * 3.6),
 		"start_offset": Vector3.ZERO,
 		"start_heading_deg": 0.0,
+		"hold_speed": STOP_BOX_APPROACH_SPEED,
 		"steps": [
-			{"when": {}, "press": [&"accelerate"]},
-			{"when": {"speed_above": STOP_BOX_APPROACH_SPEED}, "release": [&"accelerate"]},
 			{"when": {"travelled": distance_to_box - STOP_BOX_BRAKE_DISTANCE}, "press": [&"brake"]},
 			# Stay on the brake to a stop: a held brake holds the car, it never
 			# turns into reverse.
@@ -477,8 +495,8 @@ func _drive() -> void:
 		_step_index += 1
 		_since_step = 0.0
 
-	# Cruise control, while the script is still running.
-	if test.has("hold_speed") and _step_index < steps.size():
+	# Cruise control, while the script is still running and off the brake.
+	if test.has("hold_speed") and _step_index < steps.size() and not _pressed.get(&"brake", false):
 		_set_action(&"accelerate", car.forward_speed < test.hold_speed)
 	elif test.has("hold_speed"):
 		_set_action(&"accelerate", false)
