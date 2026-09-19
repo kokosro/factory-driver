@@ -5,7 +5,8 @@ extends SceneTree
 ##   godot --headless --path . --script res://tests/smoke_test.gd
 ##
 ## Loads the main scene, checks the key nodes exist, then drives the car with
-## simulated input and checks it accelerates, steers, brakes and reverses.
+## simulated input and checks it accelerates, steers, brakes, reverses and
+## slides under the handbrake.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -92,7 +93,76 @@ func _run() -> void:
 	await _step(5)
 	_check(car.global_position.length() < 0.1, "reset returns the car to spawn")
 
+	# Handbrake in a straight line: slows the car more than coasting, stays
+	# straight.
+	await _get_up_to_speed(car)
+	var speed_start := car.forward_speed
+	Input.action_press("handbrake")
+	await _step(60)
+	Input.action_release("handbrake")
+	var drop := speed_start - car.forward_speed
+	var coast_drop := ArcadeCar.COAST_DECEL * 1.0
+	_check(car.forward_speed > 0.0 and drop > coast_drop + 3.0, "handbrake slows the car without throttle (%.1f -> %.1f m/s)" % [speed_start, car.forward_speed])
+	_check(drop < ArcadeCar.BRAKE_DECEL * 0.5, "handbrake is gentler than the brake (lost %.1f m/s in 1 s)" % drop)
+	_check(absf(car.global_position.x) < 0.01 and absf(car.lateral_speed) < 0.01, "handbrake in a straight line stays straight (x = %.3f)" % car.global_position.x)
+
+	# Same corner twice, without and with the handbrake: steer left off the
+	# throttle for 1 s, then keep steering for 1.5 s with the handbrake released.
+	var grip := await _corner(car, false)
+	var slide := await _corner(car, true)
+	_check(slide.peak_slip > grip.peak_slip * 1.5 and slide.peak_slip > grip.peak_slip + 1.5, "handbrake corner slides more (peak slip %.2f vs %.2f m/s)" % [slide.peak_slip, grip.peak_slip])
+	_check(slide.peak_yaw > grip.peak_yaw * 1.3, "handbrake corner rotates more (peak yaw %.2f vs %.2f rad/s)" % [slide.peak_yaw, grip.peak_yaw])
+	_check(slide.speed_drop > grip.speed_drop, "handbrake corner scrubs more speed (%.1f vs %.1f m/s)" % [slide.speed_drop, grip.speed_drop])
+	_check(absf(slide.end_slip) < absf(grip.end_slip) + 0.75, "slip recovers after releasing the handbrake (%.2f vs %.2f m/s)" % [slide.end_slip, grip.end_slip])
+	_check(absf(slide.end_slide_yaw) < 0.1, "tail catches after releasing the handbrake (slide yaw %.3f rad/s)" % slide.end_slide_yaw)
+	_check(grip.finite and slide.finite, "no NaN / inf in speeds or position while cornering")
+	_check(maxf(grip.max_step, slide.max_step) < 1.5, "no teleporting while cornering (largest step %.2f m)" % maxf(grip.max_step, slide.max_step))
+
+	car.reset_to_spawn()
+	await _step(5)
+	_check(car.global_position.length() < 0.1 and car.slide_yaw_rate == 0.0, "reset also clears the slide")
+
 	_finish()
+
+
+## Resets the car and accelerates it in a straight line for 2 s.
+func _get_up_to_speed(car: ArcadeCar) -> void:
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	await _step(120)
+	Input.action_release("accelerate")
+
+
+## Drives one left corner (optionally handbraking for the first second) and
+## returns peak slip / yaw, the end state and per-frame sanity stats.
+func _corner(car: ArcadeCar, handbrake: bool) -> Dictionary:
+	await _get_up_to_speed(car)
+	var stats := {
+		"peak_slip": 0.0, "peak_yaw": 0.0, "speed_drop": 0.0,
+		"end_slip": 0.0, "end_slide_yaw": 0.0, "finite": true, "max_step": 0.0,
+	}
+	var speed_start := car.forward_speed
+	Input.action_press("steer_left")
+	if handbrake:
+		Input.action_press("handbrake")
+	for frame in 150:
+		if frame == 60:
+			Input.action_release("handbrake")
+			stats.speed_drop = speed_start - car.forward_speed
+		var before := car.global_position
+		await physics_frame
+		var moved := car.global_position.distance_to(before)
+		stats.max_step = maxf(stats.max_step, moved)
+		if not (is_finite(car.forward_speed) and is_finite(car.lateral_speed) and is_finite(car.yaw_rate) and car.global_position.is_finite()):
+			stats.finite = false
+		if frame < 60:
+			stats.peak_slip = maxf(stats.peak_slip, absf(car.lateral_speed))
+			stats.peak_yaw = maxf(stats.peak_yaw, absf(car.yaw_rate))
+	Input.action_release("steer_left")
+	stats.end_slip = car.lateral_speed
+	stats.end_slide_yaw = car.slide_yaw_rate
+	return stats
 
 
 func _step(frames: int) -> void:
