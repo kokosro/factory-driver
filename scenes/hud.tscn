@@ -54,7 +54,7 @@ theme_override_colors/font_color = Color(1, 1, 1, 0.85)
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 6
 theme_override_font_sizes/font_size = 18
-text = "Up / W  accelerate      Down / S  brake, then reverse
+text = "Up / W  accelerate      Down / S  brake (press again at a stop: reverse)
 Left / A, Right / D  steer      Space  handbrake      R  reset car
 Q / E  shift down / up (manual)      M  automatic / manual"
 
