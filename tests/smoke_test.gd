@@ -6,7 +6,8 @@ extends SceneTree
 ##
 ## Loads the main scene, checks the key nodes exist, then drives the car with
 ## simulated input and checks it accelerates, steers, brakes, reverses,
-## slides under the handbrake, shifts gears and moves load between the axles.
+## slides under the handbrake, shifts gears and moves load between the axles,
+## and checks the pad's ground texture, course queries and drive-through cones.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -123,6 +124,8 @@ func _run() -> void:
 	_check(car.global_position.length() < 0.1 and car.slide_yaw_rate == 0.0, "reset also clears the slide")
 
 	await _check_drivetrain(car, main.get_node_or_null("HUD/RpmLabel") as Label)
+	await _check_high_speed_stability(car)
+	await _check_course(main.get_node("TestPad") as TestPad, car)
 
 	_finish()
 
@@ -215,6 +218,114 @@ func _check_drivetrain(car: ArcadeCar, rpm_label: Label) -> void:
 	_check(stats.max_step < 1.5, "no teleporting while driving the gears (largest step %.2f m)" % stats.max_step)
 	_check(stats.min_rpm >= ArcadeCar.IDLE_RPM - 1.0 and stats.max_rpm <= ArcadeCar.REDLINE_RPM + 100.0, "RPM stays between idle and the limiter (%d..%d rpm)" % [stats.min_rpm, stats.max_rpm])
 	_check(stats.min_load > 0.1 and stats.max_load < 0.9, "axle loads stay sane (%.2f..%.2f)" % [stats.min_load, stats.max_load])
+	car.reset_to_spawn()
+	await _step(5)
+
+
+## The floor under the spin tuning: flat out in a straight line the car must
+## not wander, and a steering jab at speed must settle at once, never getting
+## near the slip angle where the stability assist lets go.
+func _check_high_speed_stability(car: ArcadeCar) -> void:
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	await _step(900)
+	_check(car.forward_speed > 40.0, "reaches high speed for the stability checks (%.1f m/s)" % car.forward_speed)
+	_check(absf(car.global_position.x) < 0.01 and absf(car.global_rotation.y) < 0.001, "tracks dead straight flat out (x = %.4f m)" % car.global_position.x)
+
+	var peak_slip_angle := 0.0
+	Input.action_press("steer_left")
+	for frame in 40:
+		await physics_frame
+		peak_slip_angle = maxf(peak_slip_angle, absf(atan2(car.lateral_speed, car.forward_speed)))
+	Input.action_release("steer_left")
+	var swings := 0
+	var last_sign := 0.0
+	for frame in 90:
+		await physics_frame
+		peak_slip_angle = maxf(peak_slip_angle, absf(atan2(car.lateral_speed, car.forward_speed)))
+		if absf(car.yaw_rate) > 0.02:
+			if last_sign != 0.0 and signf(car.yaw_rate) != last_sign:
+				swings += 1
+			last_sign = signf(car.yaw_rate)
+	Input.action_release("accelerate")
+	_check(peak_slip_angle < ArcadeCar.SPIN_COMMIT_ANGLE * 0.5, "a steering jab at speed stays far from a spin (peak slip angle %.1f deg)" % rad_to_deg(peak_slip_angle))
+	_check(swings == 0, "no yaw oscillation after the jab (%d swings)" % swings)
+	_check(absf(car.yaw_rate) < 0.01 and absf(car.lateral_speed) < 0.1, "the car settles within 1.5 s of the jab (yaw %.3f rad/s, slip %.2f m/s)" % [car.yaw_rate, car.lateral_speed])
+	var heading := car.global_rotation.y
+	await _step(60)
+	_check(absf(angle_difference(heading, car.global_rotation.y)) < 0.001, "holds its new heading afterwards")
+
+
+## Ground texture, course queries and drive-through cones.
+func _check_course(pad: TestPad, car: ArcadeCar) -> void:
+	_check(pad != null, "test pad is a TestPad")
+	if pad == null:
+		return
+
+	# The asphalt: a real texture on the ground, visibly non-uniform, and the
+	# same pixels every time.
+	var material := pad.get_ground_material()
+	var ground_mesh := pad.get_node_or_null("Ground/MeshInstance3D") as MeshInstance3D
+	_check(material != null and material.albedo_texture != null, "ground material has an albedo texture")
+	_check(ground_mesh != null and ground_mesh.material_override == material, "ground mesh uses the asphalt material")
+	var image := pad.get_ground_image()
+	_check(image != null and image.get_width() == TestPad.GROUND_TEXTURE_SIZE, "ground texture image exists (%d px)" % (image.get_width() if image != null else 0))
+	if image != null:
+		var distinct := {}
+		var darkest := 1.0
+		var brightest := 0.0
+		for i in 64:
+			var pixel := image.get_pixel((i * 37) % image.get_width(), (i * 101) % image.get_height())
+			distinct[pixel.to_rgba32()] = true
+			darkest = minf(darkest, pixel.get_luminance())
+			brightest = maxf(brightest, pixel.get_luminance())
+		_check(distinct.size() >= 16, "ground texture is non-uniform (%d distinct colours in 64 samples)" % distinct.size())
+		_check(brightest - darkest > 0.1, "ground texture has visible contrast (luminance %.2f..%.2f)" % [darkest, brightest])
+		var again := AsphaltTexture.build_image(TestPad.GROUND_TEXTURE_SIZE, TestPad.GROUND_TEXTURE_SEED)
+		_check(again.get_data() == image.get_data(), "ground texture is deterministic (same seed, same pixels)")
+	var ticks := pad.get_node_or_null("MotionTicks") as MultiMeshInstance3D
+	_check(ticks != null and ticks.multimesh.instance_count > 1000, "motion ticks cover the ground")
+
+	# What the missions ask the pad.
+	var slalom := pad.get_cone_positions(TestPad.GROUP_SLALOM)
+	_check(slalom.size() == TestPad.SLALOM_CONE_COUNT and slalom == TestPad.slalom_cone_positions(), "pad reports its %d slalom cones" % slalom.size())
+	_check(root.get_tree().get_nodes_in_group(TestPad.GROUP_SLALOM).size() == slalom.size(), "slalom cones are in their node group")
+	var circle := TestPad.skid_circle()
+	var inner := pad.get_cone_positions(TestPad.GROUP_SKID_INNER)
+	var outer := pad.get_cone_positions(TestPad.GROUP_SKID_OUTER)
+	var on_circle := not inner.is_empty() and not outer.is_empty()
+	for cone in inner:
+		on_circle = on_circle and is_equal_approx(cone.distance_to(circle.centre), circle.inner_radius)
+	for cone in outer:
+		on_circle = on_circle and is_equal_approx(cone.distance_to(circle.centre), circle.outer_radius)
+	_check(on_circle, "pad reports the skid circle cones (%d inner, %d outer)" % [inner.size(), outer.size()])
+	_check(pad.get_cone_positions(TestPad.GROUP_STOP_BOX).size() == 4, "stop box has its four corner cones")
+
+	# Cones never block: drive straight over the first slalom cone.
+	var cone := slalom[0]
+	var spawn := car.get_spawn_transform()
+	car.reset_to(Transform3D(spawn.basis, Vector3(cone.x, spawn.origin.y, cone.z + 40.0)))
+	pad.reset_cones()
+	await _step(10)
+	Input.action_press("accelerate")
+	var speed_at_cone := 0.0
+	var slowed := false
+	for frame in 300:
+		var speed_before := car.forward_speed
+		await physics_frame
+		if car.forward_speed < speed_before - 0.05:
+			slowed = true
+		if speed_at_cone == 0.0 and car.global_position.z <= cone.z:
+			speed_at_cone = car.forward_speed
+		if car.global_position.z < cone.z - 10.0:
+			break
+	Input.action_release("accelerate")
+	_check(car.global_position.z < cone.z - 10.0 and speed_at_cone > 5.0, "car drives through a cone (%.1f m/s at the cone)" % speed_at_cone)
+	_check(not slowed and absf(car.global_position.x - cone.x) < 0.01, "the cone does not slow or deflect the car (x off by %.3f m)" % absf(car.global_position.x - cone.x))
+	_check(pad.is_cone_toppled(TestPad.GROUP_SLALOM, cone) and pad.get_toppled_count(TestPad.GROUP_SLALOM) == 1, "the cone it hit topples (and only that one)")
+	pad.reset_cones()
+	_check(pad.get_toppled_count(TestPad.GROUP_SLALOM) == 0, "resetting stands the cones back up")
 	car.reset_to_spawn()
 	await _step(5)
 
