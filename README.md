@@ -36,25 +36,58 @@ The car uses a custom arcade controller in plain GDScript (`scripts/car.gd`), no
 vehicle physics. Every handling parameter lives in the commented `DRIVING FEEL TUNING`
 block at the top of that file.
 
-The car is a two-axle model driven by tyre forces. Each axle turns its slip angle into
-a sideways force through a tyre curve (peak of `TYRE_MU` x axle load at
-`FRONT_PEAK_SLIP_ANGLE` / `REAR_PEAK_SLIP_ANGLE`, easing to `TYRE_SLIDE_GRIP` of that
-once the tyre slides); the forces push the 1300 kg sideways and wind its yaw inertia
-(`YAW_GYRATION_RADIUS`) up and down, so turn-in takes a moment and the weight carries
-through. Grip spent on braking or drive is not there for cornering (friction ellipse,
-`MIN_COMBINED_GRIP`), and braking is what the tyres can hold: about 1 g
-(`BRAKE_DECEL_G`), ~34 m from 90 km/h.
+#### Under the hood
+
+The car goes by its tyres. It is a rigid body on two axles carrying a velocity and a yaw
+rate, and nothing moves it but forces at the contact patches. Every physics tick each
+axle looks at how its patch really moves over the road: the slip angle (where the wheels
+point against where that end of the car is going) and the slip ratio (wheel speed against
+road speed, wound up by engine and brake torque) make one slip vector, which goes through
+a tyre curve (peak of `TYRE_MU` x axle load at `FRONT_PEAK_SLIP_ANGLE` /
+`REAR_PEAK_SLIP_ANGLE` / `PEAK_SLIP_RATIO`, easing to `TYRE_SLIDE_GRIP` of that once the
+tyre slides). The force points against the slip, so a tyre has one grip to share between
+driving, braking and cornering (friction circle, with `MIN_COMBINED_GRIP` as the arcade
+floor). The forces act along and across each wheel's heading; their sum accelerates the
+1300 kg, their moments about the centre of mass wind the yaw inertia
+(`YAW_GYRATION_RADIUS`) up and down. Heading and direction of travel are separate things,
+tied together only by the tyres: the steering sets the front wheel angle
+(`MAX_STEER_LOCK`, eased by `STEER_SLIP_REACH` so a key press asks the front tyres for
+their grip rather than 27 degrees of lock at speed) and nothing else.
+
+- **Driven wheels** - `DRIVEN_WHEELS` is `RWD`, `FWD` or `AWD` (`TORQUE_DISTRIBUTION`
+  front / rear). The Boxster is `RWD`. Nothing about the layouts is scripted: rear drive
+  spends rear grip and pushes, so full throttle in a low gear steps the tail out; front
+  drive pulls and steers with the same tyres, so power pushes the nose wide and a launch
+  is traction-limited as the load moves off the driven axle; all-wheel drive sits in
+  between and puts the most power down. On/off keys cannot feather a throttle, so
+  wheelspin is held at `DRIVE_SLIP_RATIO`.
+- **Brake bias** - the foot brake is split `BRAKE_BIAS_FRONT` (0.6) front / rear, each axle
+  capped by its own grip with ABS holding the wheels at `ABS_SLIP_RATIO`. A full stop has
+  the fronts at their limit and the rears under theirs: about 0.9 g, ~36 m from 90 km/h,
+  the nose pushing wide if you brake and steer at once. The handbrake locks the rear
+  wheels outright.
+- **Weight and aero** - axle loads shift forward under braking and rearward under power
+  (`CG_HEIGHT`), and grow with speed from downforce (`DOWNFORCE_COEFF`, split by
+  `AERO_BALANCE_FRONT`), so fast corners hold more than slow ones and the tail gets more
+  planted the faster you go. Drag is `DRAG_COEFF` x `FRONTAL_AREA`; top speed ~234 km/h.
+- **Low-speed blend** - a force model degenerates at a standstill, so below
+  `LOW_SPEED_BLEND_END` (4 m/s) the forces are blended with plain rolling geometry:
+  parking is precise, the car stands still on the brake, and there is no visible switch.
 
 Slides and spins: the handbrake locks the rear wheels, which then only drag and barely
-hold the tail sideways. A stability assist (`SLIDE_YAW_DAMPING`) damps yaw the steering
-did not ask for and keeps ordinary slides catchable, but fades once the nose points more
-than ~25 degrees away from the direction of travel (`SPIN_COMMIT_ANGLE`) and is off
-while the handbrake is held, so a committed flick goes all the way round. A tap of
-handbrake with steering gives a tidy 90 degree turn; holding both from ~90 km/h, with
-the brakes once the car is nearly round, gives a 180; from ~125 km/h, steering the other
-way while the car travels backwards and releasing the handbrake past half way completes
-a 360. In reverse there is no assist: a flick of the steering at ~40 km/h swings the
-nose round (J-turn).
+hold the tail sideways. A stability assist (`SLIDE_YAW_DAMPING`, bounded by
+`MAX_ASSIST_YAW_ACCEL`) leans on the nose swinging away from the direction of travel; it
+compares the yaw rate with the rate the tyre forces are really bending the path, knows
+nothing about where the steering points and never turns the car for you. A key held into
+a slide loses its bite (`SLIDE_CATCH_ANGLE` .. `SLIDE_RELEASE_ANGLE`) and the front wheels
+trail into line, so ordinary slides come back. The assist fades once the tail is more
+than ~25 degrees out (`SPIN_COMMIT_ANGLE`) and is off while the handbrake is held, so a
+committed flick goes all the way round. A tap of handbrake with steering gives a drift
+that comes back on its own; holding both from ~90 km/h until the car is nearly round,
+then centring the steering and braking once it has lined up, gives a 180; from ~125 km/h,
+steering the other way while the car travels backwards and releasing the handbrake past
+half way completes a 360. In reverse there is no assist: a flick of the steering at
+~40 km/h swings the nose round (J-turn).
 
 The test pad is built to make motion readable: noise-textured asphalt with repair
 patches, ground ticks every 10 m, a chequered START / FINISH zone, painted skid pad
@@ -68,7 +101,10 @@ tests/run_tests.sh
 ```
 
 Runs a headless import, then `tests/smoke_test.gd`, which loads the main scene and
-drives the car with simulated input, then the handling tests below, then
+drives the car with simulated input (including the fences round the force model: power
+against coasting through the same corner, cornering force building tick by tick, the
+RWD / FWD / AWD signatures, brake bias, downforce and the low-speed blend), then the
+handling tests below, then
 `tests/camera_test.gd` (cycles the camera through its four views and drives under each)
 and `tests/mission_test.gd` (plays every mission through the mission manager with the
 scripted driver pressing the keys, plus one run with its steering held off that has to
