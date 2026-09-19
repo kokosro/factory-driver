@@ -30,11 +30,13 @@ const EXPECTED_METRICS := {
 	HandlingTests.KIND_SLALOM: ["gates_passed", "cones_hit", "slalom_time_s", "run_time_s"],
 	HandlingTests.KIND_SPIN: ["rotation_deg", "heading_error_deg", "run_time_s"],
 	HandlingTests.KIND_STOP_BOX: ["box_margin_m", "centre_error_m", "run_time_s"],
+	HandlingTests.KIND_REVERSE_SPIN: ["rotation_deg", "heading_error_deg", "exit_speed_ms", "run_time_s"],
 }
 const EXPECTED_HUD_WORD := {
 	HandlingTests.KIND_SLALOM: "GATE",
 	HandlingTests.KIND_SPIN: "ROTATION",
 	HandlingTests.KIND_STOP_BOX: "BRAKE!",
+	HandlingTests.KIND_REVERSE_SPIN: "ROTATION",
 }
 
 const STEERING: Array[StringName] = [&"steer_left", &"steer_right"]
@@ -78,10 +80,15 @@ func _run() -> void:
 
 	_check(_manager.state == MissionManager.State.IDLE, "manager starts idle")
 	_check(not _banner.visible, "no banner while idle")
-	_check(_mission_label.text.contains("1 ") and _mission_label.text.contains("4 "), "idle mission line lists the test keys ('%s')" % _mission_label.text)
+	var tests := HandlingTests.all_tests()
+	_check(tests.size() == 5 and MissionManager.START_ACTIONS.size() == tests.size(), "five tests, one start key each (%d tests, %d keys)" % [tests.size(), MissionManager.START_ACTIONS.size()])
+	var listed := true
+	for index in tests.size():
+		listed = listed and _mission_label.text.contains("%d %s" % [index + 1, tests[index].title])
+		listed = listed and InputMap.has_action(MissionManager.START_ACTIONS[index])
+	_check(listed, "idle mission line lists every test with its key, and every key has its input action ('%s')" % _mission_label.text)
 	_check(not _manager.start_mission(99), "starting a test that does not exist is refused")
 
-	var tests := HandlingTests.all_tests()
 	for index in tests.size():
 		await _play_mission(index, tests[index], false)
 	_check(_finished_signals == tests.size(), "mission_finished fired once per mission (%d)" % _finished_signals)
@@ -106,7 +113,7 @@ func _play_mission(index: int, definition: Dictionary, suppress_steering: bool) 
 	_check(not _manager.run.scripted, "%s: the manager's run is a human run" % label)
 	_check(not _banner.visible, "%s: starting clears the banner" % label)
 	_check(_mission_label.text.contains(definition.title), "%s: mission line shows at once ('%s')" % [label, _mission_label.text.get_slice("\n", 0)])
-	_check(not _manager.start_mission((index + 1) % 4), "%s: other tests are refused while it runs" % label)
+	_check(not _manager.start_mission((index + 1) % MissionManager.START_ACTIONS.size()), "%s: other tests are refused while it runs" % label)
 
 	var pilot := HandlingTests.begin(definition, _car, _pad, true)
 	var delta := 1.0 / Engine.physics_ticks_per_second

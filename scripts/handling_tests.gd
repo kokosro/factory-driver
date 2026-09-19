@@ -35,6 +35,7 @@ extends RefCounted
 const KIND_SLALOM := &"slalom"
 const KIND_SPIN := &"spin"
 const KIND_STOP_BOX := &"stop_box"
+const KIND_REVERSE_SPIN := &"reverse_spin"
 
 # --- Pass / fail tolerances ---------------------------------------------------
 
@@ -61,6 +62,20 @@ const STOPPED_SPEED := 0.3
 ## Stop box: the car must have been at least this fast before braking [m/s],
 ## so crawling up to the box does not count (72 km/h).
 const STOP_BOX_MIN_ENTRY_SPEED := 20.0
+
+## Reverse 180: the car must end within this of having turned half way round,
+## either way [degrees] ...
+const REVERSE_180_HEADING_TOLERANCE_DEG := 35.0
+
+## ... driving away nose-first at this speed or more [m/s] (18 km/h) ...
+const REVERSE_180_MIN_EXIT_SPEED := 5.0
+
+## ... having got at least this fast in reverse first [m/s] (36 km/h) ...
+const REVERSE_180_MIN_ENTRY_SPEED := 10.0
+
+## ... and having kept moving the way it was reversing: further than this along
+## that line since the manoeuvre started [m].
+const REVERSE_180_MIN_DISPLACEMENT := 0.0
 
 # --- Scripted driver ------------------------------------------------------------
 
@@ -92,6 +107,17 @@ const SPIN_360_ENTRY_SPEED := 35.0
 ## How long the 180's opening feint to the right lasts [s].
 const SPIN_180_FEINT_TIME := 1.0
 
+## Reverse 180: reversing speed at which the scripted driver flicks the car
+## round [m/s], ~41 km/h; reverse gear tops out at 43 ...
+const REVERSE_180_FLICK_SPEED := 11.5
+
+## ... how far round it lets the nose swing before steering against the
+## rotation to stop it [degrees] ...
+const REVERSE_180_CATCH_DEG := 140.0
+
+## ... and the speed it drives away to before the run ends [m/s].
+const REVERSE_180_DRIVE_AWAY_SPEED := 10.0
+
 ## Stop box: speed the scripted driver builds before coasting in [m/s] ...
 const STOP_BOX_APPROACH_SPEED := 25.0
 
@@ -117,6 +143,7 @@ var _rotation := 0.0  # Unwrapped yaw since the start [rad], left positive.
 var _mark_position: Vector3
 var _marked := false
 var _peak_speed := 0.0
+var _peak_reverse_speed := 0.0
 var _timed_out := false
 
 # Slalom tracking.
@@ -131,7 +158,7 @@ var _slalom_time := -1.0
 # =============================================================================
 
 static func all_tests() -> Array[Dictionary]:
-	return [slalom_test(), spin_180_test(), spin_360_test(), stop_box_test()]
+	return [slalom_test(), spin_180_test(), spin_360_test(), stop_box_test(), reverse_180_test()]
 
 
 ## Weave through the pad's slalom line: first cone on the car's left (pass to
@@ -256,6 +283,36 @@ static func stop_box_test() -> Dictionary:
 	}
 
 
+## J-turn: reverse down the straight, flick the steering so the nose swings
+## round, and drive away forwards along the same line without stopping. The
+## car starts facing back up the straight, so it reverses the usual way down
+## it. Reverse is a fresh press of the brake key at a standstill; forward is a
+## fresh press of the accelerate key once the car rolls nose-first.
+static func reverse_180_test() -> Dictionary:
+	return {
+		"name": "REVERSE_180",
+		"kind": KIND_REVERSE_SPIN,
+		"title": "REVERSE 180",
+		"objective": "J-turn: reverse to %.0f km/h or more, flick the nose round and drive away forwards." % (REVERSE_180_MIN_ENTRY_SPEED * 3.6),
+		"target_rotation_deg": 180.0,
+		"start_offset": Vector3.ZERO,
+		"start_heading_deg": 180.0,
+		"steps": [
+			{"when": {}, "press": [&"brake"]},
+			# Lift and flick: the front of a reversing car trails, so once it
+			# steps out it swings all the way round.
+			{"when": {"speed_above": REVERSE_180_FLICK_SPEED}, "release": [&"brake"], "press": [&"steer_left"], "mark": true},
+			# Rolling nose-first now: select forward, and steer against the
+			# rotation to stop it.
+			{"when": {"rotation_deg_below": -REVERSE_180_CATCH_DEG}, "release": [&"steer_left"], "press": [&"steer_right", &"accelerate"]},
+			{"when": {"rotation_deg_below": -170.0}, "release": [&"steer_right"]},
+			{"when": {"speed_above": REVERSE_180_DRIVE_AWAY_SPEED}},
+		],
+		"settle": 1.0,
+		"time_limit": 30.0,
+	}
+
+
 # =============================================================================
 #  Running one test
 # =============================================================================
@@ -302,6 +359,7 @@ func tick(delta: float) -> void:
 	_rotation += angle_difference(_previous_yaw, yaw)
 	_previous_yaw = yaw
 	_peak_speed = maxf(_peak_speed, _speed())
+	_peak_reverse_speed = maxf(_peak_reverse_speed, -car.forward_speed)
 	if test.kind == KIND_SLALOM:
 		_track_slalom()
 
@@ -329,6 +387,8 @@ func describe_state() -> String:
 ## `kind`; the rest depends on it:
 ##   slalom    gates_reached, gates_total
 ##   spin      rotation_deg (left positive), target_rotation_deg
+##   reverse spin  the same, plus reverse_speed_ms and up_to_speed (reversed
+##             fast enough to count)
 ##   stop box  distance_to_box_m (along the start heading, to the centre of the
 ##             box; negative once past it), up_to_speed (fast enough to count)
 func progress() -> Dictionary:
@@ -337,6 +397,14 @@ func progress() -> Dictionary:
 			return {"kind": test.kind, "gates_reached": _gate_index, "gates_total": _gates.size()}
 		KIND_SPIN:
 			return {"kind": test.kind, "rotation_deg": rad_to_deg(_rotation), "target_rotation_deg": test.target_rotation_deg}
+		KIND_REVERSE_SPIN:
+			return {
+				"kind": test.kind,
+				"rotation_deg": rad_to_deg(_rotation),
+				"target_rotation_deg": test.target_rotation_deg,
+				"reverse_speed_ms": maxf(-car.forward_speed, 0.0),
+				"up_to_speed": _peak_reverse_speed >= REVERSE_180_MIN_ENTRY_SPEED,
+			}
 		_:
 			var box := TestPad.stop_box()
 			var to_box: Vector3 = box.centre - car.global_position
@@ -364,6 +432,8 @@ func result() -> Dictionary:
 			_judge_spin(checks, metrics)
 		KIND_STOP_BOX:
 			_judge_stop_box(checks, metrics)
+		KIND_REVERSE_SPIN:
+			_judge_reverse_spin(checks, metrics)
 	checks.append({"label": "finished inside the time limit", "passed": not _timed_out})
 	metrics["run_time_s"] = snappedf(elapsed, 0.01)
 	var passed := true
@@ -485,6 +555,8 @@ func _is_complete() -> bool:
 			return _gate_index >= _gates.size()
 		KIND_SPIN:
 			return absf(rad_to_deg(_rotation)) > 90.0 and _speed() < STOPPED_SPEED
+		KIND_REVERSE_SPIN:
+			return absf(rad_to_deg(_rotation)) > 90.0 and car.forward_speed >= REVERSE_180_MIN_EXIT_SPEED
 		_:
 			return _peak_speed >= STOP_BOX_MIN_ENTRY_SPEED and _speed() < STOPPED_SPEED
 
@@ -553,6 +625,35 @@ func _judge_spin(checks: Array[Dictionary], metrics: Dictionary) -> void:
 	checks.append({
 		"label": "net forward displacement positive (%.1f m)" % displacement,
 		"passed": (_marked or not scripted) and displacement > SPIN_MIN_FORWARD_DISPLACEMENT,
+	})
+
+
+func _judge_reverse_spin(checks: Array[Dictionary], metrics: Dictionary) -> void:
+	var target: float = test.target_rotation_deg
+	var rotation_deg := rad_to_deg(_rotation)
+	var heading_error := absf(absf(rotation_deg) - target)
+	# The car reverses against its start heading and keeps going that way.
+	var displacement := (car.global_position - _mark_position).dot(-_start_forward)
+	metrics["rotation_deg"] = snappedf(rotation_deg, 0.1)
+	metrics["heading_error_deg"] = snappedf(heading_error, 0.1)
+	metrics["net_travel_m"] = snappedf(displacement, 0.1)
+	metrics["reverse_speed_ms"] = snappedf(_peak_reverse_speed, 0.1)
+	metrics["exit_speed_ms"] = snappedf(car.forward_speed, 0.1)
+	checks.append({
+		"label": "rotation within %.0f deg of %.0f (off by %.1f)" % [REVERSE_180_HEADING_TOLERANCE_DEG, target, heading_error],
+		"passed": heading_error <= REVERSE_180_HEADING_TOLERANCE_DEG,
+	})
+	checks.append({
+		"label": "reversed at %.0f m/s or more (peak %.1f)" % [REVERSE_180_MIN_ENTRY_SPEED, _peak_reverse_speed],
+		"passed": _peak_reverse_speed >= REVERSE_180_MIN_ENTRY_SPEED,
+	})
+	checks.append({
+		"label": "drives away forwards at %.0f m/s or more (%.1f)" % [REVERSE_180_MIN_EXIT_SPEED, car.forward_speed],
+		"passed": car.forward_speed >= REVERSE_180_MIN_EXIT_SPEED,
+	})
+	checks.append({
+		"label": "net travel along the reversing line positive (%.1f m)" % displacement,
+		"passed": (_marked or not scripted) and displacement > REVERSE_180_MIN_DISPLACEMENT,
 	})
 
 

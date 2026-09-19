@@ -1,6 +1,6 @@
 class_name MissionManager
 extends Node
-## Mission mode: the handling tests with a human at the wheel. Keys 1-4 put the
+## Mission mode: the handling tests with a human at the wheel. Keys 1-5 put the
 ## car on a test's start point and begin a run, Esc or R abort it, and the HUD
 ## shows progress during the run and PASSED / FAILED after it.
 ##
@@ -17,7 +17,7 @@ signal mission_aborted(index: int)
 enum State { IDLE, RUNNING, RESULT }
 
 ## Input actions that start a test, in the order of HandlingTests.all_tests().
-const START_ACTIONS: Array[StringName] = [&"test_1", &"test_2", &"test_3", &"test_4"]
+const START_ACTIONS: Array[StringName] = [&"test_1", &"test_2", &"test_3", &"test_4", &"test_5"]
 
 ## How long the PASSED / FAILED banner stays up unless dismissed [s] ...
 const RESULT_BANNER_TIME := 5.0
@@ -165,6 +165,11 @@ func _progress_text() -> String:
 		HandlingTests.KIND_SLALOM:
 			return "GATE %d/%d" % [progress.gates_reached, progress.gates_total]
 		HandlingTests.KIND_SPIN:
+			return "ROTATION %d° / %d°" % [roundi(absf(progress.rotation_deg)), roundi(progress.target_rotation_deg)]
+		HandlingTests.KIND_REVERSE_SPIN:
+			if not progress.up_to_speed:
+				var wanted := roundi(HandlingTests.REVERSE_180_MIN_ENTRY_SPEED * 3.6)
+				return "REVERSE %d/%d km/h" % [roundi(progress.reverse_speed_ms * 3.6), wanted]
 			return "ROTATION %d° / %d°" % [roundi(absf(progress.rotation_deg)), roundi(progress.target_rotation_deg)]
 		_:
 			var distance: float = progress.distance_to_box_m
