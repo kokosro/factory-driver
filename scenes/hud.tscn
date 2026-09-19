@@ -25,14 +25,35 @@ text = "0 km/h"
 horizontal_alignment = 2
 vertical_alignment = 2
 
+[node name="RpmLabel" type="Label" parent="."]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -440.0
+offset_top = -170.0
+offset_right = -40.0
+offset_bottom = -115.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 1, 1, 1)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 8
+theme_override_font_sizes/font_size = 32
+text = "900 rpm | G1"
+horizontal_alignment = 2
+vertical_alignment = 2
+
 [node name="ControlsLabel" type="Label" parent="."]
 offset_left = 24.0
 offset_top = 18.0
-offset_right = 624.0
+offset_right = 824.0
 offset_bottom = 118.0
 theme_override_colors/font_color = Color(1, 1, 1, 0.85)
 theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
 theme_override_constants/outline_size = 6
 theme_override_font_sizes/font_size = 18
 text = "Up / W  accelerate      Down / S  brake, then reverse
-Left / A, Right / D  steer      R  reset car"
+Left / A, Right / D  steer      Space  handbrake      R  reset car
+Q / E  shift down / up (manual)      M  automatic / manual"
