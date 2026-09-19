@@ -13,6 +13,9 @@ extends CharacterBody3D
 ## rear lets go (handbrake), the unscrubbed rear slip swings the tail out and
 ## adds extra yaw on top of the steering (slide_yaw_rate). With equal grip on
 ## both axles the car simply scrubs slip away and never slides on its own.
+## Tyres saturate (TYRE_SLIDE_DECEL), so a car thrown sideways keeps its
+## momentum, and the stability assist fades at big slip angles
+## (SPIN_COMMIT_ANGLE), so a committed handbrake flick becomes a 180 or a 360.
 ##
 ## Drivetrain: throttle drives the rear wheels through a torque curve, a
 ## 5-speed gearbox and a final drive; the resulting force is capped by what the
@@ -237,13 +240,42 @@ const STEER_RESPONSE := 5.0
 ## Arcade stability assist: how quickly any extra tail-out yaw dies away on its
 ## own [1/s]. Keeps a handbrake slide controllable instead of an instant spin.
 ## Lower = wilder slides that spin more easily, higher = tamer.
-const SLIDE_YAW_DAMPING := 12.0
+## Was 12.0: the tail could never build enough swing to reach a spin.
+const SLIDE_YAW_DAMPING := 8.0
+
+## Stability assist left once the car is committed to a spin [1/s]. Low, so
+## the rotation carries on under its own momentum through a 180 or a 360.
+const SPIN_YAW_DAMPING := 0.3
+
+## Slip angle (nose vs direction of travel) where the stability assist starts
+## to fade [rad]. Below it slides stay tame and catchable.
+const SPIN_COMMIT_ANGLE := 0.45
+
+## Slip angle from which the assist is down to SPIN_YAW_DAMPING [rad]. Also
+## covers travelling backwards mid-spin. Coming back under it at the end of a
+## spin, the assist returns and settles the car.
+const SPIN_FREE_ANGLE := 1.05
+
+## Below this speed [m/s] the slip angle means nothing and the full assist
+## applies.
+const SPIN_MIN_SPEED := 2.0
+
+## Tyre saturation: the most sideways deceleration one axle can deliver once it
+## is properly sliding [m/s^2], at static load. Below the limit the axle scrubs
+## slip exponentially (the *_LATERAL_GRIP rates); past it the tyres just drag at
+## this constant rate, so a car thrown sideways keeps moving and can spin
+## instead of stopping dead. Sits above the hardest steady cornering the
+## steering can ask for (see STEER_FALLOFF_SPEED), so grip driving never
+## touches it. Scaled like the grip rates (load, drive force, handbrake).
+const TYRE_SLIDE_DECEL := 16.0
 
 # --- Handbrake ---------------------------------------------------------------
 
-## Rear grip multiplier while the handbrake is fully on (0..1). 0.2 leaves the
-## rear with a fifth of its grip, so steering into a corner kicks the tail out.
-const HANDBRAKE_REAR_GRIP_FACTOR := 0.2
+## Rear grip multiplier while the handbrake is fully on (0..1). 0.15 leaves the
+## rear with a seventh of its grip, so steering into a corner kicks the tail out.
+## Was 0.2: a looser locked rear swings round harder, enough for a 360 from
+## ~110 km/h.
+const HANDBRAKE_REAR_GRIP_FACTOR := 0.15
 
 ## Extra deceleration while the handbrake is held [m/s^2], on top of coasting.
 ## Much gentler than BRAKE_DECEL: it is for sliding, not for stopping.
@@ -417,11 +449,11 @@ func _physics_process(delta: float) -> void:
 	rear_grip *= lerpf(1.0, HANDBRAKE_REAR_GRIP_FACTOR, _handbrake_amount)
 	var front_slip := lateral_speed - slide_yaw_rate * AXLE_DISTANCE
 	var rear_slip := lateral_speed + slide_yaw_rate * AXLE_DISTANCE
-	front_slip *= exp(-front_grip * delta)
-	rear_slip *= exp(-rear_grip * delta)
+	front_slip = _scrub_slip(front_slip, front_grip, FRONT_LATERAL_GRIP, delta)
+	rear_slip = _scrub_slip(rear_slip, rear_grip, REAR_LATERAL_GRIP, delta)
 	lateral_speed = (front_slip + rear_slip) * 0.5
 	slide_yaw_rate = (rear_slip - front_slip) / (2.0 * AXLE_DISTANCE)
-	slide_yaw_rate *= exp(-SLIDE_YAW_DAMPING * delta)
+	slide_yaw_rate *= exp(-_slide_yaw_damping() * delta)
 
 	# 5. Steering: turn the body. The velocity is rebuilt from the directions of
 	#    *before* the turn, so the nose rotates away from the direction of travel
@@ -586,6 +618,25 @@ func _update_gearbox(speed: float, throttle: float, reversing: bool, delta: floa
 ## carries `static_load` at rest: 1.0 at rest, sub-linear in load.
 func _load_grip(load: float, static_load: float) -> float:
 	return pow(maxf(load, 0.0) / static_load, LOAD_GRIP_EXPONENT)
+
+
+## Stability assist strength right now [1/s]: SLIDE_YAW_DAMPING while the car
+## points roughly where it is going, fading to SPIN_YAW_DAMPING as the slip
+## angle (nose vs direction of travel, 0..PI) grows past SPIN_COMMIT_ANGLE.
+func _slide_yaw_damping() -> float:
+	if Vector2(forward_speed, lateral_speed).length() < SPIN_MIN_SPEED:
+		return SLIDE_YAW_DAMPING
+	var slip_angle := absf(atan2(lateral_speed, forward_speed))
+	var spin := smoothstep(SPIN_COMMIT_ANGLE, SPIN_FREE_ANGLE, slip_angle)
+	return lerpf(SLIDE_YAW_DAMPING, SPIN_YAW_DAMPING, spin)
+
+
+## One tick of an axle scrubbing its sideways slip [m/s] at `grip` [1/s]. The
+## tyres saturate: the slip never drops faster than TYRE_SLIDE_DECEL, scaled by
+## how much of the axle's `static_grip` is left (load, drive force, handbrake).
+func _scrub_slip(slip: float, grip: float, static_grip: float, delta: float) -> float:
+	var max_scrub := TYRE_SLIDE_DECEL * grip / static_grip * delta
+	return move_toward(slip, slip * exp(-grip * delta), max_scrub)
 
 
 ## Returns the yaw rate [rad/s] for a steering amount (-1..1) at a given speed.
