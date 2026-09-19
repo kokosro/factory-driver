@@ -1,0 +1,45 @@
+[gd_scene format=3]
+
+[sub_resource type="StandardMaterial3D" id="mat_tire"]
+albedo_color = Color(0.06, 0.06, 0.07, 1)
+roughness = 0.9
+
+[sub_resource type="CylinderMesh" id="mesh_tire"]
+material = SubResource("mat_tire")
+top_radius = 0.34
+bottom_radius = 0.34
+height = 0.26
+radial_segments = 24
+rings = 1
+
+[sub_resource type="StandardMaterial3D" id="mat_rim"]
+albedo_color = Color(0.78, 0.8, 0.82, 1)
+metallic = 0.6
+roughness = 0.35
+
+[sub_resource type="CylinderMesh" id="mesh_rim"]
+material = SubResource("mat_rim")
+top_radius = 0.2
+bottom_radius = 0.2
+height = 0.28
+radial_segments = 16
+rings = 1
+
+[sub_resource type="BoxMesh" id="mesh_spoke"]
+material = SubResource("mat_rim")
+size = Vector3(0.3, 0.56, 0.07)
+
+[node name="Wheel" type="Node3D"]
+
+[node name="Spin" type="Node3D" parent="."]
+
+[node name="Tire" type="MeshInstance3D" parent="Spin"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("mesh_tire")
+
+[node name="Rim" type="MeshInstance3D" parent="Spin"]
+transform = Transform3D(0, -1, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0)
+mesh = SubResource("mesh_rim")
+
+[node name="Spoke" type="MeshInstance3D" parent="Spin"]
+mesh = SubResource("mesh_spoke")
