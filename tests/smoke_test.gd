@@ -5,8 +5,8 @@ extends SceneTree
 ##   godot --headless --path . --script res://tests/smoke_test.gd
 ##
 ## Loads the main scene, checks the key nodes exist, then drives the car with
-## simulated input and checks it accelerates, steers, brakes, reverses and
-## slides under the handbrake.
+## simulated input and checks it accelerates, steers, brakes, reverses,
+## slides under the handbrake, shifts gears and moves load between the axles.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -122,7 +122,101 @@ func _run() -> void:
 	await _step(5)
 	_check(car.global_position.length() < 0.1 and car.slide_yaw_rate == 0.0, "reset also clears the slide")
 
+	await _check_drivetrain(car, main.get_node_or_null("HUD/RpmLabel") as Label)
+
 	_finish()
+
+
+## Gears, RPM, manual shifting and weight transfer.
+func _check_drivetrain(car: ArcadeCar, rpm_label: Label) -> void:
+	var static_rear := ArcadeCar.REAR_WEIGHT_FRACTION
+	var static_front := 1.0 - static_rear
+	var stats := _new_stats()
+
+	car.reset_to_spawn()
+	await _step(10)
+	_check(rpm_label != null, "HUD with tach label exists")
+	if rpm_label == null:
+		return
+	_check(car.gear == 1 and car.automatic, "resting car sits in 1st, automatic (G%d)" % car.gear)
+	_check(rpm_label.text.contains("rpm") and rpm_label.text.ends_with("G1"), "HUD tach shows rpm and gear ('%s')" % rpm_label.text)
+
+	# Full throttle from rest in automatic: 1st gear pulls, load moves rearward,
+	# RPM climbs with speed, then an upshift drops it.
+	Input.action_press("accelerate")
+	await _drive(car, 60, stats)
+	_check(car.rear_load_fraction > static_rear + 0.05, "acceleration shifts load rearward (rear %.2f, static %.2f)" % [car.rear_load_fraction, static_rear])
+	var gear_early := car.gear
+	var rpm_early := car.engine_rpm
+	await _drive(car, 30, stats)
+	_check(car.gear == gear_early and car.engine_rpm > rpm_early + 500.0, "RPM rises with speed in a fixed gear (G%d: %d -> %d rpm)" % [car.gear, rpm_early, car.engine_rpm])
+	var rpm_before_shift := car.engine_rpm
+	var tach_red := false
+	for frame in 300:
+		if car.gear != gear_early:
+			break
+		rpm_before_shift = car.engine_rpm
+		tach_red = rpm_label.get_theme_color("font_color") == rpm_label.get_parent().TACH_REDLINE_COLOR
+		await _drive(car, 1, stats)
+	_check(car.gear == gear_early + 1, "automatic shifts up under throttle (G%d -> G%d)" % [gear_early, car.gear])
+	_check(stats.peak_traction_use > 0.999, "rear traction limit caps the drive force in 1st (use %.3f)" % stats.peak_traction_use)
+	_check(tach_red, "HUD tach turns the warning colour near redline")
+	await _drive(car, roundi(ArcadeCar.SHIFT_TIME * 60.0) + 6, stats)
+	_check(car.engine_rpm < rpm_before_shift - 1500.0, "RPM drops on the upshift (%d -> %d rpm)" % [rpm_before_shift, car.engine_rpm])
+
+	# Keep the throttle pinned: the gears keep coming and the car keeps pulling
+	# far past what 1st gear alone could reach.
+	var first_gear_top := car.speed_at_rpm(1, ArcadeCar.REDLINE_RPM)
+	await _drive(car, 1200, stats)
+	_check(car.gear >= 4, "gears advance under sustained throttle (G%d after 20 s)" % car.gear)
+	_check(car.forward_speed > first_gear_top * 2.0, "speed keeps rising through the gears (%.1f m/s, 1st tops out at %.1f)" % [car.forward_speed, first_gear_top])
+	Input.action_release("accelerate")
+
+	# Braking at speed pitches the load onto the front axle.
+	Input.action_press("brake")
+	await _drive(car, 20, stats)
+	Input.action_release("brake")
+	_check(car.front_load_fraction > static_front + 0.1, "braking shifts load forward (front %.2f, static %.2f)" % [car.front_load_fraction, static_front])
+
+	# The skidpad complaint: ~60 km/h in 4th has no pull; dropping to 2nd
+	# brings the revs and the acceleration back.
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	for frame in 600:
+		if car.forward_speed >= 16.7:
+			break
+		await _drive(car, 1, stats)
+	Input.action_release("accelerate")
+	while car.gear < 4:
+		var gear_was := car.gear
+		await _tap("shift_up")
+		await _drive(car, 15, stats)
+		if car.gear == gear_was:
+			break
+	_check(car.gear == 4 and not car.automatic, "shift-up key selects 4th and switches to manual (G%d)" % car.gear)
+	_check(rpm_label.text.ends_with("G4 M"), "HUD flags manual mode ('%s')" % rpm_label.text)
+	var accel_4th := await _measure_pull(car, stats)
+	var rpm_4th := car.engine_rpm
+	_check(car.gear == 4, "manual mode holds the gear at low revs (G%d, %d rpm)" % [car.gear, rpm_4th])
+	await _tap("shift_down")
+	await _drive(car, 15, stats)
+	await _tap("shift_down")
+	await _drive(car, 15, stats)
+	var accel_2nd := await _measure_pull(car, stats)
+	var rpm_2nd := car.engine_rpm
+	_check(car.gear == 2, "shift-down key drops to 2nd (G%d)" % car.gear)
+	_check(rpm_2nd > rpm_4th * 1.5, "downshift raises the revs (%d -> %d rpm)" % [rpm_4th, rpm_2nd])
+	_check(accel_2nd > accel_4th * 1.5, "downshift restores the pull (%.2f -> %.2f m/s^2 at ~60 km/h)" % [accel_4th, accel_2nd])
+	await _tap("toggle_gearbox")
+	_check(car.automatic, "toggle key returns to the automatic")
+
+	_check(stats.finite, "no NaN / inf in speeds, RPM or axle loads while driving the gears")
+	_check(stats.max_step < 1.5, "no teleporting while driving the gears (largest step %.2f m)" % stats.max_step)
+	_check(stats.min_rpm >= ArcadeCar.IDLE_RPM - 1.0 and stats.max_rpm <= ArcadeCar.REDLINE_RPM + 100.0, "RPM stays between idle and the limiter (%d..%d rpm)" % [stats.min_rpm, stats.max_rpm])
+	_check(stats.min_load > 0.1 and stats.max_load < 0.9, "axle loads stay sane (%.2f..%.2f)" % [stats.min_load, stats.max_load])
+	car.reset_to_spawn()
+	await _step(5)
 
 
 ## Resets the car and accelerates it in a straight line for 3 s, to ~60 km/h.
@@ -163,6 +257,49 @@ func _corner(car: ArcadeCar, handbrake: bool) -> Dictionary:
 	stats.end_slip = car.lateral_speed
 	stats.end_slide_yaw = car.slide_yaw_rate
 	return stats
+
+
+## Full throttle for 0.5 s; returns the average acceleration [m/s^2].
+func _measure_pull(car: ArcadeCar, stats: Dictionary) -> float:
+	var speed_start := car.forward_speed
+	Input.action_press("accelerate")
+	await _drive(car, 30, stats)
+	Input.action_release("accelerate")
+	return (car.forward_speed - speed_start) / 0.5
+
+
+## Presses and releases an action over two physics frames.
+func _tap(action: String) -> void:
+	Input.action_press(action)
+	await physics_frame
+	Input.action_release(action)
+	await physics_frame
+
+
+func _new_stats() -> Dictionary:
+	return {
+		"finite": true, "max_step": 0.0, "peak_traction_use": 0.0,
+		"min_rpm": INF, "max_rpm": 0.0, "min_load": 1.0, "max_load": 0.0,
+	}
+
+
+## Steps `frames` physics frames, folding per-frame sanity stats into `stats`.
+func _drive(car: ArcadeCar, frames: int, stats: Dictionary) -> void:
+	for frame in frames:
+		var before := car.global_position
+		await physics_frame
+		stats.max_step = maxf(stats.max_step, car.global_position.distance_to(before))
+		var values := [car.forward_speed, car.lateral_speed, car.yaw_rate, car.engine_rpm, car.front_load_fraction, car.rear_load_fraction]
+		for value: float in values:
+			if not is_finite(value):
+				stats.finite = false
+		if not car.global_position.is_finite():
+			stats.finite = false
+		stats.peak_traction_use = maxf(stats.peak_traction_use, car.rear_traction_use)
+		stats.min_rpm = minf(stats.min_rpm, car.engine_rpm)
+		stats.max_rpm = maxf(stats.max_rpm, car.engine_rpm)
+		stats.min_load = minf(stats.min_load, minf(car.front_load_fraction, car.rear_load_fraction))
+		stats.max_load = maxf(stats.max_load, maxf(car.front_load_fraction, car.rear_load_fraction))
 
 
 func _step(frames: int) -> void:
