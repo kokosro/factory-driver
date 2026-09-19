@@ -125,12 +125,12 @@ func _run() -> void:
 	_finish()
 
 
-## Resets the car and accelerates it in a straight line for 2 s.
+## Resets the car and accelerates it in a straight line for 3 s, to ~60 km/h.
 func _get_up_to_speed(car: ArcadeCar) -> void:
 	car.reset_to_spawn()
 	await _step(10)
 	Input.action_press("accelerate")
-	await _step(120)
+	await _step(180)
 	Input.action_release("accelerate")
 
 
