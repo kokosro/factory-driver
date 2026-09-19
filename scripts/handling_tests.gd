@@ -5,6 +5,8 @@ extends RefCounted
 ##
 ## A test is plain data (a Dictionary, see the *_test() functions):
 ##   name, kind             what it is and which checks judge it (KIND_*),
+##   title, objective       what a human driver is shown: a short name and
+##                          one line on what to do,
 ##   start_offset/heading   where the car starts, relative to its spawn point,
 ##   hold_speed             optional cruise control for the scripted driver,
 ##   steps                  the scripted driver: an ordered list of
@@ -164,6 +166,8 @@ static func slalom_test() -> Dictionary:
 	return {
 		"name": "SLALOM_TEST",
 		"kind": KIND_SLALOM,
+		"title": "SLALOM",
+		"objective": "Weave through the cones: first cone on your left, then alternate. %d miss allowed, %.0f s." % [SLALOM_MAX_MISSED, SLALOM_TIME_LIMIT],
 		"start_offset": start,
 		"start_heading_deg": 0.0,
 		"hold_speed": SLALOM_SPEED,
@@ -180,6 +184,8 @@ static func spin_180_test() -> Dictionary:
 	return {
 		"name": "SPIN_180",
 		"kind": KIND_SPIN,
+		"title": "180 SPIN",
+		"objective": "Handbrake turn: build speed (~90 km/h), spin round to face the start and stop.",
 		"target_rotation_deg": 180.0,
 		"start_offset": Vector3.ZERO,
 		"start_heading_deg": 0.0,
@@ -208,6 +214,8 @@ static func spin_360_test() -> Dictionary:
 	return {
 		"name": "SPIN_360",
 		"kind": KIND_SPIN,
+		"title": "360 SPIN",
+		"objective": "Full spin: build speed (~125 km/h), spin all the way round and stop.",
 		"target_rotation_deg": 360.0,
 		"start_offset": Vector3.ZERO,
 		"start_heading_deg": 0.0,
@@ -231,6 +239,8 @@ static func stop_box_test() -> Dictionary:
 	return {
 		"name": "STOP_BOX",
 		"kind": KIND_STOP_BOX,
+		"title": "STOP BOX",
+		"objective": "Reach %.0f km/h or more, then stop with the whole car inside the hatched box ahead." % (STOP_BOX_MIN_ENTRY_SPEED * 3.6),
 		"start_offset": Vector3.ZERO,
 		"start_heading_deg": 0.0,
 		"steps": [
@@ -313,6 +323,28 @@ func describe_state() -> String:
 		elapsed, _step_index, car.global_position.x, car.global_position.z,
 		car.forward_speed, car.lateral_speed, rad_to_deg(_rotation),
 	]
+
+
+## Where the run stands, for a HUD to show while a human drives. Always holds
+## `kind`; the rest depends on it:
+##   slalom    gates_reached, gates_total
+##   spin      rotation_deg (left positive), target_rotation_deg
+##   stop box  distance_to_box_m (along the start heading, to the centre of the
+##             box; negative once past it), up_to_speed (fast enough to count)
+func progress() -> Dictionary:
+	match test.kind:
+		KIND_SLALOM:
+			return {"kind": test.kind, "gates_reached": _gate_index, "gates_total": _gates.size()}
+		KIND_SPIN:
+			return {"kind": test.kind, "rotation_deg": rad_to_deg(_rotation), "target_rotation_deg": test.target_rotation_deg}
+		_:
+			var box := TestPad.stop_box()
+			var to_box: Vector3 = box.centre - car.global_position
+			return {
+				"kind": test.kind,
+				"distance_to_box_m": to_box.dot(_start_forward),
+				"up_to_speed": _peak_speed >= STOP_BOX_MIN_ENTRY_SPEED,
+			}
 
 
 ## Stops the run early (e.g. the mission was cancelled) and frees the controls.
