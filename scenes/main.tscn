@@ -4,6 +4,7 @@
 [ext_resource type="PackedScene" path="res://scenes/car.tscn" id="2_car"]
 [ext_resource type="Script" path="res://scripts/chase_camera.gd" id="3_camera"]
 [ext_resource type="PackedScene" path="res://scenes/hud.tscn" id="4_hud"]
+[ext_resource type="Script" path="res://scripts/mission_manager.gd" id="5_missions"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_material"]
 sky_top_color = Color(0.22, 0.42, 0.75, 1)
@@ -62,3 +63,9 @@ target = NodePath("../Car")
 
 [node name="HUD" parent="." node_paths=PackedStringArray("car") instance=ExtResource("4_hud")]
 car = NodePath("../Car")
+
+[node name="MissionManager" type="Node" parent="." node_paths=PackedStringArray("car", "pad", "hud")]
+script = ExtResource("5_missions")
+car = NodePath("../Car")
+pad = NodePath("../TestPad")
+hud = NodePath("../HUD")
