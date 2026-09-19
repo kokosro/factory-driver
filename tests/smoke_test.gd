@@ -5,7 +5,7 @@ extends SceneTree
 ##   godot --headless --path . --script res://tests/smoke_test.gd
 ##
 ## Loads the main scene, checks the key nodes exist, then drives the car with
-## simulated input and checks it accelerates, steers, brakes, reverses,
+## simulated input and checks it accelerates, steers, brakes, holds, reverses,
 ## slides under the handbrake, shifts gears and moves load between the axles,
 ## and checks the pad's ground texture, course queries and drive-through cones.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
@@ -75,7 +75,8 @@ func _run() -> void:
 	await _step(30)
 	_check(absf(car.lateral_speed) < 0.5, "lateral slip settles after steering (%.2f m/s)" % car.lateral_speed)
 
-	# Coast, then brake to a stop and carry on into reverse.
+	# Coast, then brake to a stop: the held brake holds the car, it never turns
+	# into reverse by itself.
 	var speed_before := car.forward_speed
 	await _step(30)
 	_check(car.forward_speed < speed_before and car.forward_speed > 0.0, "coasts down gently (%.1f -> %.1f m/s)" % [speed_before, car.forward_speed])
@@ -83,11 +84,38 @@ func _run() -> void:
 	Input.action_press("brake")
 	await _step(20)
 	_check(car.forward_speed < speed_before - 5.0, "brakes hard (%.1f -> %.1f m/s)" % [speed_before, car.forward_speed])
+	var z_stopped := 0.0
+	var lowest_speed := 0.0
+	for frame in 240:
+		await physics_frame
+		lowest_speed = minf(lowest_speed, car.forward_speed)
+		if frame == 119:
+			z_stopped = car.global_position.z
+	_check(absf(car.forward_speed) < 0.01 and lowest_speed > -0.01, "held brake stops the car and never reverses (%.2f m/s, lowest %.2f)" % [car.forward_speed, lowest_speed])
+	_check(absf(car.global_position.z - z_stopped) < 0.01 and not car.reverse_engaged, "held brake holds the car still (moved %.3f m in 2 s)" % absf(car.global_position.z - z_stopped))
+	_check(not speed_label.text.begins_with("R"), "HUD does not flag reverse under a held brake ('%s')" % speed_label.text)
+
+	# A fresh press of the brake key at a standstill engages reverse.
+	Input.action_release("brake")
+	await _step(5)
+	Input.action_press("brake")
 	await _step(240)
-	_check(car.forward_speed < -1.0, "reverses after stopping (%.1f m/s)" % car.forward_speed)
+	_check(car.reverse_engaged and car.forward_speed < -1.0, "a fresh brake press at a standstill reverses (%.1f m/s)" % car.forward_speed)
 	_check(car.forward_speed >= -ArcadeCar.MAX_REVERSE_SPEED - 0.01, "reverse speed is capped (%.1f m/s)" % car.forward_speed)
 	_check(speed_label.text.begins_with("R"), "HUD flags reverse ('%s')" % speed_label.text)
 	Input.action_release("brake")
+
+	# In reverse the accelerate key is the brake: it stops and holds the car, and
+	# only a fresh press at a standstill engages forward again.
+	Input.action_press("accelerate")
+	await _step(240)
+	_check(absf(car.forward_speed) < 0.01 and car.reverse_engaged, "held accelerate stops the reversing car and holds it (%.2f m/s)" % car.forward_speed)
+	Input.action_release("accelerate")
+	await _step(5)
+	Input.action_press("accelerate")
+	await _step(60)
+	_check(not car.reverse_engaged and car.forward_speed > 1.0, "a fresh accelerate press at a standstill drives forward again (%.1f m/s)" % car.forward_speed)
+	Input.action_release("accelerate")
 
 	# Reset puts the car back on the start line.
 	car.reset_to_spawn()

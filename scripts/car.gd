@@ -161,8 +161,11 @@ const REVERSE_ACCEL := 6.0
 ## Top speed in reverse [m/s]. 12 m/s is about 43 km/h.
 const MAX_REVERSE_SPEED := 12.0
 
-## Below this speed [m/s] the car counts as stopped: holding brake engages
-## reverse and holding accelerate engages forward drive, instead of braking.
+## Below this speed [m/s] the car counts as stopped. The brake only ever slows
+## the car to a stop and holds it there; the direction changes on a FRESH key
+## press at a standstill: brake pressed anew engages reverse, accelerate
+## pressed anew engages forward again (see reverse_engaged). A key that is
+## still held from the braking never changes direction.
 const STANDSTILL_SPEED := 0.5
 
 # --- Gear shifting -----------------------------------------------------------
@@ -332,8 +335,16 @@ var slide_yaw_rate := 0.0
 var steer := 0.0
 
 ## Selected gear: 0 = neutral, 1..5 forward. Reversing is handled separately
-## and does not change this.
+## (reverse_engaged) and does not change this.
 var gear := 1
+
+## True while reverse is selected. The keys then swap roles: the brake key is
+## the throttle (backwards) and the accelerate key is the brake. Engaged by a
+## fresh press of the brake key at a standstill; left by a fresh press of the
+## accelerate key at a standstill or while the car rolls nose-first (the way
+## out of a J-turn: selecting drive while already rolling forwards is harmless,
+## selecting reverse on the move is what a gearbox locks out).
+var reverse_engaged := false
 
 ## True = the gearbox shifts by itself. The shift keys switch to manual.
 var automatic := true
@@ -366,6 +377,11 @@ var is_shifting: bool:
 ## How far the handbrake is on, 0..1. Jumps to 1 when pulled, eases back to 0
 ## at HANDBRAKE_RECOVERY_RATE when released.
 var _handbrake_amount := 0.0
+
+## Whether the accelerate / brake keys were down on the previous tick, to tell
+## a fresh press from a held key.
+var _accelerate_was_pressed := false
+var _brake_was_pressed := false
 
 ## Time left in the current gear change [s].
 var _shift_timer := 0.0
@@ -402,7 +418,7 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("toggle_gearbox"):
 		automatic = not automatic
 
-	# +1 = drive forward, -1 = brake / reverse. Both keys held cancel out.
+	# +1 = accelerate key, -1 = brake key. Both keys held cancel out.
 	var drive_input := Input.get_action_strength("accelerate") - Input.get_action_strength("brake")
 	# +1 = left, -1 = right (matches the sign of yaw).
 	var steer_input := Input.get_axis("steer_right", "steer_left")
@@ -415,6 +431,7 @@ func _physics_process(delta: float) -> void:
 	forward_speed = velocity.dot(forward_dir)
 	lateral_speed = velocity.dot(right_dir)
 	var vertical_speed := velocity.y
+	_update_direction(forward_speed)
 
 	# 2. Longitudinal: engine through the gearbox, brakes, reverse, coasting.
 	var previous_forward_speed := forward_speed
@@ -491,6 +508,7 @@ func reset_to(target: Transform3D) -> void:
 	slide_yaw_rate = 0.0
 	steer = 0.0
 	_handbrake_amount = 0.0
+	reverse_engaged = false
 	gear = 1
 	automatic = true
 	engine_rpm = IDLE_RPM
@@ -543,17 +561,37 @@ static func engine_torque(rpm: float) -> float:
 	return TORQUE_CURVE[-1].y
 
 
+## Forward / reverse selection: only a fresh key press changes direction, so a
+## brake key held through a stop just holds the car (see STANDSTILL_SPEED).
+func _update_direction(speed: float) -> void:
+	var accelerate_pressed := Input.is_action_pressed("accelerate")
+	var brake_pressed := Input.is_action_pressed("brake")
+	var fresh_accelerate := accelerate_pressed and not _accelerate_was_pressed
+	var fresh_brake := brake_pressed and not _brake_was_pressed
+	_accelerate_was_pressed = accelerate_pressed
+	_brake_was_pressed = brake_pressed
+	if fresh_accelerate == fresh_brake:
+		return
+	if fresh_brake and not reverse_engaged and absf(speed) <= STANDSTILL_SPEED:
+		reverse_engaged = true
+	elif fresh_accelerate and reverse_engaged and speed >= -STANDSTILL_SPEED:
+		reverse_engaged = false
+
+
 ## Returns the new forward speed after one tick of engine / brake / coasting,
 ## and updates the gearbox, engine RPM and rear traction use on the way.
 ## `drive` is +1 for the accelerate key and -1 for the brake key.
 func _update_forward_speed(speed: float, drive: float, delta: float) -> float:
-	# Pressing against the direction of travel brakes. Once the car has come to
-	# a stop, the same key takes over as drive in the other direction, so
-	# holding brake flows from braking straight into reverse.
+	# The key of the selected direction is the throttle, the other one the
+	# brake: it slows the car to a stop whichever way it rolls, and holds it
+	# there. The throttle key also brakes while the car still rolls against the
+	# selected direction (backwards out of a 180, nose-first out of a J-turn).
 	var is_moving := absf(speed) > STANDSTILL_SPEED
-	var braking := is_moving and not is_zero_approx(drive) and signf(drive) != signf(speed)
-	var reversing := speed < -STANDSTILL_SPEED or (drive < 0.0 and not braking)
-	var throttle := drive if drive > 0.0 and not braking else 0.0
+	var direction := -1.0 if reverse_engaged else 1.0
+	var against_travel := is_moving and signf(speed) != direction
+	var braking := not is_zero_approx(drive) and (signf(drive) != direction or against_travel)
+	var reversing := reverse_engaged
+	var throttle := drive if drive > 0.0 and not braking and not reversing else 0.0
 
 	_update_gearbox(speed, throttle, reversing, delta)
 
@@ -573,7 +611,7 @@ func _update_forward_speed(speed: float, drive: float, delta: float) -> float:
 
 	if braking:
 		speed = move_toward(speed, 0.0, BRAKE_DECEL * absf(drive) * delta)
-	elif drive < 0.0:
+	elif reversing and drive < 0.0:
 		speed = move_toward(speed, -MAX_REVERSE_SPEED, REVERSE_ACCEL * -drive * delta)
 
 	if drive_force >= 0.0:

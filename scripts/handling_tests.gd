@@ -247,9 +247,9 @@ static func stop_box_test() -> Dictionary:
 			{"when": {}, "press": [&"accelerate"]},
 			{"when": {"speed_above": STOP_BOX_APPROACH_SPEED}, "release": [&"accelerate"]},
 			{"when": {"travelled": distance_to_box - STOP_BOX_BRAKE_DISTANCE}, "press": [&"brake"]},
-			# Let go before the held brake key turns into reverse; the handbrake
-			# holds the car still.
-			{"when": {"speed_below": 0.6}, "release": [&"brake"], "press": [&"handbrake"]},
+			# Stay on the brake to a stop: a held brake holds the car, it never
+			# turns into reverse.
+			{"when": {"speed_below": STOPPED_SPEED}},
 		],
 		"settle": 1.5,
 		"time_limit": 30.0,

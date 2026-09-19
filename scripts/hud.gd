@@ -20,7 +20,7 @@ const TACH_REDLINE_COLOR := Color(1.0, 0.3, 0.2, 1)
 func _process(_delta: float) -> void:
 	if not car:
 		return
-	var reversing := car.forward_speed < -ArcadeCar.STANDSTILL_SPEED
+	var reversing := car.reverse_engaged
 	var gear := "R  " if reversing else ""
 	_speed_label.text = "%s%d km/h" % [gear, roundi(car.speed_kmh)]
 
