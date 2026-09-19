@@ -110,9 +110,9 @@ const WHEEL_RADIUS := 0.34
 # --- Tyres and aero ----------------------------------------------------------
 
 ## Tyre friction coefficient: the rear tyres can push with at most this times
-## the rear axle's load. With 1.0 the drive force in 1st near peak torque just
-## reaches the limit; every other gear stays under it.
-const TYRE_MU := 1.0
+## the rear axle's load (1997 road tyres, ~0.95). Full throttle in 1st from
+## ~3500 rpm hits this limit; 2nd and up stay under it.
+const TYRE_MU := 0.95
 
 ## Front axle lateral grip at the static weight distribution: how quickly
 ## sideways slip at the front wheels is scrubbed off [1/s]. Each second that
