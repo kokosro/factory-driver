@@ -21,9 +21,11 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Brake; keep holding at a stop to reverse | `Down` or `S`   |
 | Steer left / right                      | `Left` / `Right` or `A` / `D` |
 | Handbrake (hold mid-corner to slide)    | `Space`         |
+| Shift down / up (switches to manual)    | `Q` / `E`       |
+| Toggle automatic / manual gearbox       | `M`             |
 | Reset the car to the start line         | `R`             |
 
-While reversing, `Up` / `W` brakes. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` in reverse).
+While reversing, `Up` / `W` brakes. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` in reverse). Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual) and turns red near the redline. The gearbox starts in automatic and goes back to automatic when you reset the car.
 
 ### Driving feel
 
