@@ -1,0 +1,63 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/test_pad.gd" id="1_pad"]
+[ext_resource type="PackedScene" path="res://scenes/car.tscn" id="2_car"]
+[ext_resource type="Script" path="res://scripts/chase_camera.gd" id="3_camera"]
+[ext_resource type="PackedScene" path="res://scenes/hud.tscn" id="4_hud"]
+
+[sub_resource type="ProceduralSkyMaterial" id="sky_material"]
+sky_top_color = Color(0.22, 0.42, 0.75, 1)
+sky_horizon_color = Color(0.68, 0.78, 0.88, 1)
+ground_bottom_color = Color(0.16, 0.17, 0.19, 1)
+ground_horizon_color = Color(0.68, 0.78, 0.88, 1)
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_material")
+
+[sub_resource type="Environment" id="environment"]
+background_mode = 2
+sky = SubResource("sky")
+tonemap_mode = 2
+
+[sub_resource type="WorldBoundaryShape3D" id="shape_ground"]
+
+[sub_resource type="StandardMaterial3D" id="mat_asphalt"]
+albedo_color = Color(0.2, 0.21, 0.23, 1)
+roughness = 0.95
+
+[sub_resource type="PlaneMesh" id="mesh_ground"]
+material = SubResource("mat_asphalt")
+size = Vector2(4000, 4000)
+
+[node name="Main" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("environment")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, 0.383022, -0.321394, 0, 0.642788, 0.766044, 0.5, -0.663414, 0.55667, 0, 20, 0)
+shadow_enabled = true
+directional_shadow_max_distance = 150.0
+
+[node name="TestPad" type="Node3D" parent="."]
+script = ExtResource("1_pad")
+
+[node name="Ground" type="StaticBody3D" parent="TestPad"]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TestPad/Ground"]
+shape = SubResource("shape_ground")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="TestPad/Ground"]
+mesh = SubResource("mesh_ground")
+
+[node name="Car" parent="." instance=ExtResource("2_car")]
+
+[node name="ChaseCamera" type="Camera3D" parent="." node_paths=PackedStringArray("target")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.6, 6.5)
+current = true
+fov = 65.0
+script = ExtResource("3_camera")
+target = NodePath("../Car")
+
+[node name="HUD" parent="." node_paths=PackedStringArray("car") instance=ExtResource("4_hud")]
+car = NodePath("../Car")
