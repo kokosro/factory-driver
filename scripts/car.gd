@@ -452,23 +452,21 @@ const WHEEL_CONTACT_POINTS: Array[Vector3] = [
 # --- Steering ----------------------------------------------------------------
 
 ## Front wheel angle at full steering lock [rad], ~27.5 degrees: a 5 m
-## turning circle radius at parking speed. The steering sets this angle and
-## nothing else; what the car does with it is up to the front tyres. Also what
-## the front wheels show.
+## turning circle radius at parking speed. Raw steering: the front wheel angle
+## is the steering input times this, at any speed, however sideways the car
+## is, and nothing else moves the wheels. What the car does with the angle is
+## up to the front tyres: full lock at speed is far past their peak slip angle,
+## so they scrub and the car pushes wide, and a slide is caught with opposite
+## lock by the driver. Also what the front wheels show.
 ## Replaces MIN_TURN_RADIUS 5.0 (the same lock, as a radius) and MAX_YAW_RATE
 ## 2.0, the cap of a yaw rate the steering used to aim for: there is no such
 ## aim any more.
+## Was the far end of a slip-sensitive lock (STEER_SLIP_REACH 1.2 -> removed:
+## full lock used to stop 1.2 front peak slip angles past the way the front of
+## the car travelled, so the wheels moved less the faster the car went, and by
+## themselves as that travel angle moved - the driver asked for the wheels
+## back). There is no such easing any more.
 const MAX_STEER_LOCK := 0.48
-
-## Slip-sensitive steering: a key press cannot mean 27 degrees of lock at
-## speed, which would just scrub the front tyres. Full lock points the front
-## wheels this many peak slip angles past the way the front of the car is
-## travelling (see _steering_lock): 1.0 stops right on the front tyres' peak,
-## a little more makes sure they are used up (the car pushes wide at the limit
-## rather than the driver never reaching it). The tighter corner that follows
-## is the tyres' doing; at speed there is little of it to be had, so the
-## wheels visibly move less the faster the car goes.
-const STEER_SLIP_REACH := 1.2
 
 ## How fast the steering input moves towards the pressed key, and back to
 ## centre on release [1/s]. 5.0 means centre to full lock in 0.2 s. Smooths out
@@ -510,17 +508,17 @@ const MAX_ASSIST_YAW_ACCEL := 6.0
 ## the rotation carries on under its own momentum through a 180 or a 360.
 const SPIN_YAW_DAMPING := 0.3
 
-## Slip angle (nose vs direction of travel) from which steering held further
-## into a slide starts to lose its bite [rad]: the assist eases the lock off
-## the front wheels, down to none of it at SPIN_COMMIT_ANGLE, and lets them
-## trail into line with the direction of travel instead (see _slide_feed), so
-## a slide settles instead of the held key feeding it into a spin. Opposite
-## lock is never touched. Grip driving stays under ~0.1 even at the limit, so
-## this only touches real slides.
+## Slip angle (nose vs direction of travel) from which the stability assist
+## starts to leave a slide that is coming back alone [rad]: its
+## SLIDE_RECOVERY_ASSIST share fades from here to none at SPIN_COMMIT_ANGLE.
+## Grip driving stays under ~0.1 even at the limit, so this only touches real
+## slides.
+## Was also where steering held into a slide started to lose its bite (the
+## slide feed, with SLIDE_RELEASE_ANGLE 0.3 -> removed, where none of it got
+## through and the front wheels trailed into line by themselves): the wheels
+## stay where the input puts them, and that role is gone. The value is
+## unchanged, the assist still uses it.
 const SLIDE_CATCH_ANGLE := 0.14
-
-## Slip angle from which none of a lock held into the slide gets through [rad].
-const SLIDE_RELEASE_ANGLE := 0.3
 
 ## Slip angle (nose vs direction of travel) where the stability assist starts
 ## to fade [rad]. Below it slides stay tame and catchable.
@@ -832,21 +830,20 @@ func _physics_process(delta: float) -> void:
 	#    of the centre of mass and its wheels are steered, so its motion is
 	#    split along and across the wheels, not the car; the rear sits behind
 	#    and points where the car points. A positive (left) yaw rate moves the
-	#    nose left and the tail right.
+	#    nose left and the tail right. Raw steering: the wheels stand at the
+#    (smoothed) input times full lock, the same rolling forwards, backwards
+#    or sideways. Was steer * _steering_lock() * _slide_feed() minus a trail
+#    towards the way the front travels -> removed: nothing turns the wheels
+#    but the driver. The wheels point where they are steered in reverse too:
+#    the yaw response flips with the direction of travel, not the wheels (the
+#    old signf(forward_speed) only ever picked the side of the leading term).
 	steer = move_toward(steer, steer_input, STEER_RESPONSE * delta)
 	var front_arm := AXLE_DISTANCE + CG_OFFSET
 	var rear_arm := AXLE_DISTANCE - CG_OFFSET
 	var yaw_inertia := CAR_MASS * YAW_GYRATION_RADIUS * YAW_GYRATION_RADIUS
 	var front_lateral := cg_lateral_speed - yaw_rate * front_arm
 	var rear_lateral := cg_lateral_speed + yaw_rate * rear_arm
-	var front_travel_angle := atan2(front_lateral, maxf(absf(forward_speed), SLIP_ANGLE_MIN_SPEED))
-	var lock := _steering_lock(steer * signf(forward_speed), front_travel_angle)
-	# In a slide the assist takes lock held into it off the wheels and lets
-	# them trail into line with the way the front travels, as the caster of a
-	# real front axle does with the wheel let go (see _slide_feed).
-	var feed := _slide_feed(forward_speed, rear_lateral, steer)
-	var trail := (1.0 - feed) * (1.0 - smoothstep(SPIN_COMMIT_ANGLE, SPIN_FREE_ANGLE, absf(atan2(rear_lateral, forward_speed))))
-	wheel_angle = clampf(steer * lock * feed - trail * front_travel_angle, -MAX_STEER_LOCK, MAX_STEER_LOCK)
+	wheel_angle = steer * MAX_STEER_LOCK
 	var front_across := front_lateral * cos(wheel_angle) + forward_speed * sin(wheel_angle)
 	var front_along := forward_speed * cos(wheel_angle) - front_lateral * sin(wheel_angle)
 	front_slip_angle = atan2(front_across, maxf(absf(front_along), SLIP_ANGLE_MIN_SPEED))
@@ -1332,40 +1329,12 @@ func _slide_yaw_damping(along: float, across: float) -> float:
 	return lerpf(SLIDE_YAW_DAMPING, SPIN_YAW_DAMPING, spin)
 
 
-## How much of the steering lock reaches the front wheels (0..1) while the car
-## slides: all of it up to SLIDE_CATCH_ANGLE of slip, none from
-## SPIN_COMMIT_ANGLE, unless the steering works against the slide (opposite
-## lock always gets through). What the lock loses, the trail of the front
-## wheels gets: they swing into line with the way the front of the car
-## travels and stop pushing the nose round, so the rear tyres can pull the car
-## straight. A key held into a slide, or let go, then no longer feeds it, and
-## the slide settles instead of creeping on into a spin. Past SPIN_COMMIT_ANGLE
-## the trail fades again (gone at SPIN_FREE_ANGLE): that car is spinning, and
-## it is left to. Off while the handbrake is held and in reverse, like the
-## rest of the assist.
-func _slide_feed(along: float, across: float, steer_amount: float) -> float:
-	if reverse_engaged or steer_amount * across * along < 0.0 or Vector2(along, across).length() < SPIN_MIN_SPEED:
-		return 1.0
-	var eased := 1.0 - smoothstep(SLIDE_CATCH_ANGLE, SLIDE_RELEASE_ANGLE, absf(atan2(across, along)))
-	return lerpf(eased, 1.0, _handbrake_amount)
-
-
-## Front wheel angle at full steering lock [rad]: the key asks the front tyres
-## for their grip, and this is the wheel angle that takes. The front of the car travels at `front_travel_angle` to where the
-## nose points (positive = towards the car's right). Steering the way the
-## front already travels (any corner, and opposite lock in a slide), full lock
-## is that angle plus the slip the tyres need for their peak force
-## (STEER_SLIP_REACH): the wheels lead the way the car goes by a tyre's worth,
-## at any speed, however sideways the car is. Steering against it (holding
-## lock into a slide) it is just that slip, measured from the nose. Never more
-## than MAX_STEER_LOCK, which is what parking-pace corners run into.
-## `steer_direction` is the steering's sign, flipped while the car rolls
-## backwards: there the wheels meet the road the other way round, and the
-## lock that keeps the tyres biting as the nose swings out is more of the
-## same, up to full lock. That is the flick of a J-turn.
-func _steering_lock(steer_direction: float, front_travel_angle: float) -> float:
-	var leading := maxf(-front_travel_angle * signf(steer_direction), 0.0)
-	return minf(MAX_STEER_LOCK, FRONT_PEAK_SLIP_ANGLE * STEER_SLIP_REACH + leading)
+# Was _slide_feed() and _steering_lock() here -> removed with raw steering. The
+# first took lock held into a slide off the front wheels and let them trail
+# into line with the way the front travelled; the second set full lock a
+# tyre's peak slip past that travel angle, so it moved with the car. Both
+# turned the wheels without the driver. wheel_angle is steer * MAX_STEER_LOCK
+# (see step 3 of _physics_process); there is nothing to compute any more.
 
 
 ## Cosmetic motion: wheel spin, front wheel steering and body roll / pitch.
