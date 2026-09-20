@@ -10,7 +10,8 @@ extends Node
 ## idle -> running -> result shown -> idle, and hands the HUD its strings. It
 ## never presses or releases an input action. While a run is on it also shows
 ## where the run starts and where it is headed: a golden orb by the start point
-## and, for the tests with a fixed goal, a golden chevron by it (looks only).
+## and a golden chevron by the goal (looks only). The 180 goes back to the
+## start: its orb is its goal.
 
 signal mission_started(index: int, definition: Dictionary)
 signal mission_finished(index: int, outcome: Dictionary)
@@ -58,6 +59,11 @@ const FINISH_CHEVRON_TIP_HEIGHT := 1.2  # ... meeting this high above the ground
 ## Stop box: the chevron stands this far to the right of the box's edge [m]
 ## (x = 1.8 + 2.2 = 4.0, clear of the corner cones and the red stop bar).
 const FINISH_CHEVRON_BOX_CLEARANCE := 2.2
+
+## Drive-on goals (the 360, the reverse 180): the chevron stands this far to the
+## pad's right of the goal point [m], beside the painted bar of the distance
+## board there, the same x as the stop box's.
+const FINISH_CHEVRON_GOAL_OFFSET := 4.0
 
 ## Slalom: from the last cone to the chevron [m]: on the way out to the painted
 ## exit bar, further off the line of cones than the bar reaches (5 m).
@@ -209,12 +215,12 @@ func _progress_text() -> String:
 		HandlingTests.KIND_SLALOM:
 			return "GATE %d/%d" % [progress.gates_reached, progress.gates_total]
 		HandlingTests.KIND_SPIN:
-			return "ROTATION %d° / %d°" % [roundi(absf(progress.rotation_deg)), roundi(progress.target_rotation_deg)]
+			return _spin_progress_text(progress)
 		HandlingTests.KIND_REVERSE_SPIN:
 			if not progress.up_to_speed:
 				var wanted := roundi(HandlingTests.REVERSE_180_MIN_ENTRY_SPEED * 3.6)
 				return "REVERSE %d/%d km/h" % [roundi(progress.reverse_speed_ms * 3.6), wanted]
-			return "ROTATION %d° / %d°" % [roundi(absf(progress.rotation_deg)), roundi(progress.target_rotation_deg)]
+			return _spin_progress_text(progress)
 		_:
 			var distance: float = progress.distance_to_box_m
 			var half_length: float = TestPad.stop_box().size.y * 0.5
@@ -226,6 +232,16 @@ func _progress_text() -> String:
 			if distance < -half_length:
 				return "PAST THE BOX!"
 			return "STOP!"
+
+
+## The rotation while the car spins, then the way to the goal.
+func _spin_progress_text(progress: Dictionary) -> String:
+	if not progress.spin_done:
+		return "ROTATION %d° / %d°" % [roundi(absf(progress.rotation_deg)), roundi(progress.target_rotation_deg)]
+	if progress.spin_overshot:
+		return "OVER-ROTATED %d° / %d°" % [roundi(absf(progress.rotation_deg)), roundi(progress.target_rotation_deg)]
+	var heading := "RETURN TO START" if progress.goal_mode == HandlingTests.GOAL_RETURN_TO_START else "DRIVE ON"
+	return "SPIN DONE — %s %d m" % [heading, roundi(progress.goal_distance_m)]
 
 
 ## PASSED / FAILED banner. The small print is HandlingTests.format_result()'s
@@ -319,9 +335,13 @@ func _hide_markers() -> void:
 
 
 ## Where the chevron goes (x and z; the height is the ground's), or Vector3.INF
-## for none: only the stop box and the slalom have a goal that stays put.
+## for none.
 func _goal_marker_position(test: Dictionary) -> Vector3:
-	# The spins and the reverse 180 end wherever the car does, 45-100 m down the road: orb only, no chevron.
+	# was: the spins and the reverse 180 end wherever the car does, orb only ->
+	# they have a goal now: a chevron by a drive-on goal; a return to the start
+	# ends at the orb, no chevron.
+	if test.get("goal_mode", &"") == HandlingTests.GOAL_DRIVE_ON:
+		return run.goal_position() + Vector3.RIGHT * FINISH_CHEVRON_GOAL_OFFSET
 	match test.kind:
 		HandlingTests.KIND_STOP_BOX:
 			var box := TestPad.stop_box()

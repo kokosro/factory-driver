@@ -1802,7 +1802,13 @@ func _check_mirrored_spin(pad: TestPad, car: ArcadeCar) -> void:
 		{"when": {"speed_above": HandlingTests.SPIN_180_ENTRY_SPEED}, "release": [&"accelerate"], "press": [&"steer_right", &"handbrake"], "mark": true},
 		{"when": {"rotation_deg_below": -HandlingTests.SPIN_180_CATCH_DEG}, "release": [&"steer_right"]},
 		{"when": {"after": HandlingTests.SPIN_180_SETTLE_TIME}, "press": [&"brake"]},
-		{"when": {"speed_below": HandlingTests.STOPPED_SPEED}},
+		# was the end of the script -> the 180 ends back at the start: the drive
+		# back of the left-hand driver, its dab of lock mirrored too.
+		{"when": {"speed_below": HandlingTests.STOPPED_SPEED}, "release": [&"brake", &"handbrake"], "press": [&"accelerate"]},
+		{"when": {"speed_above": HandlingTests.SPIN_180_LINE_UP_SPEED}, "press": [&"steer_left"]},
+		{"when": {"after": HandlingTests.SPIN_180_LINE_UP_TAP}, "release": [&"steer_left"]},
+		{"when": {"goal_distance_below": HandlingTests.SPIN_180_RETURN_BRAKE_DISTANCE}, "release": [&"accelerate"], "press": [&"brake"]},
+		{"when": {"goal_distance_below": HandlingTests.GOAL_RADIUS}},
 	]
 	var run := HandlingTests.begin(definition, car, pad)
 	await _step(10)

@@ -10,6 +10,9 @@ extends RefCounted
 ##   start_offset/heading   where the car starts, relative to its spawn point,
 ##   hold_speed             optional cruise control for the scripted driver
 ##                          (until it brakes),
+##   goal_mode              optional, where the run goes once the manoeuvre is
+##                          done (GOAL_*): back to the start point, or on down
+##                          the line to a goal `goal_distance_m` from the start,
 ##   steps                  the scripted driver: an ordered list of
 ##                          { when, press, release, mark } entries,
 ##   settle, time_limit     how the run ends.
@@ -20,8 +23,20 @@ extends RefCounted
 ##   "travelled"    distance covered along the start heading [m],
 ##   "rotation_deg" how far the car has turned since the start (keeps counting
 ##                  past 180 / 360) [degrees, left positive]; at least this,
-##   "rotation_deg_below"  the same, at most this (for turns to the right).
+##   "rotation_deg_below"  the same, at most this (for turns to the right),
+##   "goal_distance_below" distance left to the goal [m]; at most this.
 ## A step with `mark` is the start of the manoeuvre: spin metrics count from it.
+##
+## The spins and the reverse 180 are a manoeuvre and a destination: do the 180
+## and return to the start, do the 360 and drive on to the goal, do the J-turn
+## and drive on to the goal. The run ends at the goal, not when the rotation
+## does, and the verdict is rotation AND goal. The car keeps turning on the way
+## to the goal (driving back adds up to another half turn), so the rotation is
+## judged once, the moment the spin settles: the first frame it is within
+## tolerance of the target with the yaw rate under SPIN_SETTLED_YAW_RATE_DEG,
+## or the frame it spins on past the tolerance altogether. Rotation, heading
+## and displacement are noted there and judged from the note; the goal only
+## counts from then on.
 ##
 ## One instance of this class is one run of one test on the real car:
 ##
@@ -38,6 +53,11 @@ const KIND_SPIN := &"spin"
 const KIND_STOP_BOX := &"stop_box"
 const KIND_REVERSE_SPIN := &"reverse_spin"
 
+## Goal modes: drive back to the start point / drive on down the line (a spin:
+## the start heading; the reverse 180: the way it reversed) to the goal.
+const GOAL_RETURN_TO_START := &"return_to_start"
+const GOAL_DRIVE_ON := &"drive_on"
+
 # --- Pass / fail tolerances ---------------------------------------------------
 
 ## Spins: the car must end within this of the target rotation, spun either
@@ -47,6 +67,24 @@ const SPIN_HEADING_TOLERANCE_DEG := 35.0
 ## ... having travelled further than this along its original heading since the
 ## manoeuvre started [m]. A spin is done on the move, not on the spot.
 const SPIN_MIN_FORWARD_DISPLACEMENT := 0.0
+
+## Spins and the reverse 180: the rotation counts as settled, and is judged,
+## once it is within tolerance and the car turns slower than this [degrees/s].
+const SPIN_SETTLED_YAW_RATE_DEG := 10.0
+
+## Return to start: the car is back once it is within this of the start point
+## [m]. Drive on: the car is there once it is over the goal line, no further
+## than this to either side of the goal point [m] (the lane is 6 m either side).
+const GOAL_RADIUS := 8.0
+
+## The 360's goal, from the start along the start heading [m]: the pad's 400 m
+## board (TestPad counts its boards from the start line, 4 m on). Getting to
+## ~125 km/h takes 215 m and the spin another 90, so there are ~100 m to go.
+const SPIN_360_GOAL_DISTANCE := 404.0
+
+## The reverse 180's goal, from the start along the reversing line [m]: the
+## 100 m board. The flick is over by ~40 m.
+const REVERSE_180_GOAL_DISTANCE := 104.0
 
 ## Slalom: gates that may be missed (wrong side, too wide or cone knocked over).
 const SLALOM_MAX_MISSED := 1
@@ -143,6 +181,29 @@ const SPIN_180_CATCH_DEG := 155.0
 # at once the rotation ran on to ~220.
 const SPIN_180_SETTLE_TIME := 0.5
 
+## 180, the drive back: the speed at which the driver lines the nose up on the
+## start [m/s] ...
+const SPIN_180_LINE_UP_SPEED := 8.0
+
+## ... how long it holds the lock for [s]: a dab, the steering wheel is still
+## winding on when it lets go. Measured: the nose comes round from 184.6 to
+## 180.1 degrees and the car gets back 1.9 m to the side of the start point
+## (0.15 s: 178.9 degrees, 4.4 m to the other side) ...
+const SPIN_180_LINE_UP_TAP := 0.12
+
+## ... and how far from the start it hits the brakes [m]: the 36 m a stop from
+## 25 m/s takes (see STOP_BOX_BRAKE_DISTANCE).
+const SPIN_180_RETURN_BRAKE_DISTANCE := 36.0
+
+## 360, the drive on: how long the driver lets the car settle nose-first before
+## getting back on the power, and then before lining up [s] ...
+const SPIN_360_DRIVE_ON_DELAY := 0.5
+
+## ... with a dab of lock this long [s]. Measured: the nose comes round from
+## 361.7 to 356.2 degrees and the car crosses the goal line 0.8 m off the
+## goal point (no dab: it drifts ~8.4 m wide of it, outside the goal).
+const SPIN_360_LINE_UP_TAP := 0.15
+
 ## Reverse 180: reversing speed at which the scripted driver flicks the car
 ## round [m/s], ~41 km/h; reverse gear tops out at 43 ...
 const REVERSE_180_FLICK_SPEED := 11.5
@@ -151,8 +212,16 @@ const REVERSE_180_FLICK_SPEED := 11.5
 ## rotation to stop it [degrees] ...
 const REVERSE_180_CATCH_DEG := 140.0
 
-## ... and the speed it drives away to before the run ends [m/s].
+## ... and the speed it drives away to [m/s] ...
+# was "... before the run ends" -> the run goes on to the goal; this is where
+# the driver lines up on it.
 const REVERSE_180_DRIVE_AWAY_SPEED := 10.0
+
+## ... where it lines the nose up on the goal, with a dab of lock this long
+## [s]. Measured: the nose comes round from -185.9 to -176.9 degrees and the
+## car crosses the goal line 1.9 m off the goal point (0.15 s: 4.6 m; no dab:
+## it runs ~11 m wide of it, outside the goal).
+const REVERSE_180_LINE_UP_TAP := 0.18
 
 ## Stop box: speed the scripted driver holds up to its braking point [m/s] ...
 # was: build 25.0, lift, coast ~45 m (down to ~22 m/s) -> hold 25.0 to the
@@ -191,6 +260,14 @@ var _marked := false
 var _peak_speed := 0.0
 var _peak_reverse_speed := 0.0
 var _timed_out := false
+
+# Spin settled / goal tracking (tests with a goal_mode).
+var _spin_settled := false
+var _spin_overshot := false  # Settled by spinning on past the tolerance.
+var _settled_rotation := 0.0  # _rotation when the spin settled [rad].
+var _settled_yaw := 0.0  # Heading when the spin settled [rad].
+var _settled_position: Vector3
+var _goal_reached := false
 
 # Slalom tracking.
 var _gates: Array[Vector3] = []
@@ -260,13 +337,16 @@ static func slalom_test() -> Dictionary:
 ## Handbrake turn: from speed, flick in with the handbrake and let the tail come
 ## round. The handbrake stays on: with the loose rear leading, the car settles
 ## travelling backwards, and the brakes bring it to a stop facing the start.
+## Then back up the road to the start point.
 static func spin_180_test() -> Dictionary:
 	return {
 		"name": "SPIN_180",
 		"kind": KIND_SPIN,
 		"title": "180 SPIN",
-		"objective": "Handbrake turn: build speed (~90 km/h), spin round to face the start and stop.",
+		# was "... spin round to face the start and stop." -> the run ends back at the start.
+		"objective": "Handbrake turn: build speed (~90 km/h), spin round to face the start and drive back to it.",
 		"target_rotation_deg": 180.0,
+		"goal_mode": GOAL_RETURN_TO_START,
 		"start_offset": Vector3.ZERO,
 		"start_heading_deg": 0.0,
 		"steps": [
@@ -277,26 +357,41 @@ static func spin_180_test() -> Dictionary:
 			# it rolls, and holds it.
 			{"when": {"rotation_deg": SPIN_180_CATCH_DEG}, "release": [&"steer_left"]},
 			{"when": {"after": SPIN_180_SETTLE_TIME}, "press": [&"brake"]},
-			{"when": {"speed_below": STOPPED_SPEED}},
+			# was the end of the script -> stopped, facing the start: off the brakes
+			# and back up the road, a touch of lock to point the nose at the start
+			# (the spin leaves it a few degrees to the left of it), and on the
+			# brakes in time to pull up on the start point.
+			{"when": {"speed_below": STOPPED_SPEED}, "release": [&"brake", &"handbrake"], "press": [&"accelerate"]},
+			{"when": {"speed_above": SPIN_180_LINE_UP_SPEED}, "press": [&"steer_right"]},
+			{"when": {"after": SPIN_180_LINE_UP_TAP}, "release": [&"steer_right"]},
+			{"when": {"goal_distance_below": SPIN_180_RETURN_BRAKE_DISTANCE}, "release": [&"accelerate"], "press": [&"brake"]},
+			{"when": {"goal_distance_below": GOAL_RADIUS}},
 		],
 		"settle": 1.5,
-		"time_limit": 30.0,
+		# was 30.0 -> 45.0 - the drive back to the start is part of the run.
+		"time_limit": 45.0,
 		# Target time for the whole run [s]; presentation only, nothing judges it.
 		# target 11.5 s - certified run 10.2 s at HEAD (eed237f).
-		"target_time_s": 11.5,
+		# was 11.5 -> 21.0 - the run goes back to the start now: certified run
+		# 18.9 s (on ecd5da5), 9.7 s of it the spin, to a stop.
+		"target_time_s": 21.0,
 	}
 
 
 ## Full spin: flick in with the handbrake, steer the other way while the car
 ## travels backwards, let go of the handbrake past half way so the rear stops
-## fighting the rotation, and steer back in as the nose comes round.
+## fighting the rotation, and steer back in as the nose comes round. Then on
+## down the straight to the goal line, at the 400 m board.
 static func spin_360_test() -> Dictionary:
 	return {
 		"name": "SPIN_360",
 		"kind": KIND_SPIN,
 		"title": "360 SPIN",
-		"objective": "Full spin: build speed (~125 km/h), spin all the way round and stop.",
+		# was "... spin all the way round and stop." -> the run ends at the goal line.
+		"objective": "Full spin: build speed (~125 km/h), spin all the way round and drive on to the 400 m board.",
 		"target_rotation_deg": 360.0,
+		"goal_mode": GOAL_DRIVE_ON,
+		"goal_distance_m": SPIN_360_GOAL_DISTANCE,
 		"start_offset": Vector3.ZERO,
 		"start_heading_deg": 0.0,
 		"steps": [
@@ -306,12 +401,23 @@ static func spin_360_test() -> Dictionary:
 			{"when": {"rotation_deg": 160.0}, "release": [&"handbrake"]},
 			{"when": {"rotation_deg": 270.0}, "release": [&"steer_right"], "press": [&"steer_left"]},
 			{"when": {"rotation_deg": 350.0}, "release": [&"steer_left"]},
+			# was the end of the script, the car left rolling -> nose-first again:
+			# back on the power, a touch of lock to point the nose at the goal (the
+			# spin leaves the car to the left of the line, heading further left),
+			# and on the brakes over the goal line.
+			{"when": {"after": SPIN_360_DRIVE_ON_DELAY}, "press": [&"accelerate"]},
+			{"when": {"after": SPIN_360_DRIVE_ON_DELAY}, "press": [&"steer_right"]},
+			{"when": {"after": SPIN_360_LINE_UP_TAP}, "release": [&"steer_right"]},
+			{"when": {"goal_distance_below": 0.0}, "release": [&"accelerate"], "press": [&"brake"]},
 		],
 		"settle": 2.0,
-		"time_limit": 30.0,
+		# was 30.0 -> 40.0 - the drive on to the goal is part of the run.
+		"time_limit": 40.0,
 		# Target time for the whole run [s]; presentation only, nothing judges it.
 		# target 16.5 s - certified run 14.6 s at HEAD (eed237f).
-		"target_time_s": 16.5,
+		# was 16.5 -> 24.5 - the run goes on to the 400 m board now: certified run
+		# 21.8 s (on ecd5da5), over the goal line at 19.8 s.
+		"target_time_s": 24.5,
 	}
 
 
@@ -345,14 +451,18 @@ static func stop_box_test() -> Dictionary:
 ## round, and drive away forwards along the same line without stopping. The
 ## car starts facing back up the straight, so it reverses the usual way down
 ## it. Reverse is a fresh press of the brake key at a standstill; forward is a
-## fresh press of the accelerate key once the car rolls nose-first.
+## fresh press of the accelerate key once the car rolls nose-first. Then on
+## down the line to the goal, at the 100 m board.
 static func reverse_180_test() -> Dictionary:
 	return {
 		"name": "REVERSE_180",
 		"kind": KIND_REVERSE_SPIN,
 		"title": "REVERSE 180",
-		"objective": "J-turn: reverse to %.0f km/h or more, flick the nose round and drive away forwards." % (REVERSE_180_MIN_ENTRY_SPEED * 3.6),
+		# was "... and drive away forwards." -> the run ends at the goal line.
+		"objective": "J-turn: reverse to %.0f km/h or more, flick the nose round and drive on to the 100 m board." % (REVERSE_180_MIN_ENTRY_SPEED * 3.6),
 		"target_rotation_deg": 180.0,
+		"goal_mode": GOAL_DRIVE_ON,
+		"goal_distance_m": REVERSE_180_GOAL_DISTANCE,
 		"start_offset": Vector3.ZERO,
 		"start_heading_deg": 180.0,
 		"steps": [
@@ -364,13 +474,20 @@ static func reverse_180_test() -> Dictionary:
 			# rotation to stop it.
 			{"when": {"rotation_deg_below": -REVERSE_180_CATCH_DEG}, "release": [&"steer_left"], "press": [&"steer_right", &"accelerate"]},
 			{"when": {"rotation_deg_below": -170.0}, "release": [&"steer_right"]},
-			{"when": {"speed_above": REVERSE_180_DRIVE_AWAY_SPEED}},
+			# was the end of the script -> up to speed: a touch of lock to point the
+			# nose at the goal (the flick leaves the car to the right of the line,
+			# heading further right), and over the goal line on the power.
+			{"when": {"speed_above": REVERSE_180_DRIVE_AWAY_SPEED}, "press": [&"steer_left"]},
+			{"when": {"after": REVERSE_180_LINE_UP_TAP}, "release": [&"steer_left"]},
+			{"when": {"goal_distance_below": 0.0}},
 		],
 		"settle": 1.0,
 		"time_limit": 30.0,
 		# Target time for the whole run [s]; presentation only, nothing judges it.
 		# target 7.0 s - certified run 6.4 s at HEAD (eed237f).
-		"target_time_s": 7.0,
+		# was 7.0 -> 11.5 - the run goes on to the 100 m board now: certified run
+		# 10.3 s (on ecd5da5), over the goal line at 9.3 s.
+		"target_time_s": 11.5,
 	}
 
 
@@ -418,12 +535,17 @@ func tick(delta: float) -> void:
 	elapsed += delta
 	_since_step += delta
 	var yaw := car.global_rotation.y
-	_rotation += angle_difference(_previous_yaw, yaw)
+	var turned := angle_difference(_previous_yaw, yaw)
+	_rotation += turned
 	_previous_yaw = yaw
-	_peak_speed = maxf(_peak_speed, _speed())
+	# The speed the manoeuvre was entered at: the drive to the goal is not part of it.
+	if not _spin_settled:
+		_peak_speed = maxf(_peak_speed, _speed())
 	_peak_reverse_speed = maxf(_peak_reverse_speed, -car.forward_speed)
 	if test.kind == KIND_SLALOM:
 		_track_slalom()
+	if test.has("goal_mode"):
+		_track_goal(turned / delta)
 
 	if scripted:
 		_drive()
@@ -439,16 +561,21 @@ func tick(delta: float) -> void:
 
 ## One line on where the run stands, for tracing a test while tuning it.
 func describe_state() -> String:
-	return "t=%5.2f step=%d pos=(%7.2f, %7.2f) fwd=%6.2f lat=%6.2f rot=%7.1f" % [
+	var state := "t=%5.2f step=%d pos=(%7.2f, %7.2f) fwd=%6.2f lat=%6.2f rot=%7.1f" % [
 		elapsed, _step_index, car.global_position.x, car.global_position.z,
 		car.forward_speed, car.lateral_speed, rad_to_deg(_rotation),
 	]
+	if test.has("goal_mode"):
+		state += " goal=%6.1f bearing=%6.1f%s" % [_goal_distance(), _goal_bearing_deg(), " settled" if _spin_settled else ""]
+	return state
 
 
 ## Where the run stands, for a HUD to show while a human drives. Always holds
 ## `kind`; the rest depends on it:
 ##   slalom    gates_reached, gates_total
-##   spin      rotation_deg (left positive), target_rotation_deg
+##   spin      rotation_deg (left positive), target_rotation_deg, spin_done
+##             (the rotation has settled and been noted; the goal counts from
+##             here), spin_overshot (it went on past the tolerance), goal_mode, goal_distance_m (left to the goal)
 ##   reverse spin  the same, plus reverse_speed_ms and up_to_speed (reversed
 ##             fast enough to count)
 ##   stop box  distance_to_box_m (along the start heading, to the centre of the
@@ -457,16 +584,20 @@ func progress() -> Dictionary:
 	match test.kind:
 		KIND_SLALOM:
 			return {"kind": test.kind, "gates_reached": _gate_index, "gates_total": _gates.size()}
-		KIND_SPIN:
-			return {"kind": test.kind, "rotation_deg": rad_to_deg(_rotation), "target_rotation_deg": test.target_rotation_deg}
-		KIND_REVERSE_SPIN:
-			return {
+		KIND_SPIN, KIND_REVERSE_SPIN:
+			var spin := {
 				"kind": test.kind,
 				"rotation_deg": rad_to_deg(_rotation),
 				"target_rotation_deg": test.target_rotation_deg,
-				"reverse_speed_ms": maxf(-car.forward_speed, 0.0),
-				"up_to_speed": _peak_reverse_speed >= REVERSE_180_MIN_ENTRY_SPEED,
+				"spin_done": _spin_settled,
+				"spin_overshot": _spin_overshot,
+				"goal_mode": test.get("goal_mode", &""),
+				"goal_distance_m": maxf(_goal_distance(), 0.0) if test.has("goal_mode") else 0.0,
 			}
+			if test.kind == KIND_REVERSE_SPIN:
+				spin["reverse_speed_ms"] = maxf(-car.forward_speed, 0.0)
+				spin["up_to_speed"] = _peak_reverse_speed >= REVERSE_180_MIN_ENTRY_SPEED
+			return spin
 		_:
 			var box := TestPad.stop_box()
 			var to_box: Vector3 = box.centre - car.global_position
@@ -480,6 +611,18 @@ func progress() -> Dictionary:
 ## Stops the run early (e.g. the mission was cancelled) and frees the controls.
 func abort() -> void:
 	_finish()
+
+
+## Where the run is headed once the manoeuvre is done: the start point, or the
+## goal point down the line. Vector3.INF for a test without a goal_mode.
+func goal_position() -> Vector3:
+	match test.get("goal_mode", &""):
+		GOAL_RETURN_TO_START:
+			return _start_position
+		GOAL_DRIVE_ON:
+			return _start_position + _goal_direction() * test.goal_distance_m
+		_:
+			return Vector3.INF
 
 
 ## The verdict: { name, passed, metrics, checks }. `checks` lists every
@@ -496,6 +639,8 @@ func result() -> Dictionary:
 			_judge_stop_box(checks, metrics)
 		KIND_REVERSE_SPIN:
 			_judge_reverse_spin(checks, metrics)
+	if test.has("goal_mode"):
+		_judge_goal(checks)
 	checks.append({"label": "finished inside the time limit", "passed": not _timed_out})
 	metrics["run_time_s"] = snappedf(elapsed, 0.01)
 	var passed := true
@@ -568,6 +713,9 @@ func _conditions_met(when: Dictionary) -> bool:
 			"rotation_deg_below":
 				if rad_to_deg(_rotation) > value:
 					return false
+			"goal_distance_below":
+				if _goal_distance() > value:
+					return false
 			_:
 				push_error("HandlingTests: unknown step condition '%s'" % key)
 				return false
@@ -609,18 +757,72 @@ func _travelled() -> float:
 
 ## A human-driven run is complete when its kind says so; a scripted one when
 ## the script has run out.
+# was, spin: turned more than 90 degrees and stopped; reverse 180: turned more
+# than 90 degrees and rolling nose-first at REVERSE_180_MIN_EXIT_SPEED -> at
+# the goal - the run ends where it is headed, not where the rotation does. A
+# spin that went on past its tolerance has its verdict already, and ends there.
 func _is_complete() -> bool:
 	if scripted:
 		return true
 	match test.kind:
 		KIND_SLALOM:
 			return _gate_index >= _gates.size()
-		KIND_SPIN:
-			return absf(rad_to_deg(_rotation)) > 90.0 and _speed() < STOPPED_SPEED
-		KIND_REVERSE_SPIN:
-			return absf(rad_to_deg(_rotation)) > 90.0 and car.forward_speed >= REVERSE_180_MIN_EXIT_SPEED
+		KIND_SPIN, KIND_REVERSE_SPIN:
+			return _goal_reached or _spin_overshot
 		_:
 			return _peak_speed >= STOP_BOX_MIN_ENTRY_SPEED and _speed() < STOPPED_SPEED
+
+
+## Notes the rotation the moment the spin settles (see the top of the file),
+## and from then on whether the car has got to the goal. `yaw_rate` [rad/s].
+func _track_goal(yaw_rate: float) -> void:
+	if not _spin_settled:
+		var target: float = test.target_rotation_deg
+		var rotation_deg := absf(rad_to_deg(_rotation))
+		var settled := absf(rotation_deg - target) <= _rotation_tolerance_deg() and absf(yaw_rate) < deg_to_rad(SPIN_SETTLED_YAW_RATE_DEG)
+		_spin_overshot = rotation_deg > target + _rotation_tolerance_deg()
+		if settled or _spin_overshot:
+			_spin_settled = true
+			_settled_rotation = _rotation
+			_settled_yaw = car.global_rotation.y
+			_settled_position = car.global_position
+	elif not _goal_reached:
+		var distance := _goal_distance()
+		if test.goal_mode == GOAL_DRIVE_ON:
+			_goal_reached = distance <= 0.0 and _goal_side_offset() <= GOAL_RADIUS
+		else:
+			_goal_reached = distance <= GOAL_RADIUS
+
+
+func _rotation_tolerance_deg() -> float:
+	return REVERSE_180_HEADING_TOLERANCE_DEG if test.kind == KIND_REVERSE_SPIN else SPIN_HEADING_TOLERANCE_DEG
+
+
+## The way a drive-on goal lies from the start: the start heading, or for the
+## reverse 180 the way the car reverses.
+func _goal_direction() -> Vector3:
+	return -_start_forward if test.kind == KIND_REVERSE_SPIN else _start_forward
+
+
+## Distance left to the goal [m]: to the start point, or along the line to the
+## goal line (negative once over it).
+func _goal_distance() -> float:
+	var to_goal := goal_position() - car.global_position
+	if test.goal_mode == GOAL_DRIVE_ON:
+		return to_goal.dot(_goal_direction())
+	return Vector2(to_goal.x, to_goal.z).length()
+
+
+## How far to the side of a drive-on goal's line the car is [m].
+func _goal_side_offset() -> float:
+	var to_goal := goal_position() - car.global_position
+	return absf(to_goal.dot(_goal_direction().cross(Vector3.UP)))
+
+
+## Where the goal point lies off the nose [degrees, left positive].
+func _goal_bearing_deg() -> float:
+	var to_goal := car.global_basis.inverse() * (goal_position() - car.global_position)
+	return rad_to_deg(atan2(-to_goal.x, -to_goal.z))
 
 
 ## Notes how far to the side the car is as it draws level with each cone.
@@ -672,7 +874,13 @@ func _judge_slalom(checks: Array[Dictionary], metrics: Dictionary) -> void:
 
 func _judge_spin(checks: Array[Dictionary], metrics: Dictionary) -> void:
 	var target: float = test.target_rotation_deg
-	var rotation_deg := rad_to_deg(_rotation)
+	# was rotation, heading and displacement as they stand at the end of the run
+	# -> as noted when the spin settled - the run now goes on to its goal, and
+	# driving there turns the car and brings it back up the road. A spin that
+	# never settled is judged as it stands.
+	var rotation_deg := rad_to_deg(_settled_rotation if _spin_settled else _rotation)
+	var yaw := _settled_yaw if _spin_settled else car.global_rotation.y
+	var position := _settled_position if _spin_settled else car.global_position
 	# was absf(rotation_deg - target), a signed comparison -> the size of the
 	# rotation against the target - a clean 180 to the right (-183.4) read as
 	# "off by 363.4" and failed; either direction is a spin.
@@ -682,8 +890,8 @@ func _judge_spin(checks: Array[Dictionary], metrics: Dictionary) -> void:
 	# rotation, left positive), wrapped to +-180 - the metric mixed rotation up
 	# with heading: the same mirrored 180 now reads 3.4, not 363.4.
 	var target_heading := _start_yaw + deg_to_rad(target)
-	var heading_error := absf(rad_to_deg(angle_difference(target_heading, car.global_rotation.y)))
-	var displacement := (car.global_position - _mark_position).dot(_start_forward)
+	var heading_error := absf(rad_to_deg(angle_difference(target_heading, yaw)))
+	var displacement := (position - _mark_position).dot(_start_forward)
 	metrics["rotation_deg"] = snappedf(rotation_deg, 0.1)
 	metrics["heading_error_deg"] = snappedf(heading_error, 0.1)
 	metrics["net_forward_m"] = snappedf(displacement, 0.1)
@@ -701,7 +909,9 @@ func _judge_spin(checks: Array[Dictionary], metrics: Dictionary) -> void:
 
 func _judge_reverse_spin(checks: Array[Dictionary], metrics: Dictionary) -> void:
 	var target: float = test.target_rotation_deg
-	var rotation_deg := rad_to_deg(_rotation)
+	# The rotation as noted when the flick settled (see _judge_spin); the travel
+	# and the exit speed as they stand at the end of the run, at the goal.
+	var rotation_deg := rad_to_deg(_settled_rotation if _spin_settled else _rotation)
 	var heading_error := absf(absf(rotation_deg) - target)
 	# The car reverses against its start heading and keeps going that way.
 	var displacement := (car.global_position - _mark_position).dot(-_start_forward)
@@ -726,6 +936,15 @@ func _judge_reverse_spin(checks: Array[Dictionary], metrics: Dictionary) -> void
 		"label": "net travel along the reversing line positive (%.1f m)" % displacement,
 		"passed": (_marked or not scripted) and displacement > REVERSE_180_MIN_DISPLACEMENT,
 	})
+
+
+## The destination, on top of the manoeuvre's own checks.
+func _judge_goal(checks: Array[Dictionary]) -> void:
+	var left := maxf(_goal_distance(), 0.0)
+	if test.goal_mode == GOAL_RETURN_TO_START:
+		checks.append({"label": "returned to the start, within %.0f m (%.1f m away)" % [GOAL_RADIUS, left], "passed": _goal_reached})
+	else:
+		checks.append({"label": "drove to the goal (%.1f m to go)" % left, "passed": _goal_reached})
 
 
 func _judge_stop_box(checks: Array[Dictionary], metrics: Dictionary) -> void:

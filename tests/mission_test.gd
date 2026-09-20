@@ -13,8 +13,10 @@ extends SceneTree
 ##
 ## Then the engineered FAIL: the slalom again, with the pilot's steering
 ## released straight after every tick, so the car runs straight past the cones.
-## The manager must report FAILED through the real gate check. Last, the keys:
-## a mission started with its number key and aborted with Esc.
+## The manager must report FAILED through the real gate check. And a second
+## one: the 180 spun cleanly and then left parked where it stopped, which must
+## fail through the goal check alone. Last, the keys: a mission started with its
+## number key and aborted with Esc.
 ## Exits 0 on success, 1 on any failed check.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -38,6 +40,17 @@ const EXPECTED_HUD_WORD := {
 	HandlingTests.KIND_STOP_BOX: "BRAKE!",
 	HandlingTests.KIND_REVERSE_SPIN: "ROTATION",
 }
+
+## The words a test with a goal shows on its HUD line once the manoeuvre is
+## done and the car is on its way there.
+const EXPECTED_GOAL_WORD := {
+	HandlingTests.GOAL_RETURN_TO_START: "RETURN TO START",
+	HandlingTests.GOAL_DRIVE_ON: "DRIVE ON",
+}
+
+## How many steps of the 180's script it takes to spin the car and get on the
+## brakes: accelerate, flick, catch, brake.
+const SPIN_180_STEPS_TO_THE_STOP := 4
 
 const STEERING: Array[StringName] = [&"steer_left", &"steer_right"]
 
@@ -94,6 +107,7 @@ func _run() -> void:
 	_check(_finished_signals == tests.size(), "mission_finished fired once per mission (%d)" % _finished_signals)
 
 	await _play_mission(0, tests[0], true)
+	await _check_no_return(1, tests[1])
 	await _check_abort(1, tests[1])
 
 	_car.reset_to_spawn()
@@ -118,7 +132,9 @@ func _play_mission(index: int, definition: Dictionary, suppress_steering: bool) 
 	var pilot := HandlingTests.begin(definition, _car, _pad, true)
 	var delta := 1.0 / Engine.physics_ticks_per_second
 	var hud_word: String = EXPECTED_HUD_WORD[definition.kind]
+	var goal_word: String = EXPECTED_GOAL_WORD.get(definition.get("goal_mode", &""), "")
 	var saw_progress := false
+	var saw_goal := false
 	var saw_timer := false
 	var frames := 0
 	# The pilot may outlast the mission (the slalom pilot straightens up after
@@ -138,6 +154,7 @@ func _play_mission(index: int, definition: Dictionary, suppress_steering: bool) 
 		frames += 1
 		if _manager.is_running():
 			saw_progress = saw_progress or _mission_label.text.contains(hud_word)
+			saw_goal = saw_goal or (goal_word != "" and _mission_label.text.contains(goal_word))
 			saw_timer = saw_timer or _mission_label.text.contains(" s")
 	Input.action_release("handbrake")
 
@@ -149,6 +166,8 @@ func _play_mission(index: int, definition: Dictionary, suppress_steering: bool) 
 	for line in HandlingTests.format_result(outcome):
 		print("  ", line)
 	_check(saw_progress and saw_timer, "%s: HUD mission line showed '%s' progress and the timer" % [label, hud_word])
+	if goal_word != "":
+		_check(saw_goal, "%s: HUD mission line went on to '%s' once the spin was done" % [label, goal_word])
 	_check(_manager.state == MissionManager.State.RESULT and _banner.visible, "%s: result banner is up" % label)
 	_check(outcome.get("name", "") == definition.name, "%s: result is for this test" % label)
 
@@ -171,6 +190,53 @@ func _play_mission(index: int, definition: Dictionary, suppress_steering: bool) 
 		_check(outcome.passed == true, "%s: manager reports PASSED" % label)
 		_check(_banner.text.begins_with("PASSED"), "%s: banner says PASSED ('%s')" % [label, _banner.text])
 		_check(pilot.result().passed, "%s: the pilot's own run passed too" % label)
+		if goal_word != "":
+			var goal_checked := false
+			for check: Dictionary in outcome.checks:
+				if (check.label.contains("the start") or check.label.contains("the goal")) and check.passed:
+					goal_checked = true
+			_check(goal_checked, "%s: passed through the goal check, on top of the manoeuvre's own" % label)
+
+
+## The 180 without the drive back: the pilot's script is cut off once it is on
+## the brakes after the spin, and the car is left parked there. The verdict is
+## rotation AND goal: the rotation check passes, the run never gets back to the
+## start, runs out of time and fails.
+func _check_no_return(index: int, definition: Dictionary) -> void:
+	var label: String = definition.name + " without the drive back"
+	print("-- mission %d: %s" % [index + 1, label])
+	if not _check(_manager.start_mission(index), "%s: manager starts the mission" % label):
+		return
+	var spin_only := definition.duplicate()
+	var steps: Array = definition.steps
+	spin_only.steps = steps.slice(0, SPIN_180_STEPS_TO_THE_STOP)
+	var pilot := HandlingTests.begin(spin_only, _car, _pad, true)
+	var delta := 1.0 / Engine.physics_ticks_per_second
+	var frames := 0
+	while (_manager.is_running() or not pilot.finished) and frames < MAX_MISSION_FRAMES:
+		pilot.tick(delta)
+		if pilot.finished and _manager.is_running():
+			Input.action_press("handbrake")
+		await physics_frame
+		frames += 1
+	Input.action_release("handbrake")
+	if not _check(not _manager.is_running() and pilot.finished, "%s: mission and pilot both finish (%d frames)" % [label, frames]):
+		_manager.abort_mission()
+		pilot.abort()
+		return
+	var outcome := _manager.last_result
+	for line in HandlingTests.format_result(outcome):
+		print("  ", line)
+	var rotation_passed := false
+	var goal_failed := false
+	for check: Dictionary in outcome.checks:
+		if check.label.begins_with("rotation"):
+			rotation_passed = check.passed
+		if check.label.contains("the start"):
+			goal_failed = not check.passed
+	_check(rotation_passed, "%s: the spin itself passes its rotation check (%.1f degrees)" % [label, outcome.metrics.get("rotation_deg", 0.0)])
+	_check(outcome.passed == false and goal_failed, "%s: manager reports FAILED through the goal check" % label)
+	_check(_banner.text.begins_with("FAILED"), "%s: banner says FAILED ('%s')" % [label, _banner.text.get_slice("\n", 0)])
 
 
 ## Started by its number key and aborted with Esc: no verdict, a brief ABORTED
