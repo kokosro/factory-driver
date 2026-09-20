@@ -1862,11 +1862,13 @@ func _slide_yaw_damping(along: float, across: float) -> float:
 
 ## Cosmetic motion: wheel spin, front wheel steering and body roll / pitch.
 func _update_visuals(delta: float) -> void:
-	# Each axle turns at road speed plus its slip: driven wheels visibly spin
-	# up when they break traction, handbraked rears stand still.
-	var rolling := forward_speed / WHEEL_RADIUS
-	var front_spin := clampf(rolling * (1.0 + front_slip_ratio * signf(forward_speed)), -MAX_WHEEL_SPIN, MAX_WHEEL_SPIN)
-	var rear_spin := clampf(rolling * (1.0 + rear_slip_ratio * signf(forward_speed)) * (1.0 - _handbrake_amount), -MAX_WHEEL_SPIN, MAX_WHEEL_SPIN)
+	# Each axle is drawn turning at its real wheel speed (front_omega,
+	# rear_omega): driven wheels that break traction visibly outrun the road,
+	# braked ones lag it, handbraked rears stand still.
+	# was road speed x (1 + slip ratio), the handbrake faded in by hand -> the
+	# wheel speed states themselves; nothing to reconstruct any more.
+	var front_spin := clampf(front_omega, -MAX_WHEEL_SPIN, MAX_WHEEL_SPIN)
+	var rear_spin := clampf(rear_omega, -MAX_WHEEL_SPIN, MAX_WHEEL_SPIN)
 	for i in _wheel_spinners.size():
 		# Rolling towards -Z is a negative rotation about +X.
 		_wheel_spinners[i].rotate_x(-(front_spin if i < 2 else rear_spin) * delta)

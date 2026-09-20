@@ -27,7 +27,9 @@ func _process(_delta: float) -> void:
 	var gear_name := "R" if reversing else ("N" if car.gear == 0 else "G%d" % car.gear)
 	if not car.automatic:
 		gear_name += " M"
-	# Rounded to 50 rpm so the readout does not flicker.
+	# The engine's own speed (ArcadeCar.engine_omega, as rpm): it free-revs,
+	# flares on a slipping clutch and bounces off the limiter, whatever the road
+	# speed does. Rounded to 50 rpm so the readout does not flicker.
 	_rpm_label.text = "%d rpm | %s" % [roundi(car.engine_rpm / 50.0) * 50, gear_name]
 	var near_redline := car.engine_rpm >= ArcadeCar.SHIFT_LIGHT_RPM
 	_rpm_label.add_theme_color_override("font_color", TACH_REDLINE_COLOR if near_redline else TACH_COLOR)
