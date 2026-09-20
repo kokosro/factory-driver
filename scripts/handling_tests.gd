@@ -15,7 +15,12 @@ extends RefCounted
 ##                          the line to a goal `goal_distance_m` from the start,
 ##   steps                  the scripted driver: an ordered list of
 ##                          { when, press, release, mark } entries,
-##   settle, time_limit     how the run ends.
+##   settle, time_limit     how the run ends,
+##   target_time_s          the time the HUD shows the clock against [s],
+##   gold_time_s, silver_time_s, bronze_time_s   the medal times [s]: a passed
+##                          run this quick or quicker earns the medal (see
+##                          medal_for()). Presentation only: pass is pass,
+##                          nothing in the verdict looks at the medals.
 ## Steps fire strictly in order. `when` holds the conditions a step waits for
 ## (all must be true), measured the way a driver would judge them:
 ##   "after"        seconds since the previous step fired,
@@ -57,6 +62,9 @@ const KIND_REVERSE_SPIN := &"reverse_spin"
 ## the start heading; the reverse 180: the way it reversed) to the goal.
 const GOAL_RETURN_TO_START := &"return_to_start"
 const GOAL_DRIVE_ON := &"drive_on"
+
+## Medals, best first. A test's medal times are its "<medal>_time_s" fields.
+const MEDALS: Array[String] = ["gold", "silver", "bronze"]
 
 # --- Pass / fail tolerances ---------------------------------------------------
 
@@ -331,6 +339,14 @@ static func slalom_test() -> Dictionary:
 		# was 30.0 -> 36.0 - the certified run is 32.4 s at SLALOM_SPEED 10.0 (raw
 		# steering); slalom_time_s 29.6.
 		"target_time_s": 36.0,
+		# Medal times [s]: gold / silver / bronze - the certified drive is 31.3 s
+		# as a mission (the run ends 1 s after the last cone; 33.2 s as a handling
+		# test, where the script straightens up first) (on ecd5da5): +7 %, +25 %,
+		# +50 %. The last cone has to be reached inside SLALOM_TIME_LIMIT, so every
+		# pass is inside bronze.
+		"gold_time_s": 33.5,
+		"silver_time_s": 39.0,
+		"bronze_time_s": 47.0,
 	}
 
 
@@ -372,9 +388,14 @@ static func spin_180_test() -> Dictionary:
 		"time_limit": 45.0,
 		# Target time for the whole run [s]; presentation only, nothing judges it.
 		# target 11.5 s - certified run 10.2 s at HEAD (eed237f).
-		# was 11.5 -> 21.0 - the run goes back to the start now: certified run
-		# 18.9 s (on ecd5da5), 9.7 s of it the spin, to a stop.
-		"target_time_s": 21.0,
+		# was 11.5 -> 20.5 - the run goes back to the start now: certified run
+		# 18.9 s (on ecd5da5), 9.7 s of it the spin, to a stop. The gold time.
+		"target_time_s": 20.5,
+		# Medal times [s]: gold / silver / bronze - certified 18.9 s (on ecd5da5):
+		# +8 %, +24 %, +51 %.
+		"gold_time_s": 20.5,
+		"silver_time_s": 23.5,
+		"bronze_time_s": 28.5,
 	}
 
 
@@ -415,9 +436,14 @@ static func spin_360_test() -> Dictionary:
 		"time_limit": 40.0,
 		# Target time for the whole run [s]; presentation only, nothing judges it.
 		# target 16.5 s - certified run 14.6 s at HEAD (eed237f).
-		# was 16.5 -> 24.5 - the run goes on to the 400 m board now: certified run
-		# 21.8 s (on ecd5da5), over the goal line at 19.8 s.
-		"target_time_s": 24.5,
+		# was 16.5 -> 23.5 - the run goes on to the 400 m board now: certified run
+		# 21.8 s (on ecd5da5), over the goal line at 19.8 s. The gold time.
+		"target_time_s": 23.5,
+		# Medal times [s]: gold / silver / bronze - certified 21.8 s (on ecd5da5):
+		# +8 %, +26 %, +49 %.
+		"gold_time_s": 23.5,
+		"silver_time_s": 27.5,
+		"bronze_time_s": 32.5,
 	}
 
 
@@ -444,6 +470,11 @@ static func stop_box_test() -> Dictionary:
 		# Target time for the whole run [s]; presentation only, nothing judges it.
 		# target 12.5 s - certified run 11.3 s at HEAD (eed237f).
 		"target_time_s": 12.5,
+		# Medal times [s]: gold / silver / bronze - certified 11.7 s (on ecd5da5):
+		# +7 %, +24 %, +49 %.
+		"gold_time_s": 12.5,
+		"silver_time_s": 14.5,
+		"bronze_time_s": 17.5,
 	}
 
 
@@ -485,10 +516,27 @@ static func reverse_180_test() -> Dictionary:
 		"time_limit": 30.0,
 		# Target time for the whole run [s]; presentation only, nothing judges it.
 		# target 7.0 s - certified run 6.4 s at HEAD (eed237f).
-		# was 7.0 -> 11.5 - the run goes on to the 100 m board now: certified run
-		# 10.3 s (on ecd5da5), over the goal line at 9.3 s.
-		"target_time_s": 11.5,
+		# was 7.0 -> 11.0 - the run goes on to the 100 m board now: certified run
+		# 10.3 s (on ecd5da5), over the goal line at 9.3 s. The gold time.
+		"target_time_s": 11.0,
+		# Medal times [s]: gold / silver / bronze - certified 10.3 s (on ecd5da5):
+		# +7 %, +26 %, +50 %.
+		"gold_time_s": 11.0,
+		"silver_time_s": 13.0,
+		"bronze_time_s": 15.5,
 	}
+
+
+## The medal a passed run of `test` earns with a run time of `run_time_s` (the
+## verdict's run_time_s metric): "gold", "silver", "bronze", or "" for a run
+## slower than bronze or a test without medal times. Says nothing about pass or
+## fail: the caller only asks for a run that passed.
+static func medal_for(test: Dictionary, run_time_s: float) -> String:
+	for medal in MEDALS:
+		var key := medal + "_time_s"
+		if test.has(key) and run_time_s <= test[key]:
+			return medal
+	return ""
 
 
 # =============================================================================

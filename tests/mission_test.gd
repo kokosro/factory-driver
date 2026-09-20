@@ -8,8 +8,10 @@ extends SceneTree
 ## way a player would: the manager starts a human run (scripted driver off) and
 ## judges it, while a "pilot" - the same test begun a second time with the
 ## scripted driver on - works the input actions, exactly like the keyboard
-## would. Each mission must come out PASSED with its metrics filled in, and the
-## HUD must have shown its progress.
+## would. Each mission must come out PASSED with its metrics filled in, the HUD
+## must have shown its progress, and the banner must show the medal the run's
+## time earned. Before that, the medal times themselves: every test has them in
+## order, and HandlingTests.medal_for() maps a time to its medal.
 ##
 ## Then the engineered FAIL: the slalom again, with the pilot's steering
 ## released straight after every tick, so the car runs straight past the cones.
@@ -102,6 +104,8 @@ func _run() -> void:
 	_check(listed, "idle mission line lists every test with its key, and every key has its input action ('%s')" % _mission_label.text)
 	_check(not _manager.start_mission(99), "starting a test that does not exist is refused")
 
+	for definition in tests:
+		_check_medal_times(definition)
 	for index in tests.size():
 		await _play_mission(index, tests[index], false)
 	_check(_finished_signals == tests.size(), "mission_finished fired once per mission (%d)" % _finished_signals)
@@ -186,16 +190,44 @@ func _play_mission(index: int, definition: Dictionary, suppress_steering: bool) 
 				gate_check_failed = true
 		_check(gate_check_failed, "%s: failed through the real gate check (gates %s)" % [label, metrics.get("gates_passed", "?")])
 		_check(_banner.text.begins_with("FAILED"), "%s: banner says FAILED ('%s')" % [label, _banner.text])
+		var failed_time: float = metrics.get("run_time_s", INF)
+		_check(_banner.text == "FAILED  %s" % definition.title and HandlingTests.medal_for(definition, failed_time) != "", "%s: no medal on a failed run, however quick (%.2f s would be %s)" % [label, failed_time, HandlingTests.medal_for(definition, failed_time)])
 	else:
 		_check(outcome.passed == true, "%s: manager reports PASSED" % label)
 		_check(_banner.text.begins_with("PASSED"), "%s: banner says PASSED ('%s')" % [label, _banner.text])
 		_check(pilot.result().passed, "%s: the pilot's own run passed too" % label)
+		var run_time: float = metrics.get("run_time_s", INF)
+		var medal := HandlingTests.medal_for(definition, run_time)
+		_check(medal != "", "%s: the certified drive earns a medal (%s, %.2f s)" % [label, medal, run_time])
+		_check(_banner.text == "PASSED  %s — %s" % [definition.title, medal.to_upper()], "%s: banner shows the medal its %.2f s earned ('%s')" % [label, run_time, _banner.text])
+		var tint: Color = MissionManager.BANNER_COLOR_MEDAL.get(medal, MissionManager.BANNER_COLOR_PASSED)
+		_check(_banner.get_theme_color("font_color").is_equal_approx(tint), "%s: headline is tinted %s" % [label, medal])
 		if goal_word != "":
 			var goal_checked := false
 			for check: Dictionary in outcome.checks:
 				if (check.label.contains("the start") or check.label.contains("the goal")) and check.passed:
 					goal_checked = true
 			_check(goal_checked, "%s: passed through the goal check, on top of the manoeuvre's own" % label)
+
+
+## A test's medal times are there and in order, and medal_for() maps a time to
+## its medal: gold up to the gold time, silver up to the silver time, bronze up
+## to the bronze time, nothing beyond. Pure data, no driving.
+func _check_medal_times(definition: Dictionary) -> void:
+	var label: String = definition.name
+	var gold: float = definition.get("gold_time_s", 0.0)
+	var silver: float = definition.get("silver_time_s", 0.0)
+	var bronze: float = definition.get("bronze_time_s", 0.0)
+	_check(0.0 < gold and gold < silver and silver < bronze, "%s: has medal times, gold < silver < bronze (%.1f / %.1f / %.1f s)" % [label, gold, silver, bronze])
+	var mapped := HandlingTests.medal_for(definition, gold * 0.5) == "gold" \
+		and HandlingTests.medal_for(definition, gold) == "gold" \
+		and HandlingTests.medal_for(definition, (gold + silver) * 0.5) == "silver" \
+		and HandlingTests.medal_for(definition, silver) == "silver" \
+		and HandlingTests.medal_for(definition, (silver + bronze) * 0.5) == "bronze" \
+		and HandlingTests.medal_for(definition, bronze) == "bronze" \
+		and HandlingTests.medal_for(definition, bronze + 0.01) == ""
+	_check(mapped, "%s: a fast time maps to gold, a middling one to silver, a slow one to bronze, one over the bronze time to no medal" % label)
+	_check(HandlingTests.medal_for({}, 1.0) == "", "%s: a test without medal times gives no medal" % label)
 
 
 ## The 180 without the drive back: the pilot's script is cut off once it is on

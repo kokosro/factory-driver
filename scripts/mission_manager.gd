@@ -34,6 +34,14 @@ const BANNER_COLOR_PASSED := Color(0.35, 1.0, 0.45, 1)
 const BANNER_COLOR_FAILED := Color(1.0, 0.3, 0.2, 1)
 const BANNER_COLOR_ABORTED := Color(1.0, 0.75, 0.25, 1)
 
+## Headline tint of a PASSED banner by the medal the run earned (sRGB, opaque);
+## a pass without a medal stays BANNER_COLOR_PASSED.
+const BANNER_COLOR_MEDAL := {
+	"gold": Color(1.0, 0.84, 0.25, 1),
+	"silver": Color(0.82, 0.86, 0.92, 1),
+	"bronze": Color(0.85, 0.55, 0.3, 1),
+}
+
 # --- Run markers ----------------------------------------------------------------
 # A golden orb by the start and a golden chevron by the goal, up while a run is
 # on. Looks only: plain meshes with no collision, stood clear of the driving
@@ -244,21 +252,38 @@ func _spin_progress_text(progress: Dictionary) -> String:
 	return "SPIN DONE — %s %d m" % [heading, roundi(progress.goal_distance_m)]
 
 
-## PASSED / FAILED banner. The small print is HandlingTests.format_result()'s
-## metrics line, with the failed checks moved onto a line of their own.
+## PASSED / FAILED banner. A passed run shows the medal its time earned, in the
+## headline and its colour, and the medal times in the small print; the verdict
+## is made by then, the medal is only looked up. The rest of the small print is
+## HandlingTests.format_result()'s metrics line, with the failed checks moved
+## onto a line of their own.
 func _show_result(outcome: Dictionary) -> void:
 	if not hud:
 		return
+	var headline := "%s  %s" % ["PASSED" if outcome.passed else "FAILED", run.test.title]
+	var color := BANNER_COLOR_PASSED if outcome.passed else BANNER_COLOR_FAILED
+	var medal := HandlingTests.medal_for(run.test, outcome.metrics.run_time_s) if outcome.passed else ""
+	if medal != "":
+		headline += " — %s" % medal.to_upper()
+		color = BANNER_COLOR_MEDAL[medal]
 	var summary := HandlingTests.format_result(outcome)[1].strip_edges().split(" | failed: ")
 	var detail := "%s\n%s" % [outcome.name, summary[0]]
 	if summary.size() > 1:
 		detail += "\nfailed: " + summary[1]
+	if outcome.passed:
+		detail += "\n" + _medal_times_text(run.test)
 	detail += "\n" + _keys_hint()
-	hud.show_mission_banner(
-		"%s  %s" % ["PASSED" if outcome.passed else "FAILED", run.test.title],
-		detail,
-		BANNER_COLOR_PASSED if outcome.passed else BANNER_COLOR_FAILED,
-	)
+	hud.show_mission_banner(headline, detail, color)
+
+
+## The test's medal times on one line: "GOLD 20.5 s   SILVER 23.5 s   ...".
+func _medal_times_text(test: Dictionary) -> String:
+	var entries := PackedStringArray()
+	for medal in HandlingTests.MEDALS:
+		var key := medal + "_time_s"
+		if test.has(key):
+			entries.append("%s %.1f s" % [medal.to_upper(), test[key]])
+	return "   ".join(entries)
 
 
 func _keys_hint() -> String:
