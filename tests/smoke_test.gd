@@ -44,6 +44,23 @@ const POWER_COAST_MIN_POSITION_DIFFERENCE := 2.0
 const CORNER_ENTRY_SPEED := 18.0
 const LOW_GEAR_ENTRY_SPEED := 9.0
 
+## Share of full lock (0..1) the test driver holds in the force-model corners
+## at speed (braked turn-in, power / coast, driven wheels, turn-in trace): ~9.6
+## degrees of wheel, a little past the front tyres' peak slip angle, where the
+## tyres work and throttle, brake and driven wheels show in the line.
+## Was 1.0, the bare key -> 0.35 - with raw steering the key is the full 27.5
+## degrees at any speed, the fronts scrub far past their peak and the car just
+## pushes wide whatever the throttle, brakes or driven wheels do (that push is
+## the honest car). Slip-sensitive steering used to
+## ease the lock to ~1.2 peak slip angles by itself; the driver does it now.
+const CORNER_STEER := 0.35
+
+## How fast the test driver rolls the steering on in the turn-in trace [1/s]:
+## 0 to CORNER_STEER in 0.2 s. Was the bare key, which STEER_RESPONSE ramped
+## over an eased lock (0.011 rad of wheel on the first tick) -> rolled on by
+## the driver: raw, the key alone is 0.04 rad of wheel on the first tick.
+const TURN_IN_ROLL_ON_RATE := 1.75
+
 ## How long the power / coast corners last [physics frames], 2 s; the 1st gear
 ## ones 1 s, so the automatic stays in 1st throughout.
 const POWER_CORNER_FRAMES := 120
@@ -997,9 +1014,9 @@ func _corner(car: ArcadeCar, handbrake: bool) -> Dictionary:
 	return stats
 
 
-## Accelerates to `entry_speed` on the car's own drivetrain, then holds full
-## left steering for `frames` with the throttle wide open or closed on
-## `layout`. Returns the heading gained [rad], the mean radius of the line [m],
+## Accelerates to `entry_speed` on the car's own drivetrain, then holds
+## CORNER_STEER of left steering for `frames` with the throttle wide open or
+## closed on `layout`. Returns the heading gained [rad], the mean radius of the line [m],
 ## where it ended, peak slip angles / grip use, the speed gained and per-frame
 ## sanity stats.
 func _steady_corner(car: ArcadeCar, entry_speed: float, frames: int, on_power: bool, layout: ArcadeCar.DrivenWheels) -> Dictionary:
@@ -1013,7 +1030,7 @@ func _steady_corner(car: ArcadeCar, entry_speed: float, frames: int, on_power: b
 	var yaw_before := car.global_rotation.y
 	var travelled := 0.0
 	car.driven_wheels = layout
-	Input.action_press("steer_left")
+	Input.action_press("steer_left", CORNER_STEER)
 	if on_power:
 		Input.action_press("accelerate")
 	for frame in frames:
@@ -1040,8 +1057,9 @@ func _steady_corner(car: ArcadeCar, entry_speed: float, frames: int, on_power: b
 	return run
 
 
-## Coasts straight at `entry_speed`, then holds full left steering for 1 s and
-## follows, tick by tick, the sideways acceleration the tyres make, the change
+## Coasts straight at `entry_speed`, then rolls on CORNER_STEER of left
+## steering (TURN_IN_ROLL_ON_RATE) and holds it, 1 s in all, and follows, tick
+## by tick, the sideways acceleration the tyres make, the change
 ## of the world velocity, and how far the nose and the direction of travel
 ## have each turned.
 func _turn_in_trace(car: ArcadeCar, entry_speed: float) -> Dictionary:
@@ -1054,8 +1072,8 @@ func _turn_in_trace(car: ArcadeCar, entry_speed: float) -> Dictionary:
 	var heading_start := car.global_rotation.y
 	var travel_start := atan2(-car.velocity.x, -car.velocity.z)
 	var velocity_before := car.velocity
-	Input.action_press("steer_left")
 	for frame in 60:
+		Input.action_press("steer_left", minf(CORNER_STEER, (frame + 1) * TURN_IN_ROLL_ON_RATE / 60.0))
 		await physics_frame
 		accels.append(car.lateral_accel)
 		var horizontal_change := Vector2(car.velocity.x - velocity_before.x, car.velocity.z - velocity_before.z)
@@ -1105,12 +1123,12 @@ func _reach_speed(car: ArcadeCar, speed: float) -> void:
 	Input.action_release("accelerate")
 
 
-## Turns in to the left for 0.75 s from ~60 km/h, off the throttle, optionally
-## hard on the brakes; returns how far the car turned [rad].
+## Turns in to the left (CORNER_STEER) for 0.75 s from ~60 km/h, off the
+## throttle, optionally hard on the brakes; returns how far the car turned [rad].
 func _turn_in(car: ArcadeCar, braking: bool) -> float:
 	await _get_up_to_speed(car)
 	var yaw_before := car.global_rotation.y
-	Input.action_press("steer_left")
+	Input.action_press("steer_left", CORNER_STEER)
 	if braking:
 		Input.action_press("brake")
 	await _step(45)
