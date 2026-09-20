@@ -41,6 +41,12 @@ const SLALOM_FIRST_Z := -60.0
 const SLALOM_SPACING := 18.0
 const SLALOM_CONE_COUNT := 14
 
+## The slalom's own start line, where its run clock starts [m]: the slalom test
+## puts the car at z = -20, past START_LINE_Z, so its line is 4 m on from there,
+## the same 4 m the spawn point has to START_LINE_Z. A white bar across its lane.
+const SLALOM_START_LINE_Z := -24.0
+const SLALOM_START_LINE_SIZE := Vector2(10.0, 0.6)  # Across the lane x along it [m].
+
 const SKID_PAD_CENTRE := Vector3(-70.0, 0.0, -90.0)
 const SKID_PAD_INNER_RADIUS := 22.0
 const SKID_PAD_OUTER_RADIUS := 34.0
@@ -651,6 +657,8 @@ func _build_slalom() -> void:
 	var slalom_end_z := SLALOM_FIRST_Z - (SLALOM_CONE_COUNT - 1) * SLALOM_SPACING
 	for bar_z: float in [SLALOM_FIRST_Z + SLALOM_SPACING, slalom_end_z - SLALOM_SPACING]:
 		_add_paint(group, Vector3(SLALOM_X, 0.0, bar_z), Vector2(10.0, 0.4), COLOR_PAINT_YELLOW)
+	# The start line of the slalom test's run clock: white, like START / FINISH.
+	_add_paint(group, Vector3(SLALOM_X, 0.0, SLALOM_START_LINE_Z), SLALOM_START_LINE_SIZE, COLOR_PAINT_WHITE)
 
 
 ## Stop box: a hatched bay on the straight to brake into, a red stop bar at its

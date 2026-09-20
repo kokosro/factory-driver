@@ -8,6 +8,8 @@ extends RefCounted
 ##   title, objective       what a human driver is shown: a short name and
 ##                          one line on what to do,
 ##   start_offset/heading   where the car starts, relative to its spawn point,
+##   start_line_z           where the run clock starts: the pad z of the test's
+##                          start line [m] (see "The run clock" below),
 ##   hold_speed             optional cruise control for the scripted driver
 ##                          (until it brakes),
 ##   goal_mode              optional, where the run goes once the manoeuvre is
@@ -16,7 +18,7 @@ extends RefCounted
 ##   steps                  the scripted driver: an ordered list of
 ##                          { when, press, release, mark } entries,
 ##   settle, time_limit     how the run ends,
-##   target_time_s          the time the HUD shows the clock against [s],
+##   target_time_s          the run time the HUD shows the clock against [s],
 ##   gold_time_s, silver_time_s, bronze_time_s   the medal times [s]: a passed
 ##                          run this quick or quicker earns the medal (see
 ##                          medal_for()). Presentation only: pass is pass,
@@ -42,6 +44,33 @@ extends RefCounted
 ## or the frame it spins on past the tolerance altogether. Rotation, heading
 ## and displacement are noted there and judged from the note; the goal only
 ## counts from then on.
+##
+## The run clock. The clock times the run, not the nerves: every test has a
+## start line across the pad (`start_line_z`, 4 m down the pad from where the
+## car is put: the pad's painted START / FINISH line, TestPad.START_LINE_Z, or
+## for the slalom, which starts further down, a line of its own,
+## TestPad.SLALOM_START_LINE_Z), and the clock starts on the first tick the
+## car's position is over it having been short of it the tick before, going the
+## way the run goes (down the pad; the reverse 180 crosses it tail-first). A
+## position that crossed between two ticks moved, so the car is in motion by
+## definition. Everything before the crossing - lining up, waiting, a run-up
+## from further back - is free, and the scripted driver is timed the very same
+## way. There is one timed window per run: driving back over the line and
+## crossing it again does not start the clock anew. The clock stops at the
+## finish: over the goal line or back at the start (tests with a goal_mode), at
+## a standstill having been up to speed (stop box), level with the last cone
+## (slalom). The `settle` seconds the run is watched for after that are not on
+## it. The verdict's run_time_s is this clock, and so are the medals and the
+## slalom's time check; a run that never crossed its start line before its
+## finish fails. `elapsed`, the seconds since begin(), still paces the script
+## and the `settle`, and the `time_limit` is still judged from it: a driver who
+## never goes near the line times out just the same.
+# was: one clock, `elapsed`, from the first tick after begin() to the end of the
+# run, the settle included; it was the verdict's run_time_s and the medal input
+# -> the run clock above - a human who got going a second late was a second
+# slower on the clock ("the timer starts when the test starts, which made me do
+# the j turn multiple times because i was starting late"), and the time on the
+# banner had 1 - 2 s of being watched after the finish in it.
 ##
 ## One instance of this class is one run of one test on the real car:
 ##
@@ -100,8 +129,8 @@ const SLALOM_MAX_MISSED := 1
 ## Slalom: a pass further than this from the cone does not count [m].
 const SLALOM_GATE_WIDTH := 6.0
 
-## Slalom: generous time limit from the start to the last cone [s]. A steady
-## 43 km/h run takes about 25 s.
+## Slalom: generous time limit from the start line to the last cone [s], on
+## the run clock. A steady 36 km/h run takes about 29 s.
 const SLALOM_TIME_LIMIT := 45.0
 
 ## Stop box: the car counts as stopped below this speed [m/s].
@@ -251,7 +280,13 @@ var car: ArcadeCar
 var pad: Node
 var scripted := true
 var finished := false
-var elapsed := 0.0
+var elapsed := 0.0  # Since begin() [s]: paces the script, the settle and the time limit.
+
+# The run clock (see the top of the file).
+var _run_started := false  # Over the start line, the clock is or was running.
+var _run_stopped := false  # At the finish, the clock stands.
+var _run_time := 0.0  # The run clock [s]: start line to finish.
+var _line_side := 0.0  # How far past the start line the car was last tick [m]; negative = short of it.
 
 var _step_index := 0
 var _since_step := 0.0
@@ -328,6 +363,12 @@ static func slalom_test() -> Dictionary:
 		"objective": "Weave through the cones: first cone on your left, then alternate. %d miss allowed, %.0f s." % [SLALOM_MAX_MISSED, SLALOM_TIME_LIMIT],
 		"start_offset": start,
 		"start_heading_deg": 0.0,
+		# Where the run clock starts: pad z [m], crossed going down the pad (-Z).
+		# The slalom starts at z = -20, 16 m past the pad's START / FINISH line, so
+		# it has a line of its own 4 m on, the same 4 m every other test has to its
+		# line: z = -24, a white bar painted across the slalom's lane. The run-in
+		# to the first cone (36 m of it) is part of the timed run.
+		"start_line_z": TestPad.SLALOM_START_LINE_Z,
 		"hold_speed": SLALOM_SPEED,
 		"steps": steps,
 		"settle": 1.0,
@@ -365,6 +406,11 @@ static func spin_180_test() -> Dictionary:
 		"goal_mode": GOAL_RETURN_TO_START,
 		"start_offset": Vector3.ZERO,
 		"start_heading_deg": 0.0,
+		# Where the run clock starts: pad z [m], crossed going down the pad (-Z).
+		# The pad's painted START / FINISH line, 4 m ahead of the start point: the
+		# car is over it a moment after it pulls away, so the speed is built on
+		# the clock. The goal is still the start point, not the line.
+		"start_line_z": TestPad.START_LINE_Z,
 		"steps": [
 			{"when": {}, "press": [&"accelerate"]},
 			{"when": {"speed_above": SPIN_180_ENTRY_SPEED}, "release": [&"accelerate"], "press": [&"steer_left", &"handbrake"], "mark": true},
@@ -415,6 +461,10 @@ static func spin_360_test() -> Dictionary:
 		"goal_distance_m": SPIN_360_GOAL_DISTANCE,
 		"start_offset": Vector3.ZERO,
 		"start_heading_deg": 0.0,
+		# Where the run clock starts: pad z [m], crossed going down the pad (-Z).
+		# The pad's painted START / FINISH line, 4 m ahead of the start point; the
+		# goal's 404 m are still counted from the start point (the 400 m board).
+		"start_line_z": TestPad.START_LINE_Z,
 		"steps": [
 			{"when": {}, "press": [&"accelerate"]},
 			{"when": {"speed_above": SPIN_360_ENTRY_SPEED}, "release": [&"accelerate"], "press": [&"steer_left", &"handbrake"], "mark": true},
@@ -458,6 +508,9 @@ static func stop_box_test() -> Dictionary:
 		"objective": "Reach %.0f km/h or more, then stop with the whole car inside the hatched box ahead." % (STOP_BOX_MIN_ENTRY_SPEED * 3.6),
 		"start_offset": Vector3.ZERO,
 		"start_heading_deg": 0.0,
+		# Where the run clock starts: pad z [m], crossed going down the pad (-Z).
+		# The pad's painted START / FINISH line, 4 m ahead of the start point.
+		"start_line_z": TestPad.START_LINE_Z,
 		"hold_speed": STOP_BOX_APPROACH_SPEED,
 		"steps": [
 			{"when": {"travelled": distance_to_box - STOP_BOX_BRAKE_DISTANCE}, "press": [&"brake"]},
@@ -496,6 +549,13 @@ static func reverse_180_test() -> Dictionary:
 		"goal_distance_m": REVERSE_180_GOAL_DISTANCE,
 		"start_offset": Vector3.ZERO,
 		"start_heading_deg": 180.0,
+		# Where the run clock starts: pad z [m], crossed going down the pad (-Z),
+		# which this car does tail-first. The pad's painted START / FINISH line,
+		# 4 m behind the car as it stands on the start point: line up and wait as
+		# long as you like, the clock starts when you reverse over the line. A
+		# run-up from further back is free too. The goal's 104 m are still
+		# counted from the start point (the 100 m board).
+		"start_line_z": TestPad.START_LINE_Z,
 		"steps": [
 			{"when": {}, "press": [&"brake"]},
 			# Lift and flick: the front of a reversing car trails, so once it
@@ -569,6 +629,7 @@ func _start() -> void:
 	_mark_position = _start_position
 	_start_yaw = car.global_rotation.y
 	_previous_yaw = _start_yaw
+	_line_side = _past_start_line()
 	if test.kind == KIND_SLALOM:
 		_gates = TestPad.slalom_cone_positions()
 		_gate_offsets.resize(_gates.size())
@@ -582,6 +643,9 @@ func tick(delta: float) -> void:
 		return
 	elapsed += delta
 	_since_step += delta
+	if _run_started and not _run_stopped:
+		_run_time += delta
+	_track_start_line()
 	var yaw := car.global_rotation.y
 	var turned := angle_difference(_previous_yaw, yaw)
 	_rotation += turned
@@ -594,6 +658,10 @@ func tick(delta: float) -> void:
 		_track_slalom()
 	if test.has("goal_mode"):
 		_track_goal(turned / delta)
+	# The finish stops the clock, crossed or not: a start line crossed after the
+	# finish starts nothing.
+	if not _run_stopped and _at_finish():
+		_run_stopped = true
 
 	if scripted:
 		_drive()
@@ -609,8 +677,8 @@ func tick(delta: float) -> void:
 
 ## One line on where the run stands, for tracing a test while tuning it.
 func describe_state() -> String:
-	var state := "t=%5.2f step=%d pos=(%7.2f, %7.2f) fwd=%6.2f lat=%6.2f rot=%7.1f" % [
-		elapsed, _step_index, car.global_position.x, car.global_position.z,
+	var state := "t=%5.2f run=%5.2f step=%d pos=(%7.2f, %7.2f) fwd=%6.2f lat=%6.2f rot=%7.1f" % [
+		elapsed, _run_time, _step_index, car.global_position.x, car.global_position.z,
 		car.forward_speed, car.lateral_speed, rad_to_deg(_rotation),
 	]
 	if test.has("goal_mode"):
@@ -619,7 +687,8 @@ func describe_state() -> String:
 
 
 ## Where the run stands, for a HUD to show while a human drives. Always holds
-## `kind`; the rest depends on it:
+## `kind`, and the run clock: run_started (over the start line) and run_time_s
+## (0 until then, standing once at the finish); the rest depends on the kind:
 ##   slalom    gates_reached, gates_total
 ##   spin      rotation_deg (left positive), target_rotation_deg, spin_done
 ##             (the rotation has settled and been noted; the goal counts from
@@ -629,6 +698,13 @@ func describe_state() -> String:
 ##   stop box  distance_to_box_m (along the start heading, to the centre of the
 ##             box; negative once past it), up_to_speed (fast enough to count)
 func progress() -> Dictionary:
+	var state := _kind_progress()
+	state["run_started"] = _run_started
+	state["run_time_s"] = _run_time
+	return state
+
+
+func _kind_progress() -> Dictionary:
 	match test.kind:
 		KIND_SLALOM:
 			return {"kind": test.kind, "gates_reached": _gate_index, "gates_total": _gates.size()}
@@ -654,6 +730,18 @@ func progress() -> Dictionary:
 				"distance_to_box_m": to_box.dot(_start_forward),
 				"up_to_speed": _peak_speed >= STOP_BOX_MIN_ENTRY_SPEED,
 			}
+
+
+## Whether the car has crossed the start line: the run clock is running, or
+## stands at the finish. Until then the run is not being timed.
+func started() -> bool:
+	return _run_started
+
+
+## The run clock [s]: from the start line crossing to now, or to the finish once
+## the car is there. 0 before the crossing.
+func run_time() -> float:
+	return _run_time
 
 
 ## Stops the run early (e.g. the mission was cancelled) and frees the controls.
@@ -689,8 +777,12 @@ func result() -> Dictionary:
 			_judge_reverse_spin(checks, metrics)
 	if test.has("goal_mode"):
 		_judge_goal(checks)
+	# A finish with no start line crossed before it has no run time to show.
+	checks.append({"label": "run clock started: crossed its start line before the finish", "passed": _run_started})
 	checks.append({"label": "finished inside the time limit", "passed": not _timed_out})
-	metrics["run_time_s"] = snappedf(elapsed, 0.01)
+	# was snappedf(elapsed, 0.01), begin() to the end of the run -> the run clock:
+	# start line to finish (see the top of the file).
+	metrics["run_time_s"] = snappedf(_run_time, 0.01)
 	var passed := true
 	for check in checks:
 		passed = passed and check.passed
@@ -803,6 +895,36 @@ func _travelled() -> float:
 	return (car.global_position - _start_position).dot(_start_forward)
 
 
+## How far past its start line the car is, along the way the run goes [m];
+## negative = short of it. The line runs right across the pad at start_line_z.
+func _past_start_line() -> float:
+	var line_z: float = test.get("start_line_z", TestPad.START_LINE_Z)
+	var on_line := Vector3(car.global_position.x, car.global_position.y, line_z)
+	return (car.global_position - on_line).dot(_goal_direction())
+
+
+## Starts the run clock the tick the car gets over the start line (see the top
+## of the file). Once: a second crossing starts nothing, and neither does one
+## after the finish.
+func _track_start_line() -> void:
+	var side := _past_start_line()
+	if not _run_started and not _run_stopped and _line_side < 0.0 and side >= 0.0:
+		_run_started = true
+	_line_side = side
+
+
+## Whether the car is at the test's finish, where the run clock stops: the same
+## for a human and the scripted driver.
+func _at_finish() -> bool:
+	match test.kind:
+		KIND_SLALOM:
+			return _gate_index >= _gates.size()
+		KIND_SPIN, KIND_REVERSE_SPIN:
+			return _goal_reached
+		_:
+			return _peak_speed >= STOP_BOX_MIN_ENTRY_SPEED and _speed() < STOPPED_SPEED
+
+
 ## A human-driven run is complete when its kind says so; a scripted one when
 ## the script has run out.
 # was, spin: turned more than 90 degrees and stopped; reverse 180: turned more
@@ -812,13 +934,7 @@ func _travelled() -> float:
 func _is_complete() -> bool:
 	if scripted:
 		return true
-	match test.kind:
-		KIND_SLALOM:
-			return _gate_index >= _gates.size()
-		KIND_SPIN, KIND_REVERSE_SPIN:
-			return _goal_reached or _spin_overshot
-		_:
-			return _peak_speed >= STOP_BOX_MIN_ENTRY_SPEED and _speed() < STOPPED_SPEED
+	return _at_finish() or _spin_overshot
 
 
 ## Notes the rotation the moment the spin settles (see the top of the file),
@@ -846,8 +962,8 @@ func _rotation_tolerance_deg() -> float:
 	return REVERSE_180_HEADING_TOLERANCE_DEG if test.kind == KIND_REVERSE_SPIN else SPIN_HEADING_TOLERANCE_DEG
 
 
-## The way a drive-on goal lies from the start: the start heading, or for the
-## reverse 180 the way the car reverses.
+## The way the run goes, over the start line and on to a drive-on goal: the
+## start heading, or for the reverse 180 the way the car reverses.
 func _goal_direction() -> Vector3:
 	return -_start_forward if test.kind == KIND_REVERSE_SPIN else _start_forward
 
@@ -884,7 +1000,10 @@ func _track_slalom() -> void:
 		_gate_offsets[_gate_index] = to_car.dot(right)
 		_gate_index += 1
 		if _gate_index == _gates.size():
-			_slalom_time = elapsed
+			# was elapsed, since begin() -> the run clock, since the start line:
+			# it is a run-time check. The last cone is the slalom's finish, so
+			# this is the verdict's run_time_s too.
+			_slalom_time = _run_time
 
 
 # --- Verdicts --------------------------------------------------------------------
