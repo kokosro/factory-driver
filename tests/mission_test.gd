@@ -20,6 +20,14 @@ extends SceneTree
 ## fail through the goal check alone. Last, the keys: a mission started with its
 ## number key and aborted with Esc.
 ##
+## The run clock rides along on every mission (HandlingTests, "The run
+## clock"): it reads "not started" and stays at 0 until the car crosses the
+## test's start line, starts the tick it does, and what the verdict reports as
+## run_time_s is the window from that crossing to the finish - less than the
+## time since the test began, which is what it used to be. And the complaint it
+## answers, checked where the abort test sits still for 2 s: waiting on the
+## start point costs nothing.
+##
 ## The idle line is checked against the telemetry summary it now ends with,
 ## built through the recorder's own helper (scripts/telemetry.gd): nothing is
 ## recorded with no window, but whatever earlier driving stored is read and
@@ -60,6 +68,11 @@ const EXPECTED_GOAL_WORD := {
 const SPIN_180_STEPS_TO_THE_STOP := 4
 
 const STEERING: Array[StringName] = [&"steer_left", &"steer_right"]
+
+## Run clock: how far the finished run's run_time_s may be from the window
+## reckoned from outside (time since the test began at the end of the run, less
+## what it was at the crossing, less the settle) [s]: a tick and the rounding.
+const RUN_CLOCK_TOLERANCE := 0.03
 
 var _failures := 0
 var _manager: MissionManager
@@ -145,6 +158,12 @@ func _play_mission(index: int, definition: Dictionary, suppress_steering: bool) 
 	_check(not _banner.visible, "%s: starting clears the banner" % label)
 	_check(_mission_label.text.contains(definition.title), "%s: mission line shows at once ('%s')" % [label, _mission_label.text.get_slice("\n", 0)])
 	_check(not _manager.start_mission((index + 1) % MissionManager.START_ACTIONS.size()), "%s: other tests are refused while it runs" % label)
+	var target_time: float = definition.target_time_s
+	var waiting_clock := "%s / %.1f s" % [MissionManager.CLOCK_NOT_STARTED, target_time]
+	_check(
+		not _manager.run.started() and _manager.run.run_time() == 0.0 and _mission_label.text.get_slice("\n", 0).ends_with(waiting_clock),
+		"%s: the run clock has not started on the start point, and the mission line says so ('%s')" % [label, waiting_clock],
+	)
 
 	var pilot := HandlingTests.begin(definition, _car, _pad, true)
 	var delta := 1.0 / Engine.physics_ticks_per_second
@@ -154,6 +173,18 @@ func _play_mission(index: int, definition: Dictionary, suppress_steering: bool) 
 	var saw_goal := false
 	var saw_timer := false
 	var frames := 0
+	# The run clock, watched from outside: before the crossing it must stand at 0
+	# and read "not started"; the frame it starts the car must be just over the
+	# line; from then on the line must show the clock's own reading.
+	var run: HandlingTests = _manager.run
+	var line_z: float = definition.start_line_z
+	var frames_waiting := 0
+	var clock_ran_early := false
+	var started_at_elapsed := -1.0
+	var started_at_z := 0.0
+	var z_before_start := 0.0
+	var previous_z := _car.global_position.z
+	var running_clock_shown := true
 	# The pilot may outlast the mission (the slalom pilot straightens up after
 	# the last gate) or fall short of it (the 360 pilot leaves the car rolling;
 	# a human run wants it stopped, so the handbrake goes on once the pilot is
@@ -173,6 +204,17 @@ func _play_mission(index: int, definition: Dictionary, suppress_steering: bool) 
 			saw_progress = saw_progress or _mission_label.text.contains(hud_word)
 			saw_goal = saw_goal or (goal_word != "" and _mission_label.text.contains(goal_word))
 			saw_timer = saw_timer or _mission_label.text.contains(" s")
+			var clock_text := _mission_label.text.get_slice("\n", 0)
+			if not run.started():
+				frames_waiting += 1
+				clock_ran_early = clock_ran_early or run.run_time() != 0.0 or not clock_text.ends_with(waiting_clock)
+			else:
+				if started_at_elapsed < 0.0:
+					started_at_elapsed = run.elapsed
+					started_at_z = _car.global_position.z
+					z_before_start = previous_z
+				running_clock_shown = running_clock_shown and clock_text.ends_with("  %.1f / %.1f s" % [run.run_time(), target_time])
+		previous_z = _car.global_position.z
 	Input.action_release("handbrake")
 
 	if not _check(not _manager.is_running() and pilot.finished, "%s: mission and pilot both finish (%d frames)" % [label, frames]):
@@ -183,6 +225,27 @@ func _play_mission(index: int, definition: Dictionary, suppress_steering: bool) 
 	for line in HandlingTests.format_result(outcome):
 		print("  ", line)
 	_check(saw_progress and saw_timer, "%s: HUD mission line showed '%s' progress and the timer" % [label, hud_word])
+	_check(
+		frames_waiting > 0 and not clock_ran_early,
+		"%s: the clock stood at 0 and read '%s' for the %d frames before the start line" % [label, MissionManager.CLOCK_NOT_STARTED, frames_waiting],
+	)
+	_check(
+		started_at_elapsed > 0.0 and z_before_start > line_z and started_at_z <= line_z,
+		"%s: the clock started the frame the car crossed its start line at z = %.1f (z %.2f -> %.2f, %.2f s into the test)" % [label, line_z, z_before_start, started_at_z, started_at_elapsed],
+	)
+	_check(running_clock_shown, "%s: from the crossing on the mission line showed the run clock against the target time" % label)
+	var reported: float = outcome.get("metrics", {}).get("run_time_s", INF)
+	_check(
+		is_equal_approx(reported, snappedf(run.run_time(), 0.01)) and reported > 0.0 and reported < run.elapsed - started_at_elapsed,
+		"%s: run_time_s is the run clock, not the time since the test began (%.2f s of %.2f s; over the line at %.2f s)" % [label, reported, run.elapsed, started_at_elapsed],
+	)
+	# A human run ends `settle` seconds after its finish, so the window from the
+	# crossing to the finish can be reckoned from outside too.
+	var window: float = run.elapsed - started_at_elapsed - definition.settle
+	_check(
+		absf(reported - window) <= RUN_CLOCK_TOLERANCE,
+		"%s: run_time_s is the window from the crossing to the finish (%.2f s reported, %.2f s reckoned)" % [label, reported, window],
+	)
 	if goal_word != "":
 		_check(saw_goal, "%s: HUD mission line went on to '%s' once the spin was done" % [label, goal_word])
 	_check(_manager.state == MissionManager.State.RESULT and _banner.visible, "%s: result banner is up" % label)
@@ -279,6 +342,15 @@ func _check_no_return(index: int, definition: Dictionary) -> void:
 			rotation_passed = check.passed
 		if check.label.contains("the start"):
 			goal_failed = not check.passed
+	# A run that never gets to its finish: the clock started at the line and ran
+	# to the end, which the time limit (still counted from the start of the test)
+	# called.
+	var timed_out_run: HandlingTests = _manager.run
+	var limit: float = definition.time_limit
+	_check(
+		timed_out_run.started() and timed_out_run.elapsed >= limit and outcome.metrics.run_time_s > 0.0 and outcome.metrics.run_time_s < limit,
+		"%s: the time limit still counts from the start of the test (%.2f s), the run clock from the line (%.2f s)" % [label, timed_out_run.elapsed, outcome.metrics.run_time_s],
+	)
 	_check(rotation_passed, "%s: the spin itself passes its rotation check (%.1f degrees)" % [label, outcome.metrics.get("rotation_deg", 0.0)])
 	_check(outcome.passed == false and goal_failed, "%s: manager reports FAILED through the goal check" % label)
 	_check(_banner.text.begins_with("FAILED"), "%s: banner says FAILED ('%s')" % [label, _banner.text.get_slice("\n", 0)])
@@ -295,6 +367,11 @@ func _check_abort(index: int, definition: Dictionary) -> void:
 	_check(_manager.is_running() and _manager.selected_index == index, "%s: other test keys are ignored while it runs" % label)
 	await _step(120)
 	_check(_manager.is_running(), "%s: still running after 2 s at a standstill" % label)
+	var waiting_clock := "%s / %.1f s" % [MissionManager.CLOCK_NOT_STARTED, definition.target_time_s]
+	_check(
+		_manager.run.elapsed >= 2.0 and not _manager.run.started() and _manager.run.run_time() == 0.0 and _mission_label.text.get_slice("\n", 0).ends_with(waiting_clock),
+		"%s: waiting on the start point costs nothing: %.2f s into the test the clock still reads '%s'" % [label, _manager.run.elapsed, waiting_clock],
+	)
 	await _tap(&"abort_mission")
 	_check(_manager.state == MissionManager.State.RESULT and _manager.run.finished, "%s: abort ends the run" % label)
 	_check(_manager.last_result.is_empty() and _aborted_signals == 1, "%s: no verdict, mission_aborted fired" % label)
