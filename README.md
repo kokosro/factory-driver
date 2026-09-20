@@ -203,8 +203,9 @@ toggles the X-ray, holds look left / right from the chase view and the cockpit, 
 cockpit's steering wheel with the car's, and carries the chase camera straight over its
 aim point, which used to trip a colinear look-at warning)
 and `tests/mission_test.gd` (plays every mission through the mission manager with the
-scripted driver pressing the keys, plus one run with its steering held off that has to
-come out FAILED, and an abort).
+scripted driver pressing the keys and checks the medal on every banner, plus one run with
+its steering held off and one 180 left parked where it stopped, which both have to come
+out FAILED, and an abort).
 
 ### Handling tests
 
@@ -216,10 +217,10 @@ cannot be passed, either the driver or the car is not set up properly.
 | Test          | Course                                                       | Passes when                                                              |
 | ------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | `SLALOM_TEST` | the 14-cone slalom line right of the straight                | at most 1 gate missed (wrong side, too wide, cone knocked over), in 45 s |
-| `SPIN_180`    | the straight, handbrake turn from ~90 km/h                   | ends within 35 degrees of 180, spun either way, net forward displacement positive |
-| `SPIN_360`    | the straight, full spin from ~125 km/h                       | ends within 35 degrees of 360, spun either way, net forward displacement positive |
+| `SPIN_180`    | the straight, handbrake turn from ~90 km/h, then back to the start | the spin settles within 35 degrees of 180, spun either way, net forward displacement positive, and the car gets back within 8 m of the start point |
+| `SPIN_360`    | the straight, full spin from ~125 km/h, then on to the 400 m board | the spin settles within 35 degrees of 360, spun either way, net forward displacement positive, and the car drives on over the goal line |
 | `STOP_BOX`    | the hatched box on the straight, 150 m from the start        | stopped with the whole car inside the box, braked from 72 km/h or more   |
-| `REVERSE_180` | the straight, J-turn out of ~40 km/h in reverse              | ends within 35 degrees of 180, driving away forwards at 18 km/h or more, reversed at 36 km/h or more, net travel along the reversing line positive |
+| `REVERSE_180` | the straight, J-turn out of ~40 km/h in reverse, then on to the 100 m board | the flick settles within 35 degrees of 180, reversed at 36 km/h or more, net travel along the reversing line positive, and the car drives on over the goal line, forwards at 18 km/h or more |
 
 The skid circle (painted rings, cone circles) is on the pad and can be queried the same
 way, but has no test yet.
@@ -240,17 +241,25 @@ The same five tests, playable. Press `1` (slalom), `2` (180 spin), `3` (360 spin
 `4` (stop box) or `5` (reverse 180): the car is put on that test's start point, the cones stand back up and
 the run starts at once. While it runs, the line under the controls text shows the test,
 live progress and the clock against the test's target time, e.g. `GATE 5/14  12.3 / 30.0 s`,
-`ROTATION 213° / 360°  12.3 / 16.5 s`, `BRAKE! 62 m to box  9.8 / 12.5 s` or
-`REVERSE 28/36 km/h  3.1 / 7.0 s`, with the objective under it. The target is a time to
-beat, 10-15 % over the scripted driver's run (`target_time_s` in the test's data); it
-judges nothing. While a run is on, a glowing golden orb floats beside its start point and,
-for the slalom and the stop box, a golden chevron stands beside the goal (the exit past the
-last cone, the box); both are for looks, stand off the driving line and can be driven
+`ROTATION 213° / 360°  12.3 / 23.5 s`, `BRAKE! 62 m to box  9.8 / 12.5 s` or
+`REVERSE 28/36 km/h  3.1 / 11.0 s`, with the objective under it. The target is a time to
+beat, 5-15 % over the scripted driver's run (`target_time_s` in the test's data); it
+judges nothing. The spins are a manoeuvre and a destination: do the 180 and return to the
+start, do the 360 and drive on to the 400 m board, do the J-turn and drive on to the 100 m
+board; the rotation is judged the moment the spin settles, then the line reads
+`SPIN DONE — RETURN TO START 43 m` or `SPIN DONE — DRIVE ON 87 m`, and the run must get
+there to pass. While a run is on, a glowing golden orb floats beside its start point and
+a golden chevron stands beside the goal (the exit past the last cone, the box, the board;
+the 180's goal is its orb); both are for looks, stand off the driving line and can be driven
 through. A run ends by itself: the
-slalom after the last cone, the spins and the stop box once the car has come to a stop,
-the reverse 180 once the car has turned and drives away forwards (or when the time limit
+slalom after the last cone, the stop box once the car has come to a stop, the spins and
+the reverse 180 at their goal (or when the time limit
 runs out). A banner then says `PASSED` or `FAILED` with the
-measured numbers and, on a fail, the checks that were missed. It stays for 5 seconds or
+measured numbers and, on a fail, the checks that were missed. A pass earns a bronze,
+silver or gold medal for its time (`PASSED  SLALOM — GOLD`, the headline tinted to match;
+gold is 5-10 % over the scripted driver's run, silver ~25 %, bronze ~50 %, the
+`gold_time_s` / `silver_time_s` / `bronze_time_s` of the test's data): pass is pass, the
+medal judges nothing. It stays for 5 seconds or
 until `Esc`; the car stays drivable under it. Press the same number to retry, another
 number for a different test. `Esc` or `R` aborts a run (`R` also puts the car back on
 the start line); other number keys are ignored until then.
