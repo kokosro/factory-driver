@@ -1381,6 +1381,14 @@ func reset_to_spawn() -> void:
 	reset_to(_spawn_transform)
 
 
+## How the springs have carried the body from its place at rest, in the car's
+## frame: maps a point fixed to the body (the driver's eye, the dashboard) from
+## where car.tscn has it to where pitch, roll and heave have it now. Heave is
+## the car's own height; this is pitch and roll about the centre of mass.
+func get_body_ride() -> Transform3D:
+	return _body.transform * Transform3D(Basis.IDENTITY, Vector3.DOWN * _body_rest_height)
+
+
 ## Where the scene placed the car. Missions offset their start points from it.
 func get_spawn_transform() -> Transform3D:
 	return _spawn_transform

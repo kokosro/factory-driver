@@ -5,6 +5,8 @@ extends Camera3D
 ## The camera_cycle action steps through the other views: cockpit, front
 ## (bonnet), overhead and wheel (down by the front-left tyre), then back to
 ## chase. Holding look_back shows the rear view for as long as it is held.
+## Holding look_left / look_right turns the view to that side for as long as it
+## is held (a glance, not a view of its own: mode_name() stays what it was).
 
 ## REAR is held-only: look_back cuts to it, the cycle never lands on it.
 enum Mode { CHASE, COCKPIT, FRONT, OVERHEAD, WHEEL, REAR }
@@ -29,6 +31,27 @@ const YAW_FOLLOW_RATE := 5.0
 ## How quickly the camera closes in on its ideal position [1/s]. The trailing
 ## lag is roughly speed / rate metres, so it stretches out a little at speed.
 const POSITION_FOLLOW_RATE := 14.0
+
+# --- Looking left and right -----------------------------------------------------
+# Held keys (look_left / look_right; both or neither = straight ahead). Chase:
+# the camera swings round the car so the view turns to that side. Cockpit and
+# front: the head turns, the eye stays where it is. Overhead, wheel and rear
+# have no side to look to and ignore the keys. look_back wins over both: the
+# rear view is a cut, and the glance is back at 0 by the time it ends.
+
+## How far the chase view turns to the side [degrees]: the camera ends up off
+## the car's opposite rear quarter, the car still in frame, the road to that
+## side in view.
+const LOOK_CHASE_YAW_DEG := 65.0
+
+## How far the driver's head turns in the cockpit (and the bonnet view)
+## [degrees]: over the door top, short of the seat back.
+const LOOK_HEAD_YAW_DEG := 60.0
+
+## How quickly the glance goes out and comes back [1/s]: 12 is there within a
+## quarter of a second, a turn of the head, not a cut. Eased, per frame, from
+## the frame time alone.
+const LOOK_RATE := 12.0
 
 ## Field of view at standstill and at the car's top speed [degrees].
 const FOV_AT_REST := 65.0
@@ -146,6 +169,11 @@ var mode := Mode.CHASE
 ## The view look_back interrupted, restored when the key is released.
 var _mode_before_rear := Mode.CHASE
 var _yaw := 0.0
+
+## The glance: -1 (fully right) .. +1 (fully left), eased towards what the look
+## keys ask for (_look_target, polled with the other keys).
+var _look := 0.0
+var _look_target := 0.0
 var _default_near := 0.05
 var _overhead_lead := Vector3.ZERO
 var _overhead_height := OVERHEAD_HEIGHT_AT_REST
@@ -172,6 +200,8 @@ func _physics_process(_delta: float) -> void:
 		set_mode(Mode.REAR)
 	elif not look_back and mode == Mode.REAR:
 		set_mode(_mode_before_rear)
+	# +1 = look_left, -1 = look_right (the sign of yaw). Not while looking back.
+	_look_target = 0.0 if look_back else Input.get_axis("look_right", "look_left")
 	# The cycle waits while the rear view is held.
 	if Input.is_action_just_pressed("camera_cycle") and mode != Mode.REAR:
 		cycle_mode()
@@ -181,6 +211,7 @@ func _process(delta: float) -> void:
 	if not target:
 		return
 	var target_xform := target.get_global_transform_interpolated()
+	_look = lerpf(_look, _look_target, 1.0 - exp(-LOOK_RATE * delta))
 	match mode:
 		Mode.CHASE:
 			_update_chase(target_xform, delta)
@@ -254,7 +285,8 @@ func _update_chase(target_xform: Transform3D, delta: float) -> void:
 
 func _ideal_position(target_position: Vector3) -> Vector3:
 	# The car's nose is -Z, so "behind" is +Z rotated by the camera's yaw.
-	var offset := Vector3(0.0, FOLLOW_HEIGHT, FOLLOW_DISTANCE).rotated(Vector3.UP, _yaw)
+	# A glance to the side swings the camera round the car the same way.
+	var offset := Vector3(0.0, FOLLOW_HEIGHT, FOLLOW_DISTANCE).rotated(Vector3.UP, _yaw + _look * deg_to_rad(LOOK_CHASE_YAW_DEG))
 	return target_position + offset
 
 
@@ -264,22 +296,28 @@ func _aim_at(target_position: Vector3) -> void:
 
 # --- Cockpit and front -----------------------------------------------------------
 
+## The cockpit and the bonnet view ride on the BODY, not on the wheels: they
+## dive with it under braking, lean with it in a corner and heave with it over
+## a crest (ArcadeCar.get_body_ride). The dashboard goes along.
 func _update_cockpit(target_xform: Transform3D) -> void:
-	_mount(target_xform, COCKPIT_EYE, COCKPIT_PITCH_DEG)
+	var ride := target.get_body_ride()
+	_dashboard.transform = ride
+	_mount(target_xform * ride, COCKPIT_EYE, COCKPIT_PITCH_DEG)
 	fov = lerpf(COCKPIT_FOV_AT_REST, COCKPIT_FOV_AT_MAX_SPEED, target.speed_ratio)
 	_steering_wheel.rotation.y = deg_to_rad(target.steering_wheel_deg)
 
 
 func _update_front(target_xform: Transform3D) -> void:
-	_mount(target_xform, FRONT_EYE, FRONT_PITCH_DEG)
+	_mount(target_xform * target.get_body_ride(), FRONT_EYE, FRONT_PITCH_DEG)
 	fov = lerpf(FRONT_FOV_AT_REST, FRONT_FOV_AT_MAX_SPEED, target.speed_ratio)
 
 
-## Fixes the camera to the car at `eye` (car space), looking along the nose and
-## tilted down by `pitch_deg`.
+## Fixes the camera to the car at `eye` (car space), looking along the nose,
+## turned to the side by the glance (LOOK_HEAD_YAW_DEG) and tilted down by
+## `pitch_deg`.
 func _mount(target_xform: Transform3D, eye: Vector3, pitch_deg: float) -> void:
-	var view := target_xform.basis.orthonormalized() * Basis(Vector3.RIGHT, -deg_to_rad(pitch_deg))
-	global_transform = Transform3D(view, target_xform * eye)
+	var head := Basis(Vector3.UP, _look * deg_to_rad(LOOK_HEAD_YAW_DEG)) * Basis(Vector3.RIGHT, -deg_to_rad(pitch_deg))
+	global_transform = Transform3D(target_xform.basis.orthonormalized() * head, target_xform * eye)
 
 
 ## Fixes the camera to the car at `eye`, aimed at `look_at_point` (both car
