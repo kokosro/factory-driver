@@ -181,8 +181,14 @@ godot --headless --fixed-fps 60 --path . --script res://tests/handling_test.gd -
 The same five tests, playable. Press `1` (slalom), `2` (180 spin), `3` (360 spin),
 `4` (stop box) or `5` (reverse 180): the car is put on that test's start point, the cones stand back up and
 the run starts at once. While it runs, the line under the controls text shows the test,
-live progress and the clock, e.g. `GATE 5/14  12.3 s`, `ROTATION 213° / 360°  12.3 s`,
-`BRAKE! 62 m to box  12.3 s` or `REVERSE 28/36 km/h  3.1 s`, with the objective under it. A run ends by itself: the
+live progress and the clock against the test's target time, e.g. `GATE 5/14  12.3 / 30.0 s`,
+`ROTATION 213° / 360°  12.3 / 16.5 s`, `BRAKE! 62 m to box  9.8 / 12.5 s` or
+`REVERSE 28/36 km/h  3.1 / 7.0 s`, with the objective under it. The target is a time to
+beat, 10-15 % over the scripted driver's run (`target_time_s` in the test's data); it
+judges nothing. While a run is on, a glowing golden orb floats beside its start point and,
+for the slalom and the stop box, a golden chevron stands beside the goal (the exit past the
+last cone, the box); both are for looks, stand off the driving line and can be driven
+through. A run ends by itself: the
 slalom after the last cone, the spins and the stop box once the car has come to a stop,
 the reverse 180 once the car has turned and drives away forwards (or when the time limit
 runs out). A banner then says `PASSED` or `FAILED` with the
