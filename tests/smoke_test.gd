@@ -22,7 +22,10 @@ extends SceneTree
 ## or are held back by the engine rolling backwards), the handling tests' run
 ## clock (a start line on every test; the clock stands until the car is over
 ## it, starts once and does not start anew) and the handling tests' 180 driven
-## to the right. Last comes the telemetry recorder: a real mission
+## to the right, and the driver: elastic pedals (a tap is a partial press, a
+## held key gets to the floor, a lift comes back to nothing), driver profiles,
+## the car driven through set_driver_input with no key down, and the HUD's
+## pedal bars. Last comes the telemetry recorder: a real mission
 ## driven with it switched on, its JSON-lines file read back and checked line
 ## by line (see _check_telemetry - it writes to a fixed tmp path, never to
 ## user://, and asserts nothing that comes off the wall clock).
@@ -416,6 +419,35 @@ const TELEMETRY_STRIDE_TOLERANCE := 0.001
 ## driven, so the file has to show it moving.
 const TELEMETRY_MIN_SAMPLE_SPEED := 5.0
 
+## Pedals: frames a tap of the accelerate key is held for. The test driver's
+## foot takes 6 ticks to the floor (throttle_attack 10), so 3 is about half.
+const PEDAL_TAP_FRAMES := 3
+
+## The band a tap's peak throttle has to land in (0..1): a partial press,
+## clearly neither nothing nor the floor.
+const PEDAL_TAP_MIN := 0.2
+const PEDAL_TAP_MAX := 0.8
+
+## Frames a held key is watched for, long enough for the slowest profile here
+## (the chauffeur's throttle, 20 ticks) to get to the floor ...
+const PEDAL_HOLD_FRAMES := 40
+
+## ... and frames a released pedal is given to come back to nothing (the
+## chauffeur's throttle takes 24).
+const PEDAL_RELEASE_FRAMES := 40
+
+## How much longer the chauffeur's foot has to take to the floor than the test
+## driver's, at least (the rates say 10 / 3 = 3.3 times).
+const PEDAL_PROFILE_MIN_RATIO := 2.0
+
+## Frames of full throttle for the launch driven twice, by the key and through
+## set_driver_input: the 2 s of the first drive in this file.
+const DRIVER_INPUT_LAUNCH_FRAMES := 120
+
+## Frames given to half pedal and half lock asked for through set_driver_input
+## to arrive (the test driver's hands need 11 ticks for 225 degrees).
+const DRIVER_INPUT_SETTLE_FRAMES := 30
+
 var _failures := 0
 
 
@@ -659,6 +691,7 @@ func _run() -> void:
 	await _check_slide_settle(car)
 	_check_run_clock(main.get_node("TestPad") as TestPad, car)
 	await _check_mirrored_spin(main.get_node("TestPad") as TestPad, car)
+	await _check_pedals(car, hud as HUD)
 	await _check_telemetry(main, car)
 
 	_finish()
@@ -1947,6 +1980,162 @@ func _check_mirrored_spin(pad: TestPad, car: ArcadeCar) -> void:
 	_check(metrics.rotation_deg < -90.0, "the rotation metric keeps its sign: right is negative (%.1f degrees)" % metrics.rotation_deg)
 	_check(metrics.heading_error_deg < MIRRORED_SPIN_MAX_HEADING_ERROR, "the heading error is measured against the target heading, not the signed rotation (%.1f degrees)" % metrics.heading_error_deg)
 	pad.reset_cones()
+
+
+## The driver between the keys and the pedals: throttle_pedal / brake_pedal are
+## where the feet have the pedals, a driver profile says how fast the feet are,
+## set_driver_input asks the driver for the same things the keys do, and the
+## HUD's two bars show the pedals.
+func _check_pedals(car: ArcadeCar, hud: HUD) -> void:
+	car.reset_to_spawn()
+	await _step(20)
+	_check(car.driver_profile == ArcadeCar.DRIVER_PROFILES["test_driver"], "pedals: the test driver is in the seat unless somebody else is put there")
+	_check(car.throttle_pedal == 0.0 and car.brake_pedal == 0.0, "pedals: both at rest with no key down (throttle %.2f, brake %.2f)" % [car.throttle_pedal, car.brake_pedal])
+
+	# A tap: the foot starts down, never gets there, and comes back.
+	var tap := await _press_and_watch(car, "accelerate", PEDAL_TAP_FRAMES, PEDAL_RELEASE_FRAMES)
+	_check(tap.peak_throttle > PEDAL_TAP_MIN and tap.peak_throttle < PEDAL_TAP_MAX, "pedals: a %d-frame tap of accelerate is a partial press (throttle peaks at %.2f)" % [PEDAL_TAP_FRAMES, tap.peak_throttle])
+	_check(tap.end_throttle == 0.0 and tap.peak_brake == 0.0, "pedals: the tap comes back to nothing, the brake never moved (throttle %.2f, brake peak %.2f)" % [tap.end_throttle, tap.peak_brake])
+
+	# A held key: up to the floor, tick by tick, and exactly there.
+	car.reset_to_spawn()
+	await _step(20)
+	var hold := await _press_and_watch(car, "accelerate", PEDAL_HOLD_FRAMES, PEDAL_RELEASE_FRAMES)
+	_check(hold.peak_throttle == 1.0 and hold.rising, "pedals: a held accelerate key reaches full throttle, never easing on the way (1.0 after %d ticks)" % hold.ticks_to_full)
+	_check(hold.ticks_to_full > PEDAL_TAP_FRAMES and hold.first_throttle > 0.0 and hold.first_throttle < 1.0, "pedals: ... by way of a ramp, not a switch (%.2f on the first tick, %.2f s to the floor)" % [hold.first_throttle, hold.ticks_to_full / 60.0])
+	_check(hold.end_throttle == 0.0 and hold.ticks_to_release > 0, "pedals: released, the throttle decays to 0 (%d ticks)" % hold.ticks_to_release)
+	_check(hold.in_range, "pedals: throttle and brake stay finite and inside 0..1 all the while")
+
+	# The brake is a pedal too. Rolling, so that it is the brake and not reverse.
+	var braked := await _press_and_watch(car, "brake", PEDAL_HOLD_FRAMES, PEDAL_RELEASE_FRAMES)
+	_check(braked.peak_brake == 1.0 and braked.first_brake > 0.0 and braked.first_brake < 1.0, "pedals: a held brake key ramps to a full brake (%.2f on the first tick, 1.0 after %d ticks)" % [braked.first_brake, braked.ticks_to_full_brake])
+	_check(braked.end_brake == 0.0 and braked.peak_throttle == 0.0 and not car.reverse_engaged, "pedals: released, the brake decays to 0; no throttle, no reverse (brake %.2f)" % braked.end_brake)
+
+	# Another driver, other feet: the chauffeur's take longer to the floor.
+	car.set_driver_profile(ArcadeCar.DRIVER_PROFILES["chauffeur"])
+	car.reset_to_spawn()
+	await _step(20)
+	var chauffeur := await _press_and_watch(car, "accelerate", PEDAL_HOLD_FRAMES, PEDAL_RELEASE_FRAMES)
+	_check(chauffeur.peak_throttle == 1.0 and chauffeur.ticks_to_full >= hold.ticks_to_full * PEDAL_PROFILE_MIN_RATIO, "pedals: the chauffeur profile presses the throttle measurably slower (%d ticks to the floor, the test driver %d)" % [chauffeur.ticks_to_full, hold.ticks_to_full])
+	_check(chauffeur.first_throttle < hold.first_throttle and chauffeur.ticks_to_release > hold.ticks_to_release, "pedals: ... from the first tick (%.3f against %.3f), and lets it go slower too (%d ticks against %d)" % [chauffeur.first_throttle, hold.first_throttle, chauffeur.ticks_to_release, hold.ticks_to_release])
+	car.set_driver_profile({"throttle_attack": NAN, "brake_attack": -5.0})
+	_check(car.driver_profile.throttle_attack == ArcadeCar.DRIVER_PROFILES["test_driver"].throttle_attack and car.driver_profile.brake_attack == 0.0 and car.driver_profile.size() == ArcadeCar.DRIVER_PROFILES["test_driver"].size(), "pedals: a profile's missing and NaN rates are the test driver's, a negative one is 0")
+	car.set_driver_profile(ArcadeCar.DRIVER_PROFILES["test_driver"])
+	_check(car.driver_profile == ArcadeCar.DRIVER_PROFILES["test_driver"], "pedals: the test driver is back in the seat")
+
+	# The same launch twice: by the key, and through set_driver_input with no
+	# key down. One driver either way, so the same car to the last bit.
+	car.reset_to_spawn()
+	await _step(20)
+	Input.action_press("accelerate")
+	await _step(DRIVER_INPUT_LAUNCH_FRAMES)
+	Input.action_release("accelerate")
+	var key_speed := car.forward_speed
+	var key_z := car.global_position.z
+	car.reset_to_spawn()
+	await _step(20)
+	var keys_up := true
+	for action: String in ["accelerate", "brake", "steer_left", "steer_right", "handbrake"]:
+		keys_up = keys_up and not Input.is_action_pressed(action)
+	car.set_driver_input(1.0, 0.0, 0.0)
+	await _step(DRIVER_INPUT_LAUNCH_FRAMES)
+	_check(keys_up and car.forward_speed > 8.0, "driver input: set_driver_input drives the car with no key down (%.1f m/s after 2 s)" % car.forward_speed)
+	_check(car.forward_speed == key_speed and car.global_position.z == key_z, "driver input: ... exactly as the accelerate key does (%.4f m/s and z = %.3f, the key %.4f and %.3f)" % [car.forward_speed, car.global_position.z, key_speed, key_z])
+
+	# Half a pedal and half a lock asked for is what the driver holds.
+	car.set_driver_input(0.5, 0.0, 0.5)
+	await _step(DRIVER_INPUT_SETTLE_FRAMES)
+	_check(car.throttle_pedal == 0.5 and is_equal_approx(car.steering_wheel_deg, 0.5 * ArcadeCar.STEERING_WHEEL_LOCK_DEG), "driver input: half throttle and half left lock asked for are held (throttle %.2f, wheel %.0f degrees)" % [car.throttle_pedal, car.steering_wheel_deg])
+	_check(is_equal_approx(hud.get_node("ThrottleBarBack/ThrottleBar").scale.y, 0.5) and not hud.get_node("BrakeBarBack/BrakeBar").visible, "HUD: the throttle bar stands at the pedal's half, the brake bar is empty (scale %.2f)" % hud.get_node("ThrottleBarBack/ThrottleBar").scale.y)
+
+	# Out of range is clamped, NaN is nothing asked for.
+	car.set_driver_input(7.0, NAN, NAN)
+	await _step(DRIVER_INPUT_SETTLE_FRAMES)
+	_check(car.throttle_pedal == 1.0 and car.brake_pedal == 0.0 and car.steering_wheel_deg == 0.0 and is_finite(car.forward_speed), "driver input: 7.0 of throttle is full throttle, NaN brake and steering are none (throttle %.2f, brake %.2f, wheel %.0f degrees)" % [car.throttle_pedal, car.brake_pedal, car.steering_wheel_deg])
+
+	# The two pedals mean what the two keys mean: the brake held through the
+	# stop holds the car, asked for anew at the standstill it is reverse.
+	car.set_driver_input(0.0, 1.0, 0.0)
+	var lowest_speed := 0.0
+	for frame in 300:
+		await physics_frame
+		lowest_speed = minf(lowest_speed, car.forward_speed)
+	_check(car.brake_pedal == 1.0 and absf(car.forward_speed) < 0.01 and lowest_speed > -0.01 and not car.reverse_engaged, "driver input: a held brake stops the car and never reverses (%.2f m/s, lowest %.2f)" % [car.forward_speed, lowest_speed])
+	car.set_driver_input(0.0, 0.0, 0.0)
+	await _step(5)
+	car.set_driver_input(0.0, 1.0, 0.0)
+	await _step(120)
+	_check(car.reverse_engaged and car.forward_speed < -1.0 and car.throttle_pedal > 0.0 and car.brake_pedal == 0.0, "driver input: the brake asked for anew at a standstill reverses, and is the throttle there (%.1f m/s, throttle %.2f)" % [car.forward_speed, car.throttle_pedal])
+
+	# Back to the keys: none is down, so the feet come off.
+	car.clear_driver_input()
+	await _step(PEDAL_RELEASE_FRAMES)
+	_check(car.throttle_pedal == 0.0 and car.brake_pedal == 0.0, "driver input: clear_driver_input hands the car back to the keys (pedals %.2f / %.2f with none down)" % [car.throttle_pedal, car.brake_pedal])
+
+	# The HUD's pedal setters: 0..1, clamped, NaN is empty.
+	var throttle_bar := hud.get_node("ThrottleBarBack/ThrottleBar") as ColorRect
+	var brake_bar := hud.get_node("BrakeBarBack/BrakeBar") as ColorRect
+	_check(hud.has_method("set_throttle_bar") and hud.has_method("set_brake_bar") and throttle_bar != null and brake_bar != null, "HUD: pedal bars and their setters exist")
+	_check(throttle_bar.color.g > throttle_bar.color.r and brake_bar.color.r > brake_bar.color.g, "HUD: the throttle bar is green, the brake bar red")
+	hud.set_throttle_bar(0.25)
+	hud.set_brake_bar(1.0)
+	_check(throttle_bar.visible and throttle_bar.scale.y == 0.25 and brake_bar.visible and brake_bar.scale.y == 1.0, "HUD: the setters take 0..1 (throttle bar at %.2f, brake bar at %.2f)" % [throttle_bar.scale.y, brake_bar.scale.y])
+	hud.set_throttle_bar(3.0)
+	hud.set_brake_bar(-2.0)
+	_check(throttle_bar.scale.y == 1.0 and not brake_bar.visible, "HUD: out of range is clamped (3.0 is a full bar, -2.0 an empty one)")
+	hud.set_throttle_bar(NAN)
+	_check(not throttle_bar.visible and is_finite(throttle_bar.scale.y), "HUD: NaN is an empty bar")
+	await _step(2)
+	_check(not throttle_bar.visible and not brake_bar.visible, "HUD: the bars are the car's pedals again the next tick (both empty, no key down)")
+	car.reset_to_spawn()
+	await _step(5)
+
+
+## Holds `action` for `hold_frames` and lets go for `release_frames`, and says
+## what the two pedals did meanwhile: their peaks, their values on the first
+## tick of the press and at the end, the ticks to a full pedal and from the
+## release back to nothing, whether the throttle only ever rose while held, and
+## whether both stayed finite and inside 0..1.
+func _press_and_watch(car: ArcadeCar, action: String, hold_frames: int, release_frames: int) -> Dictionary:
+	var seen := {
+		"peak_throttle": 0.0, "peak_brake": 0.0, "first_throttle": -1.0, "first_brake": -1.0,
+		"end_throttle": 0.0, "end_brake": 0.0, "ticks_to_full": 0, "ticks_to_full_brake": 0,
+		"ticks_to_release": 0, "rising": true, "in_range": true,
+	}
+	var last_throttle := car.throttle_pedal
+	var moved := 0
+	Input.action_press(action)
+	for frame in hold_frames + release_frames:
+		if frame == hold_frames:
+			Input.action_release(action)
+			moved = 0
+		var before := Vector2(car.throttle_pedal, car.brake_pedal)
+		await physics_frame
+		var now := Vector2(car.throttle_pedal, car.brake_pedal)
+		if now == before:
+			continue
+		moved += 1
+		for pedal: float in [now.x, now.y]:
+			if not is_finite(pedal) or pedal < 0.0 or pedal > 1.0:
+				seen.in_range = false
+		if frame < hold_frames:
+			if seen.first_throttle < 0.0:
+				seen.first_throttle = now.x
+				seen.first_brake = now.y
+			if now.x < last_throttle:
+				seen.rising = false
+			if now.x == 1.0 and seen.ticks_to_full == 0:
+				seen.ticks_to_full = moved
+			if now.y == 1.0 and seen.ticks_to_full_brake == 0:
+				seen.ticks_to_full_brake = moved
+		else:
+			seen.ticks_to_release = moved
+		last_throttle = now.x
+		seen.peak_throttle = maxf(seen.peak_throttle, now.x)
+		seen.peak_brake = maxf(seen.peak_brake, now.y)
+	seen.end_throttle = car.throttle_pedal
+	seen.end_brake = car.brake_pedal
+	return seen
 
 
 ## Telemetry: the recorder writes a drive down and we read it back.
