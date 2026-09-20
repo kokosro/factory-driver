@@ -269,9 +269,11 @@ braking, work up and down over the bumps and the tarmac run under its contact pa
 during a test. Every offset, height and field of view is a commented constant in the
 `Modes` block of that file.
 
-Holding `B` looks back: the camera cuts to a spot ahead of the nose, facing back over the
-car at the road behind, for as long as the key is held; letting go returns to the view it
-interrupted. The rear view is held-only, `C` never stops on it.
+Holding `B` looks back, for as long as the key is held. From the inside views (cockpit,
+front) you stay in the seat and turn your head round over your shoulder, far enough to see
+out of the back; from the outside views (chase, overhead, wheel) the camera cuts to a spot
+ahead of the nose, facing back over the car at the road behind. Letting go returns to where
+you were. The rear view is held-only, `C` never stops on it.
 
 `X` toggles the X-ray (`scripts/xray.gd`, the `Xray` node in `scenes/car.tscn`): the body
 panels turn translucent and a set of primitives shows what the physics models underneath -
