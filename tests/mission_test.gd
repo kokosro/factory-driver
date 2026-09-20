@@ -19,6 +19,11 @@ extends SceneTree
 ## one: the 180 spun cleanly and then left parked where it stopped, which must
 ## fail through the goal check alone. Last, the keys: a mission started with its
 ## number key and aborted with Esc.
+##
+## The idle line is checked against the telemetry summary it now ends with,
+## built through the recorder's own helper (scripts/telemetry.gd): nothing is
+## recorded with no window, but whatever earlier driving stored is read and
+## shown, so the check has to hold with and without it.
 ## Exits 0 on success, 1 on any failed check.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -102,6 +107,14 @@ func _run() -> void:
 		listed = listed and _mission_label.text.contains("%d %s" % [index + 1, tests[index].title])
 		listed = listed and InputMap.has_action(MissionManager.START_ACTIONS[index])
 	_check(listed, "idle mission line lists every test with its key, and every key has its input action ('%s')" % _mission_label.text)
+	# was: the line ended at "C  camera" -> it ends with a summary of the stored
+	# telemetry when the machine has any (a headless run records nothing, but it
+	# still reads what earlier driving left behind). The expected string is built
+	# through the same helper the manager builds it with, so this holds either
+	# way: no data, no suffix.
+	var summary := TelemetryRecorder.idle_suffix(_manager.telemetry.index if _manager.telemetry else {})
+	_check(_manager.telemetry != null and not _manager.telemetry.recording, "the manager owns a telemetry recorder, recording nothing with no window")
+	_check(_mission_label.text.ends_with("C  camera" + summary), "idle mission line ends with the stored telemetry's summary (%s)" % ("'%s'" % summary if summary != "" else "nothing stored, nothing appended"))
 	_check(not _manager.start_mission(99), "starting a test that does not exist is refused")
 
 	for definition in tests:
