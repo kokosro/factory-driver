@@ -33,7 +33,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 
 Look left / right are on `,` and `.` (the `<` / `>` pair, under the right hand's reach from the arrows and next to `B`'s row): `Q` / `E` are the gearbox, `B` is look back. Hold to glance to that side, let go and the view comes back: the chase camera swings ~65 degrees round the car, in the cockpit and the bonnet view the head turns ~60 degrees; the overhead and wheel views have no side to look to. It is a glance, not a view of its own (`C` still cycles the same five), both keys at once look straight ahead, and look back wins over either.
 
-The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged). Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual) and turns red near the redline. The gearbox starts in automatic and goes back to automatic when you reset the car.
+The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged), with two thin pedal bars beside it (green throttle, red brake: how far the driver's feet really have the pedals, see The driver below). Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual) and turns red near the redline. The gearbox starts in automatic and goes back to automatic when you reset the car.
 
 ### Driving feel
 
@@ -147,6 +147,32 @@ patches, ground ticks every 10 m, a chequered START / FINISH zone, painted skid 
 rings with reference posts, tall perimeter pylons and cones that topple when hit (they
 never slow the car).
 
+#### The driver
+
+The car does not read the keys, it has a driver. Whoever is asked - by the keys, or by
+code through `car.set_driver_input(throttle, brake, steer)` (0..1, 0..1, -1..+1; an
+optional fourth argument pulls the handbrake; `clear_driver_input()` hands the car back
+to the keys) - has feet and hands that take time: a held key is a foot going down to
+the floor, a tap is a dab at the pedal that never gets there, a lift comes back to
+nothing. What the drivetrain is given is where the pedals are (`throttle_pedal`,
+`brake_pedal`), and the two thin bars at the right edge of the HUD show exactly that:
+green for the throttle, red for the brake, the lift of a gear change included. One
+foot works both pedals: asking for the brake alone takes the foot off the throttle at
+once. The handbrake is a lever and still bites instantly. Which way the car goes is
+decided by what is asked for, not by where the feet are, so reverse is what it was: a
+fresh brake at a standstill, never a held one.
+
+How fast the feet and hands are is a driver profile, plain data in `DRIVER_PROFILES`
+(`throttle_attack`, `throttle_release`, `brake_attack`, `brake_release` in pedal travel
+per second, `steering_hand_speed` in degrees per second); `car.set_driver_profile(...)`
+puts another driver in the seat, missing keys are the test driver's. The default
+`test_driver` is the one the handling tests are certified with, and as slow as they
+allow: throttle down in 0.1 s, brake in 0.05 s, off the throttle in two ticks (the
+J-turn's lift has to open the clutch, a lazier one locks it and the scripted driver
+misses the goal), all measured in the comments by the constants. `chauffeur` is the same
+car with feet several times slower. An AI driver later is one more caller of
+`set_driver_input` with a profile of its own.
+
 #### The living road
 
 The pad is not flat any more. One seeded height field (`scripts/road_profile.gd`, a
@@ -196,7 +222,12 @@ the bottom, and cones, board posts and pylons stand on the ground; round the
 suspension: a drop test for the ride frequency, dive, squat and roll held against
 rigid-body statics, travel inside its limits, the wheels drawn on the road; round the
 steering: the 900-degree wheel wound on at hand speed, the rack, 0.35 s centre to lock
-and 0.7 s lock to lock; and the shape of the tyre curve), then the
+and 0.7 s lock to lock; and the shape of the tyre curve; and the driver: a tap of the
+key is a partial press, a held one reaches exactly 1.0 and a lift decays to 0, the
+chauffeur's foot is measurably slower than the test driver's, `set_driver_input`
+launches the car with no key down exactly as the key does, holds half a pedal, clamps
+what is out of range and keeps the reverse rule, and the HUD's pedal bars follow the
+pedals and take 0..1), then the
 handling tests below, then
 `tests/camera_test.gd` (cycles the camera through its five views and drives under each, holds the look-back,
 toggles the X-ray, holds look left / right from the chase view and the cockpit, turns the
