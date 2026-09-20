@@ -24,7 +24,9 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Shift down / up (switches to manual)    | `Q` / `E`       |
 | Toggle automatic / manual gearbox       | `M`             |
 | Reset the car to the start line         | `R`             |
-| Cycle camera: chase, cockpit, front, overhead | `C`       |
+| Cycle camera: chase, cockpit, front, overhead, wheel | `C` |
+| Look back (hold)                        | `B`             |
+| X-ray view on / off                     | `X`             |
 | Start handling test 1 - 5 (mission mode) | `1` - `5`      |
 | Abort the running test / close its result | `Esc` (`R` also aborts) |
 
@@ -105,7 +107,8 @@ drives the car with simulated input (including the fences round the force model:
 against coasting through the same corner, cornering force building tick by tick, the
 RWD / FWD / AWD signatures, brake bias, downforce and the low-speed blend), then the
 handling tests below, then
-`tests/camera_test.gd` (cycles the camera through its four views and drives under each)
+`tests/camera_test.gd` (cycles the camera through its five views and drives under each, holds the look-back
+and toggles the X-ray)
 and `tests/mission_test.gd` (plays every mission through the mission manager with the
 scripted driver pressing the keys, plus one run with its steering held off that has to
 come out FAILED, and an abort).
@@ -160,7 +163,20 @@ harness prints. `scripts/mission_manager.gd` only picks the test, runs it
 ### Camera
 
 `C` cycles the one camera (`scripts/chase_camera.gd`) through chase (default), cockpit
-(driver's eye, with a dashboard and steering wheel silhouette), front (on the bonnet) and
-overhead (straight down, north always up so the pad holds still; rises with speed). It
-works at any time, including during a test. Every offset, height and field of view is a
-commented constant in the `Modes` block of that file.
+(driver's eye, with a dashboard and steering wheel silhouette), front (on the bonnet),
+overhead (straight down, north always up so the pad holds still; rises with speed) and
+wheel (low by the front-left tyre, looking back at it: watch it steer, spin, lock under
+braking and the tarmac run under its contact patch). It works at any time, including
+during a test. Every offset, height and field of view is a commented constant in the
+`Modes` block of that file.
+
+Holding `B` looks back: the camera cuts to a spot ahead of the nose, facing back over the
+car at the road behind, for as long as the key is held; letting go returns to the view it
+interrupted. The rear view is held-only, `C` never stops on it.
+
+`X` toggles the X-ray (`scripts/xray.gd`, the `Xray` node in `scenes/car.tscn`): the body
+panels turn translucent and a set of primitives shows what the physics models underneath -
+ladder chassis, the engine ahead of the rear axle, the gearbox on the rear axle line
+driving the rear wheels, the axles and a brake disc at every wheel. It works in any view
+and is purely visual: the body materials are restored exactly when it goes off, and the
+camera test checks a launch comes out the same with and without it.
