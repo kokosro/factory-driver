@@ -836,6 +836,8 @@ const STEERING_WHEEL_LOCK_DEG := 450.0
 ## slide is caught by steering against it early and in proportion, as far as
 ## the hands get in the time, not by flicking to opposite lock. The stability
 ## assist (see Slides) is what it always was and keeps that catchable.
+## The test driver's hands: every driver brings a pair (steering_hand_speed in
+## DRIVER_PROFILES).
 # was STEER_RESPONSE 5.0 [1/s], the steer input easing to the key in 0.2 s
 # centre to lock (a wheel spun at 2250 degrees per second, had there been one)
 # -> the wheel is a state (steering_wheel_deg) turned at a hand's speed: 0.35 s
@@ -949,6 +951,84 @@ const LOW_SPEED_ALIGN_RATE := 10.0
 ## handbrake [1/s]. 2.5 means full grip again after 0.4 s, so the tail catches
 ## smoothly instead of snapping straight. The handbrake itself bites instantly.
 const HANDBRAKE_RECOVERY_RATE := 2.5
+
+# --- Driver: feet and hands ----------------------------------------------------
+
+# The car does not read keys, it has a driver: somebody asks for throttle,
+# brake and steering (the keys, or whoever calls set_driver_input - an AI
+# later), and the driver's feet and hands bring the pedals and the steering
+# wheel there at a human pace. The keys are on / off, the feet are not: a held
+# key is a foot going down to the floor, a tap is a dab at the pedal that never
+# gets there. What the drivetrain is given is where the pedals ARE
+# (throttle_pedal, brake_pedal), never what was asked for.
+#
+# One right foot works both pedals, as on the road: asking for one pedal alone
+# takes the foot off the other at once, so going from the throttle to the brake
+# costs the brake's attack and nothing on top; the release rates are for letting
+# a pedal go with nothing else asked for. Asking for both presses both, and
+# they cancel out as the keys always have; a profile's brake_attack should be
+# no slower than its throttle_attack, or both asked for at once is a blip of
+# throttle before they do.
+#
+# The handbrake is not part of this: a lever pulled with the hand, it bites
+# instantly as it always has (see HANDBRAKE_RECOVERY_RATE for the release). The
+# flick of a handbrake turn lives on that bite.
+
+## Driver profiles: how fast a driver's feet and hands move, as plain data.
+##   throttle_attack     throttle pedal going down [1/s]: travel per second, 1 =
+##                       the whole pedal, so 10 is 0.1 s from closed to the
+##                       floor and a 3-tick tap is half throttle
+##   throttle_release    throttle pedal coming back up [1/s]
+##   brake_attack        brake pedal going down [1/s]
+##   brake_release       brake pedal coming back up [1/s]
+##   steering_hand_speed steering wheel [degrees per second], on and back to
+##                       centre (see STEERING_HAND_SPEED)
+## Linear, as the hands are: a rate, no easing, a pedal is fully down exactly
+## 1 / attack seconds after the key. "test_driver" is who drives unless somebody
+## else is put in the seat (set_driver_profile): the driver the handling tests
+## were certified with, as quick as feet get. The throttle is rolled on in a
+## tenth of a second, the brake is stamped on in half that, the brake is let go
+## as fast as the throttle is pressed, and a lift is a lift: the foot is off the
+## throttle in two ticks. "chauffeur" is the same car driven with a passenger's
+## coffee in mind: feet several times slower, let go a little slower than they
+## are pressed, hands half as fast.
+# The test driver's figures are as slow as the certified car allows, measured
+# against the checks that pin it:
+# throttle_attack was 7.5 (0.13 s) -> 10.0 - the camera test's one-second
+# launch on full lock has to gain 3.0 m/s: 3.19 with a switch for a pedal, 2.98
+# at 7.5, 3.00 at 9, 3.03 at 10.
+# throttle_release was 5.0 (0.2 s, a lift that eases off) -> 30.0 - the J-turn
+# lifts with the clutch still slipping in reverse (the rears spinning at 41
+# km/h), and a throttle that takes three ticks or more to close keeps the clutch
+# in long enough to lock: the engine's revs are pushed into the car (11.5 ->
+# 12.2 m/s after the lift), the flick is made on engine braking, the nose comes
+# round to -190 degrees for the certified -186 and the scripted driver misses
+# its goal (FAIL at 5, 10 and 20). Shut within two ticks the clutch opens as it
+# did for the key: -186.0 degrees, 7.68 s for the certified 7.70, at 30, 40 and
+# 50 alike.
+# brake_attack was 10.0 (0.1 s) -> 20.0 - smoke's 20 ticks on the brake have to
+# take off 0.85 of what all four tyres at the limit would: 2.74 m/s of the 3.1
+# with a switch, 2.5 at 10, short at 16, there from 17 up.
+# brake_release was 6.0 -> 10.0 - nothing pins it: as fast as the throttle
+# goes on, in keeping with the rest of this driver.
+# With these the five certified runs read 28.77 / 15.83 / 18.28 / 8.72 / 7.68 s
+# against 28.75 / 15.83 / 18.23 / 8.67 / 7.70 on keys that were switches.
+const DRIVER_PROFILES := {
+	"test_driver": {
+		"throttle_attack": 10.0,
+		"throttle_release": 30.0,
+		"brake_attack": 20.0,
+		"brake_release": 10.0,
+		"steering_hand_speed": STEERING_HAND_SPEED,
+	},
+	"chauffeur": {
+		"throttle_attack": 3.0,
+		"throttle_release": 2.5,
+		"brake_attack": 4.0,
+		"brake_release": 3.0,
+		"steering_hand_speed": 650.0,
+	},
+}
 
 # --- Visual only (no effect on handling) -------------------------------------
 
@@ -1141,6 +1221,35 @@ var is_shifting: bool:
 	get:
 		return _shift_timer > 0.0
 
+## Who is driving: one of DRIVER_PROFILES, or a dictionary with the same keys.
+## Set through set_driver_profile, which fills in what is missing.
+var driver_profile: Dictionary = DRIVER_PROFILES["test_driver"]
+
+## What the drivetrain is given this tick, 0..1 each: the throttle the engine
+## gets and the share of BRAKE_DECEL the brakes are asked for. The driver's
+## feet (see Driver: feet and hands) after the car has had its say: the lift
+## and the blip of a gear change are in the throttle, the foot easing off into
+## MAX_REVERSE_SPEED too, and a throttle foot pressed while the car still rolls
+## against the selected direction shows up as brake, which is what it does.
+## What the HUD's pedal bars show.
+var throttle_pedal := 0.0
+var brake_pedal := 0.0
+
+## Where the driver's feet have the two pedals, 0..1: wound towards what is
+## asked for at the driver_profile's rates. Pedals, not keys: in reverse the
+## brake key works the throttle pedal and the accelerate key the brake.
+var _throttle_foot := 0.0
+var _brake_foot := 0.0
+
+## True while set_driver_input is driving: the keys are not read for throttle,
+## brake, steering and handbrake, the _driver_* values are what is asked for,
+## held until the next call or clear_driver_input.
+var _driver_input_active := false
+var _driver_accelerate := 0.0
+var _driver_brake := 0.0
+var _driver_steer := 0.0
+var _driver_handbrake := false
+
 ## How far the handbrake is on, 0..1. Jumps to 1 when pulled, eases back to 0
 ## at HANDBRAKE_RECOVERY_RATE when released.
 var _handbrake_amount := 0.0
@@ -1219,11 +1328,23 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("toggle_gearbox"):
 		automatic = not automatic
 
-	# +1 = accelerate key, -1 = brake key. Both keys held cancel out.
-	var drive_input := Input.get_action_strength("accelerate") - Input.get_action_strength("brake")
-	# +1 = left, -1 = right (matches the sign of yaw).
+	# What is asked of the driver: the two pedal keys 0..1, the steering +1 =
+	# left, -1 = right (matches the sign of yaw). From the keys, or from whoever
+	# drives through set_driver_input, where a pedal asked for at all counts as
+	# its key held.
+	var accelerate_asked := Input.get_action_strength("accelerate")
+	var brake_asked := Input.get_action_strength("brake")
+	var accelerate_pressed := Input.is_action_pressed("accelerate")
+	var brake_pressed := Input.is_action_pressed("brake")
 	var steer_input := Input.get_axis("steer_right", "steer_left")
 	var handbrake_held := Input.is_action_pressed("handbrake")
+	if _driver_input_active:
+		accelerate_asked = _driver_accelerate
+		brake_asked = _driver_brake
+		accelerate_pressed = _driver_accelerate > 0.0
+		brake_pressed = _driver_brake > 0.0
+		steer_input = _driver_steer
+		handbrake_held = _driver_handbrake
 
 	# 1. The state: the velocity in the car's own frame, and the yaw rate.
 	#    Reading the velocity back from `velocity` means collisions are
@@ -1237,7 +1358,14 @@ func _physics_process(delta: float) -> void:
 	var vertical_speed := velocity.y
 	var cg_lateral_speed := lateral_speed + yaw_rate * CG_OFFSET
 	var ground_speed := Vector2(forward_speed, cg_lateral_speed).length()
-	_update_direction(forward_speed, drive_input, delta)
+	# The direction is chosen by what is asked for, the keys themselves (+1 =
+	# accelerate key, -1 = brake key, both held cancel out): a fresh press is a
+	# fresh press however far the foot has got. The pedals then go where the
+	# feet take them, and `drive_input` is the same signal read off the pedals,
+	# which is what the drivetrain works with.
+	_update_direction(forward_speed, accelerate_asked - brake_asked, accelerate_pressed, brake_pressed, delta)
+	_move_feet(accelerate_asked, brake_asked, delta)
+	var drive_input := (_brake_foot - _throttle_foot) if reverse_engaged else (_throttle_foot - _brake_foot)
 	if handbrake_held:
 		_handbrake_amount = 1.0
 	else:
@@ -1276,9 +1404,10 @@ func _physics_process(delta: float) -> void:
 #    the yaw response flips with the direction of travel, not the wheels (the
 #    old signf(forward_speed) only ever picked the side of the leading term).
 	#    The driver's hands turn the steering wheel towards what the input asks
-	#    for (a share of its 450 degrees each way) at STEERING_HAND_SPEED; the
-	#    rack turns that into front wheel angle.
-	steering_wheel_deg = move_toward(steering_wheel_deg, steer_input * STEERING_WHEEL_LOCK_DEG, STEERING_HAND_SPEED * delta)
+	#    for (a share of its 450 degrees each way) at the driver's hand speed
+	#    (STEERING_HAND_SPEED for the test driver); the rack turns that into
+	#    front wheel angle.
+	steering_wheel_deg = move_toward(steering_wheel_deg, steer_input * STEERING_WHEEL_LOCK_DEG, driver_profile.steering_hand_speed * delta)
 	steer = steering_wheel_deg / STEERING_WHEEL_LOCK_DEG
 	var front_arm := AXLE_DISTANCE + CG_OFFSET
 	var rear_arm := AXLE_DISTANCE - CG_OFFSET
@@ -1297,6 +1426,8 @@ func _physics_process(delta: float) -> void:
 	#    under it. The handbrake locks the rear wheels outright: wheel speed 0,
 	#    slip ratio -1 (+1 rolling backwards).
 	var pedals := _pedals(forward_speed, drive_input, delta)
+	throttle_pedal = pedals.throttle
+	brake_pedal = pedals.brake / (BRAKE_DECEL * CAR_MASS)
 	# Rolling rears slide on REAR_TYRE_SLIDE_GRIP, locked ones on TYRE_SLIDE_GRIP.
 	var rear_slide_grip := lerpf(REAR_TYRE_SLIDE_GRIP, TYRE_SLIDE_GRIP, _handbrake_amount)
 	var front_contact := {"along": front_along, "grip": front_grip, "slip_angle": front_slip_angle, "peak_slip_angle": FRONT_PEAK_SLIP_ANGLE, "slide_grip": TYRE_SLIDE_GRIP}
@@ -1434,6 +1565,10 @@ func reset_to(target: Transform3D) -> void:
 	steering_wheel_deg = 0.0
 	steer = 0.0
 	_handbrake_amount = 0.0
+	_throttle_foot = 0.0
+	_brake_foot = 0.0
+	throttle_pedal = 0.0
+	brake_pedal = 0.0
 	reverse_engaged = false
 	_forward_engage_timer = 0.0
 	gear = 1
@@ -1462,6 +1597,39 @@ func reset_to(target: Transform3D) -> void:
 	_settle_suspension(target.origin.y)
 	_update_visuals(0.0)
 	reset_physics_interpolation()
+
+
+## Drives the car without the keys: from the next tick on the driver is asked
+## for this much of the accelerate key's pedal and of the brake key's (0..1
+## each) and this much steering (-1 = full right .. +1 = full left), handbrake
+## pulled or not, until the next call or clear_driver_input. The same thing the
+## keys ask for and nothing more direct: the driver_profile's feet and hands
+## still take the pedals and the wheel there, and the two pedals mean what the
+## two keys mean, reverse included (brake asked for anew at a standstill engages
+## it, see reverse_engaged). Out of range is clamped, NaN is nothing asked for.
+func set_driver_input(throttle: float, brake: float, steer_amount: float, handbrake := false) -> void:
+	_driver_input_active = true
+	_driver_accelerate = 0.0 if is_nan(throttle) else clampf(throttle, 0.0, 1.0)
+	_driver_brake = 0.0 if is_nan(brake) else clampf(brake, 0.0, 1.0)
+	_driver_steer = 0.0 if is_nan(steer_amount) else clampf(steer_amount, -1.0, 1.0)
+	_driver_handbrake = handbrake
+
+
+## Hands the car back to the keys.
+func clear_driver_input() -> void:
+	_driver_input_active = false
+
+
+## Puts a driver in the seat: one of DRIVER_PROFILES or a dictionary with some
+## of its keys, the rest are the test driver's. Rates are never negative, NaN is
+## the test driver's figure. Where the feet and hands are right now stays.
+func set_driver_profile(profile: Dictionary) -> void:
+	var seated := {}
+	var test_driver: Dictionary = DRIVER_PROFILES["test_driver"]
+	for key: String in test_driver:
+		var rate := float(profile.get(key, test_driver[key]))
+		seated[key] = test_driver[key] if is_nan(rate) else maxf(rate, 0.0)
+	driver_profile = seated
 
 
 ## Stands the car on the road where it is, `height` above its ride height, at
@@ -1632,11 +1800,12 @@ static func engine_torque(rpm: float) -> float:
 ## key held through a stop just holds the car (see STANDSTILL_SPEED). The one
 ## exception is deliberate: forward is the home direction, so an accelerate key
 ## held through the stop in reverse engages forward after FORWARD_ENGAGE_GRACE
-## and drives away in one motion. `drive` is the same signal the speed update
-## uses, so both keys held cancel out and never engage anything.
-func _update_direction(speed: float, drive: float, delta: float) -> void:
-	var accelerate_pressed := Input.is_action_pressed("accelerate")
-	var brake_pressed := Input.is_action_pressed("brake")
+## and drives away in one motion. `drive` is what is asked for, accelerate
+## minus brake, so both keys held cancel out and never engage anything;
+## `accelerate_pressed` / `brake_pressed` say whether each key is down (or its
+## pedal asked for through set_driver_input). The feet are not looked at: how
+## far a pedal has got says nothing about which way the driver wants to go.
+func _update_direction(speed: float, drive: float, accelerate_pressed: bool, brake_pressed: bool, delta: float) -> void:
 	var fresh_accelerate := accelerate_pressed and not _accelerate_was_pressed
 	var fresh_brake := brake_pressed and not _brake_was_pressed
 	_accelerate_was_pressed = accelerate_pressed
@@ -1655,13 +1824,33 @@ func _update_direction(speed: float, drive: float, delta: float) -> void:
 		reverse_engaged = false
 
 
+## The driver's feet: each pedal is taken towards what is asked of it at the
+## driver_profile's rates. `accelerate_asked` / `brake_asked` are the two KEYS'
+## (0..1); which pedal each one works follows the selected direction, the brake
+## key is the throttle in reverse.
+func _move_feet(accelerate_asked: float, brake_asked: float, delta: float) -> void:
+	var throttle_asked := brake_asked if reverse_engaged else accelerate_asked
+	var brake_pedal_asked := accelerate_asked if reverse_engaged else brake_asked
+	_throttle_foot = _move_pedal(_throttle_foot, throttle_asked, brake_pedal_asked, driver_profile.throttle_attack, driver_profile.throttle_release, delta)
+	_brake_foot = _move_pedal(_brake_foot, brake_pedal_asked, throttle_asked, driver_profile.brake_attack, driver_profile.brake_release, delta)
+
+
+## Where a pedal at `pedal` is a tick later, asked for `asked` (0..1): down at
+## `attack`, up at `release` [1/s]. With nothing asked of it and the other pedal
+## asked for, the foot has left it for that one and it is up at once.
+func _move_pedal(pedal: float, asked: float, other_asked: float, attack: float, release: float, delta: float) -> float:
+	if asked <= 0.0 and other_asked > 0.0:
+		return 0.0
+	return move_toward(pedal, asked, (attack if asked > pedal else release) * delta)
+
+
 ## What the pedals ask for this tick, as { throttle, brake, coasting }, and the
 ## gearbox update on the way. `throttle` is the engine's, 0..1; `coasting` is
 ## true while the driver asks for none (a lift for a gear change is not
 ## coasting). `brake` is the total
 ## brake force asked for at the tyres [N], always positive; it works against
-## the way each wheel turns. `drive` is +1 for the accelerate key and -1 for
-## the brake key.
+## the way each wheel turns. `drive` is +1 for the accelerate key's pedal on the
+## floor and -1 for the brake key's, anything in between as the feet have them.
 func _pedals(speed: float, drive: float, delta: float) -> Dictionary:
 	# The key of the selected direction is the throttle, the other one the
 	# brake: it slows the car to a stop whichever way it rolls, and holds it
