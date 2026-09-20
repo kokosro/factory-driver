@@ -1,8 +1,8 @@
 class_name HUD
 extends CanvasLayer
-## Minimal driving HUD: speed, plus a tach line (engine RPM and gear) so the
-## driving feel can be checked. The mission line and banner only show what
-## they are handed (see scripts/mission_manager.gd).
+## Minimal driving HUD: speed, plus a tach line (engine RPM and gear) and the
+## two pedal bars so the driving feel can be checked. The mission line and
+## banner only show what they are handed (see scripts/mission_manager.gd).
 
 ## Tach text colour normally and from ArcadeCar.SHIFT_LIGHT_RPM up.
 const TACH_COLOR := Color(1, 1, 1, 1)
@@ -15,6 +15,8 @@ const TACH_REDLINE_COLOR := Color(1.0, 0.3, 0.2, 1)
 @onready var _mission_label: Label = $MissionLabel
 @onready var _mission_banner: Label = $MissionBanner
 @onready var _mission_banner_detail: Label = $MissionBannerDetail
+@onready var _throttle_bar: ColorRect = $ThrottleBarBack/ThrottleBar
+@onready var _brake_bar: ColorRect = $BrakeBarBack/BrakeBar
 
 
 func _process(_delta: float) -> void:
@@ -33,6 +35,35 @@ func _process(_delta: float) -> void:
 	_rpm_label.text = "%d rpm | %s" % [roundi(car.engine_rpm / 50.0) * 50, gear_name]
 	var near_redline := car.engine_rpm >= ArcadeCar.SHIFT_LIGHT_RPM
 	_rpm_label.add_theme_color_override("font_color", TACH_REDLINE_COLOR if near_redline else TACH_COLOR)
+
+
+## The pedal bars follow the pedals tick by tick (ArcadeCar.throttle_pedal /
+## brake_pedal, what the drivetrain is given): a dab at a key is a bar that
+## never gets to the top.
+func _physics_process(_delta: float) -> void:
+	if not car:
+		return
+	set_throttle_bar(car.throttle_pedal)
+	set_brake_bar(car.brake_pedal)
+
+
+## How full the two pedal bars by the speed are, 0 (empty) .. 1 (full); out of
+## range is clamped, NaN is empty. Green = throttle, red = brake.
+func set_throttle_bar(value: float) -> void:
+	_fill_bar(_throttle_bar, value)
+
+
+func set_brake_bar(value: float) -> void:
+	_fill_bar(_brake_bar, value)
+
+
+## A bar is a full-height rectangle scaled down from its foot (pivot_offset in
+## hud.tscn): no layout, no text. Empty it is hidden, never scaled to nothing.
+func _fill_bar(bar: ColorRect, value: float) -> void:
+	var fill := 0.0 if is_nan(value) else clampf(value, 0.0, 1.0)
+	bar.visible = fill > 0.0
+	if bar.visible:
+		bar.scale.y = fill
 
 
 ## The mission line under the controls text.
