@@ -1201,8 +1201,17 @@ func _longitudinal_demand(speed: float, drive: float, delta: float) -> Dictionar
 		var ratio: float = GEAR_RATIOS[gear] * FINAL_DRIVE
 		if throttle > 0.0:
 			engine = engine_torque(engine_rpm) * throttle * ratio * DRIVETRAIN_EFFICIENCY / WHEEL_RADIUS
-		elif speed > STANDSTILL_SPEED:
-			engine = -ENGINE_BRAKE_TORQUE_PER_RPM * maxf(engine_rpm - IDLE_RPM, 0.0) * ratio / WHEEL_RADIUS
+		# was speed > STANDSTILL_SPEED, forwards only -> either way - the engine
+		# is a pump, it holds back a car rolling backwards in a forward gear
+		# just as it does one rolling forwards. A slide that ended with the car
+		# rolling backwards had rolling resistance alone to stop it: 0.15 m/s^2
+		# at 3.7 m/s, now 0.32 (1 s of handbrake at 58 km/h, keys released: from
+		# 3.7 m/s backwards under 2 m/s after 8.1 s, was ~12.5 s; below idle
+		# revs in 1st, 2.2 m/s, it is rolling resistance again, the same as
+		# forwards). Only the direction-symmetric floor: per-gear engine braking
+		# curves are the drivetrain's (iteration 3A).
+		elif absf(speed) > STANDSTILL_SPEED:
+			engine = -signf(speed) * ENGINE_BRAKE_TORQUE_PER_RPM * maxf(engine_rpm - IDLE_RPM, 0.0) * ratio / WHEEL_RADIUS
 	var brake := BRAKE_DECEL * absf(drive) * CAR_MASS if braking else 0.0
 	return {"engine": engine, "brake": brake}
 
