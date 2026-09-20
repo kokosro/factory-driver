@@ -8,12 +8,13 @@ extends Resource
 ##
 ## Three layers:
 ##   * ELEVATION: a gentle swell a few hundred metres long, the only layer the
-##     ground mesh shows and the car's body follows. Zero round every
+##     ground mesh shows (the car rides all three on its springs). Zero round every
 ##     certification feature (start line, stop box, slalom line, skid pad) and
 ##     far from the course; inside the straight's lane it depends on z only, so
 ##     the lane never leans sideways.
 ##   * MICRO-BUMPS: centimetre-scale value noise, metres long. Felt in the
-##     wheel loads, not rendered and not in the body height. Mean-neutral.
+##     wheel loads and the ride, not rendered in the ground mesh (the wheels
+##     are drawn on them). Mean-neutral.
 ##   * TEST DIP: one short smooth depression off the course, a test fixture (see
 ##     TEST_DIP_CENTRE), so a test can drive a wheel over a known crest.
 ##
@@ -174,8 +175,8 @@ func sample_height(x: float, z: float) -> float:
 	return elevation_height(x, z) + micro_height(x, z) + test_dip_height(x, z)
 
 
-## The elevation layer alone [m]: what the ground mesh shows, what the car's
-## body follows and what everything placed on the pad stands on.
+## The elevation layer alone [m]: what the ground mesh shows and what
+## everything placed on the pad stands on.
 func elevation_height(x: float, z: float) -> float:
 	var mask := elevation_mask(x, z)
 	if mask <= 0.0:

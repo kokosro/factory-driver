@@ -156,9 +156,58 @@ const ROAD_FEEL_MEAN_TOLERANCE := 60.0
 ## [m]. Measured: 0.43 m, at z = -428.
 const ROAD_FEEL_MIN_CLIMB := 0.25
 
-## ... while the body rides the elevation: most the car's height may be off the
-## ground's under it [m]. Measured: 0.
-const BODY_ON_GROUND_TOLERANCE := 0.001
+## ... while the body rides the road on its springs: most the car's height may
+## be off the elevation under it [m], and least it has to move against it [m].
+# was BODY_ON_GROUND_TOLERANCE 0.001 with the car on the floor every tick
+# (measured 0: the body was put on the elevation by hand each tick, the floor
+# moved under it) -> the body is carried by springs and the check is theirs:
+# never on the floor, every wheel inside its travel, the body within
+# RIDE_HEIGHT_TOLERANCE of the ground it shows over. Measured flat out down the
+# lane: up to 1.3 cm off (the micro-bumps alone are up to 1.2 cm, downforce
+# sits the car ~0.7 cm down at 157 km/h), wheel travel up to 2.2 cm. A body
+# that never moves against the road is the old teleport: RIDE_HEIGHT_MIN_MOTION.
+const RIDE_HEIGHT_TOLERANCE := 0.03
+const RIDE_HEIGHT_MIN_MOTION := 0.002
+
+## A spring counts as at rest within this far of its static place [m]:
+## 0.01 mm, 0.2 - 0.5 N. Measured: 0.
+const REST_TRAVEL_TOLERANCE := 0.00001
+
+## Suspension, drop test: the car is stood this far above its ride height [m]
+## and let go; the body has to bounce on its springs at a road car's ride
+## frequency [Hz] and be back at rest, every spring within
+## SUSPENSION_SETTLED_TRAVEL [m] of its static place, SUSPENSION_SETTLE_FRAMES
+## later (3 s). Measured: 1.50 Hz (heave on all four springs, 1.63 Hz undamped),
+## 0.04 mm after 3 s.
+const SUSPENSION_DROP_HEIGHT := 0.03
+const SUSPENSION_MIN_BOUNCE_HZ := 1.2
+const SUSPENSION_MAX_BOUNCE_HZ := 1.9
+const SUSPENSION_SETTLE_FRAMES := 180
+const SUSPENSION_SETTLED_TRAVEL := 0.0005
+
+## Dive, squat and roll: full brake from SUSPENSION_BRAKE_SPEED [m/s], a launch,
+## and CORNER_STEER held from GET_UP_TO_SPEED. Each is averaged over
+## SUSPENSION_AVERAGE_FRAMES once the first swing is over (the brake and the
+## corner after SUSPENSION_SETTLE_IN_FRAMES). Least nose-down pitch under
+## braking, nose-up pitch launching and roll out of the corner [rad], least
+## front bump travel under braking [m]; measured -0.026, 0.020, -0.038 rad and
+## 4.8 cm. And the cross-check that replaces the car's old weight-transfer
+## formula: what the springs carry, averaged, against rigid-body statics
+## (acceleration x CAR_MASS x CG_HEIGHT over wheelbase or track) [share of the
+## load moved]. Measured: 0.07 off under braking (the dive is still swinging
+## through the half second it is averaged over), 0.005 in the corner.
+const SUSPENSION_BRAKE_SPEED := 30.0
+const SUSPENSION_SETTLE_IN_FRAMES := 30
+const SUSPENSION_AVERAGE_FRAMES := 30
+const SUSPENSION_MIN_DIVE := 0.01
+const SUSPENSION_MIN_DIVE_TRAVEL := 0.02
+const SUSPENSION_MIN_SQUAT := 0.005
+const SUSPENSION_MIN_ROLL := 0.015
+const SUSPENSION_STATICS_TOLERANCE := 0.1
+
+## The wheels are drawn on the road: most the bottom of a drawn wheel may be
+## off the road under it [m]. Measured: under 0.001 mm (32-bit node positions).
+const WHEEL_ON_ROAD_TOLERANCE := 0.0001
 
 ## Crest test: a standing start this far before the road's test dip [m], flat
 ## out, crosses it at ~25 m/s (90 km/h), where the dip's 10 m come by at 2.5 Hz:
@@ -336,7 +385,14 @@ func _run() -> void:
 		_finish()
 		return
 
-	_check(car.is_on_floor(), "car rests on the ground")
+	# was car.is_on_floor(): the collision box lying on the floor WAS the car
+	# standing on the ground -> the body floats GROUND_CLEARANCE above the floor
+	# on its springs. Resting is every wheel loaded, no spring off its static
+	# place, nothing moving, and the floor not needed.
+	var resting := not car.is_on_floor() and absf(car.velocity.y) < 0.0001
+	for i in 4:
+		resting = resting and car.wheel_loads[i] > 0.0 and absf(car.wheel_travel[i]) < REST_TRAVEL_TOLERANCE
+	_check(resting, "car rests on the ground: on its springs, every wheel loaded (travel %.5f m at most, clear of the floor)" % _largest_travel(car))
 	_check(absf(car.forward_speed) < 0.01, "car is stationary without input (%.3f m/s)" % car.forward_speed)
 	_check(speed_label.text == "0 km/h", "HUD reads 0 km/h at rest ('%s')" % speed_label.text)
 
@@ -520,6 +576,7 @@ func _run() -> void:
 	_check_road_profile(main.get_node("TestPad") as TestPad, car)
 	await _check_road_feel(main.get_node("TestPad") as TestPad, car)
 	await _check_crest(car)
+	await _check_suspension(main.get_node("TestPad") as TestPad, car)
 	_check_placed_on_ground(main.get_node("TestPad") as TestPad)
 	await _check_slide_settle(car)
 	await _check_mirrored_spin(main.get_node("TestPad") as TestPad, car)
@@ -1349,21 +1406,32 @@ func _check_road_profile(pad: TestPad, car: ArcadeCar) -> void:
 	_check(skid_zone == 0.0, "the skid pad is level (largest elevation %.6f m within %.0f m of its centre)" % [skid_zone, RoadProfile.SKID_ZONE_RADIUS])
 
 
-## Half of what each axle carries before the road has its say [N]: static
-## split, load transfer and downforce, front then rear. A wheel's baseline.
+## What each front and each rear wheel would carry on a level road right now
+## [N], front then rear: a wheel's baseline, worked out here from rigid-body
+## statics, not read off the car. Half the axle's static share and downforce
+## share, and the weight the tyre forces move between the axles: they act at
+## the road, CG_HEIGHT under the centre of mass, and accelerate the car and
+## hold it against the air (which pushes at the height of the centre of mass).
+# was read off the car (weight x car.front / rear_load_fraction, the output of
+# its weight-transfer formula) -> the formula itself, as a cross-check: the car
+# has no such formula any more, its load fractions are what the springs carry,
+# road and all, and the springs have to come out on this by themselves.
 func _wheel_baselines(car: ArcadeCar) -> Array[float]:
 	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 	var weight := ArcadeCar.CAR_MASS * gravity
-	var downforce := ArcadeCar.DOWNFORCE_COEFF * car.forward_speed * car.forward_speed
+	var speed := car.forward_speed
+	var downforce := ArcadeCar.DOWNFORCE_COEFF * speed * speed
+	var air_drag := 0.5 * ArcadeCar.AIR_DENSITY * ArcadeCar.DRAG_COEFF * ArcadeCar.FRONTAL_AREA * speed * absf(speed)
+	var transfer := (ArcadeCar.CAR_MASS * car.longitudinal_accel + air_drag) * ArcadeCar.CG_HEIGHT / (2.0 * ArcadeCar.AXLE_DISTANCE)
 	return [
-		(weight * car.front_load_fraction + downforce * ArcadeCar.AERO_BALANCE_FRONT) * 0.5,
-		(weight * car.rear_load_fraction + downforce * (1.0 - ArcadeCar.AERO_BALANCE_FRONT)) * 0.5,
+		(weight * (1.0 - ArcadeCar.REAR_WEIGHT_FRACTION) + downforce * ArcadeCar.AERO_BALANCE_FRONT - transfer) * 0.5,
+		(weight * ArcadeCar.REAR_WEIGHT_FRACTION + downforce * (1.0 - ArcadeCar.AERO_BALANCE_FRONT) + transfer) * 0.5,
 	]
 
 
 ## The car over bumps at speed: at rest the springs are at rest; flat out down
 ## the straight every wheel load swings with the road, the axle loads keep
-## their mean, the body rides the elevation with the floor under it.
+## their mean, the body rides the elevation on its springs.
 func _check_road_feel(pad: TestPad, car: ArcadeCar) -> void:
 	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 	var weight := ArcadeCar.CAR_MASS * gravity
@@ -1381,8 +1449,10 @@ func _check_road_feel(pad: TestPad, car: ArcadeCar) -> void:
 	var deviation_sum: Array[float] = [0.0, 0.0, 0.0, 0.0]
 	var deviation_squares: Array[float] = [0.0, 0.0, 0.0, 0.0]
 	var loads_finite := true
-	var on_floor := true
+	var off_floor := true
 	var ground_gap := 0.0
+	var lowest_gap := INF
+	var most_travel := 0.0
 	var highest := 0.0
 	for frame in ROAD_FEEL_SAMPLE_FRAMES:
 		await _drive(car, 1, stats)
@@ -1392,9 +1462,11 @@ func _check_road_feel(pad: TestPad, car: ArcadeCar) -> void:
 			deviation_sum[i] += deviation
 			deviation_squares[i] += deviation * deviation
 			loads_finite = loads_finite and is_finite(car.wheel_loads[i]) and car.wheel_loads[i] >= 0.0
-		on_floor = on_floor and car.is_on_floor()
+		off_floor = off_floor and not car.is_on_floor()
+		most_travel = maxf(most_travel, _largest_travel(car))
 		var ground := pad.elevation_height(car.global_position.x, car.global_position.z)
 		ground_gap = maxf(ground_gap, absf(car.global_position.y - ground))
+		lowest_gap = minf(lowest_gap, car.global_position.y - ground)
 		highest = maxf(highest, ground)
 	Input.action_release("accelerate")
 
@@ -1411,7 +1483,8 @@ func _check_road_feel(pad: TestPad, car: ArcadeCar) -> void:
 	_check(absf(front_mean) < ROAD_FEEL_MEAN_TOLERANCE and absf(rear_mean) < ROAD_FEEL_MEAN_TOLERANCE, "the road moves load around, it adds none: mean axle loads stay on their baseline (front %+.1f N, rear %+.1f N)" % [front_mean, rear_mean])
 	_check(stats.finite and loads_finite, "no NaN / inf / negative wheel loads over the bumps")
 	_check(stats.max_step < 1.5, "no teleporting over the bumps (largest step %.2f m)" % stats.max_step)
-	_check(on_floor and ground_gap < BODY_ON_GROUND_TOLERANCE, "the body rides the elevation with the floor under it (largest gap %.4f m)" % ground_gap)
+	_check(off_floor and most_travel < ArcadeCar.SUSPENSION_TRAVEL and ground_gap < RIDE_HEIGHT_TOLERANCE, "the body rides the elevation on its springs, clear of the floor (never more than %.4f m off it, wheel travel up to %.4f m of %.2f)" % [ground_gap, most_travel, ArcadeCar.SUSPENSION_TRAVEL])
+	_check(ground_gap - lowest_gap > RIDE_HEIGHT_MIN_MOTION, "... and really on springs: its height over the ground moves (by %.4f m over the run)" % (ground_gap - lowest_gap))
 	_check(absf(car.global_position.x) < 0.01 and absf(car.global_rotation.y) < 0.001, "bumps and swell do not pull the car off line (x = %.4f m)" % car.global_position.x)
 
 	car.reset_to_spawn()
@@ -1482,6 +1555,116 @@ func _check_crest(car: ArcadeCar) -> void:
 	_check(stats.finite and stats.max_step < 1.5, "no NaN / inf / teleporting through the dip (largest step %.2f m)" % stats.max_step)
 	car.reset_to_spawn()
 	await _step(5)
+
+
+## The body on its springs: a drop test (ride frequency, settling), dive under
+## braking, squat under power and roll in a corner, each against rigid-body
+## statics; travel inside its limits; the wheels drawn on the road and the body
+## drawn where the springs have it; reset puts all of it at rest.
+func _check_suspension(pad: TestPad, car: ArcadeCar) -> void:
+	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+	var spawn := car.get_spawn_transform()
+	var stats := _new_stats()
+	var most_travel := 0.0
+
+	# Drop test: stood above its ride height and let go, the body falls into
+	# its springs and bounces. Half a period between the first two turning
+	# points of its height.
+	car.reset_to(Transform3D(spawn.basis, spawn.origin + Vector3.UP * SUSPENSION_DROP_HEIGHT))
+	var turning_frames: Array[int] = []
+	var speed_before := 0.0
+	var lowest_load := INF
+	for frame in SUSPENSION_SETTLE_FRAMES:
+		await _drive(car, 1, stats)
+		if frame > 0 and car.velocity.y * speed_before < 0.0 and turning_frames.size() < 2:
+			turning_frames.append(frame)
+		speed_before = car.velocity.y
+		for i in 4:
+			lowest_load = minf(lowest_load, car.wheel_loads[i])
+	var bounce_hz := 0.0
+	if turning_frames.size() == 2:
+		bounce_hz = 60.0 / (2.0 * (turning_frames[1] - turning_frames[0]))
+	_check(bounce_hz > SUSPENSION_MIN_BOUNCE_HZ and bounce_hz < SUSPENSION_MAX_BOUNCE_HZ, "dropped %.0f cm onto its springs the body bounces at a road car's ride frequency (%.2f Hz, springs %.1f / %.1f kN/m, dampers %.0f / %.0f N s/m)" % [SUSPENSION_DROP_HEIGHT * 100.0, bounce_hz, ArcadeCar.FRONT_SPRING_RATE / 1000.0, ArcadeCar.REAR_SPRING_RATE / 1000.0, ArcadeCar.FRONT_DAMPER_RATE, ArcadeCar.REAR_DAMPER_RATE])
+	_check(_largest_travel(car) < SUSPENSION_SETTLED_TRAVEL and not car.is_on_floor() and lowest_load > 0.0, "... and is at rest again %.0f s later, never having left the road or met the floor (travel %.5f m)" % [SUSPENSION_SETTLE_FRAMES / 60.0, _largest_travel(car)])
+
+	# Dive: full brake at speed. Nose down, front springs in, rear springs out,
+	# and the load the springs move onto the front axle is what statics says.
+	await _reach_speed(car, SUSPENSION_BRAKE_SPEED)
+	Input.action_press("brake")
+	var dive := await _suspension_average(car, stats)
+	Input.action_release("brake")
+	most_travel = maxf(most_travel, dive.most_travel)
+	_check(dive.pitch < -SUSPENSION_MIN_DIVE and dive.front_travel > SUSPENSION_MIN_DIVE_TRAVEL and dive.rear_travel < 0.0, "braking dives the nose into the front springs (pitch %.4f rad at %.1f m/s^2, front springs %.1f cm in, rear %.1f cm out)" % [dive.pitch, dive.longitudinal_accel, dive.front_travel * 100.0, -dive.rear_travel * 100.0])
+	var dive_moved: float = dive.front_load - dive.front_static
+	var dive_statics: float = dive.front_baseline - dive.front_static
+	_check(dive_statics > 1000.0 and absf(dive_moved - dive_statics) < SUSPENSION_STATICS_TOLERANCE * dive_statics, "... and the weight that moves onto the front axle comes out of the springs as statics has it (%.0f N, acceleration x mass x CG height / wheelbase says %.0f)" % [dive_moved, dive_statics])
+
+	# Squat: a launch pitches the nose up.
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	await _drive(car, SUSPENSION_SETTLE_IN_FRAMES, stats)
+	var squat := await _suspension_average(car, stats)
+	Input.action_release("accelerate")
+	most_travel = maxf(most_travel, squat.most_travel)
+	_check(squat.pitch > SUSPENSION_MIN_SQUAT and squat.rear_travel > 0.0 and squat.front_travel < 0.0, "power squats the tail (pitch %.4f rad at %.1f m/s^2, rear springs %.1f cm in, front %.1f cm out)" % [squat.pitch, squat.longitudinal_accel, squat.rear_travel * 100.0, -squat.front_travel * 100.0])
+
+	# Roll: a left-hand corner leans the body onto its right-hand wheels.
+	await _get_up_to_speed(car)
+	Input.action_press("steer_left", CORNER_STEER)
+	var corner := await _suspension_average(car, stats)
+	most_travel = maxf(most_travel, corner.most_travel)
+	_check(corner.roll < -SUSPENSION_MIN_ROLL and corner.lateral_accel > 3.0, "cornering rolls the body out of the corner (roll %.4f rad at %.1f m/s^2 to the left: %.1f degrees per g)" % [corner.roll, corner.lateral_accel, absf(rad_to_deg(corner.roll)) / corner.lateral_accel * gravity])
+	var roll_statics: float = ArcadeCar.CAR_MASS * corner.lateral_accel * ArcadeCar.CG_HEIGHT / ArcadeCar.HALF_TRACK
+	_check(absf(corner.right_minus_left - roll_statics) < SUSPENSION_STATICS_TOLERANCE * roll_statics, "... onto the outside wheels, by what statics has it (right pair %.0f N over the left, acceleration x mass x CG height / half track says %.0f)" % [corner.right_minus_left, roll_statics])
+
+	# What shows, mid-corner: every wheel on the road under it, the body mesh at
+	# the springs' pitch and roll.
+	var wheels_on_road := 0.0
+	var wheel_names: Array[String] = ["FrontLeft", "FrontRight", "RearLeft", "RearRight"]
+	for i in 4:
+		var wheel := car.get_node("Wheels/" + wheel_names[i]) as Node3D
+		var contact := car.global_transform * ArcadeCar.WHEEL_CONTACT_POINTS[i]
+		wheels_on_road = maxf(wheels_on_road, absf(wheel.global_position.y - ArcadeCar.WHEEL_RADIUS - pad.sample_height(contact.x, contact.z)))
+	var body := car.get_node("Body") as Node3D
+	_check(wheels_on_road < WHEEL_ON_ROAD_TOLERANCE, "the wheels are drawn on the road while the body leans over them (furthest off %.4f m)" % wheels_on_road)
+	_check(absf(body.rotation.z - car.body_roll) < 0.00001 and absf(body.rotation.x - car.body_pitch) < 0.00001 and car.body_roll != 0.0, "the body is drawn at the springs' own pitch and roll (%.4f / %.4f rad)" % [body.rotation.x, body.rotation.z])
+	Input.action_release("steer_left")
+
+	_check(most_travel < ArcadeCar.SUSPENSION_TRAVEL, "full braking, a launch and a corner all stay inside the suspension's travel (%.1f cm of %.0f)" % [most_travel * 100.0, ArcadeCar.SUSPENSION_TRAVEL * 100.0])
+	_check(stats.finite and stats.max_step < 1.5, "no NaN / inf / teleporting through the suspension checks (largest step %.2f m)" % stats.max_step)
+
+	car.reset_to_spawn()
+	_check(car.pitch_rate == 0.0 and car.roll_rate == 0.0 and car.velocity.y == 0.0 and _largest_travel(car) == 0.0 and absf(body.rotation.z - car.body_roll) < 0.00001 and absf(car.body_pitch) < 0.005 and absf(car.body_roll) < 0.005, "reset stands the body at rest on the road, in the plane of its four wheels (pitch %.5f, roll %.5f rad)" % [car.body_pitch, car.body_roll])
+	await _step(5)
+
+
+## Lets SUSPENSION_SETTLE_IN_FRAMES pass, then averages the body's attitude, the
+## spring travel per axle [m], the loads [N], the statics baseline of the front
+## axle (_wheel_baselines) and the accelerations over SUSPENSION_AVERAGE_FRAMES.
+func _suspension_average(car: ArcadeCar, stats: Dictionary) -> Dictionary:
+	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+	var mean := {
+		"pitch": 0.0, "roll": 0.0, "front_travel": 0.0, "rear_travel": 0.0, "front_load": 0.0, "front_baseline": 0.0,
+		"right_minus_left": 0.0, "longitudinal_accel": 0.0, "lateral_accel": 0.0, "most_travel": 0.0,
+		"front_static": ArcadeCar.CAR_MASS * gravity * (1.0 - ArcadeCar.REAR_WEIGHT_FRACTION),
+	}
+	var share := 1.0 / SUSPENSION_AVERAGE_FRAMES
+	for frame in SUSPENSION_SETTLE_IN_FRAMES + SUSPENSION_AVERAGE_FRAMES:
+		await _drive(car, 1, stats)
+		mean.most_travel = maxf(mean.most_travel, _largest_travel(car))
+		if frame < SUSPENSION_SETTLE_IN_FRAMES:
+			continue
+		mean.pitch += car.body_pitch * share
+		mean.roll += car.body_roll * share
+		mean.front_travel += (car.wheel_travel[0] + car.wheel_travel[1]) * 0.5 * share
+		mean.rear_travel += (car.wheel_travel[2] + car.wheel_travel[3]) * 0.5 * share
+		mean.front_load += car.front_axle_load * share
+		mean.front_baseline += _wheel_baselines(car)[0] * 2.0 * share
+		mean.right_minus_left += (car.wheel_loads[1] + car.wheel_loads[3] - car.wheel_loads[0] - car.wheel_loads[2]) * share
+		mean.longitudinal_accel += car.longitudinal_accel * share
+		mean.lateral_accel += car.lateral_accel * share
+	return mean
 
 
 ## What the pad places stands on the ground it shows: cones (their homes),
@@ -1814,6 +1997,14 @@ func _measure_pull(car: ArcadeCar, stats: Dictionary) -> float:
 	await _drive(car, 30, stats)
 	Input.action_release("accelerate")
 	return (car.forward_speed - speed_start) / 0.5
+
+
+## Largest suspension travel of the four wheels right now [m], either way.
+func _largest_travel(car: ArcadeCar) -> float:
+	var largest := 0.0
+	for travel in car.wheel_travel:
+		largest = maxf(largest, absf(travel))
+	return largest
 
 
 ## Presses and releases an action over two physics frames.

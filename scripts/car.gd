@@ -43,20 +43,24 @@ extends CharacterBody3D
 ## by its own grip; the handbrake locks the rear wheels, which then only drag
 ## against their direction of travel, so the tail comes round.
 ##
-## Weight and aero: the axle loads start from the static weight distribution,
-## shift forward under braking / rearward under acceleration, and grow with
-## speed from downforce (DOWNFORCE_COEFF). Each axle's grip follows its load.
+## Weight, suspension and aero: the body is a rigid mass on four springs, with
+## heave, pitch and roll as states of their own (see Suspension). What each
+## spring pushes up with is its wheel's load, and the axle loads the tyres work
+## with are the sums of their two wheels (wheel_loads): at rest the static
+## weight distribution, to the Newton. Nothing scripts weight transfer: the
+## tyres pull at the road, CG_HEIGHT below the centre of mass, so braking dives
+## the nose into the front springs and the front tyres carry more; power squats
+## the tail, cornering rolls the body onto the outside wheels. Downforce
+## (DOWNFORCE_COEFF) presses on the body and reaches the tyres through the
+## springs too. Each axle's grip follows its load.
 ##
-## The road: the car drives on a RoadProfile (road_profile), a height field.
-## Its body follows the road's ELEVATION, the gentle swell the ground mesh
-## shows, kinematically: it rides the visible ground and never leaves it. Each
-## of the four wheels follows the road in full, micro-bumps and all, through a
-## spring and damper (RIDE_FREQUENCY, RIDE_DAMPING_RATIO): a bump pushes load
-## into its wheel, a crest dropping away faster than the corner of the car can
-## follow takes load off it. The axle loads the tyre model sees are the sums of
-## their two wheels (wheel_loads), so grip breathes with the road; the tyre
-## model itself knows nothing of any of this. On a flat road every wheel
-## carries exactly its share and the car is the flat-ground car it always was.
+## The road: the car drives on a RoadProfile (road_profile), a height field,
+## and every wheel follows it in full, swell, micro-bumps and all. The springs
+## carry the body over it: a bump pushes load into its wheel, a crest dropping
+## away faster than the body can fall after it takes load off (past the droop
+## stop the wheel is in the air), the swell lifts and lowers the whole car.
+## The tyre model itself knows nothing of any of this. On a flat road every
+## wheel carries exactly its share.
 ##
 ## Two helpers sit on top, both documented where they live: below
 ## LOW_SPEED_BLEND_END the tyre forces are blended with plain rolling geometry
@@ -66,10 +70,12 @@ extends CharacterBody3D
 ## 360.
 ##
 ## Conventions: the car's nose points along local -Z, +X is the car's right,
-## positive yaw (rotation about +Y) is a LEFT turn. The car stays upright: the
-## road's slopes are gentle (RoadProfile.MAX_SLOPE), so the body takes the
-## road's height, not its tilt, and gravity never pulls it downhill. Without a
-## road_profile the ground is level (true for a bare car.tscn).
+## positive yaw (rotation about +Y) is a LEFT turn, positive pitch (about +X)
+## is NOSE UP, positive roll (about +Z) is RIGHT SIDE UP. The CharacterBody3D
+## itself stays upright, pitch and roll are small angles of the body on it: the
+## road's slopes are gentle (RoadProfile.MAX_SLOPE), the springs push straight
+## up and gravity never pulls the car downhill. Without a road_profile the
+## ground is level (true for a bare car.tscn).
 
 # =============================================================================
 #  DRIVING FEEL TUNING
@@ -231,7 +237,15 @@ const CLUTCH_TORQUE_MAX := 500.0
 # was LAUNCH_RPM 2000, a clamp on the tach alone ("the clutch slips", though
 # nothing slipped and the drive force never knew) -> 4500, the speed a real
 # slipping clutch holds the engine at, with the torque that goes with it.
-const LAUNCH_RPM := 3500.0
+# was 3500 (232 Nm) -> 4000 (238 Nm) with the real suspension - at 3500 the
+# launch sat on the edge of the rear tyres' limit and only reached it the tick
+# the clutch locked: 0.99967 of the peak force with the old eased load transfer
+# (the smoke test asks for 0.999), 0.99864 now that the squatting tail carries
+# its full share at that moment (9488 N on the rear axle against 9378). At 4000
+# the rears are worked past their peak before the clutch is home (slip ratio
+# 0.100 at 26 km/h, use 1.000), which is what "traction-limited" is meant to
+# say; 9.6 m/s after 2 s against 9.5, the clutch home after 1.83 s against 1.63.
+const LAUNCH_RPM := 4000.0
 
 ## While the revs are still under that floor the clutch takes this share of
 ## the engine's torque (0..1) and the rest winds the engine up: the car moves
@@ -595,13 +609,22 @@ const AUTO_SHIFT_HOLD := 0.5
 ## more than it gains: the balance shift is felt. 0 = no effect.
 const LOAD_GRIP_EXPONENT := 0.7
 
-## Largest share of the car's weight that can move between the axles (0..1).
-## A safety net: tyre-limited braking and drive stay inside it.
-const MAX_LOAD_TRANSFER := 0.18
-
-## How quickly the load follows acceleration changes [1/s]: the suspension
-## taking a moment to pitch.
-const LOAD_TRANSFER_RESPONSE := 8.0
+# was MAX_LOAD_TRANSFER 0.18 (largest share of the weight that could move
+# between the axles) and LOAD_TRANSFER_RESPONSE 8.0 [1/s] (the pace of a formula
+# that moved it: acceleration x CG_HEIGHT / wheelbase, eased in "at the
+# suspension's pace") -> both removed - there is a suspension now, and weight
+# transfer is what it does: the tyre forces act at the road, CG_HEIGHT under the
+# centre of mass, the body pitches against its springs and the springs carry
+# the difference (see Suspension, _advance_body). Steady state that is the same
+# CAR_MASS x acceleration x CG_HEIGHT / wheelbase the formula had, which the
+# smoke test now holds the springs to as a cross-check (_wheel_baselines); on
+# the way there the body pitches at ~1.5 Hz instead of easing at 8 per second.
+# Measured in the smoke test: a full stop from 108 km/h moves 1976 N onto the
+# front axle where the formula says 2115 (the rest is the dive still swinging),
+# a 0.88 g corner puts 6243 N more on the outside pair than on the inside where
+# statics says 6215; the front share under braking from 185 km/h reads 0.54
+# against 0.53. The 0.18 cap never bound (tyre-limited braking moves 0.17) and
+# has no successor: what bounds it now is the tyres, and the bump stops.
 
 ## Friction circle: a tyre has one grip to share between pushing along the
 ## wheel (drive, braking) and holding across it (see _tyre_force). Braking
@@ -614,38 +637,144 @@ const LOAD_TRANSFER_RESPONSE := 8.0
 ## and turning exclude each other more, snappier power oversteer.
 const MIN_COMBINED_GRIP := 0.4
 
-# --- Suspension (road feel) ---------------------------------------------------
+# --- Suspension ----------------------------------------------------------------
 
-# One spring / damper channel per wheel, a load layer on top of the axle loads
-# above: the corner of the car over each wheel is a mass on a spring that
-# follows the road under that wheel (see _suspension_force). On a flat road the
-# channels rest at 0 and the wheel loads are the axle loads halved, exactly.
+# The body is a rigid mass on four springs. It has three ways to move on them,
+# each a state with its rate: HEAVE (up and down: the CharacterBody3D's own
+# height and vertical velocity, gravity pulling it down), PITCH and ROLL (small
+# angles, body_pitch / body_roll). Each corner of the body stands on its wheel
+# through a spring, a damper, a share of its axle's anti-roll bar and, at the
+# ends of the travel, a bump stop; the wheel follows the road (there is no
+# unsprung mass: tyre and wheel are part of the road as far as the spring is
+# concerned, the tyre's give is TYRE_ENVELOPE_RATE). What each spring pushes up
+# with is what its tyre presses on the road with: that IS the wheel load
+# (wheel_loads), and the grip. Nothing else moves load around: braking dives
+# the nose because the tyres pull back at the road, CG_HEIGHT under the centre
+# of mass, and the front springs have to carry the moment; cornering rolls the
+# body the same way; a crest drops away and the springs stretch after it.
+# See _corner_forces and _advance_body.
+#
+# was (iteration 2G) a load LAYER: RIDE_FREQUENCY 1.4 Hz and RIDE_DAMPING_RATIO
+# 0.4 on four independent corner masses whose only job was to add a ripple to
+# wheel loads that came out of the weight-transfer formula, under a body that
+# followed the road's elevation kinematically (the elevation follow, a teleport
+# by the elevation change after every move -> removed) and leaned by a cosmetic rule
+# (BODY_ROLL_PER_ACCEL and friends -> removed, see Visual only) -> one rigid
+# body on real springs, which does all three.
 
-## Ride frequency of a corner of the car on its spring [Hz]. Road cars sit at
-## 1 - 1.5, sports cars up to 2. Higher = stiffer: the car follows the road
-## more closely and the wheel loads swing more over the same bumps.
-const RIDE_FREQUENCY := 1.4
+## Ride frequency of each end of the car on its springs [Hz]: how fast a corner
+## mass (FRONT / REAR_CORNER_MASS) bounces on its spring alone. Road cars 1 -
+## 1.5, sports cars 1.5 - 2. The rear is set ~13 % above the front, as on real
+## cars ("flat ride": the rear hits every bump a wheelbase later and has to
+## catch the front up, or the car pitches along the road).
+# was RIDE_FREQUENCY 1.4 for all four corners -> 1.5 / 1.7 - the springs now
+# also hold the body against dive and roll: in a full stop from 142 km/h 1.4
+# all round dived 0.028 rad and ran the front springs 7.7 cm in, onto their
+# bump stops (travel 7); 1.5 / 1.7 dives 0.022 rad and peaks at 6.8 cm, 5 cm
+# once the first swing is over. And no flat ride with the two ends the same.
+const FRONT_RIDE_FREQUENCY := 1.5
+const REAR_RIDE_FREQUENCY := 1.7
 
-## Damping ratio of that spring (no unit): 0.3 - 0.5 on a road car. 1 would
-## settle without any overshoot, lower floats on after a crest.
+## Damping ratio of each corner on its spring (no unit): 0.3 - 0.5 on a road
+## car. 1 would settle without any overshoot, lower floats on after a crest.
+## Unchanged from 2G; it now also damps pitch (ratio ~0.4, the car's pitch
+## inertia being what its corner masses make it) and roll (~0.43 with the bars).
 const RIDE_DAMPING_RATIO := 0.4
+
+## Sprung mass riding on one front / rear wheel at rest [kg]: ~247 and ~403.
+const FRONT_CORNER_MASS := CAR_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5
+const REAR_CORNER_MASS := CAR_MASS * REAR_WEIGHT_FRACTION * 0.5
+
+## Spring rate at the wheel [N/m]: corner mass x (TAU x ride frequency)^2.
+## Front ~21.9 kN/m, rear ~46.0 kN/m (static compression 11.0 and 8.6 cm).
+const FRONT_SPRING_RATE := FRONT_CORNER_MASS * (TAU * FRONT_RIDE_FREQUENCY) * (TAU * FRONT_RIDE_FREQUENCY)
+const REAR_SPRING_RATE := REAR_CORNER_MASS * (TAU * REAR_RIDE_FREQUENCY) * (TAU * REAR_RIDE_FREQUENCY)
+
+## Damper rate at the wheel [N s/m]: 2 x ratio x corner mass x TAU x ride
+## frequency. Front ~1860, rear ~3440. One rate for bump and rebound.
+const FRONT_DAMPER_RATE := 2.0 * RIDE_DAMPING_RATIO * FRONT_CORNER_MASS * TAU * FRONT_RIDE_FREQUENCY
+const REAR_DAMPER_RATE := 2.0 * RIDE_DAMPING_RATIO * REAR_CORNER_MASS * TAU * REAR_RIDE_FREQUENCY
+
+## Anti-roll bars [N per m of travel difference between an axle's two wheels]:
+## the bar pushes the more compressed wheel down and lifts the other with this
+## times the difference. Does nothing in heave and pitch. With the springs
+## (~100 kNm/rad of roll stiffness on the 1.72 m track) the bars add ~38: the
+## body rolls ~2.5 degrees per g, a sports car's figure; on springs alone it
+## would be 3.6. Front-biased, as on the real car. The tyres work with AXLE
+## loads (the bicycle model), so how the bars split the roll between the axles
+## shows in wheel_loads and in the body, not in the balance of the car.
+const FRONT_ANTI_ROLL_RATE := 8000.0
+const REAR_ANTI_ROLL_RATE := 5000.0
+
+## Suspension travel either way from the static position [m]: 7 cm of bump and
+## 7 cm of droop before the stops.
+const SUSPENSION_TRAVEL := 0.07
+
+## Bump stops. Past SUSPENSION_TRAVEL a rubber stop joins the spring, and it is
+## progressive: its force is BUMP_STOP_RATE x the corner's spring rate x the
+## depth into it x (1 + depth / BUMP_STOP_PROGRESSION), so its stiffness starts
+## at 3 springs and has doubled 1 cm in. In bump it pushes the body up; in
+## droop it is the damper topping out and takes the last of the spring's push
+## off the tyre (at rest the springs are compressed 9 - 11 cm, so without it a
+## wheel would stay loaded further down than it can reach): by ~2 cm past the
+## travel the wheel is in the air, load 0. Stability: 5 cm into a stop (where
+## the body's collision box meets the floor, GROUND_CLEARANCE) the corner's
+## stiffness is 19 spring rates, w x delta = 0.78 at 60 ticks a second, where
+## semi-implicit Euler holds to 2; on the springs alone it is 0.16 / 0.18, in
+## roll with the bars 0.25.
+const BUMP_STOP_RATE := 3.0
+const BUMP_STOP_PROGRESSION := 0.02
+
+## Moment of inertia of the body in pitch [kg m^2]. A car's two ends bounce
+## independently of each other when its pitch gyration radius squared equals
+## front arm x rear arm (dynamic index 1), which road cars sit close to:
+## 1300 kg x 1.612 m x 0.988 m = 2070. Measured figures for small sports cars
+## are 1800 - 2300.
+const PITCH_INERTIA := 2100.0
+
+## Moment of inertia of the body in roll [kg m^2]: a gyration radius of ~0.68 m
+## on a 1.8 m wide car with its masses low and central (measured road cars:
+## 400 - 700). Roll on springs and bars comes out at ~2.4 Hz.
+const ROLL_INERTIA := 600.0
+
+## Height of the body's underside (its collision box) above the road at rest
+## [m], the 986's ~12 cm. The springs hold the body up; the floor only ever
+## meets it 5 cm into the bump stops of all four wheels at once. Must match the
+## CollisionShape3D in car.tscn.
+const GROUND_CLEARANCE := 0.12
 
 ## How quickly the tyre lets the road through to the suspension [1/s], ~6 Hz:
 ## carcass and contact patch swallow what is shorter than themselves, and at
 ## speed one physics tick is most of a metre of road. Without it the damper
 ## would turn every sampled ripple into a hammer blow. Lower = smoother ride,
-## calmer wheel loads.
+## calmer wheel loads. (Kept from 2G: it is the tyre's, not the old layer's.)
 const TYRE_ENVELOPE_RATE := 40.0
+
+## Half the track width [m]: how far each wheel stands from the car's centre
+## line. Must match the wheel positions in car.tscn. (Real 986: 1.47 / 1.53 m
+## front / rear track; the placeholder body is wider.)
+const HALF_TRACK := 0.86
 
 ## Where each tyre meets the road, in the car's frame [m]: front left, front
 ## right, rear left, rear right (the order of wheel_loads). Must match the
 ## wheel positions in car.tscn.
 const WHEEL_CONTACT_POINTS: Array[Vector3] = [
-	Vector3(-0.86, 0.0, -AXLE_DISTANCE),
-	Vector3(0.86, 0.0, -AXLE_DISTANCE),
-	Vector3(-0.86, 0.0, AXLE_DISTANCE),
-	Vector3(0.86, 0.0, AXLE_DISTANCE),
+	Vector3(-HALF_TRACK, 0.0, -AXLE_DISTANCE),
+	Vector3(HALF_TRACK, 0.0, -AXLE_DISTANCE),
+	Vector3(-HALF_TRACK, 0.0, AXLE_DISTANCE),
+	Vector3(HALF_TRACK, 0.0, AXLE_DISTANCE),
 ]
+
+## Lever arms of each wheel's load about the centre of mass [m], the order of
+## wheel_loads: how far AHEAD of it the wheel stands (pitch; the fronts on the
+## long arm, the rears behind on the short one) and how far to its RIGHT
+## (roll). In full precision, not read back off the Vector3s above (32 bit):
+## the static loads times these arms cancel exactly, as they have to for a car
+## at rest to stay at rest.
+const WHEEL_ARMS_AHEAD: Array[float] = [
+	AXLE_DISTANCE + CG_OFFSET, AXLE_DISTANCE + CG_OFFSET, CG_OFFSET - AXLE_DISTANCE, CG_OFFSET - AXLE_DISTANCE,
+]
+const WHEEL_ARMS_RIGHT: Array[float] = [-HALF_TRACK, HALF_TRACK, -HALF_TRACK, HALF_TRACK]
 
 # --- Steering ----------------------------------------------------------------
 
@@ -778,23 +907,22 @@ const HANDBRAKE_RECOVERY_RATE := 2.5
 ## tick so the wheels never appear to spin backwards at high speed.
 const MAX_WHEEL_SPIN := 100.0
 
-## Body roll per unit of lateral acceleration [rad per m/s^2].
-const BODY_ROLL_PER_ACCEL := 0.004
+# was BODY_ROLL_PER_ACCEL 0.004 and BODY_PITCH_PER_ACCEL 0.003 [rad per m/s^2],
+# MAX_BODY_TILT 0.09 [rad] and BODY_TILT_RESPONSE 6.0 [1/s]: a cosmetic lean,
+# the body mesh eased towards an angle read off the accelerations -> removed.
+# The body is drawn at the suspension's own pitch and roll (body_pitch,
+# body_roll): measured 0.0044 rad per m/s^2 in roll (2.5 degrees per g) and
+# 0.0030 in pitch, the old figures as it happens, but with the bounce, the
+# overshoot and the road in them.
 
-## Body pitch per unit of longitudinal acceleration [rad per m/s^2].
-const BODY_PITCH_PER_ACCEL := 0.003
-
-## Largest body roll / pitch angle [rad].
-const MAX_BODY_TILT := 0.09
-
-## How quickly the body settles towards its target tilt [1/s].
-const BODY_TILT_RESPONSE := 6.0
-
-## Furthest a wheel is drawn above or below its place in car.tscn as it follows
-## the road [m]. The body follows the elevation only, so under the wheel cam a
-## wheel shows up to ~1 cm of bump travel (RoadProfile.MICRO_AMPLITUDE) plus
-## the grade across the wheelbase (2 cm at 1.5 %).
-const MAX_WHEEL_VISUAL_TRAVEL := 0.04
+## Furthest a wheel is drawn from its static place under the body [m]: the
+## suspension's travel plus the 2 cm of bump stop it takes to lift a wheel off
+## the road. Inside that the wheel is drawn ON the road, whatever the body does
+## above it; past it (droop) it hangs from the body, visibly in the air.
+# was 0.04, a clamp on how far the wheel was drawn off a body that did not move
+# -> 0.09 = SUSPENSION_TRAVEL + 0.02: the travel is real now and the clamp is
+# its mechanical end.
+const MAX_WHEEL_VISUAL_TRAVEL := SUSPENSION_TRAVEL + 0.02
 
 ## Engine speed from which the HUD tach turns to its warning colour [rpm].
 const SHIFT_LIGHT_RPM := 6500.0
@@ -895,19 +1023,36 @@ var clutch_torque := 0.0
 ## back under LIMITER_RESUME_RPM).
 var limiter_cutting := false
 
-## Share of the car's weight on each axle right now (0..1, sums to 1).
+## Share of the load the four tyres carry that is on each axle right now
+## (0..1, sums to 1): the static split at rest, moved by braking, power, aero
+## and the road. Read off the springs (wheel_loads), not set by anything.
 var front_load_fraction := 1.0 - REAR_WEIGHT_FRACTION
 var rear_load_fraction := REAR_WEIGHT_FRACTION
 
-## Load on each axle right now [N]: its share of the weight plus its share of
-## the downforce, and what the road is doing to its two wheels (the sum of
-## their wheel_loads).
+## Load on each axle right now [N]: the sum of its two wheel_loads.
 var front_axle_load := 0.0
 var rear_axle_load := 0.0
 
 ## Load on each wheel right now [N]: front left, front right, rear left, rear
-## right. Half its axle's share plus what its suspension makes of the road.
+## right. What that corner's spring, damper, bar and stops push the body up
+## with, which is what the tyre presses on the road with; never below 0.
 var wheel_loads: Array[float] = [0.0, 0.0, 0.0, 0.0]
+
+## How far each wheel is pushed up into the body from where it sits at rest
+## [m], the order of wheel_loads: positive = bump (spring compressed), negative
+## = droop. The stops start at +/- SUSPENSION_TRAVEL.
+var wheel_travel: Array[float] = [0.0, 0.0, 0.0, 0.0]
+
+## Pitch of the body on its springs [rad], positive = nose up, and its rate
+## [rad/s]. A small angle about the centre of mass; on a slope it includes the
+## slope (the body lies parallel to the road it stands on).
+var body_pitch := 0.0
+var pitch_rate := 0.0
+
+## Roll of the body on its springs [rad], positive = right side up (what a
+## right-hand corner does), and its rate [rad/s].
+var body_roll := 0.0
+var roll_rate := 0.0
 
 ## How much of each axle's grip goes along the wheel, into drive or braking,
 ## 0..1. 1 = at or past the peak: wheelspin, or ABS holding the wheel.
@@ -964,19 +1109,22 @@ var _shift_catching := false
 var _since_shift := AUTO_SHIFT_HOLD
 
 ## Per wheel (the order of wheel_loads): the road height as the tyre passes it
-## on [m], and the height [m] and vertical speed [m/s] of the corner of the car
-## riding on that wheel's spring. Heights are world heights; only their
-## differences matter.
+## on [m, world], and how fast that is changing under the moving car [m/s].
 var _tyre_heights: Array[float] = [0.0, 0.0, 0.0, 0.0]
-var _corner_heights: Array[float] = [0.0, 0.0, 0.0, 0.0]
-var _corner_speeds: Array[float] = [0.0, 0.0, 0.0, 0.0]
+var _tyre_height_rates: Array[float] = [0.0, 0.0, 0.0, 0.0]
 
-## How far each wheel is drawn from its place in car.tscn [m], up positive.
-var _wheel_travel: Array[float] = [0.0, 0.0, 0.0, 0.0]
+## Per wheel: how far its spring seat is trimmed [m], set when the car is stood
+## on the road (_settle_suspension). A rigid body on four springs can match
+## three of the four heights under its wheels; the fourth, the WARP of the
+## patch of road it stands on (one diagonal higher than the other, a
+## millimetre or so of micro-bumps), would sit in the springs as cross weight.
+## The car is corner-weighted where it is stood, as on a set-up pad: the trim
+## takes the warp out, every wheel carries its static share exactly. Equal and
+## opposite across each axle, so the axle loads never see it.
+var _corner_trim: Array[float] = [0.0, 0.0, 0.0, 0.0]
 
-## Elevation of the road under the car's origin, as of the last move [m]: the
-## height the body rides at.
-var _ground_height := 0.0
+## Height above the road the car was last stood at [m] (reset_to's y).
+var _stand_height := 0.0
 
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _spawn_transform: Transform3D
@@ -985,6 +1133,7 @@ var _spawn_transform: Transform3D
 @onready var _front_wheels: Array[Node3D] = [$Wheels/FrontLeft, $Wheels/FrontRight]
 @onready var _wheels: Array[Node3D] = [$Wheels/FrontLeft, $Wheels/FrontRight, $Wheels/RearLeft, $Wheels/RearRight]
 @onready var _wheel_rest_height: float = _wheels[0].position.y
+@onready var _body_rest_height: float = _body.position.y
 @onready var _wheel_spinners: Array[Node3D] = [
 	$Wheels/FrontLeft/Spin,
 	$Wheels/FrontRight/Spin,
@@ -995,7 +1144,10 @@ var _spawn_transform: Transform3D
 
 func _ready() -> void:
 	_spawn_transform = global_transform
-	_settle_suspension()
+	# The body floats on its springs over the floor; nothing may pull it onto
+	# it (CharacterBody3D snaps to a floor within 0.1 m by default).
+	floor_snap_length = 0.0
+	_settle_suspension(global_position.y)
 
 
 func _physics_process(delta: float) -> void:
@@ -1034,29 +1186,24 @@ func _physics_process(delta: float) -> void:
 	else:
 		_handbrake_amount = move_toward(_handbrake_amount, 0.0, HANDBRAKE_RECOVERY_RATE * delta)
 
-	# 2. Axle loads: the static split, shifted by the acceleration of the last
-	#    tick (eased in at the suspension's pace), plus downforce. Each wheel
-	#    carries half its axle's share plus what its spring and damper make of
-	#    the road under it; the axle load the tyres work with is the sum of its
-	#    two wheels.
-	var target_transfer := clampf(
-		longitudinal_accel * CG_HEIGHT / (_gravity * 2.0 * AXLE_DISTANCE),
-		-MAX_LOAD_TRANSFER, MAX_LOAD_TRANSFER
-	)
-	var current_transfer := rear_load_fraction - REAR_WEIGHT_FRACTION
-	var transfer := lerpf(current_transfer, target_transfer, 1.0 - exp(-LOAD_TRANSFER_RESPONSE * delta))
-	rear_load_fraction = REAR_WEIGHT_FRACTION + transfer
-	front_load_fraction = 1.0 - rear_load_fraction
+	# 2. Wheel loads: what the four corners of the suspension push the body up
+	#    with right now, from where the body is on its springs and what the
+	#    road does under each wheel (see _corner_forces). The axle load the
+	#    tyres work with is the sum of its two wheels. Nothing is shifted by
+	#    hand: braking, power, cornering, downforce and the road are all in the
+	#    springs' states (_advance_body, at the end of the tick).
+	#    was a static split shifted by acceleration x CG_HEIGHT / wheelbase
+	#    (eased in at LOAD_TRANSFER_RESPONSE, capped at MAX_LOAD_TRANSFER) plus
+	#    downforce, halved per wheel, plus a road ripple -> the spring forces.
 	var weight := CAR_MASS * _gravity
 	var downforce := DOWNFORCE_COEFF * ground_speed * ground_speed
-	var front_carried := weight * front_load_fraction + downforce * AERO_BALANCE_FRONT
-	var rear_carried := weight * rear_load_fraction + downforce * (1.0 - AERO_BALANCE_FRONT)
-	for i in wheel_loads.size():
-		# A wheel can be light, or in the air over a crest; the road never
-		# pulls it down: no load below 0.
-		wheel_loads[i] = maxf((front_carried if i < 2 else rear_carried) * 0.5 + _suspension_force(i, delta), 0.0)
+	_corner_forces(vertical_speed, delta)
 	front_axle_load = wheel_loads[0] + wheel_loads[1]
 	rear_axle_load = wheel_loads[2] + wheel_loads[3]
+	var carried := front_axle_load + rear_axle_load
+	if carried > 0.0:
+		front_load_fraction = front_axle_load / carried
+		rear_load_fraction = rear_axle_load / carried
 	var front_grip := FRONT_TYRE_GRIP * _axle_grip(front_axle_load, weight * (1.0 - REAR_WEIGHT_FRACTION))
 	var rear_grip := REAR_TYRE_GRIP * _axle_grip(rear_axle_load, weight * REAR_WEIGHT_FRACTION)
 
@@ -1180,14 +1327,17 @@ func _physics_process(delta: float) -> void:
 	#     the turn: rotating the body does not touch where the mass is going.
 	#     Heading and velocity only ever meet through the tyres, on the next
 	#     tick, as slip.
-	if not is_on_floor():
-		vertical_speed -= _gravity * delta
+	#     Up and down the body goes where springs, gravity and downforce send
+	#     it (_advance_body); the floor under the pad only meets it bottomed
+	#     out, and move_and_slide() takes the vertical speed away there.
+	#     was gravity while not on the floor, the collision box resting on it,
+	#     and a lift by the elevation change after the move -> the heave state.
+	vertical_speed = _advance_body(vertical_speed, downforce, air_drag * signf(forward_speed), delta)
 	var cg_velocity := forward_dir * forward_speed + right_dir * cg_lateral_speed + Vector3.UP * vertical_speed
 	rotate_y(yaw_rate * delta)
 	lateral_speed = cg_lateral_speed - yaw_rate * CG_OFFSET
 	velocity = cg_velocity - global_basis.x * (yaw_rate * CG_OFFSET)
 	move_and_slide()
-	_follow_elevation()
 
 	_update_visuals(delta)
 
@@ -1203,11 +1353,10 @@ func get_spawn_transform() -> Transform3D:
 
 
 ## Puts the car at `target`, at rest, in 1st, automatic. The height of
-## `target` counts from the road: the car is stood on the elevation there.
+## `target` counts from the road: the car is stood on its springs on the road
+## there (_settle_suspension), 0 = at its ride height.
 func reset_to(target: Transform3D) -> void:
 	global_transform = target
-	if road_profile != null:
-		global_position.y += road_profile.elevation_height(target.origin.x, target.origin.z)
 	velocity = Vector3.ZERO
 	forward_speed = 0.0
 	lateral_speed = 0.0
@@ -1240,25 +1389,45 @@ func reset_to(target: Transform3D) -> void:
 	wheel_angle = 0.0
 	longitudinal_accel = 0.0
 	lateral_accel = 0.0
-	_body.rotation = Vector3.ZERO
-	_settle_suspension()
+	_settle_suspension(target.origin.y)
+	_update_visuals(0.0)
 	reset_physics_interpolation()
 
 
-## Suspension at rest on the road under the car as it stands: every corner
-## sits on its wheel, nothing moves, every wheel carries its static share.
-func _settle_suspension() -> void:
-	_ground_height = 0.0
-	if road_profile != null:
-		_ground_height = road_profile.elevation_height(global_position.x, global_position.z)
+## Stands the car on the road where it is, `height` above its ride height, at
+## rest on its springs: the body lies in the plane of the road under its four
+## wheels (heave, pitch and roll solved for it, nothing moving), what is left
+## over of the four heights (the warp) goes into the corner trim, and every
+## spring sits exactly at its static compression: every wheel carries its
+## static share to the bit.
+func _settle_suspension(height := _stand_height) -> void:
+	_stand_height = height
+	var heights: Array[float] = [0.0, 0.0, 0.0, 0.0]
+	for i in heights.size():
+		heights[i] = _road_height_under_wheel(i)
+	var front := (heights[0] + heights[1]) * 0.5
+	var rear := (heights[2] + heights[3]) * 0.5
+	var left := (heights[0] + heights[2]) * 0.5
+	var right := (heights[1] + heights[3]) * 0.5
+	body_pitch = (front - rear) / (2.0 * AXLE_DISTANCE)
+	body_roll = (right - left) / (2.0 * HALF_TRACK)
+	pitch_rate = 0.0
+	roll_rate = 0.0
+	# The car's height is its centre of mass's: CG_OFFSET behind the middle of
+	# the wheelbase, where the plane is at the mean of the four.
+	global_position.y = height + (front + rear) * 0.5 - body_pitch * CG_OFFSET
+	velocity.y = 0.0
 	var weight := CAR_MASS * _gravity
 	for i in wheel_loads.size():
-		var height := _road_height_under_wheel(i)
-		_tyre_heights[i] = height
-		_corner_heights[i] = height
-		_corner_speeds[i] = 0.0
-		_wheel_travel[i] = height - _ground_height
+		_tyre_heights[i] = heights[i]
+		_tyre_height_rates[i] = 0.0
+		_corner_trim[i] = heights[i] - _corner_height(i) + height
+		wheel_travel[i] = -height
 		wheel_loads[i] = weight * ((1.0 - REAR_WEIGHT_FRACTION) if i < 2 else REAR_WEIGHT_FRACTION) * 0.5
+	front_axle_load = wheel_loads[0] + wheel_loads[1]
+	rear_axle_load = wheel_loads[2] + wheel_loads[3]
+	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
+	rear_load_fraction = REAR_WEIGHT_FRACTION
 
 
 ## Height of the road under wheel `i`, every layer of the profile [m].
@@ -1269,47 +1438,83 @@ func _road_height_under_wheel(i: int) -> float:
 	return road_profile.sample_height(contact.x, contact.z)
 
 
-## One tick of wheel `i`'s suspension; returns what it adds to that wheel's
-## load [N]. The corner of the car over the wheel is a mass on a spring and a
-## damper, standing on the road as the tyre passes it on:
-##   corner acceleration = w^2 * (road - corner) + 2 * ratio * w * (road speed - corner speed)
-## with w = TAU * RIDE_FREQUENCY, and the wheel load is what it takes to
-## accelerate that mass, on top of carrying it. The road coming up at the wheel
-## pushes load in; the road dropping away (past a crest, into a dip) faster
-## than the corner can fall after it takes load off, which is all a crest is.
-## A steady climb or a level road leaves the corner riding along at rest on
-## its spring: 0. Over time the corner goes where the road goes, so the force
-## averages out to nothing: the road moves load around, it does not add any.
-## Semi-implicit Euler; w * delta is 0.15 at 60 ticks a second, far inside
-## what it stays stable for (2).
-func _suspension_force(i: int, delta: float) -> float:
-	if road_profile == null:
-		return 0.0
-	var tyre_before := _tyre_heights[i]
-	_tyre_heights[i] = lerpf(tyre_before, _road_height_under_wheel(i), 1.0 - exp(-TYRE_ENVELOPE_RATE * delta))
-	var road_speed := (_tyre_heights[i] - tyre_before) / delta
-	var omega := TAU * RIDE_FREQUENCY
-	var accel := omega * omega * (_tyre_heights[i] - _corner_heights[i]) \
-			+ 2.0 * RIDE_DAMPING_RATIO * omega * (road_speed - _corner_speeds[i])
-	_corner_speeds[i] += accel * delta
-	_corner_heights[i] += _corner_speeds[i] * delta
-	_wheel_travel[i] = _tyre_heights[i] - _ground_height
-	# The mass riding on this wheel: its share of the car at rest [kg].
-	var corner_mass := CAR_MASS * ((1.0 - REAR_WEIGHT_FRACTION) if i < 2 else REAR_WEIGHT_FRACTION) * 0.5
-	return corner_mass * accel
+## Height of the corner of the body over wheel `i` [m, world], counted so that
+## it equals the road's height under the wheel with the spring at its static
+## compression: the car's height (its centre of mass's) plus what pitch and
+## roll do at that corner, small angles.
+func _corner_height(i: int) -> float:
+	return global_position.y + body_pitch * WHEEL_ARMS_AHEAD[i] + body_roll * WHEEL_ARMS_RIGHT[i]
 
 
-## Keeps the body on the visible ground: lifts or lowers the car by however
-## much the road's elevation changed under its origin over this tick's move.
-## The pad keeps the ground's collision plane at the same height under the car
-## (TestPad._follow_car), so move_and_slide() finds the floor where it left it.
-func _follow_elevation() -> void:
-	if road_profile == null:
-		return
-	var ground := road_profile.elevation_height(global_position.x, global_position.z)
-	if ground != _ground_height:
-		global_position.y += ground - _ground_height
-		_ground_height = ground
+## One tick of the four corners: works out wheel_travel and wheel_loads from
+## where the body is on its springs now. Per corner, with the travel x [m] the
+## wheel is pushed up into the body from its static place (the road's height as
+## the tyre passes it on, less the corner's height) and its rate v [m/s] (how
+## fast the road comes up under the moving wheel, less how fast the corner of
+## the body moves: heave, pitch and roll rates):
+##   load = static share + spring rate * x + damper rate * v
+##          + anti-roll rate * (x - x of the wheel across) + bump stop(x)
+## never below 0: a tyre pushes on the road, it cannot pull on it. Past the
+## droop stop the wheel hangs in the air. `vertical_speed` is the body's.
+func _corner_forces(vertical_speed: float, delta: float) -> void:
+	var envelope := 1.0 - exp(-TYRE_ENVELOPE_RATE * delta)
+	for i in wheel_loads.size():
+		var tyre_before := _tyre_heights[i]
+		_tyre_heights[i] = lerpf(tyre_before, _road_height_under_wheel(i), envelope)
+		_tyre_height_rates[i] = (_tyre_heights[i] - tyre_before) / delta
+		wheel_travel[i] = _tyre_heights[i] - _corner_height(i) - _corner_trim[i]
+	var weight := CAR_MASS * _gravity
+	for i in wheel_loads.size():
+		var front := i < 2
+		var spring_rate := FRONT_SPRING_RATE if front else REAR_SPRING_RATE
+		var corner_speed := vertical_speed + pitch_rate * WHEEL_ARMS_AHEAD[i] + roll_rate * WHEEL_ARMS_RIGHT[i]
+		var travel := wheel_travel[i]
+		# i ^ 1: the wheel across the axle.
+		var across := wheel_travel[i ^ 1]
+		var depth := maxf(absf(travel) - SUSPENSION_TRAVEL, 0.0)
+		var stop := signf(travel) * BUMP_STOP_RATE * spring_rate * depth * (1.0 + depth / BUMP_STOP_PROGRESSION)
+		var pushing := weight * ((1.0 - REAR_WEIGHT_FRACTION) if front else REAR_WEIGHT_FRACTION) * 0.5 \
+				+ spring_rate * travel \
+				+ (FRONT_DAMPER_RATE if front else REAR_DAMPER_RATE) * (_tyre_height_rates[i] - corner_speed) \
+				+ (FRONT_ANTI_ROLL_RATE if front else REAR_ANTI_ROLL_RATE) * (travel - across) \
+				+ stop
+		wheel_loads[i] = maxf(pushing, 0.0)
+
+
+## One tick of the body on its springs; returns its new vertical speed [m/s]
+## (the move itself is move_and_slide's). Forces on the body: the four wheel
+## loads pushing up at their corners, gravity and `downforce` [N] pulling down
+## (the downforce at the axles, split by AERO_BALANCE_FRONT), and the tyres'
+## grip on the road, CG_HEIGHT below the centre of mass: along the car that is
+## what accelerates it plus what holds it against the air (`air_drag` [N],
+## signed like the speed, taken to act at the height of the centre of mass),
+## across it what bends its path.
+##   heave:  CAR_MASS     x d(vertical speed) = sum of loads - weight - downforce
+##   pitch:  PITCH_INERTIA x d(pitch_rate)    = sum of load x (how far ahead of the CG)
+##                                              + tyre force along x CG_HEIGHT - aero moment
+##   roll:   ROLL_INERTIA  x d(roll_rate)     = sum of load x (how far right of the CG)
+##                                              - tyre force towards the left x CG_HEIGHT
+## Semi-implicit Euler: rates from the forces, angles from the new rates.
+## Steady state the springs then carry exactly the classic weight transfer
+## (force x CG_HEIGHT / wheelbase or track); how they get there is the ride.
+func _advance_body(vertical_speed: float, downforce: float, air_drag: float, delta: float) -> float:
+	var lift := 0.0
+	var pitch_moment := 0.0
+	var roll_moment := 0.0
+	for i in wheel_loads.size():
+		lift += wheel_loads[i]
+		pitch_moment += wheel_loads[i] * WHEEL_ARMS_AHEAD[i]
+		roll_moment += wheel_loads[i] * WHEEL_ARMS_RIGHT[i]
+	var front_arm := AXLE_DISTANCE + CG_OFFSET
+	var rear_arm := AXLE_DISTANCE - CG_OFFSET
+	pitch_moment += (CAR_MASS * longitudinal_accel + air_drag) * CG_HEIGHT
+	pitch_moment -= downforce * (AERO_BALANCE_FRONT * front_arm - (1.0 - AERO_BALANCE_FRONT) * rear_arm)
+	roll_moment -= CAR_MASS * lateral_accel * CG_HEIGHT
+	pitch_rate += pitch_moment / PITCH_INERTIA * delta
+	roll_rate += roll_moment / ROLL_INERTIA * delta
+	body_pitch += pitch_rate * delta
+	body_roll += roll_rate * delta
+	return vertical_speed + (lift - CAR_MASS * _gravity - downforce) / CAR_MASS * delta
 
 
 ## Starts a gear change to `new_gear` (0 = neutral). Refuses gears that do not
@@ -1865,7 +2070,8 @@ func _slide_yaw_damping(along: float, across: float) -> float:
 # (see step 3 of _physics_process); there is nothing to compute any more.
 
 
-## Cosmetic motion: wheel spin, front wheel steering and body roll / pitch.
+## What shows: wheel spin, front wheel steering, the wheels on the road and the
+## body on its springs.
 func _update_visuals(delta: float) -> void:
 	# Each axle is drawn turning at its real wheel speed (front_omega,
 	# rear_omega): driven wheels that break traction visibly outrun the road,
@@ -1881,14 +2087,15 @@ func _update_visuals(delta: float) -> void:
 	for wheel in _front_wheels:
 		wheel.rotation.y = wheel_angle
 
-	# Each wheel stays on the road while the body rides the elevation.
+	# Each wheel is drawn on the road (as far as its travel reaches), the body
+	# above it where its springs have it: pitched and rolled about the centre
+	# of mass, CG_OFFSET behind the body node.
+	# The road as it lies under the wheel now, after the move, every bump of it:
+	# the springs feel it through the tyre (TYRE_ENVELOPE_RATE), the eye does not.
 	for i in _wheels.size():
-		_wheels[i].position.y = _wheel_rest_height + clampf(_wheel_travel[i], -MAX_WHEEL_VISUAL_TRAVEL, MAX_WHEEL_VISUAL_TRAVEL)
-
-	# Weight transfer: the body leans out of the corner, squats under power and
-	# dives under braking.
-	var target_roll := clampf(-lateral_accel * BODY_ROLL_PER_ACCEL, -MAX_BODY_TILT, MAX_BODY_TILT)
-	var target_pitch := clampf(longitudinal_accel * BODY_PITCH_PER_ACCEL, -MAX_BODY_TILT, MAX_BODY_TILT)
-	var blend := 1.0 - exp(-BODY_TILT_RESPONSE * delta)
-	_body.rotation.z = lerpf(_body.rotation.z, target_roll, blend)
-	_body.rotation.x = lerpf(_body.rotation.x, target_pitch, blend)
+		var seat := _corner_height(i) + _corner_trim[i]
+		var drawn_travel := clampf(_road_height_under_wheel(i) - seat, -MAX_WHEEL_VISUAL_TRAVEL, MAX_WHEEL_VISUAL_TRAVEL)
+		_wheels[i].position.y = _wheel_rest_height + seat - global_position.y + drawn_travel
+	_body.rotation.x = body_pitch
+	_body.rotation.z = body_roll
+	_body.position.y = _body_rest_height + body_pitch * CG_OFFSET

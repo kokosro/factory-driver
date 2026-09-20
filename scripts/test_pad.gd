@@ -282,10 +282,14 @@ func get_ground_image() -> Image:
 
 
 ## The ground's collision is one endless level plane. Every tick it is put at
-## the height of the road's elevation under the car, which rides that same
-## height (ArcadeCar._follow_elevation): the floor is always exactly under the
-## car, wherever on the swell it is. Only the collision shape moves; the ground
-## mesh stays put. (The sheds are the only other things that collide.)
+## the height of the road's elevation under the car. The car does not stand on
+## it: its body rides on its springs, ArcadeCar.GROUND_CLEARANCE above the road
+## (was: the car's collision box lay on this plane and the car lifted itself by
+## the elevation change every tick). The plane is what the body's underside
+## meets if the suspension ever bottoms out, 5 cm into the bump stops, and what
+## stops a car with no springs left from falling through the world. Only the
+## collision shape moves; the ground mesh stays put. (The sheds are the only
+## other things that collide.)
 func _follow_car() -> void:
 	if car == null or _ground_collider == null:
 		return
