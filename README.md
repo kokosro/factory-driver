@@ -207,6 +207,16 @@ scripted driver pressing the keys and checks the medal on every banner, plus one
 its steering held off and one 180 left parked where it stopped, which both have to come
 out FAILED, and an abort).
 
+The smoke test's last phase is the telemetry recorder (below): it switches the recorder
+on in process, points it at `/tmp/fd-3E-telemetry/smoke.jsonl`, starts a real mission
+through the mission manager, drives it for 2.5 s, aborts, and reads the file back line
+by line - every line one JSON object, the first the `session_start`, every sample
+carrying the car's state and every mission sample the run with it, the mission samples
+exactly 5 physics ticks apart and the free ones 30, the last line `{"event":"aborted"}`.
+Nothing that comes off the wall clock is asserted, and nothing is written under
+`user://` (a headless run records nothing by itself, and the phase's own recording goes
+to that fixed tmp path), so the suite reads the same on every run.
+
 ### Handling tests
 
 The third step of `tests/run_tests.sh` runs `tests/handling_test.gd`: a scripted driver
@@ -267,6 +277,59 @@ the start line); other number keys are ignored until then.
 The verdict is always the test's own (`HandlingTests.result()`), the one the headless
 harness prints. `scripts/mission_manager.gd` only picks the test, runs it
 (idle, running, result shown) and hands the HUD its strings.
+
+Every run is also written down (see [Telemetry](#telemetry)), and what that leaves
+behind comes back on the HUD: the idle mission line ends with your last medal and your
+best time on that test (`| last: GOLD, best: 31.3 s`) and a `PASSED` banner shows your
+standing best under the medal times (`BEST 31.3 s GOLD — your 4 run(s)`). Before your
+first run there is nothing stored and nothing is shown.
+
+### Telemetry
+
+Every drive is written down. `scripts/telemetry.gd` (a `TelemetryRecorder` the mission
+manager makes in `_ready`) reads the car once every few physics ticks and writes one
+JSON object per line - JSON-lines, `.jsonl` - to
+
+```
+user://telemetry/<YYYY-MM-DD>/<session>_<HHMMSS>_<context>.jsonl   e.g. 0007_103245_free.jsonl
+user://telemetry/index.json
+```
+
+Free driving gets one file for the session, sampled every 30 ticks (2 Hz); each mission
+gets a file of its own, sampled every 5 ticks (12 Hz), and the free file pauses while it
+runs. The recorder never presses a key and never touches the simulation: it only reads.
+It is on whenever there is a window to drive in, off in a headless run unless
+`FD_TELEMETRY=1` says otherwise, and the last 20 sessions' files are kept - older ones
+are deleted when a session starts.
+
+A sample line holds the time and the car:
+
+| Field | What it is |
+| --- | --- |
+| `t_session_s`, `t_run_s` | seconds since the recording started and since the run did; a tick count times 1/60 s, never a clock reading (`t_run_s` only during a mission) |
+| `pos`, `heading_deg` | `[x, y, z]` in metres, and where the nose points in degrees (left positive) |
+| `speed_ms` | speed along the nose [m/s], negative while reversing |
+| `gear`, `rpm` | 0 neutral, 1-5 forward, -1 reverse engaged; engine speed [rpm] |
+| `throttle`, `brake`, `handbrake`, `steer` | pedals 0..1 as the keys are held (the two swap roles in reverse), steering as a share of full lock, -1 (right) .. +1 (left) |
+| `load_front`, `load_rear` | share of the load each axle carries (they add to 1) |
+| `slip_front_deg`, `slip_rear_deg`, `slip_ratio_front`, `slip_ratio_rear` | how far each axle's tyres are sliding: slip angles [degrees], slip ratios (a speed difference over the road speed, no unit) |
+| `yaw_rate_deg_s` | how fast the nose is swinging [degrees/s], left positive |
+| `mission` | while a run is on: its `title`, `kind`, `elapsed_s` and the `progress` the HUD shows |
+
+The first line of every file is the `session_start`: the session id, the context, the
+engine version, the sampling it was written at - and `started_at`, the wall clock. That
+field and the date and time in the file's name are the **only** clock readings there
+are; everything else is counted in physics ticks, so the same drive always writes the
+same numbers.
+
+A mission's file ends with its verdict, `{"event":"result", "passed": true,
+"run_time_s": 31.3, "medal": "gold"}`, or `{"event":"aborted"}` if the run was
+cancelled. `index.json` keeps the running summary - `next_session_id`, the `sessions`
+whose files are kept, the test driven `last_test`, and per test `best_time_s`, `runs`,
+`last_time_s` and `last_medal` (times in seconds, `best_time_s` 0 for a test never
+passed) - and that is what the HUD shows back: the idle mission line ends with
+`| last: GOLD, best: 31.3 s` and a `PASSED` banner carries
+`BEST 31.3 s GOLD — your 4 run(s)` under the medal times. Nothing stored, nothing shown.
 
 ### Camera
 
