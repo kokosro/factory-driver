@@ -444,7 +444,15 @@ const TYRE_SLIDE_GRIP := 0.85
 
 ## How far past the peak the tyre is ~two thirds of the way down to
 ## TYRE_SLIDE_GRIP, in peak slip angles. Higher = a wider, more forgiving top.
-const TYRE_SLIDE_ONSET := 2.0
+# was 2.0 -> 3.0 (iteration 3B, the rubber pass) - the top of the curve read as
+# plastic: a front tyre turned past its peak gave its grip up within a dozen
+# degrees, and on / off keys live out there. With the wider top the fall is
+# spread over ~19 degrees at the front: measured at 60 km/h, coasting, the car
+# corners at 0.94 g with 11 degrees of front wheel (was 0.93), 0.90 g with 16.5
+# (0.89), 0.82 g scrubbing at full lock (0.79); the peak itself is untouched
+# (0.96 g at 6.9 - 8.3 degrees). Handbrake slides go in exactly as before (yaw
+# rate 0.64 / 1.14 / 1.62 rad/s at the release of a 12 / 20 / 30 tick pull).
+const TYRE_SLIDE_ONSET := 3.0
 
 ## The same for rear tyres that still roll (0..1): the wide rears hold on in a
 ## slide where the fronts let go. This is what ends a slide nobody is driving:
@@ -457,7 +465,8 @@ const TYRE_SLIDE_ONSET := 2.0
 ## locked wheel stays on TYRE_SLIDE_GRIP (eased over by the handbrake, see
 ## HANDBRAKE_RECOVERY_RATE), so the handbrake kicks the tail out and carries a
 ## spin as before. Lower = slides hang on longer, equal to TYRE_SLIDE_GRIP = a
-## slide with the keys released carries on as a drift.
+## slide with the keys released carries on as a drift; 1.0 = no limit to go
+## over at all, a plateau.
 # was TYRE_SLIDE_GRIP 0.85 for both axles -> 1.0 at the rolling rear - a 0.2 s
 # flick of the handbrake at 85 km/h, every key released: the nose took 3.83 s
 # to come back in line with the travel (within 0.1 rad) and the car turned
@@ -474,7 +483,25 @@ const TYRE_SLIDE_ONSET := 2.0
 # (12.0 m/s after 2 s, as before). Certified runs before -> after: SPIN_180
 # 179.9 degrees, slalom closest pass 2.1 m and stop box margin 0.9 m all
 # unchanged, SPIN_360 361.9 -> 362.4, REVERSE_180 -174.1 -> -181.8.
-const REAR_TYRE_SLIDE_GRIP := 1.0
+# was 1.0 -> 0.97 (iteration 3B, the rubber pass) - at 1.0 the rolling rear had
+# no limit to go over: a plateau, the same grip however sideways, which is what
+# read as plastic. At 0.97 (eased in over TYRE_SLIDE_ONSET, ~17 degrees) a
+# rear that is sliding holds a little less than one that is hooked up, and
+# gets that back as the slide comes in under the peak again: breakaway that
+# builds (the slide grows 1.6 degrees per tick of handbrake all the way, 9.4 /
+# 22.5 / 38.9 degrees for 12 / 20 / 30 ticks, was 9.4 / 22.4 / 38.3) and a
+# recovery that takes a moment longer and then bites (nose back in line 1.00 /
+# 1.53 / 1.48 s after the release, was 0.98 / 1.43 / 1.40), still with no
+# swing back past straight (0.00 degrees before and after: the stability
+# assist's share of a recovery, unchanged, sees to that). Power in 1st steps
+# the tail a touch further out (peak rear slip 4.7 degrees at 0.45 of lock,
+# was 4.5). Lower does not hold: 0.95 left the smoke test's scrubbed slide
+# creeping on for 5.6 s, 0.92 for 6.5 (limit 6.0; 5.1 here), the way 0.85 did
+# before 2I. Certified runs before -> after: slalom closest pass 2.72 -> 2.15 m,
+# SPIN_180 184.3 -> 184.6 degrees, SPIN_360 362.4 -> 361.7, stop box margin
+# 0.79 -> 0.61 m (the ABS runs its tyres 1.5 peaks out, where the wider top
+# grips more: shorter stops), REVERSE_180 -186.8 -> -185.3.
+const REAR_TYRE_SLIDE_GRIP := 0.97
 
 ## Drag coefficient Cd (no unit). Drag force is
 ## 0.5 * AIR_DENSITY * DRAG_COEFF * FRONTAL_AREA * speed^2 (~0.40 kg/m in

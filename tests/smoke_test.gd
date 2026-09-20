@@ -223,6 +223,11 @@ const SUSPENSION_STATICS_TOLERANCE := 0.1
 ## off the road under it [m]. Measured: under 0.001 mm (32-bit node positions).
 const WHEEL_ON_ROAD_TOLERANCE := 0.0001
 
+## Tyre curve: least share of its peak force a front tyre still has to hold at
+## twice its peak slip angle (the wide top of the rubber pass). Measured:
+## 0.957; with the narrower top (TYRE_SLIDE_ONSET 2.0) it was 0.941.
+const TYRE_WIDE_TOP_MIN_SHARE := 0.95
+
 ## Crest test: a standing start this far before the road's test dip [m], flat
 ## out, crosses it at ~25 m/s (90 km/h), where the dip's 10 m come by at 2.5 Hz:
 ## close above the ride frequency, the suspension cannot follow it down.
@@ -587,6 +592,7 @@ func _run() -> void:
 	await _check_drivetrain(car, main.get_node_or_null("HUD/RpmLabel") as Label)
 	await _check_drivetrain_dynamics(car, main.get_node_or_null("HUD/RpmLabel") as Label)
 	await _check_force_dynamics(car)
+	_check_tyre_curve(car)
 	await _check_low_speed_blend(car)
 	await _check_raw_steering(car)
 	await _check_high_speed_stability(car)
@@ -1461,6 +1467,27 @@ func _wheel_baselines(car: ArcadeCar) -> Array[float]:
 		(weight * (1.0 - ArcadeCar.REAR_WEIGHT_FRACTION) + downforce * ArcadeCar.AERO_BALANCE_FRONT - transfer) * 0.5,
 		(weight * ArcadeCar.REAR_WEIGHT_FRACTION + downforce * (1.0 - ArcadeCar.AERO_BALANCE_FRONT) + transfer) * 0.5,
 	]
+
+
+## The shape of the tyre curve (the rubber pass): a smooth rise into the peak,
+## a wide top, falling all the way from there, never under its slide grip, and
+## a rolling rear that has a limit to go over but holds on better than the
+## front.
+func _check_tyre_curve(car: ArcadeCar) -> void:
+	var front_slide := ArcadeCar.TYRE_SLIDE_GRIP
+	var rear_slide := ArcadeCar.REAR_TYRE_SLIDE_GRIP
+	var rising := true
+	var falling := true
+	for i in 100:
+		var below := car._tyre_curve(i * 0.01, front_slide)
+		var above := car._tyre_curve((i + 1) * 0.01, front_slide)
+		rising = rising and above > below
+		var past := car._tyre_curve(1.0 + i * 0.1, front_slide)
+		var further := car._tyre_curve(1.0 + (i + 1) * 0.1, front_slide)
+		falling = falling and further <= past and further >= front_slide
+	_check(rising and car._tyre_curve(1.0, front_slide) == 1.0, "the tyre curve rises all the way into its peak (1.000 at the peak slip angle)")
+	_check(falling and car._tyre_curve(2.0, front_slide) > TYRE_WIDE_TOP_MIN_SHARE, "... and eases off it over a wide top, down to its slide grip and never under (%.3f of the peak at twice the peak slip angle, %.2f sliding)" % [car._tyre_curve(2.0, front_slide), front_slide])
+	_check(rear_slide < 1.0 and rear_slide > front_slide and car._tyre_curve(4.0, rear_slide) < car._tyre_curve(1.5, rear_slide), "... the rolling rear has a limit to go over too, and holds on better past it than the front (%.2f vs %.2f sliding)" % [rear_slide, front_slide])
 
 
 ## The car over bumps at speed: at rest the springs are at rest; flat out down
