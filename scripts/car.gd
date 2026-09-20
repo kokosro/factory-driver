@@ -9,8 +9,9 @@ extends CharacterBody3D
 ## where that end of the car is going) gives a sideways force from a tyre
 ## curve, rising to TYRE_MU times the axle's load at *_PEAK_SLIP_ANGLE, then
 ## easing off to TYRE_SLIDE_GRIP of that as the tyre slides; the SLIP RATIO
-## (wheel speed vs road speed, wound up by engine and brake torque) gives the
-## force along the wheel from the same curve. Both share one friction circle:
+## (the axle's wheel speed, a state wound up and down by drive, brake and tyre
+## torque, vs the road speed under it) gives the force along the wheel from
+## the same curve. Both share one friction circle:
 ## grip spent along the wheel is not there across it. The forces act at the
 ## contact patches, along and across each wheel's heading: their sum
 ## accelerates the 1300 kg, their moments about the centre of mass (front force
@@ -19,9 +20,20 @@ extends CharacterBody3D
 ## tied together only by the tyres. The steering sets the front wheel angle
 ## and nothing else.
 ##
-## Drivetrain: the engine works through a torque curve, a 5-speed gearbox and a
-## final drive on the DRIVEN wheels (DRIVEN_WHEELS: rear, front or all four).
-## That is where the layouts get their character, nobody scripts it: a
+## Drivetrain: a chain of things that turn, each with its own speed and its own
+## inertia, tied together by torque. The ENGINE speed is integrated from what
+## the fuel makes (torque curve x throttle) less its friction, against
+## ENGINE_INERTIA: it free-revs in neutral, bounces off a fuel-cut limiter and
+## idles on a controller. The CLUTCH passes a friction torque while its two
+## sides turn at different speeds (pulling away, after a gear change) and locks
+## them into one shaft once they have met; locked, the engine's inertia rides
+## on the driven axle through the gear ratio squared, which is what dulls 1st
+## gear and makes engine braking a matter of gear. The 5-speed GEARBOX and the
+## final drive put that torque on the DRIVEN wheels (DRIVEN_WHEELS: rear, front
+## or all four), and each axle's WHEEL SPEED is a state too, between driveline,
+## brakes and the road (_advance_drivetrain). Nothing in the chain follows road
+## speed by decree: the tach reads what the engine does.
+## The driven wheels are where the layouts get their character, nobody scripts it: a
 ## rear-driven car spends rear grip on drive and pushes from behind, so power
 ## in a corner loosens the tail (power oversteer); a front-driven car asks its
 ## front tyres to pull and steer at once, so power pushes the nose wide and a
@@ -144,29 +156,30 @@ const ENGINE_INERTIA := 0.25
 
 ## Friction and pumping losses of the engine [Nm]: ENGINE_FRICTION_TORQUE
 ## whatever the speed, plus ENGINE_FRICTION_TORQUE_PER_RPM [Nm per rpm] for
-## every rpm it turns: ~24 Nm at idle, ~85 Nm at 7000 rpm. What slows the revs
-## with the throttle closed: let go at the limiter in neutral, they are back
-## at idle in ~3.5 s. The per-rpm part is the old ENGINE_BRAKE_TORQUE_PER_RPM
-## 0.01, now a torque on the crankshaft. TORQUE_CURVE is torque at the flywheel, these
+## every rpm it turns: ~18 Nm at idle, ~61 Nm at 7000 rpm. What slows the revs
+## with the throttle closed (let go at the limiter in neutral, they are back
+## at idle in ~4 s), and, through a locked clutch and the gear, the engine
+## braking. The shape is the old ENGINE_BRAKE_TORQUE_PER_RPM's (0.01 Nm per rpm
+## above idle, ~61 Nm at 7000), now a torque on the crankshaft that is there at
+## idle too; 15 + 0.01 had the revs down in 3.5 s but, through 1st, put the
+## rear tyres at their ABS limit under braking from 60 km/h. TORQUE_CURVE is torque at the flywheel, these
 ## losses already taken off: what the burning fuel makes at full throttle is
 ## the curve plus the losses, and the throttle scales that.
-const ENGINE_FRICTION_TORQUE := 15.0
-const ENGINE_FRICTION_TORQUE_PER_RPM := 0.01
+const ENGINE_FRICTION_TORQUE := 12.0
+const ENGINE_FRICTION_TORQUE_PER_RPM := 0.007
 
 ## Idle controller: torque it adds per rad/s the engine is below IDLE_RPM, on
 ## top of what carries the friction there [Nm per rad/s]; 2.5 against
 ## ENGINE_INERTIA closes a gap at 10 per second, no overshoot ...
 const IDLE_CONTROL_GAIN := 2.5
 
-## ... and the most throttle it may open by itself (0..1): ~55 Nm at idle.
+## ... and the most throttle it may open by itself (0..1): ~35 Nm net at idle.
 const IDLE_CONTROL_MAX_THROTTLE := 0.3
 
-# was LAUNCH_RPM 2000 (the tach clamped up to it pulling away, "a slipping
-# clutch" in name only) and ENGINE_BRAKE_TORQUE_PER_RPM 0.01 (an explicit
-# engine-brake force at the wheels) -> removed with the kinematic engine speed.
-# The launch is a real slipping clutch now (see the Clutch section): the revs
-# flare against it as far as torque and inertia take them. Engine braking is
+# was ENGINE_BRAKE_TORQUE_PER_RPM 0.01 (an explicit engine-brake force at the
+# wheels) -> removed with the kinematic engine speed: engine braking is
 # ENGINE_FRICTION_TORQUE* through the locked clutch and the gear.
+# LAUNCH_RPM moved to the Clutch section, where it means something now.
 
 # --- Gearbox -----------------------------------------------------------------
 
@@ -176,8 +189,11 @@ const GEAR_RATIOS: Array[float] = [0.0, 3.82, 2.20, 1.52, 1.22, 0.97]
 ## Final drive (differential) ratio.
 const FINAL_DRIVE := 3.89
 
-## Reverse gear ratio. Only drives the tach; the drive force in reverse is a
-## flat one (REVERSE_ACCEL / MAX_REVERSE_SPEED), through the driven tyres.
+## Reverse gear ratio: a gear like the others, engine, clutch and driven wheels
+## work through it the same way (the wheels turning backwards).
+# was tach-only, the drive force in reverse a flat REVERSE_ACCEL x CAR_MASS ->
+# the real thing. What is left of the flat force is the driver's foot easing
+# off into MAX_REVERSE_SPEED (see _pedals).
 const REVERSE_RATIO := 3.55
 
 ## Share of engine torque that reaches the wheels (0..1); the rest is lost in
@@ -194,7 +210,7 @@ const WHEEL_RADIUS := 0.34
 # no clutch pedal): see _clutch_target for when it opens and closes. Slipping,
 # it passes a friction torque from the faster side to the slower one, the same
 # torque on both; once the two sides turn together it locks and they are one
-# shaft (see _advance_clutch).
+# shaft (see _advance_drivetrain).
 
 ## Most torque the clutch passes fully engaged [Nm]. Road car clutches are sized
 ## at 1.5 - 2.5 times the engine's peak torque so they never slip once home;
@@ -202,6 +218,28 @@ const WHEEL_RADIUS := 0.34
 ## while it drags a fast-turning engine down after a shift or a launch: more
 ## than the engine itself ever makes. Higher = harsher catches.
 const CLUTCH_TORQUE_MAX := 500.0
+
+## Pulling away, the car feathers the clutch so the engine is not dragged
+## under a floor [rpm]: IDLE_RPM with the throttle closed, this at full
+## throttle, in between in between. While the gearbox side is slower than that
+## the clutch slips and passes no more than the engine can give without
+## falling under the floor: flat out the revs flare to the engine's torque peak
+## and sit there, all 245 Nm going into the car, until the wheels have caught
+## up. A clutch simply let in would drag the engine down to idle and its
+## 160 Nm before the car has moved a length.
+# was LAUNCH_RPM 2000, a clamp on the tach alone ("the clutch slips", though
+# nothing slipped and the drive force never knew) -> 4500, the speed a real
+# slipping clutch holds the engine at, with the torque that goes with it.
+const LAUNCH_RPM := 3500.0
+
+## While the revs are still under that floor the clutch takes this share of
+## the engine's torque (0..1) and the rest winds the engine up: the car moves
+## off at once, gently, and harder as the revs arrive ...
+const LAUNCH_CLUTCH_SHARE := 0.5
+
+## ... over the last this many rad/s (~500 rpm) under the floor the share eases
+## up to all of it, so the clutch bites over a few ticks and not in one.
+const LAUNCH_BITE_BAND := 50.0
 
 ## Time the clutch takes to come in from fully open pulling away [s]: the
 ## torque it can pass ramps up over this, the engine flares against it and the
@@ -285,9 +323,11 @@ const BRAKE_BIAS_FRONT := 0.6
 # --- Tyres and aero ----------------------------------------------------------
 
 ## Tyre friction coefficient: a tyre can push with at most this times its load,
-## in any direction (1997 road tyres, ~0.95). Full throttle in 1st from
-## ~3500 rpm is more than the rear tyres can transmit; 2nd and up stay under
-## it.
+## in any direction (1997 road tyres, ~0.95). Through 1st the engine's torque
+## from ~3000 rpm would be more than the rear tyres can transmit, and on a
+## slipping clutch (the launch) it is; with the clutch locked a quarter of it
+## winds up the engine's own inertia and the rears run just under their peak.
+## 2nd and up stay well under it.
 const TYRE_MU := 0.95
 
 ## Grip of each axle's tyres relative to TYRE_MU (no unit). The Boxster's 255
@@ -314,14 +354,18 @@ const PEAK_SLIP_RATIO := 0.1
 ## other way round.
 const ABS_SLIP_RATIO := 0.15
 
-## Slip ratio the driver's right foot holds a spinning driven wheel at when
-## the engine has more than the tyre can take (no unit): on / off keys cannot
-## feather a throttle, so this does. 0.25 is proper wheelspin, 2.5 times the
-## peak: the tyre pushes with ~0.9 of its grip and has next to nothing left
-## for holding the car sideways (MIN_COMBINED_GRIP is what it keeps), so full
-## throttle in 1st still lights the driven tyres up and lets that end of the
-## car go. Without the limit the wheels would spin on at any slip until the
-## lift, which no driver does. Higher = wilder wheelspin, less drive.
+## Slip ratio the driver's feet hold a spinning driven wheel at while the
+## clutch slips and passes more than the tyre can take (no unit): pulling away
+## flat out, dropping the clutch on a revving engine. On / off keys cannot
+## feather anything, so this does (_ease_for_wheelspin). 0.25 is proper
+## wheelspin, 2.5 times the peak: the tyre pushes with ~0.9 of its grip and has
+## little left for holding the car sideways (MIN_COMBINED_GRIP is what it
+## keeps, fading out from here to a slip ratio of 1). Higher = wilder
+## wheelspin off the line, less drive.
+# was a clamp on the slip ratio itself, whatever wound it up -> the clutch
+# foot's limit while the clutch slips. With the clutch locked nothing holds the
+# wheels back but the engine's own inertia and the limiter: what the throttle
+# spins up, the throttle has to let go again.
 const DRIVE_SLIP_RATIO := 0.25
 
 ## A slip angle is sideways speed over rolling speed; this is the least
@@ -331,12 +375,25 @@ const DRIVE_SLIP_RATIO := 0.25
 ## slip.
 const SLIP_ANGLE_MIN_SPEED := 1.0
 
-## How quickly a wheel's slip ratio moves towards the slip where the tyre force
-## balances the torque on the wheel, and runs away past the peak when the
-## torque is more than the tyre can hold [1/s]. Stands in for the wheel's
-## inertia: 12 means full throttle in 1st lights the rear tyres up in ~0.2 s,
-## and they hook up again within ~0.1 s of a lift.
-const SLIP_RATIO_RESPONSE := 12.0
+## A slip ratio is a speed difference over the road speed; this is the least
+## road speed it is worked out against [m/s], as SLIP_ANGLE_MIN_SPEED is for
+## slip angles. At a standstill a slip ratio is then simply the wheel's surface
+## speed in m/s: the tyre makes its peak force turning 0.1 m/s faster than the
+## road, which is how a launch starts, and a car at rest on wheels at rest has
+## slip 0 and no force. Smaller = a harsher bite pulling away.
+const SLIP_RATIO_MIN_SPEED := 1.0
+
+## Moment of inertia of an axle's two wheels [kg m^2]: ~1.2 each (a 20 kg wheel
+## and tyre with its mass ~0.24 m out), brake discs and half shafts in. What
+## torque has to wind up before a wheel spins, and what the brakes have to
+## stop. Small next to everything else (as a mass at the tyre it is ~21 kg), so
+## a free axle follows the road within a tick; the engine hanging on the driven
+## one through a locked clutch is what makes wheelspin slow (see
+## _advance_drivetrain).
+# was SLIP_RATIO_RESPONSE 12.0 [1/s], a relaxation rate that "stands in for the
+# wheel's inertia" -> removed: the wheel speed is a state and this is its
+# inertia.
+const AXLE_INERTIA := 2.4
 
 ## Slip angle at which the front tyres make their peak sideways force [rad]
 ## (0.11 = 6.3 degrees). Up to the peak the force rises along a smooth curve
@@ -445,8 +502,10 @@ const BRAKE_DECEL_G := 1.0
 
 ## Deceleration a full brake application asks for [m/s^2]: what the tyres
 ## could hold with every one of them at its limit, ~9.3 (0.95 g). The force
-## (this times CAR_MASS) is split by BRAKE_BIAS_FRONT and each axle delivers
-## what its grip allows (ABS holds a wheel at ABS_SLIP_RATIO, it never locks):
+## (this times CAR_MASS) is split by BRAKE_BIAS_FRONT, put on each axle as a
+## brake torque (with what it takes to slow the turning parts down as well,
+## see _brake_torque), and each axle delivers what its grip allows (ABS holds a
+## wheel at ABS_SLIP_RATIO, it never locks):
 ## with the fronts at their limit and the rears under theirs, a real stop
 ## comes out at ~0.9 of this, ~8.4 m/s^2 plus drag.
 const BRAKE_DECEL := BRAKE_DECEL_G * TYRE_MU * 9.8
@@ -458,17 +517,21 @@ const AIR_DENSITY := 1.225
 ## braking and aero drag it makes up the coast-down.
 const COAST_DECEL := 0.15
 
-## Acceleration in reverse gear [m/s^2]: drive force at the driven wheels of
-## this times CAR_MASS (about what the engine gives through REVERSE_RATIO),
-## through the tyres like any other drive force.
+## Acceleration the driver counts on in reverse gear [m/s^2], about what the
+## engine gives through REVERSE_RATIO: with REVERSE_LIMITER_RATE it says how
+## far short of MAX_REVERSE_SPEED the foot starts to ease off the throttle.
+# was the drive force in reverse itself (this times CAR_MASS, flat) -> the
+# engine drives the car in reverse as it does forwards; measured ~5 m/s^2
+# through the middle of the rev range, the rear tyres unloaded by it.
 const REVERSE_ACCEL := 6.0
 
 ## Top speed in reverse [m/s]. 12 m/s is about 43 km/h.
 const MAX_REVERSE_SPEED := 12.0
 
-## How sharply the drive in reverse tails off into MAX_REVERSE_SPEED [1/s]: the
-## acceleration left is this times the speed still to go, so 4.0 starts
-## easing off 1.5 m/s short of the top.
+## How sharply the throttle in reverse tails off into MAX_REVERSE_SPEED [1/s]:
+## the share of REVERSE_ACCEL the foot still asks for is this times the speed
+## still to go, so 4.0 starts easing off 1.5 m/s short of the top and the car
+## settles a little under it, where what throttle is left carries the drag.
 const REVERSE_LIMITER_RATE := 4.0
 
 ## Below this speed [m/s] the car counts as stopped. The brake only ever slows
@@ -809,6 +872,12 @@ var engine_rpm: float:
 	set(value):
 		engine_omega = value * TAU / 60.0
 
+## Wheel speed of each axle [rad/s], positive = rolling forwards: states of
+## their own, integrated from drive, brake and tyre torque (_advance_axle). One
+## speed per axle, as there is one tyre force per axle.
+var front_omega := 0.0
+var rear_omega := 0.0
+
 ## How far the clutch is in, 0 (open) .. 1 (home): the share of
 ## CLUTCH_TORQUE_MAX it can pass.
 var clutch_engagement := 0.0
@@ -1013,19 +1082,20 @@ func _physics_process(delta: float) -> void:
 	front_slip_angle = atan2(front_across, maxf(absf(front_along), SLIP_ANGLE_MIN_SPEED))
 	rear_slip_angle = atan2(rear_lateral, maxf(absf(forward_speed), SLIP_ANGLE_MIN_SPEED))
 
-	# 4. Slip ratios: engine and brake torque wind each axle's wheels up or
-	#    down against the road (see _advance_slip_ratio). The handbrake locks
-	#    the rear wheels outright: slip ratio -1 (+1 rolling backwards).
-	var demand := _longitudinal_demand(forward_speed, drive_input, delta)
-	var front_share := _front_drive_share()
-	var abs_active: bool = demand.brake > 0.0
-	var front_demand: float = demand.engine * front_share - signf(front_along) * demand.brake * BRAKE_BIAS_FRONT
-	var rear_demand: float = demand.engine * (1.0 - front_share) - signf(forward_speed) * demand.brake * (1.0 - BRAKE_BIAS_FRONT)
+	# 4. Drivetrain and wheels: engine, clutch and the two axles' wheel speeds
+	#    are integrated from the torques on them (see _advance_drivetrain), and
+	#    each axle's slip ratio is its wheel speed against the road passing
+	#    under it. The handbrake locks the rear wheels outright: wheel speed 0,
+	#    slip ratio -1 (+1 rolling backwards).
+	var pedals := _pedals(forward_speed, drive_input, delta)
 	# Rolling rears slide on REAR_TYRE_SLIDE_GRIP, locked ones on TYRE_SLIDE_GRIP.
 	var rear_slide_grip := lerpf(REAR_TYRE_SLIDE_GRIP, TYRE_SLIDE_GRIP, _handbrake_amount)
-	front_slip_ratio = _advance_slip_ratio(front_slip_ratio, front_demand / front_grip, front_slip_angle, FRONT_PEAK_SLIP_ANGLE, TYRE_SLIDE_GRIP, abs_active, delta)
-	rear_slip_ratio = _advance_slip_ratio(rear_slip_ratio, rear_demand / rear_grip, rear_slip_angle, REAR_PEAK_SLIP_ANGLE, rear_slide_grip, abs_active, delta)
-	rear_slip_ratio = lerpf(rear_slip_ratio, -signf(forward_speed), _handbrake_amount)
+	var front_contact := {"along": front_along, "grip": front_grip, "slip_angle": front_slip_angle, "peak_slip_angle": FRONT_PEAK_SLIP_ANGLE, "slide_grip": TYRE_SLIDE_GRIP}
+	var rear_contact := {"along": forward_speed, "grip": rear_grip, "slip_angle": rear_slip_angle, "peak_slip_angle": REAR_PEAK_SLIP_ANGLE, "slide_grip": rear_slide_grip}
+	_advance_drivetrain(pedals.throttle, pedals.coasting, pedals.brake, front_contact, rear_contact, delta)
+	rear_omega = lerpf(rear_omega, 0.0, _handbrake_amount)
+	front_slip_ratio = _slip_ratio(front_omega, front_along)
+	rear_slip_ratio = _slip_ratio(rear_omega, forward_speed)
 	front_traction_use = _traction_use(front_slip_ratio)
 	rear_traction_use = _traction_use(rear_slip_ratio)
 
@@ -1064,7 +1134,7 @@ func _physics_process(delta: float) -> void:
 	var slowing := air_drag + rolling_drag
 	var at_rest := absf(forward_speed) < REST_SPEED
 	for force: float in [front_forward, rear_drive]:
-		if force * (demand.engine if at_rest else forward_speed) > 0.0:
+		if force * (clutch_torque * _drive_ratio() if at_rest else forward_speed) > 0.0:
 			pushing += force
 		else:
 			slowing += absf(force)
@@ -1164,6 +1234,8 @@ func reset_to(target: Transform3D) -> void:
 	rear_slip_angle = 0.0
 	front_slip_ratio = 0.0
 	rear_slip_ratio = 0.0
+	front_omega = 0.0
+	rear_omega = 0.0
 	wheel_angle = 0.0
 	longitudinal_accel = 0.0
 	lateral_accel = 0.0
@@ -1307,14 +1379,14 @@ func _update_direction(speed: float, drive: float, delta: float) -> void:
 		reverse_engaged = false
 
 
-## What the pedals ask of the wheels this tick, as { engine, brake }, and the
-## gearbox, clutch and engine update on the way. `engine` is the force at the
-## driven wheels [N], signed along the nose: whatever torque the clutch passes
-## (drive under throttle, engine braking with it closed, the launch on a
-## slipping clutch, reverse gear), through the gear. `brake` is the total brake
-## force asked for [N], always positive; it works against the way each wheel
-## rolls. `drive` is +1 for the accelerate key and -1 for the brake key.
-func _longitudinal_demand(speed: float, drive: float, delta: float) -> Dictionary:
+## What the pedals ask for this tick, as { throttle, brake, coasting }, and the
+## gearbox update on the way. `throttle` is the engine's, 0..1; `coasting` is
+## true while the driver asks for none (a lift for a gear change is not
+## coasting). `brake` is the total
+## brake force asked for at the tyres [N], always positive; it works against
+## the way each wheel turns. `drive` is +1 for the accelerate key and -1 for
+## the brake key.
+func _pedals(speed: float, drive: float, delta: float) -> Dictionary:
 	# The key of the selected direction is the throttle, the other one the
 	# brake: it slows the car to a stop whichever way it rolls, and holds it
 	# there. The throttle key also brakes while the car still rolls against the
@@ -1334,21 +1406,16 @@ func _longitudinal_demand(speed: float, drive: float, delta: float) -> Dictionar
 		# open until REVERSE_ACCEL / REVERSE_LIMITER_RATE short of it, shut at it.
 		throttle = -drive * clampf((speed + MAX_REVERSE_SPEED) * REVERSE_LIMITER_RATE / REVERSE_ACCEL, 0.0, 1.0)
 
+	var coasting := throttle <= 0.0
 	_update_gearbox(speed, throttle, reversing, delta)
 	# The driver lifts for a gear change and comes back on the throttle once
 	# the clutch is home again. On the way down the box the same foot blips the
 	# throttle while the clutch is open (DOWNSHIFT_BLIP_BAND).
 	if _shift_catching:
-		var revs_missing := speed / WHEEL_RADIUS * _drive_ratio() - engine_omega
+		var revs_missing := _gearbox_omega() - engine_omega
 		throttle = clampf(revs_missing / DOWNSHIFT_BLIP_BAND, 0.0, 1.0) if is_shifting else 0.0
-	_advance_clutch(speed, throttle, delta)
-
-	# Torque flowing from the engine to the wheels loses DRIVETRAIN_EFFICIENCY on
-	# the way; the other way round the wheels turn the engine with all of theirs.
-	var efficiency := DRIVETRAIN_EFFICIENCY if clutch_torque > 0.0 else 1.0
-	var engine := clutch_torque * _drive_ratio() * efficiency / WHEEL_RADIUS
 	var brake := BRAKE_DECEL * absf(drive) * CAR_MASS if braking else 0.0
-	return {"engine": engine, "brake": brake}
+	return {"throttle": throttle, "brake": brake, "coasting": coasting}
 
 
 ## Overall ratio between the engine and the driven wheels right now: gear x
@@ -1366,9 +1433,13 @@ func _drive_ratio() -> float:
 ## would turn the engine under CLUTCH_DISENGAGE_RPM: that is the stop in gear,
 ## and the standstill. Home otherwise: under throttle from any speed (from a
 ## standstill that is the launch, slipping), and throttle closed at speed
-## (engine braking). Rolling against the gear it drags at
-## CLUTCH_DRAG_ENGAGEMENT.
-func _clutch_target(speed: float, gearbox_omega: float, throttle: float) -> float:
+## (engine braking). Coasting, a clutch that comes back in is there to hold
+## the car back, never to shove it on: while the engine still turns faster
+## than the gearbox (the revs left over from before a handbrake turn) it stays
+## open and waits for the revs to fall. A gear change is seen through either
+## way: that catch is part of the change. Rolling
+## against the gear it drags at CLUTCH_DRAG_ENGAGEMENT.
+func _clutch_target(speed: float, gearbox_omega: float, throttle: float, coasting: bool) -> float:
 	var rear_driven := driven_wheels != DrivenWheels.FWD
 	if (gear == 0 and not reverse_engaged) or is_shifting or (_handbrake_amount > 0.0 and rear_driven):
 		return 0.0
@@ -1376,29 +1447,67 @@ func _clutch_target(speed: float, gearbox_omega: float, throttle: float) -> floa
 		return 1.0
 	if gearbox_omega < 0.0:
 		return CLUTCH_DRAG_ENGAGEMENT if absf(speed) > STANDSTILL_SPEED else 0.0
+	if coasting and not _shift_catching and not clutch_locked and engine_omega > gearbox_omega + CLUTCH_SLIP_BAND:
+		return 0.0
 	return 1.0 if gearbox_omega >= CLUTCH_DISENGAGE_RPM * TAU / 60.0 else 0.0
 
 
-## One tick of clutch and engine. The gearbox side of the clutch turns at road
-## speed through the gear; the engine side is the engine (engine_omega).
-##   Slipping: the clutch passes CLUTCH_TORQUE_MAX x clutch_engagement from the
-## faster side to the slower one (eased through zero over CLUTCH_SLIP_BAND).
-## The engine is integrated under its own torque less that; the same torque
-## goes into the gearbox. While the gearbox side is slower than the engine's
-## idle the car feathers the clutch so it never drags the engine under
-## IDLE_RPM (no more torque than the engine can spare above it this tick):
-## pulling away on little throttle the engine sits at idle and the car moves
-## off on what it makes there.
-##   Locked: once the speeds have met and the clutch can hold what the engine
-## puts through it, the two sides are one shaft: the engine turns at gearbox
-## speed and the clutch passes the engine's net torque, friction and all;
-## throttle closed that is negative, which is the engine braking, more in the
-## lower gears without anybody scripting it. It lets go again when it is
-## opened, overloaded, or the gearbox falls under idle speed.
-func _advance_clutch(speed: float, throttle: float, delta: float) -> void:
+## Speed of the gearbox side of the clutch [rad/s]: the driven wheels' speed
+## through the gear, positive = the way the engine turns. With two driven axles
+## the centre differential turns at the torque-weighted mean of the two.
+func _gearbox_omega() -> float:
+	var front_share := _front_drive_share()
+	return (front_omega * front_share + rear_omega * (1.0 - front_share)) * _drive_ratio()
+
+
+## One tick of the whole driveline: engine, clutch, and the wheel speeds of the
+## two axles, each a state integrated from the torques on it. `front` and
+## `rear` say how each axle's contact patches meet the road this tick (see
+## _advance_axle); `brake` [N at the tyres] goes to the axles by
+## BRAKE_BIAS_FRONT, as a torque.
+##   Slipping, the clutch passes CLUTCH_TORQUE_MAX x clutch_engagement from its
+## faster side to its slower one (eased through zero over CLUTCH_SLIP_BAND).
+## The engine is integrated under its own torque less that; the same torque,
+## through the gear (and DRIVETRAIN_EFFICIENCY on the way out), turns the
+## driven axle. While the gearbox side is slower than the launch floor
+## (IDLE_RPM .. LAUNCH_RPM by throttle) the car feathers the clutch so it never
+## drags the engine under it: pulling away on little throttle the engine sits
+## near idle and the car moves off on what it makes there; flat out the revs
+## flare to LAUNCH_RPM and hold there, the clutch slipping and passing all the
+## engine makes: in 1st that is more than the rear tyres hold, they spin up,
+## and the clutch is feathered against that too (_ease_for_wheelspin) until
+## the two sides meet. When they do they go on as one (merged by their
+## angular momentum: the engine outweighs an axle fifteen times over in 1st,
+## so it is the wheels that are snatched to the engine's speed, not the other
+## way round, and if the tyres cannot hold that, they spin).
+##   Locked, engine and driven axle are one shaft and integrate as one: the
+## engine turns ratio (gear x final drive) times as fast as the wheels, so at
+## the axle its torque counts ratio times and its inertia
+##   ENGINE_INERTIA x ratio^2 x DRIVETRAIN_EFFICIENCY   [kg m^2]
+## (speeding the engine up by ratio x d(omega) takes ratio x that torque at
+## the axle): ~49 kg m^2 in 1st against AXLE_INERTIA 2.4, ~16 in 2nd, 3 in 5th.
+## That is what dulls 1st gear (~25 % of the engine's torque goes into its own
+## revs) and what makes wheelspin under power a slow swell instead of a snap:
+## the tyres have to let the whole engine go. Throttle closed, the engine's
+## friction comes through the same way: engine braking, more in the lower
+## gears without anybody scripting it. The clutch torque is read back from the
+## engine's side (its net torque less what its own speeding up took) and the
+## lock holds while that stays inside what the clutch can pass and the engine
+## above idle.
+##   Open differentials, axle by axle: the two wheels of an axle share one
+## speed and one tyre force (the bicycle model), so an unloaded inside wheel
+## spinning its torque away is not modelled.
+func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: Dictionary, rear: Dictionary, delta: float) -> void:
 	var idle_omega := IDLE_RPM * TAU / 60.0
-	var gearbox_omega := speed / WHEEL_RADIUS * _drive_ratio()
-	var target := _clutch_target(speed, gearbox_omega, throttle)
+	var ratio := _drive_ratio()
+	var front_share := _front_drive_share()
+	var rear_share := 1.0 - front_share
+	var front_brake := _brake_torque(BRAKE_BIAS_FRONT, brake, AXLE_INERTIA)
+	var rear_brake := _brake_torque(1.0 - BRAKE_BIAS_FRONT, brake, AXLE_INERTIA)
+	var abs_active := brake > 0.0
+	var gearbox_omega := _gearbox_omega()
+
+	var target := _clutch_target(forward_speed, gearbox_omega, throttle, coasting)
 	if target <= clutch_engagement:
 		# Opening is a stab at the pedal: at once.
 		clutch_engagement = target
@@ -1408,32 +1517,186 @@ func _advance_clutch(speed: float, throttle: float, delta: float) -> void:
 	var capacity := CLUTCH_TORQUE_MAX * clutch_engagement
 
 	if clutch_locked:
-		var held := _engine_net_torque(gearbox_omega * 60.0 / TAU, throttle, 0.0)
-		if absf(held) <= capacity and gearbox_omega >= idle_omega:
+		# One shaft: each driven axle carries its share of the engine's torque
+		# and of its inertia.
+		var net := _engine_net_torque(engine_rpm, throttle, 0.0)
+		var at_axle := net * ratio * (DRIVETRAIN_EFFICIENCY if net > 0.0 else 1.0)
+		var reflected := ENGINE_INERTIA * ratio * ratio * DRIVETRAIN_EFFICIENCY
+		# The brakes have the engine to slow down too (see _brake_torque).
+		front_brake += _brake_torque(0.0, brake, reflected * front_share)
+		rear_brake += _brake_torque(0.0, brake, reflected * rear_share)
+		var next_front := _advance_axle(front_omega, at_axle * front_share, front_brake, AXLE_INERTIA + reflected * front_share, front, abs_active, delta)
+		var next_rear := _advance_axle(rear_omega, at_axle * rear_share, rear_brake, AXLE_INERTIA + reflected * rear_share, rear, abs_active, delta)
+		var next_engine := (next_front * front_share + next_rear * rear_share) * ratio
+		var held := net - ENGINE_INERTIA * (next_engine - engine_omega) / delta
+		if absf(held) <= capacity and next_engine >= idle_omega:
+			front_omega = next_front
+			rear_omega = next_rear
+			engine_omega = next_engine
 			clutch_torque = held
-			engine_omega = gearbox_omega
 			_update_limiter()
 			return
 		clutch_locked = false
 
 	var slip := engine_omega - gearbox_omega
 	clutch_torque = capacity * clampf(slip / CLUTCH_SLIP_BAND, -1.0, 1.0)
-	if gearbox_omega < idle_omega and clutch_torque > 0.0:
-		# What the engine can spare: all the idle controller could add, and
-		# whatever speed it has above idle.
-		var spare := _engine_net_torque(engine_rpm, maxf(throttle, IDLE_CONTROL_MAX_THROTTLE), 0.0) \
-				+ ENGINE_INERTIA * (engine_omega - idle_omega) / delta
-		clutch_torque = clampf(clutch_torque, 0.0, maxf(spare, 0.0))
+	var floor_omega := lerpf(IDLE_RPM, LAUNCH_RPM, throttle) * TAU / 60.0
+	if gearbox_omega < floor_omega and clutch_torque > 0.0:
+		# Feathering: under the floor the clutch takes LAUNCH_CLUTCH_SHARE of
+		# what the engine makes (the idle controller leaning in against the
+		# load), at the floor all of it, plus whatever speed the engine has
+		# above the floor.
+		var available := maxf(_engine_net_torque(engine_rpm, throttle, clutch_torque), 0.0)
+		var share := lerpf(LAUNCH_CLUTCH_SHARE, 1.0, smoothstep(floor_omega - LAUNCH_BITE_BAND, floor_omega, engine_omega))
+		clutch_torque = minf(clutch_torque, available * share + ENGINE_INERTIA * maxf(engine_omega - floor_omega, 0.0) / delta)
+	var to_axle := clutch_torque * ratio * (DRIVETRAIN_EFFICIENCY if clutch_torque > 0.0 else 1.0)
+	var front_torque := to_axle * front_share
+	var rear_torque := to_axle * rear_share
+	var next_front := _advance_axle(front_omega, front_torque, front_brake, AXLE_INERTIA, front, abs_active, delta)
+	var next_rear := _advance_axle(rear_omega, rear_torque, rear_brake, AXLE_INERTIA, rear, abs_active, delta)
+	if clutch_torque > 0.0:
+		# The same foot feathers the clutch against wheelspin: a driven axle is
+		# let spin up to DRIVE_SLIP_RATIO and given no more torque than holds
+		# it there. Only while the clutch slips; locked, the wheels are the
+		# engine's.
+		if front_share > 0.0:
+			var eased := _ease_for_wheelspin(front_omega, next_front, front_torque, front, delta)
+			if eased.x != front_torque:
+				front_torque = eased.x
+				next_front = eased.y if eased.x != 0.0 else _advance_axle(front_omega, 0.0, front_brake, AXLE_INERTIA, front, abs_active, delta)
+		if rear_share > 0.0:
+			var eased := _ease_for_wheelspin(rear_omega, next_rear, rear_torque, rear, delta)
+			if eased.x != rear_torque:
+				rear_torque = eased.x
+				next_rear = eased.y if eased.x != 0.0 else _advance_axle(rear_omega, 0.0, rear_brake, AXLE_INERTIA, rear, abs_active, delta)
+		clutch_torque = (front_torque + rear_torque) / (ratio * DRIVETRAIN_EFFICIENCY)
+	front_omega = next_front
+	rear_omega = next_rear
 	_advance_engine(_engine_net_torque(engine_rpm, throttle, clutch_torque) - clutch_torque, delta)
-	var slip_after := engine_omega - gearbox_omega
-	var met := slip * slip_after <= 0.0 or absf(slip_after) < CLUTCH_SLIP_BAND
-	var held := _engine_net_torque(gearbox_omega * 60.0 / TAU, throttle, 0.0)
-	if met and clutch_engagement > 0.0 and gearbox_omega >= idle_omega and absf(held) <= capacity:
+	if clutch_engagement <= 0.0:
+		return
+	var slip_after := engine_omega - _gearbox_omega()
+	if (slip * slip_after <= 0.0 or absf(slip_after) < CLUTCH_SLIP_BAND) and _gearbox_omega() >= idle_omega:
+		# The two sides have met: one shaft from here, at the speed their
+		# angular momentum comes to (the axles' inertia seen from the engine).
+		var axle_inertia := AXLE_INERTIA * (signf(front_share) + signf(rear_share)) / (ratio * ratio)
+		engine_omega = (engine_omega * ENGINE_INERTIA + _gearbox_omega() * axle_inertia) / (ENGINE_INERTIA + axle_inertia)
+		if front_share > 0.0:
+			front_omega = engine_omega / ratio
+		if rear_share > 0.0:
+			rear_omega = engine_omega / ratio
 		clutch_locked = true
 		_shift_catching = false
-		clutch_torque = held
-		engine_omega = gearbox_omega
 		_update_limiter()
+
+
+## Feathering against wheelspin: if `torque` [Nm at the axle, from a slipping
+## clutch] would take the axle from `omega` to `next` past DRIVE_SLIP_RATIO in
+## the direction it drives, returns the torque that lands it on that slip
+## instead (x, never past 0: the foot can come off, it cannot brake) and the
+## wheel speed there (y). Backward Euler read the other way round: the torque
+## is what the speed change takes plus what the tyre pushes back with there.
+## Otherwise returns `torque` and `next` as they are.
+func _ease_for_wheelspin(omega: float, next: float, torque: float, contact: Dictionary, delta: float) -> Vector2:
+	var along: float = contact.along
+	var direction := signf(torque)
+	var limit := (along + direction * DRIVE_SLIP_RATIO * maxf(absf(along), SLIP_RATIO_MIN_SPEED)) / WHEEL_RADIUS
+	if (next - limit) * direction <= 0.0:
+		return Vector2(torque, next)
+	var tyre: float = contact.grip * WHEEL_RADIUS * _tyre_force(_slip_ratio(limit, along), contact.slip_angle, contact.peak_slip_angle, contact.slide_grip).x
+	var holding := AXLE_INERTIA * (limit - omega) / delta + tyre
+	if holding * direction <= 0.0:
+		return Vector2(0.0, next)
+	return Vector2(holding, limit)
+
+
+## Brake torque on an axle [Nm] for a pedal asking for `brake` [N] at the
+## tyres, `share` of it on this axle, with `inertia` [kg m^2] turning with the
+## axle. The pedal asks for a deceleration of the CAR (BRAKE_DECEL, at the
+## tyres), and what turns has to be slowed down along with it: the wheels, and
+## through a locked clutch the engine, which in 1st weighs on the driven axle
+## like another 420 kg. That takes inertia x (deceleration / WHEEL_RADIUS) of
+## brake torque on top of the tyres' share; without it a stop in a low gear
+## would be the engine's flywheel unloading the rear brakes.
+func _brake_torque(share: float, brake: float, inertia: float) -> float:
+	return share * brake * WHEEL_RADIUS + inertia * brake / (CAR_MASS * WHEEL_RADIUS)
+
+
+## One tick of an axle's wheel speed [rad/s], positive = rolling forwards:
+##   d(omega) / dt = (torque - brake torque - tyre force x WHEEL_RADIUS) / inertia
+## `torque` is what the driveline puts in [Nm], `brake_torque` works against
+## the way the wheels turn (and holds them once they have stopped), and the
+## tyre force is the road's answer to the slip the wheel speed makes
+## (_slip_ratio, _tyre_force): a wheel turning faster than the road is pushed
+## back by exactly the force with which it pushes the car on. `contact` is the
+## axle's contact patch this tick: `along` [m/s] the road speed along the
+## wheels, `grip` [N], `slip_angle`, `peak_slip_angle`, `slide_grip`.
+##   Stability: the tyre is a very stiff spring between wheel and road (at
+## walking pace a bare axle answers at ~4000 per second, the tick is 60), so
+## the step is implicit in the wheel speed: the tyre force is taken at the END
+## of the step. It is linearised on the tyre curve's slope where the curve
+## rises (one Newton step of backward Euler; past the peak the slope counts as
+## 0, a spinning wheel runs away at the pace its inertia sets), and where that
+## steps over the speed at which the torques balance (a wheel hooking up again,
+## a light axle let go) the backward-Euler equation is solved by bisection
+## between the old speed and the overshoot. This is what the old slip-ratio
+## relaxation did with its slope division and its homing-in, now on a real
+## state with a real inertia; it holds at any tick length.
+##   Under the foot brake the ABS holds the wheel at ABS_SLIP_RATIO instead of
+## letting it lock (it lets go of as much brake torque as that takes); only the
+## handbrake locks wheels, the rear ones, by _handbrake_amount.
+func _advance_axle(omega: float, torque: float, brake_torque: float, inertia: float, contact: Dictionary, abs_active: bool, delta: float) -> float:
+	var along: float = contact.along
+	var road_torque: float = contact.grip * WHEEL_RADIUS
+	# The brake works against the wheel's turning; on a stopped wheel against
+	# whatever would turn it, and holds it if it can.
+	var brake_direction := signf(omega)
+	if brake_direction == 0.0:
+		var turning := torque - road_torque * _tyre_force(_slip_ratio(0.0, along), contact.slip_angle, contact.peak_slip_angle, contact.slide_grip).x
+		if absf(turning) <= brake_torque:
+			return 0.0
+		brake_direction = signf(turning)
+	torque -= brake_direction * brake_torque
+
+	var net := torque - road_torque * _tyre_force(_slip_ratio(omega, along), contact.slip_angle, contact.peak_slip_angle, contact.slide_grip).x
+	var probe := 0.01 * PEAK_SLIP_RATIO
+	var slip_per_omega := WHEEL_RADIUS / maxf(absf(along), SLIP_RATIO_MIN_SPEED)
+	var slip_ratio := _slip_ratio(omega, along)
+	var slope := maxf(
+		(_tyre_force(slip_ratio + probe, contact.slip_angle, contact.peak_slip_angle, contact.slide_grip).x
+			- _tyre_force(slip_ratio, contact.slip_angle, contact.peak_slip_angle, contact.slide_grip).x) / probe,
+		0.0
+	) * road_torque * slip_per_omega
+	var next := omega + net * delta / (inertia + slope * delta)
+	var net_next := torque - road_torque * _tyre_force(_slip_ratio(next, along), contact.slip_angle, contact.peak_slip_angle, contact.slide_grip).x
+	if net * net_next < 0.0:
+		var near := omega
+		for i in 16:
+			var middle := (near + next) * 0.5
+			var net_middle := torque - road_torque * _tyre_force(_slip_ratio(middle, along), contact.slip_angle, contact.peak_slip_angle, contact.slide_grip).x
+			# Backward Euler: middle - omega = net(middle) x delta / inertia.
+			if ((middle - omega) * inertia - net_middle * delta) * net < 0.0:
+				near = middle
+			else:
+				next = middle
+		next = (near + next) * 0.5
+	if brake_torque > 0.0 and next * omega < 0.0:
+		# A brake stops a wheel, it does not turn it back the other way.
+		next = 0.0
+	if abs_active:
+		var abs_margin := ABS_SLIP_RATIO * maxf(absf(along), SLIP_RATIO_MIN_SPEED)
+		if along >= 0.0:
+			next = maxf(next, (along - abs_margin) / WHEEL_RADIUS)
+		else:
+			next = minf(next, (along + abs_margin) / WHEEL_RADIUS)
+	return next
+
+
+## Slip ratio of a wheel turning at `omega` [rad/s] over a road passing at
+## `along` [m/s]: (wheel surface speed - road speed) / road speed. The road
+## speed it is worked out against is at least SLIP_RATIO_MIN_SPEED.
+func _slip_ratio(omega: float, along: float) -> float:
+	return (omega * WHEEL_RADIUS - along) / maxf(absf(along), SLIP_RATIO_MIN_SPEED)
 
 
 ## Share of the engine's force that goes to the front axle (0..1).
@@ -1444,41 +1707,6 @@ func _front_drive_share() -> float:
 		DrivenWheels.AWD:
 			return TORQUE_DISTRIBUTION
 	return 0.0
-
-
-## One tick of an axle's slip ratio. `demand` is the force the engine and the
-## brakes ask of the axle as a share of its grip, signed along the nose. Below
-## the tyre's limit the wheel settles at the slip where the tyre's force along
-## the wheel matches the demand; ask for more than the tyre has left (less,
-## the harder it is cornering) and the slip runs away: wheelspin, up to
-## DRIVE_SLIP_RATIO, with the force easing towards TYRE_SLIDE_GRIP and the
-## sideways hold going with it. Under the foot brake the ABS holds the wheel at
-## ABS_SLIP_RATIO instead, it never locks; only the handbrake locks wheels.
-## This is the wheel's spin-up written as a relaxation: no wheel speed is
-## carried, so nothing divides by a road speed going to zero. The step divides
-## by the tyre curve's slope (semi-implicit), which keeps it stable at any tick
-## length on the steep part of the curve.
-func _advance_slip_ratio(slip_ratio: float, demand: float, slip_angle: float, peak_slip_angle: float, slide_grip: float, abs_active: bool, delta: float) -> float:
-	var force := _tyre_force(slip_ratio, slip_angle, peak_slip_angle, slide_grip).x
-	var probe := 0.01 * PEAK_SLIP_RATIO
-	var slope := maxf((_tyre_force(slip_ratio + probe, slip_angle, peak_slip_angle, slide_grip).x - force) / probe, 0.0)
-	var gain := SLIP_RATIO_RESPONSE * delta
-	var limit := ABS_SLIP_RATIO if abs_active else DRIVE_SLIP_RATIO
-	demand = clampf(demand, -2.0, 2.0)
-	var next := clampf(slip_ratio + gain * (demand - force) / (1.0 + gain * slope), -limit, limit)
-	if (demand - force) * (demand - _tyre_force(next, slip_angle, peak_slip_angle, slide_grip).x) < 0.0:
-		# Stepped over the slip where force and demand balance (a wheel hooking
-		# up again after a lift): home in on it instead of overshooting into
-		# the opposite force.
-		var near := slip_ratio
-		for i in 8:
-			var middle := (near + next) * 0.5
-			if (demand - force) * (demand - _tyre_force(middle, slip_angle, peak_slip_angle, slide_grip).x) > 0.0:
-				near = middle
-			else:
-				next = middle
-		next = (near + next) * 0.5
-	return next
 
 
 ## Force of an axle's tyres as a share of their grip: x along the wheels

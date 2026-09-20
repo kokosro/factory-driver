@@ -42,6 +42,10 @@ const POWER_COAST_MIN_YAW_DIFFERENCE := 0.1
 ## ... and least distance between where the two runs end up [m]. Measured: ~9.
 const POWER_COAST_MIN_POSITION_DIFFERENCE := 2.0
 
+## Speed _get_up_to_speed hands the car over at [m/s], ~60 km/h: what 3 s flat
+## out from rest used to come to.
+const GET_UP_TO_SPEED := 16.5
+
 ## Speed the 2nd gear corners start from [m/s], ~65 km/h, and the 1st gear
 ## ones, ~32 km/h.
 const CORNER_ENTRY_SPEED := 18.0
@@ -125,8 +129,11 @@ const MICRO_MIN_RMS := 0.001
 const LANE_MIN_ELEVATION_RANGE := 1.0
 
 ## Bumps at speed: the flat-out run gets this long to build speed, then the
-## wheel loads are sampled for this long [physics frames], 5 s and 10 s.
-const ROAD_FEEL_RUN_UP_FRAMES := 300
+## wheel loads are sampled for this long [physics frames], 6 s and 10 s.
+# was 300 (5 s) -> 360 - the car is slower off the line (slipping clutch, the
+# engine's inertia in the low gears): after 15 s it was 0.20 m up the swell,
+# ROAD_FEEL_MIN_CLIMB wants 0.25. One second more of run-up.
+const ROAD_FEEL_RUN_UP_FRAMES := 360
 const ROAD_FEEL_SAMPLE_FRAMES := 600
 
 ## ... every wheel's load must swing at least this much about its baseline
@@ -264,8 +271,13 @@ func _run() -> void:
 	# Accelerate: moves along -Z, HUD follows, camera keeps up.
 	Input.action_press("accelerate")
 	await _step(120)
-	_check(car.forward_speed > 10.0, "accelerates forward (%.1f m/s after 2 s)" % car.forward_speed)
-	_check(car.global_position.z < -10.0, "travels along -Z (z = %.1f)" % car.global_position.z)
+	# was > 10.0 m/s and z < -10.0 (measured 12.0 m/s, the kinematic drivetrain put
+	# tyre-limited drive on the road from the first tick) -> > 8.0 and < -7.0 -
+	# measured 9.5 m/s and 8.2 m: the car pulls away on a slipping clutch while
+	# the revs build, and in 1st a quarter of the engine's torque winds up its own
+	# inertia. 0 - 100 km/h comes to 7.1 s; the real 986 2.5 takes 6.9.
+	_check(car.forward_speed > 8.0, "accelerates forward (%.1f m/s after 2 s)" % car.forward_speed)
+	_check(car.global_position.z < -7.0, "travels along -Z (z = %.1f)" % car.global_position.z)
 	_check(absf(car.global_position.x) < 0.01, "tracks straight without steering (x = %.3f)" % car.global_position.x)
 	_check(speed_label.text == "%d km/h" % roundi(car.speed_kmh), "HUD shows current speed ('%s')" % speed_label.text)
 	var camera_gap := camera.global_position.distance_to(car.global_position)
@@ -461,6 +473,14 @@ func _check_drivetrain(car: ArcadeCar, rpm_label: Label) -> void:
 	Input.action_press("accelerate")
 	await _drive(car, 60, stats)
 	_check(car.rear_load_fraction > static_rear + 0.05, "acceleration shifts load rearward (rear %.2f, static %.2f)" % [car.rear_load_fraction, static_rear])
+	# was read straight after the first second -> once the clutch is home - until
+	# then the engine sits at LAUNCH_RPM on a slipping clutch whatever the road
+	# speed does (3460 -> 3481 rpm over those 30 frames). Locked, revs and road
+	# speed are one again, and that is what this check is about.
+	for frame in 120:
+		if car.clutch_locked:
+			break
+		await _drive(car, 1, stats)
 	var gear_early := car.gear
 	var rpm_early := car.engine_rpm
 	await _drive(car, 30, stats)
@@ -608,9 +628,17 @@ func _check_force_dynamics(car: ArcadeCar) -> void:
 	var rwd := await _steady_corner(car, LOW_GEAR_ENTRY_SPEED, LOW_GEAR_CORNER_FRAMES, true, ArcadeCar.DrivenWheels.RWD)
 	var fwd := await _steady_corner(car, LOW_GEAR_ENTRY_SPEED, LOW_GEAR_CORNER_FRAMES, true, ArcadeCar.DrivenWheels.FWD)
 	var awd := await _steady_corner(car, LOW_GEAR_ENTRY_SPEED, LOW_GEAR_CORNER_FRAMES, true, ArcadeCar.DrivenWheels.AWD)
-	_check(rwd.peak_rear_slip > low_coast.peak_rear_slip * 1.5 and rwd.peak_rear_slip > low_coast.peak_rear_slip + 0.03, "RWD: power in a low gear steps the tail out (peak rear slip angle %.3f rad vs %.3f coasting)" % [rwd.peak_rear_slip, low_coast.peak_rear_slip])
-	_check(rwd.peak_rear_use > 0.999 and rwd.peak_front_use < 0.01, "RWD: the drive goes through the rear tyres only (grip use rear %.2f, front %.2f)" % [rwd.peak_rear_use, rwd.peak_front_use])
-	_check(fwd.peak_front_use > 0.999 and fwd.peak_rear_use < 0.01, "FWD: the drive goes through the front tyres only (grip use front %.2f, rear %.2f)" % [fwd.peak_front_use, fwd.peak_rear_use])
+	# was + 0.03 rad over coasting (measured 0.134 vs 0.034: the kinematic 1st gear
+	# lit the rear tyres up at will) -> + 0.02 - measured 0.062 vs 0.035: a
+	# quarter of the engine's torque in 1st now goes into its own inertia, the
+	# rears run just under their peak (slip ratio ~0.08) instead of spinning, and
+	# the tail still steps out 1.8 times as far as coasting. Grip use likewise:
+	# was > 0.999 (spinning) -> > 0.9, measured 0.95; and the axle that is not
+	# driven was < 0.01 -> < 0.1, measured 0.04 - 0.06: its wheels have inertia
+	# now and it is the road that spins them up as the car gathers speed.
+	_check(rwd.peak_rear_slip > low_coast.peak_rear_slip * 1.5 and rwd.peak_rear_slip > low_coast.peak_rear_slip + 0.02, "RWD: power in a low gear steps the tail out (peak rear slip angle %.3f rad vs %.3f coasting)" % [rwd.peak_rear_slip, low_coast.peak_rear_slip])
+	_check(rwd.peak_rear_use > 0.9 and rwd.peak_front_use < 0.1, "RWD: the drive goes through the rear tyres only (grip use rear %.2f, front %.2f)" % [rwd.peak_rear_use, rwd.peak_front_use])
+	_check(fwd.peak_front_use > 0.999 and fwd.peak_rear_use < 0.1, "FWD: the drive goes through the front tyres only (grip use front %.2f, rear %.2f)" % [fwd.peak_front_use, fwd.peak_rear_use])
 	_check(fwd.yaw < low_coast.yaw * 0.9 and fwd.yaw < rwd.yaw * 0.9, "FWD: power pushes the nose wide (heading gained %.2f rad vs %.2f coasting, %.2f RWD)" % [fwd.yaw, low_coast.yaw, rwd.yaw])
 	_check(fwd.peak_rear_slip < rwd.peak_rear_slip * 0.7, "FWD: the tail stays planted on power (peak rear slip angle %.3f rad vs %.3f RWD)" % [fwd.peak_rear_slip, rwd.peak_rear_slip])
 	_check(awd.peak_front_use > 0.1 and awd.peak_rear_use > 0.1, "AWD: both axles drive (grip use front %.2f, rear %.2f)" % [awd.peak_front_use, awd.peak_rear_use])
@@ -1209,12 +1237,21 @@ func _check_mirrored_spin(pad: TestPad, car: ArcadeCar) -> void:
 	pad.reset_cones()
 
 
-## Resets the car and accelerates it in a straight line for 3 s, to ~60 km/h.
+## Resets the car and accelerates it in a straight line to ~60 km/h.
+# was 3 s flat out, which got to 16.5 m/s, just into 2nd -> flat out until
+# GET_UP_TO_SPEED - with a clutch to slip and the engine's inertia riding along
+# in 1st the same 3 s end at 14.5 m/s, still in 1st at 6100 rpm: a different
+# car to hand over (engine braking through 1st on top of the rear brakes puts
+# the rears at their ABS limit, honestly so). The checks that start from here
+# are about ~60 km/h in 2nd, so that is what the driver delivers.
 func _get_up_to_speed(car: ArcadeCar) -> void:
 	car.reset_to_spawn()
 	await _step(10)
 	Input.action_press("accelerate")
-	await _step(180)
+	for frame in 600:
+		if car.forward_speed >= GET_UP_TO_SPEED:
+			break
+		await physics_frame
 	Input.action_release("accelerate")
 
 
