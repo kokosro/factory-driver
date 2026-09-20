@@ -140,7 +140,8 @@ const IDLE_RPM := 900.0
 ## Rev limiter [rpm]: a fuel cut. At this speed the engine stops firing and
 ## falls back on its own friction until LIMITER_RESUME_RPM, then fires again:
 ## held against it, the revs bounce between the two (~8 times a second with
-## no load). The engine never turns faster than this under its own power.
+## no load). Free, the engine never turns faster than this; in gear the car's
+## momentum can carry it a few rpm past before the cut bites.
 const REDLINE_RPM := 7200.0
 
 ## Engine speed at which the rev limiter lets the fuel back in [rpm].
@@ -1515,6 +1516,10 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 		var engage_time := CLUTCH_ENGAGE_TIME if gearbox_omega < idle_omega else CLUTCH_SHIFT_ENGAGE_TIME
 		clutch_engagement = minf(clutch_engagement + delta / engage_time, target)
 	var capacity := CLUTCH_TORQUE_MAX * clutch_engagement
+	if not is_shifting and (target <= 0.0 or gearbox_omega < idle_omega):
+		# Nothing to catch: neutral, a stop, or a gear taken at a standstill,
+		# where pulling away is the launch's business. The foot is free again.
+		_shift_catching = false
 
 	if clutch_locked:
 		# One shaft: each driven axle carries its share of the engine's torque
