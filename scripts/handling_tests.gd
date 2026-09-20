@@ -40,7 +40,8 @@ const KIND_REVERSE_SPIN := &"reverse_spin"
 
 # --- Pass / fail tolerances ---------------------------------------------------
 
-## Spins: the car must end within this of the target rotation [degrees] ...
+## Spins: the car must end within this of the target rotation, spun either
+## way [degrees] ...
 const SPIN_HEADING_TOLERANCE_DEG := 35.0
 
 ## ... having travelled further than this along its original heading since the
@@ -182,6 +183,7 @@ var _pressed: Dictionary[StringName, bool] = {}
 
 var _start_position: Vector3
 var _start_forward: Vector3
+var _start_yaw := 0.0  # Heading the run started on [rad].
 var _previous_yaw := 0.0
 var _rotation := 0.0  # Unwrapped yaw since the start [rad], left positive.
 var _mark_position: Vector3
@@ -400,7 +402,8 @@ func _start() -> void:
 	_start_position = car.global_position
 	_start_forward = -car.global_basis.z
 	_mark_position = _start_position
-	_previous_yaw = car.global_rotation.y
+	_start_yaw = car.global_rotation.y
+	_previous_yaw = _start_yaw
 	if test.kind == KIND_SLALOM:
 		_gates = TestPad.slalom_cone_positions()
 		_gate_offsets.resize(_gates.size())
@@ -670,7 +673,16 @@ func _judge_slalom(checks: Array[Dictionary], metrics: Dictionary) -> void:
 func _judge_spin(checks: Array[Dictionary], metrics: Dictionary) -> void:
 	var target: float = test.target_rotation_deg
 	var rotation_deg := rad_to_deg(_rotation)
-	var heading_error := absf(rotation_deg - target)
+	# was absf(rotation_deg - target), a signed comparison -> the size of the
+	# rotation against the target - a clean 180 to the right (-183.4) read as
+	# "off by 363.4" and failed; either direction is a spin.
+	var rotation_error := absf(absf(rotation_deg) - target)
+	# was the same absf(rotation_deg - target) -> where the nose actually points
+	# against the target heading (the heading the run started on plus the target
+	# rotation, left positive), wrapped to +-180 - the metric mixed rotation up
+	# with heading: the same mirrored 180 now reads 3.4, not 363.4.
+	var target_heading := _start_yaw + deg_to_rad(target)
+	var heading_error := absf(rad_to_deg(angle_difference(target_heading, car.global_rotation.y)))
 	var displacement := (car.global_position - _mark_position).dot(_start_forward)
 	metrics["rotation_deg"] = snappedf(rotation_deg, 0.1)
 	metrics["heading_error_deg"] = snappedf(heading_error, 0.1)
@@ -678,8 +690,8 @@ func _judge_spin(checks: Array[Dictionary], metrics: Dictionary) -> void:
 	metrics["entry_speed_ms"] = snappedf(_peak_speed, 0.1)
 	metrics["final_speed_ms"] = snappedf(car.forward_speed, 0.1)
 	checks.append({
-		"label": "rotation within %.0f deg of %.0f (off by %.1f)" % [SPIN_HEADING_TOLERANCE_DEG, target, heading_error],
-		"passed": heading_error <= SPIN_HEADING_TOLERANCE_DEG,
+		"label": "rotation within %.0f deg of %.0f, either direction (off by %.1f)" % [SPIN_HEADING_TOLERANCE_DEG, target, rotation_error],
+		"passed": rotation_error <= SPIN_HEADING_TOLERANCE_DEG,
 	})
 	checks.append({
 		"label": "net forward displacement positive (%.1f m)" % displacement,
