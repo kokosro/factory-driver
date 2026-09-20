@@ -105,6 +105,7 @@ func _run() -> void:
 	await _check_xray(car)
 	await _check_look_sideways(camera, car)
 	await _check_steering_wheel(camera, car)
+	_check_aim_clamp(camera, car)
 	_finish()
 
 
@@ -208,6 +209,21 @@ func _check_look_sideways(camera: Camera3D, car: ArcadeCar) -> void:
 	for expected in ["front", "overhead", "wheel", "chase"]:
 		await _tap("camera_cycle")
 	_check(camera.mode_name() == "chase", "look sideways: the cycle is where it was left ('%s')" % camera.mode_name())
+
+
+## The chase camera carried straight over the car (a spin passing under it, a
+## reset beneath it) still gets a level, finite view: tipped back to
+## MAX_AIM_PITCH_DEG towards where its swing faces, no colinear look_at.
+func _check_aim_clamp(camera: Camera3D, car: ArcadeCar) -> void:
+	var aim_point: Vector3 = car.global_position + Vector3.UP * camera.LOOK_AT_HEIGHT
+	for above: Vector3 in [Vector3.UP * 3.0, Vector3(0.0001, 3.0, -0.0002), Vector3.DOWN * 2.0]:
+		camera.global_position = aim_point + above
+		camera._aim_at(car.global_position)
+		var looking := -camera.global_basis.z
+		var pitch := rad_to_deg(asin(clampf(absf(looking.y), 0.0, 1.0)))
+		_check(camera.global_basis.is_finite() and pitch < camera.MAX_AIM_PITCH_DEG + 0.01 and pitch > camera.MAX_AIM_PITCH_DEG - 1.0 and camera.global_basis.y.y > 0.0 and absf(camera.global_basis.x.y) < 0.0001, "chase: carried %.1f m straight %s the point it aims at, the view stops %.1f degrees from level, upright (limit %.0f)" % [absf(above.y), "over" if above.y > 0.0 else "under", pitch, camera.MAX_AIM_PITCH_DEG])
+	camera.set_mode(camera.mode)
+	_check_view("chase", camera, car)
 
 
 ## The cockpit's steering wheel is the car's: it turns with steering_wheel_deg,

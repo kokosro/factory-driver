@@ -24,6 +24,14 @@ const FOLLOW_HEIGHT := 2.6
 ## The camera aims at a point this far above the car's origin [m].
 const LOOK_AT_HEIGHT := 1.1
 
+## Steepest the chase view ever looks up or down [degrees from level]. It sits
+## at ~13 degrees; this only bites when the camera is carried over the car.
+const MAX_AIM_PITCH_DEG := 89.0
+
+## Closer to the aim point than this, level [m], the camera has no direction of
+## its own to it and looks the way its swing faces.
+const MIN_AIM_DISTANCE := 0.001
+
 ## How quickly the camera swings round behind the car's heading [1/s].
 ## Lower = lazier swing that shows more of the car's flank in corners.
 const YAW_FOLLOW_RATE := 5.0
@@ -290,8 +298,23 @@ func _ideal_position(target_position: Vector3) -> Vector3:
 	return target_position + offset
 
 
+## Points the camera at the car. The trailing camera can end up straight above
+## the point it aims at (the car sliding or spinning back under it, a reset
+## that puts the car beneath it, one long frame that carries it there): a view
+## straight down has no "up" to keep level, and looking_at() says so with a
+## warning and an arbitrary roll. So the view never gets steeper than
+## MAX_AIM_PITCH_DEG: nearer the vertical than that, the direction is tipped
+## back to it, towards where the camera's swing (_yaw) already faces. Every
+## frame is aimed, none skipped, and the result depends on nothing but the two
+## positions and _yaw.
 func _aim_at(target_position: Vector3) -> void:
-	look_at(target_position + Vector3.UP * LOOK_AT_HEIGHT, Vector3.UP)
+	var direction := target_position + Vector3.UP * LOOK_AT_HEIGHT - global_position
+	var level := Vector3(direction.x, 0.0, direction.z)
+	var least_level := absf(direction.y) * tan(deg_to_rad(90.0 - MAX_AIM_PITCH_DEG))
+	if level.length() < maxf(least_level, MIN_AIM_DISTANCE):
+		var facing := level.normalized() if level.length() > MIN_AIM_DISTANCE else Vector3.FORWARD.rotated(Vector3.UP, _yaw)
+		direction = facing * maxf(least_level, MIN_AIM_DISTANCE) + Vector3.UP * direction.y
+	global_basis = Basis.looking_at(direction, Vector3.UP)
 
 
 # --- Cockpit and front -----------------------------------------------------------
