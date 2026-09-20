@@ -52,9 +52,11 @@ driving, braking and cornering (friction circle, with `MIN_COMBINED_GRIP` as the
 floor). The forces act along and across each wheel's heading; their sum accelerates the
 1300 kg, their moments about the centre of mass wind the yaw inertia
 (`YAW_GYRATION_RADIUS`) up and down. Heading and direction of travel are separate things,
-tied together only by the tyres: the steering sets the front wheel angle
-(`MAX_STEER_LOCK`, eased by `STEER_SLIP_REACH` so a key press asks the front tyres for
-their grip rather than 27 degrees of lock at speed) and nothing else.
+tied together only by the tyres: the steering sets the front wheel angle and nothing
+else. It is raw: the wheel angle is exactly the steering input x `MAX_STEER_LOCK` (~27
+degrees) at any speed, in any slide, and nothing but you turns the wheels. A held key at
+speed is far more lock than the front tyres can use, so they scrub and the car pushes
+wide: that is the tyres' honest answer, and short presses are how you ask for less.
 
 - **Driven wheels** - `DRIVEN_WHEELS` is `RWD`, `FWD` or `AWD` (`TORQUE_DISTRIBUTION`
   front / rear). The Boxster is `RWD`. Nothing about the layouts is scripted: rear drive
@@ -80,9 +82,11 @@ Slides and spins: the handbrake locks the rear wheels, which then only drag and 
 hold the tail sideways. A stability assist (`SLIDE_YAW_DAMPING`, bounded by
 `MAX_ASSIST_YAW_ACCEL`) leans on the nose swinging away from the direction of travel; it
 compares the yaw rate with the rate the tyre forces are really bending the path, knows
-nothing about where the steering points and never turns the car for you. A key held into
-a slide loses its bite (`SLIDE_CATCH_ANGLE` .. `SLIDE_RELEASE_ANGLE`) and the front wheels
-trail into line, so ordinary slides come back. The assist fades once the tail is more
+nothing about where the steering points and never turns the car for you. The wheels stay
+where you put them: a key held into a slide keeps feeding it, and you catch the slide
+with opposite lock, which is there all the way to full lock at once, handbrake or not
+(`SLIDE_CATCH_ANGLE` survives only inside the assist, as where it starts to leave a slide
+that is coming back alone). The assist fades once the tail is more
 than ~25 degrees out (`SPIN_COMMIT_ANGLE`) and is off while the handbrake is held, so a
 committed flick goes all the way round. A tap of handbrake with steering gives a drift
 that comes back on its own; holding both from ~90 km/h until the car is nearly round,
