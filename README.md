@@ -26,9 +26,12 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Reset the car to the start line         | `R`             |
 | Cycle camera: chase, cockpit, front, overhead, wheel | `C` |
 | Look back (hold)                        | `B`             |
+| Look left / right (hold)                | `,` / `.`       |
 | X-ray view on / off                     | `X`             |
 | Start handling test 1 - 5 (mission mode) | `1` - `5`      |
 | Abort the running test / close its result | `Esc` (`R` also aborts) |
+
+Look left / right are on `,` and `.` (the `<` / `>` pair, under the right hand's reach from the arrows and next to `B`'s row): `Q` / `E` are the gearbox, `B` is look back. Hold to glance to that side, let go and the view comes back: the chase camera swings ~65 degrees round the car, in the cockpit and the bonnet view the head turns ~60 degrees; the overhead and wheel views have no side to look to. It is a glance, not a view of its own (`C` still cycles the same five), both keys at once look straight ahead, and look back wins over either.
 
 The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged). Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual) and turns red near the redline. The gearbox starts in automatic and goes back to automatic when you reset the car.
 
@@ -54,10 +57,18 @@ floor). The forces act along and across each wheel's heading; their sum accelera
 1300 kg, their moments about the centre of mass wind the yaw inertia
 (`YAW_GYRATION_RADIUS`) up and down. Heading and direction of travel are separate things,
 tied together only by the tyres: the steering sets the front wheel angle and nothing
-else. It is raw: the wheel angle is exactly the steering input x `MAX_STEER_LOCK` (~27
-degrees) at any speed, in any slide, and nothing but you turns the wheels. A held key at
-speed is far more lock than the front tyres can use, so they scrub and the car pushes
-wide: that is the tyres' honest answer, and short presses are how you ask for less.
+else. There is a real steering wheel in between: 900 degrees lock to lock
+(`steering_wheel_deg`, +/- 450), turned by the driver's hands at `STEERING_HAND_SPEED`
+(1300 degrees a second: centre to lock in 0.35 s, lock to lock in 0.7 s) towards what
+the keys ask for, and back to centre when you let go. The front wheels are that angle
+through the rack (`STEERING_RATIO` 16.4 : 1, which is what 450 degrees for
+`MAX_STEER_LOCK`, ~27 degrees, comes to), at any speed, in any slide; nothing but you
+turns the wheels, and the cockpit's wheel shows every degree (the yellow mark is 12
+o'clock). A held key at speed winds on far more lock than the front tyres can use, so
+they scrub and the car pushes wide: that is the tyres' honest answer, and short presses
+are how you ask for less. Countersteer is wound on the same way, in proportion: catch a
+slide early, by as much as it needs, because opposite lock is two thirds of a second
+away.
 
 - **Drivetrain** - engine, clutch and wheels each turn at their own speed, tied together
   by torque, not by road speed. The engine speed is integrated from its torque against
@@ -83,10 +94,28 @@ wide: that is the tyres' honest answer, and short presses are how you ask for le
   the fronts at their limit and the rears under theirs: about 0.9 g, ~36 m from 90 km/h,
   the nose pushing wide if you brake and steer at once. The handbrake locks the rear
   wheels outright.
-- **Weight and aero** - axle loads shift forward under braking and rearward under power
-  (`CG_HEIGHT`), and grow with speed from downforce (`DOWNFORCE_COEFF`, split by
-  `AERO_BALANCE_FRONT`), so fast corners hold more than slow ones and the tail gets more
-  planted the faster you go. Drag is `DRAG_COEFF` x `FRONTAL_AREA`; top speed ~234 km/h.
+- **Suspension and weight** - the body is a rigid mass on four real springs, with heave
+  (the car's own height, gravity pulling it down), pitch and roll as states. Each corner
+  has a spring (`FRONT_` / `REAR_RIDE_FREQUENCY` 1.5 / 1.7 Hz on its corner mass:
+  21.9 / 46.0 kN/m), a damper (`RIDE_DAMPING_RATIO` 0.4: 1860 / 3440 N s/m), a share of
+  its axle's anti-roll bar and progressive bump stops at +/- `SUSPENSION_TRAVEL` (7 cm).
+  What a spring pushes up with is what its tyre presses on the road with: that is the
+  wheel load, and the grip. Nothing scripts weight transfer any more: the tyres pull at
+  the road, `CG_HEIGHT` under the centre of mass, so braking dives the nose (~1.5
+  degrees and ~5 cm of front travel in a full stop) and loads the front tyres, power
+  squats the tail, a corner rolls the body onto its outside wheels (2.5 degrees per g).
+  The smoke test holds the springs to rigid-body statics (force x CG height / wheelbase
+  or track) as a cross-check. The body floats `GROUND_CLEARANCE` (12 cm) over the floor;
+  the floor only meets it bottomed out. The cockpit and bonnet cameras ride on the body.
+- **Aero** - downforce (`DOWNFORCE_COEFF`, split by `AERO_BALANCE_FRONT`) presses on the
+  body and reaches the tyres through the springs, so fast corners hold more than slow
+  ones and the tail gets more planted the faster you go. Drag is `DRAG_COEFF` x
+  `FRONTAL_AREA`; top speed ~234 km/h.
+- **Tyre curve** - rises smoothly into its peak and eases off it over a wide top
+  (`TYRE_SLIDE_ONSET` 3 peak slip angles) down to `TYRE_SLIDE_GRIP` (0.85) at the front;
+  rear tyres that still roll keep `REAR_TYRE_SLIDE_GRIP` (0.97): there is a limit to go
+  over and grip to get back as the slide comes in again, but the rear always holds on
+  better than the front.
 - **Low-speed blend** - a force model degenerates at a standstill, so below
   `LOW_SPEED_BLEND_END` (4 m/s) the forces are blended with plain rolling geometry:
   parking is precise, the car stands still on the brake, and there is no visible switch.
@@ -127,27 +156,28 @@ high the tarmac is at every point, in three layers:
 - **Elevation** - a gentle swell: 1.0 m on an 800 m wave plus 0.18 m on a 200 m wave,
   never steeper than 1.5 % (measured 1.35 % down the lane). This is the layer you see:
   the ground mesh is shaped to it, every marking, cone, board, pylon and shed stands on
-  it, and the car's body rides it. It is exactly level round the start line, the stop
+  it, and the car rides over it on its springs. It is exactly level round the start line, the stop
   box, the slalom and the skid pad (the certifications run on level ground) and far from
   the course, and across the straight's lane it depends on the distance down the
   straight only, so the lane never leans sideways. Down the straight the first crest
   (+1.1 m) comes at about 520 m, the hollow (-1.1 m) at about 900 m.
 - **Micro-bumps** - value noise up to 12 mm (3.8 mm RMS), 0.6 to 4 m long, mean-neutral.
-  Felt, not drawn.
+  Felt, not drawn in the ground (the wheels are drawn following them).
 - **A test dip** - one 6 cm deep, 10 m long smooth dip right of the straight past the
   slalom (x = 25, z = -450, a yellow bar painted at either lip): a test fixture, so the
   crest test has a known crest to drive over. Felt, not drawn.
 
-The car feels it through a suspension load layer on top of the tyre model, which itself is
-untouched: every wheel has a spring and damper (`RIDE_FREQUENCY` 1.4 Hz,
-`RIDE_DAMPING_RATIO` 0.4, behind a tyre that swallows the shortest ripples,
-`TYRE_ENVELOPE_RATE`) following the road under it. A bump pushes load into its wheel; a
-crest dropping away faster than the car can follow takes load off, and grip with it -
-nobody scripts the crest, it falls out of the spring. Each axle's load is the sum of its
-two wheels (`wheel_loads` on the car, front left / front right / rear left / rear right),
-so grip breathes a few per cent with the road at speed; on a flat road the layer adds
-exactly nothing. The wheels are drawn following the road (up to 4 cm of travel) while the
-body rides the swell.
+The car rides it on its suspension (see *Suspension and weight* above); the tyre model
+itself knows nothing of the road. Every wheel follows the road under it in full, behind a
+tyre that swallows the shortest ripples (`TYRE_ENVELOPE_RATE`). A bump pushes load into
+its wheel; a crest dropping away faster than the body can fall after it takes load off,
+and grip with it, and past the droop stop the wheel is in the air - nobody scripts the
+crest, it falls out of the springs. Each axle's load is the sum of its two wheels
+(`wheel_loads` on the car, front left / front right / rear left / rear right; the spring
+travel is `wheel_travel`), so grip breathes with the road at speed (~8 % RMS per wheel
+flat out down the lane); standing still every wheel carries exactly its static share. The
+wheels are drawn on the road, up to `MAX_WHEEL_VISUAL_TRAVEL` (9 cm) from their place
+under the body, while the body heaves, pitches and rolls above them.
 
 ### Tests
 
@@ -162,10 +192,16 @@ RWD / FWD / AWD signatures, brake bias, downforce and the low-speed blend; and r
 the road: the profile is pure, mean-neutral, gentle and level where the certifications
 run, every wheel's load swings over the bumps at speed while the axle means hold, the
 crest test drives over the test dip and sees each wheel unload going in and load up at
-the bottom, and cones, board posts and pylons stand on the ground), then the
+the bottom, and cones, board posts and pylons stand on the ground; round the
+suspension: a drop test for the ride frequency, dive, squat and roll held against
+rigid-body statics, travel inside its limits, the wheels drawn on the road; round the
+steering: the 900-degree wheel wound on at hand speed, the rack, 0.35 s centre to lock
+and 0.7 s lock to lock; and the shape of the tyre curve), then the
 handling tests below, then
-`tests/camera_test.gd` (cycles the camera through its five views and drives under each, holds the look-back
-and toggles the X-ray)
+`tests/camera_test.gd` (cycles the camera through its five views and drives under each, holds the look-back,
+toggles the X-ray, holds look left / right from the chase view and the cockpit, turns the
+cockpit's steering wheel with the car's, and carries the chase camera straight over its
+aim point, which used to trip a colinear look-at warning)
 and `tests/mission_test.gd` (plays every mission through the mission manager with the
 scripted driver pressing the keys, plus one run with its steering held off that has to
 come out FAILED, and an abort).
