@@ -35,6 +35,17 @@ extends CharacterBody3D
 ## shift forward under braking / rearward under acceleration, and grow with
 ## speed from downforce (DOWNFORCE_COEFF). Each axle's grip follows its load.
 ##
+## The road: the car drives on a RoadProfile (road_profile), a height field.
+## Its body follows the road's ELEVATION, the gentle swell the ground mesh
+## shows, kinematically: it rides the visible ground and never leaves it. Each
+## of the four wheels follows the road in full, micro-bumps and all, through a
+## spring and damper (RIDE_FREQUENCY, RIDE_DAMPING_RATIO): a bump pushes load
+## into its wheel, a crest dropping away faster than the corner of the car can
+## follow takes load off it. The axle loads the tyre model sees are the sums of
+## their two wheels (wheel_loads), so grip breathes with the road; the tyre
+## model itself knows nothing of any of this. On a flat road every wheel
+## carries exactly its share and the car is the flat-ground car it always was.
+##
 ## Two helpers sit on top, both documented where they live: below
 ## LOW_SPEED_BLEND_END the tyre forces are blended with plain rolling geometry
 ## (a force model degenerates at a standstill), and an arcade stability assist
@@ -43,8 +54,10 @@ extends CharacterBody3D
 ## 360.
 ##
 ## Conventions: the car's nose points along local -Z, +X is the car's right,
-## positive yaw (rotation about +Y) is a LEFT turn. The car is assumed to drive
-## on level ground (true for the Phase 0 test pad).
+## positive yaw (rotation about +Y) is a LEFT turn. The car stays upright: the
+## road's slopes are gentle (RoadProfile.MAX_SLOPE), so the body takes the
+## road's height, not its tilt, and gravity never pulls it downhill. Without a
+## road_profile the ground is level (true for a bare car.tscn).
 
 # =============================================================================
 #  DRIVING FEEL TUNING
@@ -403,6 +416,39 @@ const LOAD_TRANSFER_RESPONSE := 8.0
 ## and turning exclude each other more, snappier power oversteer.
 const MIN_COMBINED_GRIP := 0.4
 
+# --- Suspension (road feel) ---------------------------------------------------
+
+# One spring / damper channel per wheel, a load layer on top of the axle loads
+# above: the corner of the car over each wheel is a mass on a spring that
+# follows the road under that wheel (see _suspension_force). On a flat road the
+# channels rest at 0 and the wheel loads are the axle loads halved, exactly.
+
+## Ride frequency of a corner of the car on its spring [Hz]. Road cars sit at
+## 1 - 1.5, sports cars up to 2. Higher = stiffer: the car follows the road
+## more closely and the wheel loads swing more over the same bumps.
+const RIDE_FREQUENCY := 1.4
+
+## Damping ratio of that spring (no unit): 0.3 - 0.5 on a road car. 1 would
+## settle without any overshoot, lower floats on after a crest.
+const RIDE_DAMPING_RATIO := 0.4
+
+## How quickly the tyre lets the road through to the suspension [1/s], ~6 Hz:
+## carcass and contact patch swallow what is shorter than themselves, and at
+## speed one physics tick is most of a metre of road. Without it the damper
+## would turn every sampled ripple into a hammer blow. Lower = smoother ride,
+## calmer wheel loads.
+const TYRE_ENVELOPE_RATE := 40.0
+
+## Where each tyre meets the road, in the car's frame [m]: front left, front
+## right, rear left, rear right (the order of wheel_loads). Must match the
+## wheel positions in car.tscn.
+const WHEEL_CONTACT_POINTS: Array[Vector3] = [
+	Vector3(-0.86, 0.0, -AXLE_DISTANCE),
+	Vector3(0.86, 0.0, -AXLE_DISTANCE),
+	Vector3(-0.86, 0.0, AXLE_DISTANCE),
+	Vector3(0.86, 0.0, AXLE_DISTANCE),
+]
+
 # --- Steering ----------------------------------------------------------------
 
 ## Front wheel angle at full steering lock [rad], ~27.5 degrees: a 5 m
@@ -547,12 +593,26 @@ const MAX_BODY_TILT := 0.09
 ## How quickly the body settles towards its target tilt [1/s].
 const BODY_TILT_RESPONSE := 6.0
 
+## Furthest a wheel is drawn above or below its place in car.tscn as it follows
+## the road [m]. The body follows the elevation only, so under the wheel cam a
+## wheel shows up to ~1 cm of bump travel (RoadProfile.MICRO_AMPLITUDE) plus
+## the grade across the wheelbase (2 cm at 1.5 %).
+const MAX_WHEEL_VISUAL_TRAVEL := 0.04
+
 ## Engine speed from which the HUD tach turns to its warning colour [rpm].
 const SHIFT_LIGHT_RPM := 6500.0
 
 # =============================================================================
 #  STATE
 # =============================================================================
+
+## The road the car drives on: what its wheels feel and its body follows. In
+## main.tscn the same resource as the pad's. None = level ground.
+@export var road_profile: RoadProfile:
+	set(value):
+		road_profile = value
+		if is_inside_tree():
+			_settle_suspension()
 
 ## Signed speed along the nose [m/s]. Negative while reversing.
 var forward_speed := 0.0
@@ -613,9 +673,14 @@ var front_load_fraction := 1.0 - REAR_WEIGHT_FRACTION
 var rear_load_fraction := REAR_WEIGHT_FRACTION
 
 ## Load on each axle right now [N]: its share of the weight plus its share of
-## the downforce.
+## the downforce, and what the road is doing to its two wheels (the sum of
+## their wheel_loads).
 var front_axle_load := 0.0
 var rear_axle_load := 0.0
+
+## Load on each wheel right now [N]: front left, front right, rear left, rear
+## right. Half its axle's share plus what its suspension makes of the road.
+var wheel_loads: Array[float] = [0.0, 0.0, 0.0, 0.0]
 
 ## How much of each axle's grip goes along the wheel, into drive or braking,
 ## 0..1. 1 = at or past the peak: wheelspin, or ABS holding the wheel.
@@ -666,11 +731,28 @@ var _shift_timer := 0.0
 ## Time since the last gear change [s]; the automatic waits AUTO_SHIFT_HOLD.
 var _since_shift := AUTO_SHIFT_HOLD
 
+## Per wheel (the order of wheel_loads): the road height as the tyre passes it
+## on [m], and the height [m] and vertical speed [m/s] of the corner of the car
+## riding on that wheel's spring. Heights are world heights; only their
+## differences matter.
+var _tyre_heights: Array[float] = [0.0, 0.0, 0.0, 0.0]
+var _corner_heights: Array[float] = [0.0, 0.0, 0.0, 0.0]
+var _corner_speeds: Array[float] = [0.0, 0.0, 0.0, 0.0]
+
+## How far each wheel is drawn from its place in car.tscn [m], up positive.
+var _wheel_travel: Array[float] = [0.0, 0.0, 0.0, 0.0]
+
+## Elevation of the road under the car's origin, as of the last move [m]: the
+## height the body rides at.
+var _ground_height := 0.0
+
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _spawn_transform: Transform3D
 
 @onready var _body: Node3D = $Body
 @onready var _front_wheels: Array[Node3D] = [$Wheels/FrontLeft, $Wheels/FrontRight]
+@onready var _wheels: Array[Node3D] = [$Wheels/FrontLeft, $Wheels/FrontRight, $Wheels/RearLeft, $Wheels/RearRight]
+@onready var _wheel_rest_height: float = _wheels[0].position.y
 @onready var _wheel_spinners: Array[Node3D] = [
 	$Wheels/FrontLeft/Spin,
 	$Wheels/FrontRight/Spin,
@@ -681,6 +763,7 @@ var _spawn_transform: Transform3D
 
 func _ready() -> void:
 	_spawn_transform = global_transform
+	_settle_suspension()
 
 
 func _physics_process(delta: float) -> void:
@@ -720,7 +803,10 @@ func _physics_process(delta: float) -> void:
 		_handbrake_amount = move_toward(_handbrake_amount, 0.0, HANDBRAKE_RECOVERY_RATE * delta)
 
 	# 2. Axle loads: the static split, shifted by the acceleration of the last
-	#    tick (eased in at the suspension's pace), plus downforce.
+	#    tick (eased in at the suspension's pace), plus downforce. Each wheel
+	#    carries half its axle's share plus what its spring and damper make of
+	#    the road under it; the axle load the tyres work with is the sum of its
+	#    two wheels.
 	var target_transfer := clampf(
 		longitudinal_accel * CG_HEIGHT / (_gravity * 2.0 * AXLE_DISTANCE),
 		-MAX_LOAD_TRANSFER, MAX_LOAD_TRANSFER
@@ -731,8 +817,14 @@ func _physics_process(delta: float) -> void:
 	front_load_fraction = 1.0 - rear_load_fraction
 	var weight := CAR_MASS * _gravity
 	var downforce := DOWNFORCE_COEFF * ground_speed * ground_speed
-	front_axle_load = weight * front_load_fraction + downforce * AERO_BALANCE_FRONT
-	rear_axle_load = weight * rear_load_fraction + downforce * (1.0 - AERO_BALANCE_FRONT)
+	var front_carried := weight * front_load_fraction + downforce * AERO_BALANCE_FRONT
+	var rear_carried := weight * rear_load_fraction + downforce * (1.0 - AERO_BALANCE_FRONT)
+	for i in wheel_loads.size():
+		# A wheel can be light, or in the air over a crest; the road never
+		# pulls it down: no load below 0.
+		wheel_loads[i] = maxf((front_carried if i < 2 else rear_carried) * 0.5 + _suspension_force(i, delta), 0.0)
+	front_axle_load = wheel_loads[0] + wheel_loads[1]
+	rear_axle_load = wheel_loads[2] + wheel_loads[3]
 	var front_grip := FRONT_TYRE_GRIP * _axle_grip(front_axle_load, weight * (1.0 - REAR_WEIGHT_FRACTION))
 	var rear_grip := REAR_TYRE_GRIP * _axle_grip(rear_axle_load, weight * REAR_WEIGHT_FRACTION)
 
@@ -861,6 +953,7 @@ func _physics_process(delta: float) -> void:
 	lateral_speed = cg_lateral_speed - yaw_rate * CG_OFFSET
 	velocity = cg_velocity - global_basis.x * (yaw_rate * CG_OFFSET)
 	move_and_slide()
+	_follow_elevation()
 
 	_update_visuals(delta)
 
@@ -875,9 +968,12 @@ func get_spawn_transform() -> Transform3D:
 	return _spawn_transform
 
 
-## Puts the car at `target`, at rest, in 1st, automatic.
+## Puts the car at `target`, at rest, in 1st, automatic. The height of
+## `target` counts from the road: the car is stood on the elevation there.
 func reset_to(target: Transform3D) -> void:
 	global_transform = target
+	if road_profile != null:
+		global_position.y += road_profile.elevation_height(target.origin.x, target.origin.z)
 	velocity = Vector3.ZERO
 	forward_speed = 0.0
 	lateral_speed = 0.0
@@ -904,7 +1000,75 @@ func reset_to(target: Transform3D) -> void:
 	longitudinal_accel = 0.0
 	lateral_accel = 0.0
 	_body.rotation = Vector3.ZERO
+	_settle_suspension()
 	reset_physics_interpolation()
+
+
+## Suspension at rest on the road under the car as it stands: every corner
+## sits on its wheel, nothing moves, every wheel carries its static share.
+func _settle_suspension() -> void:
+	_ground_height = 0.0
+	if road_profile != null:
+		_ground_height = road_profile.elevation_height(global_position.x, global_position.z)
+	var weight := CAR_MASS * _gravity
+	for i in wheel_loads.size():
+		var height := _road_height_under_wheel(i)
+		_tyre_heights[i] = height
+		_corner_heights[i] = height
+		_corner_speeds[i] = 0.0
+		_wheel_travel[i] = height - _ground_height
+		wheel_loads[i] = weight * ((1.0 - REAR_WEIGHT_FRACTION) if i < 2 else REAR_WEIGHT_FRACTION) * 0.5
+
+
+## Height of the road under wheel `i`, every layer of the profile [m].
+func _road_height_under_wheel(i: int) -> float:
+	if road_profile == null:
+		return 0.0
+	var contact := global_transform * WHEEL_CONTACT_POINTS[i]
+	return road_profile.sample_height(contact.x, contact.z)
+
+
+## One tick of wheel `i`'s suspension; returns what it adds to that wheel's
+## load [N]. The corner of the car over the wheel is a mass on a spring and a
+## damper, standing on the road as the tyre passes it on:
+##   corner acceleration = w^2 * (road - corner) + 2 * ratio * w * (road speed - corner speed)
+## with w = TAU * RIDE_FREQUENCY, and the wheel load is what it takes to
+## accelerate that mass, on top of carrying it. The road coming up at the wheel
+## pushes load in; the road dropping away (past a crest, into a dip) faster
+## than the corner can fall after it takes load off, which is all a crest is.
+## A steady climb or a level road leaves the corner riding along at rest on
+## its spring: 0. Over time the corner goes where the road goes, so the force
+## averages out to nothing: the road moves load around, it does not add any.
+## Semi-implicit Euler; w * delta is 0.15 at 60 ticks a second, far inside
+## what it stays stable for (2).
+func _suspension_force(i: int, delta: float) -> float:
+	if road_profile == null:
+		return 0.0
+	var tyre_before := _tyre_heights[i]
+	_tyre_heights[i] = lerpf(tyre_before, _road_height_under_wheel(i), 1.0 - exp(-TYRE_ENVELOPE_RATE * delta))
+	var road_speed := (_tyre_heights[i] - tyre_before) / delta
+	var omega := TAU * RIDE_FREQUENCY
+	var accel := omega * omega * (_tyre_heights[i] - _corner_heights[i]) \
+			+ 2.0 * RIDE_DAMPING_RATIO * omega * (road_speed - _corner_speeds[i])
+	_corner_speeds[i] += accel * delta
+	_corner_heights[i] += _corner_speeds[i] * delta
+	_wheel_travel[i] = _tyre_heights[i] - _ground_height
+	# The mass riding on this wheel: its share of the car at rest [kg].
+	var corner_mass := CAR_MASS * ((1.0 - REAR_WEIGHT_FRACTION) if i < 2 else REAR_WEIGHT_FRACTION) * 0.5
+	return corner_mass * accel
+
+
+## Keeps the body on the visible ground: lifts or lowers the car by however
+## much the road's elevation changed under its origin over this tick's move.
+## The pad keeps the ground's collision plane at the same height under the car
+## (TestPad._follow_car), so move_and_slide() finds the floor where it left it.
+func _follow_elevation() -> void:
+	if road_profile == null:
+		return
+	var ground := road_profile.elevation_height(global_position.x, global_position.z)
+	if ground != _ground_height:
+		global_position.y += ground - _ground_height
+		_ground_height = ground
 
 
 ## Starts a gear change to `new_gear` (0 = neutral). Refuses gears that do not
@@ -1217,6 +1381,10 @@ func _update_visuals(delta: float) -> void:
 
 	for wheel in _front_wheels:
 		wheel.rotation.y = wheel_angle
+
+	# Each wheel stays on the road while the body rides the elevation.
+	for i in _wheels.size():
+		_wheels[i].position.y = _wheel_rest_height + clampf(_wheel_travel[i], -MAX_WHEEL_VISUAL_TRAVEL, MAX_WHEEL_VISUAL_TRAVEL)
 
 	# Weight transfer: the body leans out of the corner, squats under power and
 	# dives under braking.
