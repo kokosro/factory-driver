@@ -13,7 +13,10 @@ extends SceneTree
 ## blend), and checks the pad's ground texture, course queries and
 ## drive-through cones, and the road: the profile is pure, mean-neutral, gentle
 ## and level where it has to be, the wheels feel it (bumps at speed, the test
-## dip's crest), and what the pad places stands on it.
+## dip's crest), and what the pad places stands on it. Last come the slides
+## nobody is driving (keys released they come back into line, scrub to a stop,
+## or are held back by the engine rolling backwards) and the handling tests'
+## 180 driven to the right.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -169,6 +172,60 @@ const CREST_SETTLED_TOLERANCE := 0.03
 ## Placed objects: most the foot of a cone, board post or pylon may be off the
 ## ground under it [m]. Measured: 0 (they are placed on the same function).
 const PLACED_ON_GROUND_TOLERANCE := 0.01
+
+## Slide settle: from ~60 km/h the handbrake goes on with SLIDE_SETTLE_STEER of
+## left steering for this many physics frames, then every key is let go and
+## the car is watched for SLIDE_SETTLE_WATCH_FRAMES (10 s). Three slides: a
+## flick the car comes back from and rolls on, a slide that scrubs it to a
+## stop nose-first, and a full second of handbrake that leaves it rolling
+## backwards.
+const SLIDE_SETTLE_STEER := 0.3
+const SLIDE_FLICK_FRAMES := 12
+const SLIDE_SCRUB_FRAMES := 40
+const SLIDE_BACKWARDS_FRAMES := 60
+const SLIDE_SETTLE_WATCH_FRAMES := 600
+
+## The nose counts as back in line with the way the car travels under this
+## angle between the two [rad], for good; grip driving stays under ~0.1.
+const SLIDE_IN_LINE_ANGLE := 0.1
+
+## The flick (0.2 s of handbrake): the nose is back in line within this [s] and
+## the car has turned no further than this on the way [rad]. Measured 1.33 s
+## and 0.95 rad (55 degrees), rolling on straight at 9.2 m/s two seconds later;
+## with the rear tyres sliding on the fronts' TYRE_SLIDE_GRIP it hung in a
+## drift for 2.22 s and turned 1.60 rad (92 degrees).
+const SLIDE_FLICK_MAX_IN_LINE_TIME := 1.75
+const SLIDE_FLICK_MAX_TURNED := 1.25
+
+## After the flick the car rolls on forwards, at least this fast 3 s after the
+## release [m/s]: it came back, it did not spin to a stop. Measured 9.2.
+const SLIDE_FLICK_MIN_ROLL_ON_SPEED := 5.0
+
+## The scrub (0.67 s of handbrake): in line and down to CRAWL_SPEED within this
+## [s], at rest within SLIDE_SCRUB_MAX_REST_TIME [s]. Measured 1.20 s for both
+## and at rest after 4.57 s, the last 3 s of it under 0.3 m/s; it used to swap
+## ends instead, in line and at a crawl after 4.63 s and still creeping
+## backwards at 1.2 m/s after 10 s.
+const SLIDE_SCRUB_MAX_SETTLE_TIME := 2.0
+const SLIDE_SCRUB_MAX_REST_TIME := 6.0
+
+## The slide that ends rolling backwards (1 s of handbrake): in a forward gear
+## the engine holds the car back that way round too, so between 1 s and 3 s
+## after the release it loses at least this much speed [m/s]. Measured 0.78
+## (4.22 -> 3.44 m/s); with rolling resistance alone it lost 0.31.
+const SLIDE_BACKWARDS_MIN_SPEED_DROP := 0.55
+
+## Largest step per physics frame while a slide settles [m]: the car enters at
+## ~16.6 m/s, 0.28 m a frame. Measured 0.26.
+const SLIDE_SETTLE_MAX_STEP := 0.5
+
+## A rotation that has stopped [rad/s]. Measured under 0.000001.
+const SLIDE_SETTLED_YAW_RATE := 0.01
+
+## The mirrored 180 ends this close to the target heading [degrees]: measured
+## 0.8 (rotation -179.2), the certified left-hand run 0.1. The judge's own
+## tolerance is 35; a signed judge read this run as 359.2 off.
+const MIRRORED_SPIN_MAX_HEADING_ERROR := 10.0
 
 var _failures := 0
 
@@ -379,6 +436,8 @@ func _run() -> void:
 	await _check_road_feel(main.get_node("TestPad") as TestPad, car)
 	await _check_crest(car)
 	_check_placed_on_ground(main.get_node("TestPad") as TestPad)
+	await _check_slide_settle(car)
+	await _check_mirrored_spin(main.get_node("TestPad") as TestPad, car)
 
 	_finish()
 
@@ -1098,6 +1157,58 @@ func _check_placed_on_ground(pad: TestPad) -> void:
 	_check(highest_foot > 0.5 and lowest_foot < -0.5, "... up and down the swell (feet from %.2f m to %.2f m)" % [lowest_foot, highest_foot])
 
 
+## A slide nobody is driving ends by itself: the nose comes back into line
+## with the travel, the rotation stops and the car scrubs its speed off, or
+## rolls on straight if it had speed left.
+func _check_slide_settle(car: ArcadeCar) -> void:
+	var flick := await _slide_and_let_go(car, SLIDE_FLICK_FRAMES)
+	_check(flick.peak_angle > SLIDE_IN_LINE_ANGLE, "a flick of the handbrake slides the car (nose %.2f rad off the travel, from %.1f m/s)" % [flick.peak_angle, flick.entry_speed])
+	_check(flick.in_line_at >= 0.0 and flick.in_line_at < SLIDE_FLICK_MAX_IN_LINE_TIME, "keys released, the nose comes back in line (after %.2f s, limit %.2f)" % [flick.in_line_at, SLIDE_FLICK_MAX_IN_LINE_TIME])
+	_check(absf(flick.turned) < SLIDE_FLICK_MAX_TURNED, "the car does not hang in a drift on the way (turned %.2f rad, limit %.2f)" % [flick.turned, SLIDE_FLICK_MAX_TURNED])
+	_check(flick.speed_at_3s > SLIDE_FLICK_MIN_ROLL_ON_SPEED and flick.end_forward_speed > 0.0 and absf(flick.end_yaw_rate) < SLIDE_SETTLED_YAW_RATE, "it rolls on straight, nose first (%.1f m/s 3 s after the release, yaw rate %.4f rad/s at the end)" % [flick.speed_at_3s, flick.end_yaw_rate])
+
+	var scrub := await _slide_and_let_go(car, SLIDE_SCRUB_FRAMES)
+	_check(scrub.peak_angle > 1.0, "a longer pull gets the car well sideways (nose %.2f rad off the travel, %.1f m/s at the release)" % [scrub.peak_angle, scrub.release_speed])
+	_check(scrub.in_line_at >= 0.0 and scrub.in_line_at < SLIDE_SCRUB_MAX_SETTLE_TIME, "keys released, the slide straightens out (after %.2f s, limit %.2f)" % [scrub.in_line_at, SLIDE_SCRUB_MAX_SETTLE_TIME])
+	_check(scrub.crawl_at >= 0.0 and scrub.crawl_at < SLIDE_SCRUB_MAX_SETTLE_TIME, "the sliding tyres scrub the speed off (under %.1f m/s after %.2f s, limit %.2f)" % [CRAWL_SPEED, scrub.crawl_at, SLIDE_SCRUB_MAX_SETTLE_TIME])
+	_check(scrub.rest_at >= 0.0 and scrub.rest_at < SLIDE_SCRUB_MAX_REST_TIME and absf(scrub.end_yaw_rate) < SLIDE_SETTLED_YAW_RATE, "and the car comes to rest (after %.2f s, limit %.2f)" % [scrub.rest_at, SLIDE_SCRUB_MAX_REST_TIME])
+
+	var backwards := await _slide_and_let_go(car, SLIDE_BACKWARDS_FRAMES)
+	var speed_drop: float = backwards.speed_at_1s - backwards.speed_at_3s
+	_check(backwards.end_forward_speed < 0.0 and backwards.speed_at_3s > CRAWL_SPEED and absf(backwards.end_yaw_rate) < SLIDE_SETTLED_YAW_RATE, "a full second of handbrake leaves the car rolling backwards, the rotation stopped (%.1f m/s 3 s after the release)" % backwards.speed_at_3s)
+	_check(speed_drop > SLIDE_BACKWARDS_MIN_SPEED_DROP, "the engine holds it back rolling backwards too (%.2f -> %.2f m/s in 2 s, at least %.2f)" % [backwards.speed_at_1s, backwards.speed_at_3s, SLIDE_BACKWARDS_MIN_SPEED_DROP])
+
+	_check(flick.finite and scrub.finite and backwards.finite, "no NaN / inf in speeds or position while the slides settle")
+	var largest_step := maxf(flick.max_step, maxf(scrub.max_step, backwards.max_step))
+	_check(largest_step < SLIDE_SETTLE_MAX_STEP, "no teleporting while the slides settle (largest step %.2f m)" % largest_step)
+
+
+## The handling tests' 180, mirrored: the same driver with steer_right for
+## steer_left and the rotation conditions negated. A spin counts either way
+## round. The definition stays here; all_tests() runs the left-hand one.
+func _check_mirrored_spin(pad: TestPad, car: ArcadeCar) -> void:
+	var definition := HandlingTests.spin_180_test()
+	definition.steps = [
+		{"when": {}, "press": [&"accelerate"]},
+		{"when": {"speed_above": HandlingTests.SPIN_180_ENTRY_SPEED}, "release": [&"accelerate"], "press": [&"steer_right", &"handbrake"], "mark": true},
+		{"when": {"rotation_deg_below": -HandlingTests.SPIN_180_CATCH_DEG}, "release": [&"steer_right"]},
+		{"when": {"after": HandlingTests.SPIN_180_SETTLE_TIME}, "press": [&"brake"]},
+		{"when": {"speed_below": HandlingTests.STOPPED_SPEED}},
+	]
+	var run := HandlingTests.begin(definition, car, pad)
+	await _step(10)
+	var delta := 1.0 / Engine.physics_ticks_per_second
+	while not run.finished:
+		run.tick(delta)
+		await physics_frame
+	var outcome := run.result()
+	var metrics: Dictionary = outcome.metrics
+	_check(outcome.passed, "a 180 to the right passes the same checks as one to the left (%s)" % ", ".join(HandlingTests.format_result(outcome)).replace("  metrics: ", ""))
+	_check(metrics.rotation_deg < -90.0, "the rotation metric keeps its sign: right is negative (%.1f degrees)" % metrics.rotation_deg)
+	_check(metrics.heading_error_deg < MIRRORED_SPIN_MAX_HEADING_ERROR, "the heading error is measured against the target heading, not the signed rotation (%.1f degrees)" % metrics.heading_error_deg)
+	pad.reset_cones()
+
+
 ## Resets the car and accelerates it in a straight line for 3 s, to ~60 km/h.
 func _get_up_to_speed(car: ArcadeCar) -> void:
 	car.reset_to_spawn()
@@ -1141,6 +1252,62 @@ func _corner(car: ArcadeCar, handbrake: bool) -> Dictionary:
 	stats.end_slip = tan(car.rear_slip_angle) * absf(car.forward_speed)
 	stats.end_slide_yaw = car.slide_yaw_rate
 	return stats
+
+
+## From ~60 km/h: handbrake and SLIDE_SETTLE_STEER of left steering for
+## `handbrake_frames`, then every key released for SLIDE_SETTLE_WATCH_FRAMES.
+## Returns when [s after the release] the nose was back in line for good
+## (SLIDE_IN_LINE_ANGLE; under ArcadeCar.SPIN_MIN_SPEED the angle means
+## nothing and counts as in line), when the car was down to CRAWL_SPEED and
+## when at rest, each for good (-1 = never), how far it turned on the way
+## [rad], its speed 1 s and 3 s after the release, the end state and per-frame
+## sanity stats.
+func _slide_and_let_go(car: ArcadeCar, handbrake_frames: int) -> Dictionary:
+	await _get_up_to_speed(car)
+	var slide := {
+		"entry_speed": car.forward_speed, "release_speed": 0.0, "peak_angle": 0.0, "turned": 0.0,
+		"in_line_at": -1.0, "crawl_at": -1.0, "rest_at": -1.0, "speed_at_1s": 0.0, "speed_at_3s": 0.0,
+		"end_forward_speed": 0.0, "end_yaw_rate": 0.0, "finite": true, "max_step": 0.0,
+	}
+	Input.action_press("steer_left", SLIDE_SETTLE_STEER)
+	Input.action_press("handbrake")
+	await _step(handbrake_frames)
+	Input.action_release("handbrake")
+	Input.action_release("steer_left")
+	slide.release_speed = Vector2(car.velocity.x, car.velocity.z).length()
+	var in_line_frame := 0
+	var crawl_frame := 0
+	var rest_frame := 0
+	var previous_yaw := car.global_rotation.y
+	for frame in SLIDE_SETTLE_WATCH_FRAMES:
+		var before := car.global_position
+		await physics_frame
+		slide.max_step = maxf(slide.max_step, car.global_position.distance_to(before))
+		if not (is_finite(car.forward_speed) and is_finite(car.lateral_speed) and is_finite(car.yaw_rate) and car.global_position.is_finite()):
+			slide.finite = false
+		slide.turned += angle_difference(previous_yaw, car.global_rotation.y)
+		previous_yaw = car.global_rotation.y
+		var travel := Vector2(car.velocity.x, car.velocity.z)
+		var nose := Vector2(-car.global_basis.z.x, -car.global_basis.z.z)
+		var angle := absf(nose.angle_to(travel)) if travel.length() >= ArcadeCar.SPIN_MIN_SPEED else 0.0
+		slide.peak_angle = maxf(slide.peak_angle, angle)
+		if angle >= SLIDE_IN_LINE_ANGLE:
+			in_line_frame = frame + 1
+		if travel.length() >= CRAWL_SPEED:
+			crawl_frame = frame + 1
+		if travel.length() >= ArcadeCar.REST_SPEED:
+			rest_frame = frame + 1
+		if frame == 59:
+			slide.speed_at_1s = travel.length()
+		if frame == 179:
+			slide.speed_at_3s = travel.length()
+	var tick := 1.0 / Engine.physics_ticks_per_second
+	slide.in_line_at = in_line_frame * tick if in_line_frame < SLIDE_SETTLE_WATCH_FRAMES else -1.0
+	slide.crawl_at = crawl_frame * tick if crawl_frame < SLIDE_SETTLE_WATCH_FRAMES else -1.0
+	slide.rest_at = rest_frame * tick if rest_frame < SLIDE_SETTLE_WATCH_FRAMES else -1.0
+	slide.end_forward_speed = car.forward_speed
+	slide.end_yaw_rate = car.yaw_rate
+	return slide
 
 
 ## Accelerates to `entry_speed` on the car's own drivetrain, then holds
