@@ -780,8 +780,9 @@ const WHEEL_ARMS_RIGHT: Array[float] = [-HALF_TRACK, HALF_TRACK, -HALF_TRACK, HA
 
 ## Front wheel angle at full steering lock [rad], ~27.5 degrees: a 5 m
 ## turning circle radius at parking speed. Raw steering: the front wheel angle
-## is the steering input times this, at any speed, however sideways the car
-## is, and nothing else moves the wheels. What the car does with the angle is
+## is the steering wheel's share of its lock (steer) times this, at any speed,
+## however sideways the car is, and nothing but the steering wheel moves the
+## wheels. What the car does with the angle is
 ## up to the front tyres: full lock at speed is far past their peak slip angle,
 ## so they scrub and the car pushes wide, and a slide is caught with opposite
 ## lock by the driver. Also what the front wheels show.
@@ -795,10 +796,31 @@ const WHEEL_ARMS_RIGHT: Array[float] = [-HALF_TRACK, HALF_TRACK, -HALF_TRACK, HA
 ## back). There is no such easing any more.
 const MAX_STEER_LOCK := 0.48
 
-## How fast the steering input moves towards the pressed key, and back to
-## centre on release [1/s]. 5.0 means centre to full lock in 0.2 s. Smooths out
-## the on/off nature of keyboard steering.
-const STEER_RESPONSE := 5.0
+## The driver's steering wheel turns this far each way from centre [degrees]:
+## 900 degrees lock to lock, two and a half turns, a road car's rack.
+const STEERING_WHEEL_LOCK_DEG := 450.0
+
+## How fast the driver's hands turn the steering wheel [degrees per second],
+## towards where the steer input asks for it and back to centre on release:
+## 1300 is a quick pair of hands (900 degrees lock to lock in 0.69 s, centre to
+## lock in 0.35 s), about what a driver manages catching a slide. The keys are
+## on / off, the hands are not: a tap is a few degrees of wheel, a held key
+## winds lock on at this pace, and countersteer is wound on the same way: a
+## slide is caught by steering against it early and in proportion, as far as
+## the hands get in the time, not by flicking to opposite lock. The stability
+## assist (see Slides) is what it always was and keeps that catchable.
+# was STEER_RESPONSE 5.0 [1/s], the steer input easing to the key in 0.2 s
+# centre to lock (a wheel spun at 2250 degrees per second, had there been one)
+# -> the wheel is a state (steering_wheel_deg) turned at a hand's speed: 0.35 s
+# centre to lock, 1.7 times as long.
+const STEERING_HAND_SPEED := 1300.0
+
+## Steering ratio: degrees of steering wheel per degree of front wheel. Follows
+## from the two ends of the rack, 450 degrees of steering wheel for
+## MAX_STEER_LOCK (27.5 degrees) at the front wheels: 16.4 to 1, a road car's
+## (the 986's rack is 16.9 to 1). Front wheel angle = steering wheel angle /
+## this, at any speed, however sideways the car is.
+const STEERING_RATIO := STEERING_WHEEL_LOCK_DEG / (MAX_STEER_LOCK * 180.0 / PI)
 
 # --- Slides ------------------------------------------------------------------
 
@@ -956,11 +978,19 @@ var yaw_rate := 0.0
 ## stability assist works on.
 var slide_yaw_rate := 0.0
 
-## Smoothed steering input, -1 (full right) .. +1 (full left).
+## Angle of the driver's steering wheel [degrees], positive = turned left,
+## within +/- STEERING_WHEEL_LOCK_DEG. A state: the hands turn it towards what
+## the steer input asks for at STEERING_HAND_SPEED. What the cockpit shows.
+var steering_wheel_deg := 0.0
+
+## The same as a share of full lock, -1 (full right) .. +1 (full left):
+## steering_wheel_deg / STEERING_WHEEL_LOCK_DEG.
 var steer := 0.0
 
-## Angle of the front wheels to the car [rad], positive = left. All the
-## steering ever sets.
+## Angle of the front wheels to the car [rad], positive = left: the steering
+## wheel's angle through the rack, steering_wheel_deg / STEERING_RATIO (worked
+## out as steer x MAX_STEER_LOCK, which is the same thing and lands on full
+## lock to the bit). All the steering ever sets.
 var wheel_angle := 0.0
 
 ## Which wheels are driven; starts as DRIVEN_WHEELS. A variable so tests (and
@@ -1212,13 +1242,17 @@ func _physics_process(delta: float) -> void:
 	#    split along and across the wheels, not the car; the rear sits behind
 	#    and points where the car points. A positive (left) yaw rate moves the
 	#    nose left and the tail right. Raw steering: the wheels stand at the
-#    (smoothed) input times full lock, the same rolling forwards, backwards
+#    steering wheel's share of its lock times full lock, the same forwards, backwards
 #    or sideways. Was steer * _steering_lock() * _slide_feed() minus a trail
 #    towards the way the front travels -> removed: nothing turns the wheels
 #    but the driver. The wheels point where they are steered in reverse too:
 #    the yaw response flips with the direction of travel, not the wheels (the
 #    old signf(forward_speed) only ever picked the side of the leading term).
-	steer = move_toward(steer, steer_input, STEER_RESPONSE * delta)
+	#    The driver's hands turn the steering wheel towards what the input asks
+	#    for (a share of its 450 degrees each way) at STEERING_HAND_SPEED; the
+	#    rack turns that into front wheel angle.
+	steering_wheel_deg = move_toward(steering_wheel_deg, steer_input * STEERING_WHEEL_LOCK_DEG, STEERING_HAND_SPEED * delta)
+	steer = steering_wheel_deg / STEERING_WHEEL_LOCK_DEG
 	var front_arm := AXLE_DISTANCE + CG_OFFSET
 	var rear_arm := AXLE_DISTANCE - CG_OFFSET
 	var yaw_inertia := CAR_MASS * YAW_GYRATION_RADIUS * YAW_GYRATION_RADIUS
@@ -1362,6 +1396,7 @@ func reset_to(target: Transform3D) -> void:
 	lateral_speed = 0.0
 	yaw_rate = 0.0
 	slide_yaw_rate = 0.0
+	steering_wheel_deg = 0.0
 	steer = 0.0
 	_handbrake_amount = 0.0
 	reverse_engaged = false

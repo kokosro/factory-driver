@@ -68,14 +68,20 @@ const DASH_COWL_SIZE := Vector3(0.36, 0.05, 0.2)
 const DASH_FLOOR_CENTRE := Vector3(0.0, 0.86, 0.25)
 const DASH_FLOOR_SIZE := Vector3(1.4, 0.02, 1.9)
 
-## ... and the steering wheel: hub position, rim radius, rim thickness [m], how
-## far the wheel leans back from upright, and how far it turns at full lock
-## [degrees].
+## ... and the steering wheel: hub position, rim radius, rim thickness [m] and
+## how far the wheel leans back from upright [degrees]. It turns with the car's
+## own steering wheel (ArcadeCar.steering_wheel_deg), all 450 degrees each way:
+## past half a turn the spoke simply comes round again, as the real one does;
+## nothing is clamped or wrapped, the angle is the angle. A marker at the top
+## of the rim (12 o'clock with the wheels straight) tells one turn from the
+## next.
+# was WHEEL_LOCK_DEG 100.0, the dashboard wheel turned steer x 100 degrees, a
+# gesture -> removed: the true rotation, 450 degrees at full lock.
 const WHEEL_CENTRE := Vector3(-0.32, 0.95, -0.27)
 const WHEEL_RADIUS := 0.16
 const WHEEL_RIM_THICKNESS := 0.022
 const WHEEL_LEAN_DEG := 20.0
-const WHEEL_LOCK_DEG := 100.0
+const WHEEL_MARKER_COLOR := Color(0.85, 0.7, 0.1, 1)
 
 const DASH_COLOR := Color(0.035, 0.035, 0.04, 1)
 const WHEEL_COLOR := Color(0.1, 0.1, 0.11, 1)
@@ -261,7 +267,7 @@ func _aim_at(target_position: Vector3) -> void:
 func _update_cockpit(target_xform: Transform3D) -> void:
 	_mount(target_xform, COCKPIT_EYE, COCKPIT_PITCH_DEG)
 	fov = lerpf(COCKPIT_FOV_AT_REST, COCKPIT_FOV_AT_MAX_SPEED, target.speed_ratio)
-	_steering_wheel.rotation.y = target.steer * deg_to_rad(WHEEL_LOCK_DEG)
+	_steering_wheel.rotation.y = deg_to_rad(target.steering_wheel_deg)
 
 
 func _update_front(target_xform: Transform3D) -> void:
@@ -317,6 +323,15 @@ func _build_dashboard() -> void:
 	spoke_mesh.size = Vector3(WHEEL_RADIUS * 2.0 - WHEEL_RIM_THICKNESS, WHEEL_RIM_THICKNESS, WHEEL_RIM_THICKNESS * 1.6)
 	spoke_mesh.material = wheel_material
 	_add_part(_steering_wheel, spoke_mesh, Vector3.ZERO)
+	# The centre marker: a band round the top of the rim. The wheel lies in the
+	# column's XZ plane, the top of the rim towards the column's -Z.
+	var marker_material := StandardMaterial3D.new()
+	marker_material.albedo_color = WHEEL_MARKER_COLOR
+	marker_material.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	var marker_mesh := BoxMesh.new()
+	marker_mesh.size = Vector3(WHEEL_RIM_THICKNESS * 1.2, WHEEL_RIM_THICKNESS * 1.2, WHEEL_RIM_THICKNESS * 1.3)
+	marker_mesh.material = marker_material
+	_add_part(_steering_wheel, marker_mesh, Vector3(0.0, 0.0, -(WHEEL_RADIUS - WHEEL_RIM_THICKNESS * 0.5)))
 
 
 func _add_dash_box(centre: Vector3, size: Vector3, material: Material) -> void:
