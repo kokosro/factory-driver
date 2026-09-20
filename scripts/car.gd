@@ -119,11 +119,47 @@ const TORQUE_CURVE: Array[Vector2] = [
 	Vector2(7200.0, 180.0),
 ]
 
-## Engine speed with no load [rpm]. The tach never reads lower while running.
+## Engine speed with no load [rpm]. The tach never reads lower while running:
+## the idle controller (see _engine_net_torque) opens the throttle by itself as
+## the revs come down to this, and holds them there. The engine idles from
+## _ready on; a cold start is out of scope, there is no starter and no stall.
 const IDLE_RPM := 900.0
 
-## Rev limiter [rpm]. The engine makes no torque at or above this.
+## Rev limiter [rpm]: a fuel cut. At this speed the engine stops firing and
+## falls back on its own friction until LIMITER_RESUME_RPM, then fires again:
+## held against it, the revs bounce between the two (~8 times a second with
+## no load). The engine never turns faster than this under its own power.
 const REDLINE_RPM := 7200.0
+
+## Engine speed at which the rev limiter lets the fuel back in [rpm].
+const LIMITER_RESUME_RPM := 7000.0
+
+## Moment of inertia of what turns with the crankshaft [kg m^2]: crank,
+## flywheel, clutch cover. 0.25 is the order of the real 986's flat six with
+## its dual-mass flywheel. The engine speed is a state of its own, wound up and
+## down by torque against this: d(omega) / dt = net torque / ENGINE_INERTIA.
+## With no load, full throttle takes it from idle to the limiter in ~0.8 s.
+## Lower = revs that snap up and down, higher = a lazy engine.
+const ENGINE_INERTIA := 0.25
+
+## Friction and pumping losses of the engine [Nm]: ENGINE_FRICTION_TORQUE
+## whatever the speed, plus ENGINE_FRICTION_TORQUE_PER_RPM [Nm per rpm] for
+## every rpm it turns: ~24 Nm at idle, ~85 Nm at 7000 rpm. What slows the revs
+## with the throttle closed: let go at the limiter in neutral, they are back
+## at idle in ~3.5 s. The per-rpm part is the old ENGINE_BRAKE_TORQUE_PER_RPM
+## 0.01, now a torque on the crankshaft. TORQUE_CURVE is torque at the flywheel, these
+## losses already taken off: what the burning fuel makes at full throttle is
+## the curve plus the losses, and the throttle scales that.
+const ENGINE_FRICTION_TORQUE := 15.0
+const ENGINE_FRICTION_TORQUE_PER_RPM := 0.01
+
+## Idle controller: torque it adds per rad/s the engine is below IDLE_RPM, on
+## top of what carries the friction there [Nm per rad/s]; 2.5 against
+## ENGINE_INERTIA closes a gap at 10 per second, no overshoot ...
+const IDLE_CONTROL_GAIN := 2.5
+
+## ... and the most throttle it may open by itself (0..1): ~55 Nm at idle.
+const IDLE_CONTROL_MAX_THROTTLE := 0.3
 
 ## Pulling away, the clutch slips so the engine sits at least this high [rpm]
 ## until the wheels catch up. Stops the car from bogging at walking pace.
@@ -696,8 +732,20 @@ var reverse_engaged := false
 ## True = the gearbox shifts by itself. The shift keys switch to manual.
 var automatic := true
 
-## Engine speed [rpm].
-var engine_rpm := IDLE_RPM
+## Engine speed [rad/s]: a state of its own, integrated from the torques on
+## the crankshaft (see _engine_net_torque) against ENGINE_INERTIA.
+var engine_omega := IDLE_RPM * TAU / 60.0
+
+## Engine speed [rpm]: engine_omega as the tach shows it.
+var engine_rpm: float:
+	get:
+		return engine_omega * 60.0 / TAU
+	set(value):
+		engine_omega = value * TAU / 60.0
+
+## True while the rev limiter holds the fuel back (REDLINE_RPM reached, not yet
+## back under LIMITER_RESUME_RPM).
+var limiter_cutting := false
 
 ## Share of the car's weight on each axle right now (0..1, sums to 1).
 var front_load_fraction := 1.0 - REAR_WEIGHT_FRACTION
@@ -1017,7 +1065,8 @@ func reset_to(target: Transform3D) -> void:
 	_forward_engage_timer = 0.0
 	gear = 1
 	automatic = true
-	engine_rpm = IDLE_RPM
+	engine_omega = IDLE_RPM * TAU / 60.0
+	limiter_cutting = false
 	_shift_timer = 0.0
 	_since_shift = AUTO_SHIFT_HOLD
 	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
@@ -1128,8 +1177,8 @@ func speed_at_rpm(in_gear: int, rpm: float) -> float:
 	return rpm / (60.0 / TAU) / (GEAR_RATIOS[in_gear] * FINAL_DRIVE) * WHEEL_RADIUS
 
 
-## Full-throttle engine torque [Nm] at `rpm`, from TORQUE_CURVE. Zero at and
-## above the rev limiter.
+## Full-throttle engine torque at the flywheel [Nm] at `rpm`, from
+## TORQUE_CURVE. Zero at and above the rev limiter.
 static func engine_torque(rpm: float) -> float:
 	if rpm >= REDLINE_RPM:
 		return 0.0
@@ -1319,19 +1368,63 @@ func _update_gearbox(speed: float, throttle: float, reversing: bool, delta: floa
 			):
 				shift_to(lower)
 
-	# Where the engine wants to be: tied to the wheels in gear (with a slipping
-	# clutch when pulling away), free-revving in neutral.
-	var target: float
+	if gear == 0 and not reversing:
+		# Neutral: nothing on the crankshaft but the engine's own torques. It
+		# free-revs against its inertia, up to the limiter and back to idle.
+		_advance_engine(_engine_net_torque(engine_rpm, throttle), delta)
+		return
+	# In gear the engine speed still follows the wheels kinematically (with a
+	# stand-in for the slipping clutch when pulling away) until the clutch model
+	# couples the two through torque.
+	var target := wheel_rpm(gear)
 	if reversing:
 		target = absf(speed) / WHEEL_RADIUS * REVERSE_RATIO * FINAL_DRIVE * 60.0 / TAU
-	elif gear == 0:
-		target = lerpf(IDLE_RPM, REDLINE_RPM, throttle)
-	else:
-		target = wheel_rpm(gear)
-		if throttle > 0.0:
-			target = maxf(target, LAUNCH_RPM)
+	elif throttle > 0.0:
+		target = maxf(target, LAUNCH_RPM)
 	target = maxf(target, IDLE_RPM)
 	engine_rpm = lerpf(engine_rpm, target, 1.0 - exp(-RPM_RESPONSE * delta))
+	_update_limiter()
+
+
+## Net torque on the crankshaft from the engine itself [Nm] at `rpm` with the
+## pedal at `throttle` (0..1): what the burning fuel makes, less friction and
+## pumping losses. TORQUE_CURVE is what is left of the two at full throttle, so
+## combustion is the curve plus the losses, scaled by the throttle; closed, the
+## losses are all there is, and that is the engine braking. Two things work the
+## throttle besides the driver: the idle controller opens it as the revs come
+## down to IDLE_RPM (enough to carry the friction there, plus
+## IDLE_CONTROL_GAIN for every rad/s below), and the rev limiter shuts the fuel
+## off (limiter_cutting).
+func _engine_net_torque(rpm: float, throttle: float) -> float:
+	var friction := ENGINE_FRICTION_TORQUE + ENGINE_FRICTION_TORQUE_PER_RPM * rpm
+	if limiter_cutting:
+		return -friction
+	var full_combustion := engine_torque(rpm) + friction
+	var idle_torque := friction + IDLE_CONTROL_GAIN * (IDLE_RPM - rpm) * TAU / 60.0
+	var idle_throttle := clampf(idle_torque / full_combustion, 0.0, IDLE_CONTROL_MAX_THROTTLE)
+	return full_combustion * maxf(throttle, idle_throttle) - friction
+
+
+## One tick of the engine speed under `torque` [Nm], everything on the
+## crankshaft added up: d(omega) = torque / ENGINE_INERTIA * delta. The limiter
+## cuts the fuel the moment the revs get to REDLINE_RPM, so the engine never
+## runs past it under its own power: the step stops there.
+func _advance_engine(torque: float, delta: float) -> void:
+	var limit := REDLINE_RPM * TAU / 60.0
+	var next := engine_omega + torque / ENGINE_INERTIA * delta
+	if engine_omega <= limit:
+		next = minf(next, limit)
+	engine_omega = maxf(next, 0.0)
+	_update_limiter()
+
+
+## The rev limiter's fuel cut: on at REDLINE_RPM, off again under
+## LIMITER_RESUME_RPM.
+func _update_limiter() -> void:
+	if engine_rpm >= REDLINE_RPM:
+		limiter_cutting = true
+	elif engine_rpm < LIMITER_RESUME_RPM:
+		limiter_cutting = false
 
 
 ## Most force [N] the tyres of an axle can make, in any direction, under
