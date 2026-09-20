@@ -131,7 +131,11 @@ const SLALOM_GATE_WIDTH := 6.0
 
 ## Slalom: generous time limit from the start line to the last cone [s], on
 ## the run clock. A steady 36 km/h run takes about 29 s.
-const SLALOM_TIME_LIMIT := 45.0
+# was 45.0, from begin() -> 43.0, from the start line - the check moved to the
+# run clock, and the certified run is over the line 1.55 s after begin() (30.3 s
+# then, 28.75 s now): 45.0 on the new clock would have been 1.55 s more than it
+# was. 43.0 is 0.45 s less: the same check, a little stricter.
+const SLALOM_TIME_LIMIT := 43.0
 
 ## Stop box: the car counts as stopped below this speed [m/s].
 const STOPPED_SPEED := 0.3
@@ -379,15 +383,22 @@ static func slalom_test() -> Dictionary:
 		# slalom_time_s is first cone to last only.
 		# was 30.0 -> 36.0 - the certified run is 32.4 s at SLALOM_SPEED 10.0 (raw
 		# steering); slalom_time_s 29.6.
-		"target_time_s": 36.0,
+		# was 36.0 -> 31.0 - the run clock (start line to last cone): certified
+		# run 28.75 s at HEAD (f4652eb), as a mission and as a handling test alike,
+		# slalom_time_s the same number now. The gold time, as on the other tests.
+		"target_time_s": 31.0,
 		# Medal times [s]: gold / silver / bronze - the certified drive is 31.3 s
 		# as a mission (the run ends 1 s after the last cone; 33.2 s as a handling
 		# test, where the script straightens up first) at HEAD (c47aa3f): +7 %, +25 %,
 		# +50 %. The last cone has to be reached inside SLALOM_TIME_LIMIT, so every
 		# pass is inside bronze.
-		"gold_time_s": 33.5,
-		"silver_time_s": 39.0,
-		"bronze_time_s": 47.0,
+		# was 33.5 / 39.0 / 47.0 -> 31.0 / 36.0 / 43.0 - the run clock: certified
+		# 28.75 s at HEAD (f4652eb), was 31.3 s from begin() to 1 s after the last
+		# cone: +8 %, +25 %, +50 %. Bronze is SLALOM_TIME_LIMIT (43.0), so every
+		# pass is still inside bronze.
+		"gold_time_s": 31.0,
+		"silver_time_s": 36.0,
+		"bronze_time_s": 43.0,
 	}
 
 
@@ -436,12 +447,17 @@ static func spin_180_test() -> Dictionary:
 		# target 11.5 s - certified run 10.2 s at HEAD (eed237f).
 		# was 11.5 -> 20.5 - the run goes back to the start now: certified run
 		# 18.9 s at HEAD (c47aa3f), 9.7 s of it the spin, to a stop. The gold time.
-		"target_time_s": 20.5,
+		# was 20.5 -> 17.0 - the run clock (start line to back within 8 m of the
+		# start point): certified run 15.83 s at HEAD (f4652eb). The gold time.
+		"target_time_s": 17.0,
 		# Medal times [s]: gold / silver / bronze - certified 18.9 s at HEAD (c47aa3f):
 		# +8 %, +24 %, +51 %.
-		"gold_time_s": 20.5,
-		"silver_time_s": 23.5,
-		"bronze_time_s": 28.5,
+		# was 20.5 / 23.5 / 28.5 -> 17.0 / 19.5 / 24.0 - the run clock: certified
+		# 15.83 s at HEAD (f4652eb), the 1.57 s to the line and the 1.5 s settle no
+		# longer on it: +7 %, +23 %, +52 %.
+		"gold_time_s": 17.0,
+		"silver_time_s": 19.5,
+		"bronze_time_s": 24.0,
 	}
 
 
@@ -488,12 +504,17 @@ static func spin_360_test() -> Dictionary:
 		# target 16.5 s - certified run 14.6 s at HEAD (eed237f).
 		# was 16.5 -> 23.5 - the run goes on to the 400 m board now: certified run
 		# 21.8 s at HEAD (c47aa3f), over the goal line at 19.8 s. The gold time.
-		"target_time_s": 23.5,
+		# was 23.5 -> 19.5 - the run clock (start line to goal line): certified run
+		# 18.23 s at HEAD (f4652eb). The gold time.
+		"target_time_s": 19.5,
 		# Medal times [s]: gold / silver / bronze - certified 21.8 s at HEAD (c47aa3f):
 		# +8 %, +26 %, +49 %.
-		"gold_time_s": 23.5,
-		"silver_time_s": 27.5,
-		"bronze_time_s": 32.5,
+		# was 23.5 / 27.5 / 32.5 -> 19.5 / 23.0 / 27.0 - the run clock: certified
+		# 18.23 s at HEAD (f4652eb), the 1.57 s to the line and the 2 s settle no
+		# longer on it: +7 %, +26 %, +48 %.
+		"gold_time_s": 19.5,
+		"silver_time_s": 23.0,
+		"bronze_time_s": 27.0,
 	}
 
 
@@ -522,12 +543,17 @@ static func stop_box_test() -> Dictionary:
 		"time_limit": 30.0,
 		# Target time for the whole run [s]; presentation only, nothing judges it.
 		# target 12.5 s - certified run 11.3 s at HEAD (eed237f).
-		"target_time_s": 12.5,
+		# was 12.5 -> 9.3 - the run clock (start line to a standstill): certified
+		# run 8.67 s at HEAD (f4652eb). The gold time.
+		"target_time_s": 9.3,
 		# Medal times [s]: gold / silver / bronze - certified 11.7 s at HEAD (c47aa3f):
 		# +7 %, +24 %, +49 %.
-		"gold_time_s": 12.5,
-		"silver_time_s": 14.5,
-		"bronze_time_s": 17.5,
+		# was 12.5 / 14.5 / 17.5 -> 9.3 / 10.8 / 13.0 - the run clock: certified
+		# 8.67 s at HEAD (f4652eb), the 1.55 s to the line and the 1.5 s settle no
+		# longer on it: +7 %, +25 %, +50 %.
+		"gold_time_s": 9.3,
+		"silver_time_s": 10.8,
+		"bronze_time_s": 13.0,
 	}
 
 
@@ -578,12 +604,17 @@ static func reverse_180_test() -> Dictionary:
 		# target 7.0 s - certified run 6.4 s at HEAD (eed237f).
 		# was 7.0 -> 11.0 - the run goes on to the 100 m board now: certified run
 		# 10.3 s at HEAD (c47aa3f), over the goal line at 9.3 s. The gold time.
-		"target_time_s": 11.0,
+		# was 11.0 -> 8.3 - the run clock (start line, reversing, to goal line):
+		# certified run 7.70 s at HEAD (f4652eb). The gold time.
+		"target_time_s": 8.3,
 		# Medal times [s]: gold / silver / bronze - certified 10.3 s at HEAD (c47aa3f):
 		# +7 %, +26 %, +50 %.
-		"gold_time_s": 11.0,
-		"silver_time_s": 13.0,
-		"bronze_time_s": 15.5,
+		# was 11.0 / 13.0 / 15.5 -> 8.3 / 9.7 / 11.5 - the run clock: certified
+		# 7.70 s at HEAD (f4652eb), the 1.63 s to the line and the 1 s settle no
+		# longer on it: +8 %, +26 %, +49 %.
+		"gold_time_s": 8.3,
+		"silver_time_s": 9.7,
+		"bronze_time_s": 11.5,
 	}
 
 
