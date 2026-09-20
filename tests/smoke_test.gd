@@ -65,6 +65,16 @@ const MAX_PLAUSIBLE_ACCEL_G := 1.2
 ## (LOW_SPEED_BLEND_START .. LOW_SPEED_BLEND_END).
 const CRAWL_SPEED := 2.0
 
+## Downforce check: how long the carried load is averaged [physics frames],
+## 0.5 s, and how close the average has to come to weight + downforce [N]. Was
+## 1.0 N on the instantaneous loads - pre-2G flat-ground exactness; the road now
+## adds a mean-neutral ripple to the four wheel loads (up to ~1300 N at once at
+## 160 km/h, all four together) and a few hundred N of real crest / dip load
+## where the swell curves. Measured: the 30-frame average is 61 N off, with
+## ~670 N of downforce to find; a car without downforce is 670 N off.
+const DOWNFORCE_AVERAGE_FRAMES := 30
+const DOWNFORCE_TOLERANCE := 150.0
+
 var _failures := 0
 
 
@@ -478,9 +488,16 @@ func _check_force_dynamics(car: ArcadeCar) -> void:
 	Input.action_release("accelerate")
 	await _step(30)
 	var weight := ArcadeCar.CAR_MASS * gravity
-	var carried := car.front_axle_load + car.rear_axle_load
-	var expected := ArcadeCar.DOWNFORCE_COEFF * car.forward_speed * car.forward_speed
-	_check(absf(carried - weight - expected) < 1.0 and expected > 0.04 * weight, "downforce adds to the axle loads at speed (+%.0f N at %.0f km/h, the car weighs %.0f N)" % [carried - weight, car.speed_kmh, weight])
+	# The road moves load in and out of the wheels tick by tick, so what the
+	# axles carry and what downforce should add are both averaged over
+	# DOWNFORCE_AVERAGE_FRAMES before they are compared.
+	var carried := 0.0
+	var expected := 0.0
+	for frame in DOWNFORCE_AVERAGE_FRAMES:
+		await physics_frame
+		carried += (car.front_axle_load + car.rear_axle_load) / DOWNFORCE_AVERAGE_FRAMES
+		expected += ArcadeCar.DOWNFORCE_COEFF * car.forward_speed * car.forward_speed / DOWNFORCE_AVERAGE_FRAMES
+	_check(absf(carried - weight - expected) < DOWNFORCE_TOLERANCE and expected > 0.04 * weight, "downforce adds to the axle loads at speed (+%.0f N at %.0f km/h, the car weighs %.0f N)" % [carried - weight, car.speed_kmh, weight])
 	car.reset_to_spawn()
 	await _step(5)
 

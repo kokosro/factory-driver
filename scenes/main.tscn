@@ -5,6 +5,7 @@
 [ext_resource type="Script" path="res://scripts/chase_camera.gd" id="3_camera"]
 [ext_resource type="PackedScene" path="res://scenes/hud.tscn" id="4_hud"]
 [ext_resource type="Script" path="res://scripts/mission_manager.gd" id="5_missions"]
+[ext_resource type="Script" path="res://scripts/road_profile.gd" id="6_road"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_material"]
 sky_top_color = Color(0.22, 0.42, 0.75, 1)
@@ -20,15 +21,10 @@ background_mode = 2
 sky = SubResource("sky")
 tonemap_mode = 2
 
+[sub_resource type="Resource" id="road_profile"]
+script = ExtResource("6_road")
+
 [sub_resource type="WorldBoundaryShape3D" id="shape_ground"]
-
-[sub_resource type="StandardMaterial3D" id="mat_asphalt"]
-albedo_color = Color(0.2, 0.21, 0.23, 1)
-roughness = 0.95
-
-[sub_resource type="PlaneMesh" id="mesh_ground"]
-material = SubResource("mat_asphalt")
-size = Vector2(4000, 4000)
 
 [node name="Main" type="Node3D"]
 
@@ -43,6 +39,7 @@ directional_shadow_max_distance = 150.0
 [node name="TestPad" type="Node3D" parent="." node_paths=PackedStringArray("car")]
 script = ExtResource("1_pad")
 car = NodePath("../Car")
+road_profile = SubResource("road_profile")
 
 [node name="Ground" type="StaticBody3D" parent="TestPad"]
 
@@ -50,9 +47,9 @@ car = NodePath("../Car")
 shape = SubResource("shape_ground")
 
 [node name="MeshInstance3D" type="MeshInstance3D" parent="TestPad/Ground"]
-mesh = SubResource("mesh_ground")
 
 [node name="Car" parent="." instance=ExtResource("2_car")]
+road_profile = SubResource("road_profile")
 
 [node name="ChaseCamera" type="Camera3D" parent="." node_paths=PackedStringArray("target")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.6, 6.5)
