@@ -3,11 +3,13 @@ extends Camera3D
 ## behind the car's heading and trails its position with a little lag, so the
 ## car visibly moves against the frame when it accelerates, brakes or turns.
 ## The camera_cycle action steps through the other views: cockpit, front
-## (bonnet) and overhead, then back to chase.
+## (bonnet), overhead and wheel (down by the front-left tyre), then back to
+## chase. Holding look_back shows the rear view for as long as it is held.
 
-enum Mode { CHASE, COCKPIT, FRONT, OVERHEAD }
+## REAR is held-only: look_back cuts to it, the cycle never lands on it.
+enum Mode { CHASE, COCKPIT, FRONT, OVERHEAD, WHEEL, REAR }
 
-const MODE_NAMES: Array[String] = ["chase", "cockpit", "front", "overhead"]
+const MODE_NAMES: Array[String] = ["chase", "cockpit", "front", "overhead", "wheel", "rear"]
 
 # --- Tuning ------------------------------------------------------------------
 
@@ -34,8 +36,8 @@ const FOV_AT_MAX_SPEED := 82.0
 
 # --- Modes -------------------------------------------------------------------
 # Offsets are in the car's own space: origin on the ground under the middle of
-# the car, nose towards -Z, +X to the driver's right, +Y up. Cockpit and front
-# are fixed rigidly to the car, with no lag.
+# the car, nose towards -Z, +X to the driver's right, +Y up. Cockpit, front,
+# wheel and rear are fixed rigidly to the car, with no lag.
 
 ## Cockpit: the driver's eye, inside the cabin box on the left-hand seat [m].
 ## The cabin's walls face outwards, so from in here they are not drawn; the
@@ -107,11 +109,36 @@ const OVERHEAD_FOLLOW_RATE := 3.0
 ## Overhead: screen-right is +X, screen-up is -Z, and the camera looks down -Y.
 const OVERHEAD_BASIS := Basis(Vector3(1, 0, 0), Vector3(0, 0, -1), Vector3(0, 1, 0))
 
+## Wheel: low, ahead and outboard of the front-left wheel (the one that steers
+## and does most of the braking), outside the body and clear of the tyre [m] ...
+const WHEEL_CAM_EYE := Vector3(-1.75, 0.5, -2.2)
+
+## ... aimed back at that wheel, just above its contact patch [m], so the tyre,
+## its steering angle, its spin and the tarmac running under it are all in shot.
+const WHEEL_CAM_LOOK_AT := Vector3(-0.86, 0.12, -1.3)
+
+## Wheel: field of view at standstill and at top speed [degrees].
+const WHEEL_CAM_FOV_AT_REST := 60.0
+const WHEEL_CAM_FOV_AT_MAX_SPEED := 68.0
+
+## Rear (held): ahead of the nose and above the roof line (~1.35 m), so the
+## road behind shows over the car [m] ...
+const REAR_EYE := Vector3(0.0, 1.8, -3.2)
+
+## ... aimed back along the car at the top of its tail [m].
+const REAR_LOOK_AT := Vector3(0.0, 1.1, 2.1)
+
+## Rear: field of view at standstill and at top speed [degrees].
+const REAR_FOV_AT_REST := 70.0
+const REAR_FOV_AT_MAX_SPEED := 80.0
+
 @export var target: ArcadeCar
 
 ## The active view. Change it with set_mode() or cycle_mode().
 var mode := Mode.CHASE
 
+## The view look_back interrupted, restored when the key is released.
+var _mode_before_rear := Mode.CHASE
 var _yaw := 0.0
 var _default_near := 0.05
 var _overhead_lead := Vector3.ZERO
@@ -133,7 +160,14 @@ func _ready() -> void:
 
 func _physics_process(_delta: float) -> void:
 	# Polled here, like the car's own keys.
-	if Input.is_action_just_pressed("camera_cycle"):
+	var look_back := Input.is_action_pressed("look_back")
+	if look_back and mode != Mode.REAR:
+		_mode_before_rear = mode
+		set_mode(Mode.REAR)
+	elif not look_back and mode == Mode.REAR:
+		set_mode(_mode_before_rear)
+	# The cycle waits while the rear view is held.
+	if Input.is_action_just_pressed("camera_cycle") and mode != Mode.REAR:
 		cycle_mode()
 
 
@@ -150,16 +184,25 @@ func _process(delta: float) -> void:
 			_update_front(target_xform)
 		Mode.OVERHEAD:
 			_update_overhead(target_xform, delta)
+		Mode.WHEEL:
+			_update_wheel(target_xform)
+		Mode.REAR:
+			_update_rear(target_xform)
 
 
-## Name of the active view: "chase", "cockpit", "front" or "overhead".
+## Name of the active view: "chase", "cockpit", "front", "overhead" or "wheel",
+## and "rear" while look_back is held.
 func mode_name() -> String:
 	return MODE_NAMES[mode]
 
 
-## Steps to the next view, wrapping back to chase after the last.
+## Steps to the next view, wrapping back to chase after the last. The held-only
+## rear view is not a stop on the way.
 func cycle_mode() -> void:
-	set_mode(((mode + 1) % Mode.size()) as Mode)
+	var next := (mode + 1) % Mode.size()
+	if next == Mode.REAR:
+		next = (next + 1) % Mode.size()
+	set_mode(next as Mode)
 
 
 ## Cuts straight to a view, placing the camera where that view wants it now.
@@ -184,6 +227,10 @@ func set_mode(new_mode: Mode) -> void:
 			_overhead_lead = _overhead_lead_target()
 			_overhead_height = _overhead_height_target()
 			_update_overhead(target_xform, 0.0)
+		Mode.WHEEL:
+			_update_wheel(target_xform)
+		Mode.REAR:
+			_update_rear(target_xform)
 
 
 # --- Chase ---------------------------------------------------------------------
@@ -226,6 +273,13 @@ func _update_front(target_xform: Transform3D) -> void:
 ## tilted down by `pitch_deg`.
 func _mount(target_xform: Transform3D, eye: Vector3, pitch_deg: float) -> void:
 	var view := target_xform.basis.orthonormalized() * Basis(Vector3.RIGHT, -deg_to_rad(pitch_deg))
+	global_transform = Transform3D(view, target_xform * eye)
+
+
+## Fixes the camera to the car at `eye`, aimed at `look_at_point` (both car
+## space), upright in the car's own frame.
+func _mount_aimed(target_xform: Transform3D, eye: Vector3, look_at_point: Vector3) -> void:
+	var view := target_xform.basis.orthonormalized() * Basis.looking_at(look_at_point - eye, Vector3.UP)
 	global_transform = Transform3D(view, target_xform * eye)
 
 
@@ -278,6 +332,18 @@ func _add_part(parent: Node3D, mesh: Mesh, at: Vector3) -> void:
 	part.position = at
 	part.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(part)
+
+
+# --- Wheel and rear ---------------------------------------------------------------
+
+func _update_wheel(target_xform: Transform3D) -> void:
+	_mount_aimed(target_xform, WHEEL_CAM_EYE, WHEEL_CAM_LOOK_AT)
+	fov = lerpf(WHEEL_CAM_FOV_AT_REST, WHEEL_CAM_FOV_AT_MAX_SPEED, target.speed_ratio)
+
+
+func _update_rear(target_xform: Transform3D) -> void:
+	_mount_aimed(target_xform, REAR_EYE, REAR_LOOK_AT)
+	fov = lerpf(REAR_FOV_AT_REST, REAR_FOV_AT_MAX_SPEED, target.speed_ratio)
 
 
 # --- Overhead --------------------------------------------------------------------
