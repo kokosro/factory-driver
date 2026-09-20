@@ -2,6 +2,7 @@
 
 [ext_resource type="Script" path="res://scripts/car.gd" id="1_script"]
 [ext_resource type="PackedScene" path="res://scenes/wheel.tscn" id="2_wheel"]
+[ext_resource type="Script" path="res://scripts/xray.gd" id="3_xray"]
 
 [sub_resource type="BoxShape3D" id="shape_body"]
 size = Vector3(1.8, 1.2, 4.2)
@@ -107,3 +108,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.86, 0.34, 1.3)
 
 [node name="RearRight" parent="Wheels" instance=ExtResource("2_wheel")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.86, 0.34, 1.3)
+
+[node name="Xray" type="Node3D" parent="."]
+visible = false
+script = ExtResource("3_xray")
