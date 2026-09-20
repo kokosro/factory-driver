@@ -82,9 +82,16 @@ const REVERSE_180_MIN_DISPLACEMENT := 0.0
 
 const ACTIONS: Array[StringName] = [&"accelerate", &"brake", &"steer_left", &"steer_right", &"handbrake"]
 
-## Slalom cruise speed [m/s], ~43 km/h. The car can weave wider than the cones
+## Slalom cruise speed [m/s], 36 km/h. The car can weave wider than the cones
 ## need at this speed, so there is margin either side.
-const SLALOM_SPEED := 12.0
+# was 12.0 -> 10.0 - raw steering: the driver's key is the full 27.5 degrees of
+# lock, which at 12 m/s scrubs the front tyres far past their peak; the car
+# yawed ~32 deg/s where the eased lock gave ~40, each swing ran late and the
+# weave drifted off the cones (5 of 14 gates). At 10 m/s the same full-lock
+# swings fit the 18 m between cones again: 14 of 14, closest pass 2.1 m, and
+# still 14 of 14 with SLALOM_SWING_DEG anywhere from 16 to 22 (11.0 made it at
+# 19 but not at 22 - no margin).
+const SLALOM_SPEED := 10.0
 
 ## The scripted slalom driver turns in this far before it draws level with a
 ## cone [m], to allow for the steering and the tyres taking a moment to
@@ -116,11 +123,16 @@ const SPIN_360_ENTRY_SPEED := 35.0
 # round a body rotated for it. With the tyres bending the path themselves the
 # flick alone keeps the car on its line (ends 9 degrees past 180); a feint now
 # swings the path and the car settles along it, 25 - 30 degrees off.
-# was 150.0 -> 155.0 - travelling backwards the held lock slows the rotation
-# (the steered wheels trail): held all the way, the spin tops out at ~165
-# degrees and the car drags to a stop well short of 180. Let go just short of
-# the top, the rotation is nearly spent and the car lines up along its path
-# from there (145 ends at 198, 155 at 189, 162 at 188).
+# was 150.0 -> 155.0 - travelling backwards the held lock slows the rotation:
+# held all the way, the spin tops out short of 180 and the car drags to a
+# stop there. Let go just short of the top, the rotation is nearly spent and
+# the car lines up along its path from there.
+# 155.0 stays with raw steering, the reasoning is re-measured: the wheels no
+# longer trail by themselves (was: "the steered wheels trail", topping out at
+# ~165; 145 ended at 198, 155 at 189, 162 at 188). Now the lock stays on the
+# wheels for as long as the key is held, and rolling backwards full lock
+# works against the spin harder: held to 165 the rotation never gets there
+# and the car stops at 138. 145 ends at 184, 155 at 180.
 const SPIN_180_CATCH_DEG := 155.0
 
 ## ... and how long it then lets the car settle, rolling backwards with the
@@ -237,7 +249,9 @@ static func slalom_test() -> Dictionary:
 		# HUD shows the clock against. Presentation only, nothing judges it.
 		# target 30.0 s - certified run 27.3 s at HEAD (eed237f); the 24.7 s
 		# slalom_time_s is first cone to last only.
-		"target_time_s": 30.0,
+		# was 30.0 -> 36.0 - the certified run is 32.4 s at SLALOM_SPEED 10.0 (raw
+		# steering); slalom_time_s 29.6.
+		"target_time_s": 36.0,
 	}
 
 
