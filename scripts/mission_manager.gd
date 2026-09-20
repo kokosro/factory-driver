@@ -12,6 +12,11 @@ extends Node
 ## where the run starts and where it is headed: a golden orb by the start point
 ## and a golden chevron by the goal (looks only). The 180 goes back to the
 ## start: its orb is its goal.
+##
+## It also owns the telemetry recorder (scripts/telemetry.gd), which listens to
+## the signals below and writes every run down, and shows what it has stored:
+## your last medal and best time on the idle line, your standing best on a
+## PASSED banner.
 
 signal mission_started(index: int, definition: Dictionary)
 signal mission_finished(index: int, outcome: Dictionary)
@@ -93,6 +98,11 @@ var run: HandlingTests
 ## HandlingTests.result()). Empty while a run is active and after an abort.
 var last_result: Dictionary = {}
 
+## Writes the driving down (scripts/telemetry.gd) and holds the stored summary
+## of earlier runs the HUD shows. Made here, listening to this node's signals.
+## It records nothing with no window, so the test suite writes no files.
+var telemetry: TelemetryRecorder
+
 var _banner_left := 0.0
 
 var _markers: Node3D
@@ -101,8 +111,28 @@ var _finish_chevron: Node3D
 
 
 func _ready() -> void:
+	_start_telemetry()
 	_build_markers()
 	_show_idle_line()
+
+
+## The recorder goes up before the first line is drawn: it reads the stored
+## summary of earlier runs (times, medals) that the idle line and the PASSED
+## banner show. It connects to the signals below first, so by the time the idle
+## line is built again after a run the run is already in the summary.
+func _start_telemetry() -> void:
+	telemetry = TelemetryRecorder.new()
+	telemetry.name = "TelemetryRecorder"
+	add_child(telemetry)
+	telemetry.attach(self, car)
+	if TelemetryRecorder.should_record():
+		telemetry.start_session()
+	mission_finished.connect(func(_index: int, _outcome: Dictionary) -> void: _show_idle_line())
+
+
+## The stored summary of earlier runs, empty when there is none.
+func _telemetry_index() -> Dictionary:
+	return telemetry.index if telemetry else {}
 
 
 func _physics_process(delta: float) -> void:
@@ -199,7 +229,14 @@ func _show_idle_line() -> void:
 	var entries := PackedStringArray()
 	for index in tests.size():
 		entries.append("%d %s" % [index + 1, tests[index].title])
-	hud.set_mission_line("HANDLING TESTS:   %s      C  camera" % "   ".join(entries), LINE_COLOR_IDLE)
+	# was: the line ended at "C  camera" -> when there is telemetry stored from
+	# earlier runs it ends with a summary of it: " | last: SILVER, best: 30.9 s"
+	# (TelemetryRecorder.idle_suffix, the one place that string is built).
+	# Nothing stored, nothing appended.
+	hud.set_mission_line(
+		"HANDLING TESTS:   %s      C  camera%s" % ["   ".join(entries), TelemetryRecorder.idle_suffix(_telemetry_index())],
+		LINE_COLOR_IDLE,
+	)
 
 
 func _show_progress() -> void:
@@ -272,6 +309,12 @@ func _show_result(outcome: Dictionary) -> void:
 		detail += "\nfailed: " + summary[1]
 	if outcome.passed:
 		detail += "\n" + _medal_times_text(run.test)
+		# was: the small print ended at the medal times -> your standing best on
+		# this test goes under them, from the stored telemetry
+		# (TelemetryRecorder.best_line). Never driven it before, no line.
+		var best := TelemetryRecorder.best_line(_telemetry_index(), run.test)
+		if best != "":
+			detail += "\n" + best
 	detail += "\n" + _keys_hint()
 	hud.show_mission_banner(headline, detail, color)
 
