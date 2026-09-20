@@ -33,6 +33,10 @@ const RESULT_BANNER_TIME := 5.0
 ## ... and the shorter ABORTED one [s].
 const ABORT_BANNER_TIME := 2.0
 
+## What the running line's clock reads until the car crosses the test's start
+## line: the run is not being timed yet (HandlingTests, "The run clock").
+const CLOCK_NOT_STARTED := "not started"
+
 const LINE_COLOR_IDLE := Color(1, 1, 1, 0.85)
 const LINE_COLOR_RUNNING := Color(1.0, 0.9, 0.35, 1)
 const BANNER_COLOR_PASSED := Color(0.35, 1.0, 0.45, 1)
@@ -244,9 +248,18 @@ func _show_progress() -> void:
 		return
 	var test := run.test
 	# The clock: against the test's target time, where it has one.
-	var clock := "%.1f s" % run.elapsed
+	# was run.elapsed, counting from the moment the test began ("0.0 / 11.0 s",
+	# "0.1 / 11.0 s", ...) -> the run clock: it reads "not started" until the car
+	# crosses the test's start line ("not started / 9.5 s"), counts from there
+	# and stands once the car is at the finish. Waiting on the start point costs
+	# nothing, and the line says so.
+	var clock := CLOCK_NOT_STARTED
+	if run.started():
+		clock = "%.1f" % run.run_time()
 	if test.has("target_time_s"):
-		clock = "%.1f / %.1f s" % [run.elapsed, test.target_time_s]
+		clock += " / %.1f" % test.target_time_s
+	if run.started() or test.has("target_time_s"):
+		clock += " s"
 	hud.set_mission_line(
 		"TEST %d  %s      %s  %s\n%s   Esc / R  abort" % [selected_index + 1, test.title, _progress_text(), clock, test.objective],
 		LINE_COLOR_RUNNING,
