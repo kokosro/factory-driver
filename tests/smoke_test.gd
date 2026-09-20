@@ -7,7 +7,11 @@ extends SceneTree
 ## Loads the main scene, checks the key nodes exist, then drives the car with
 ## simulated input and checks it accelerates, steers, brakes, holds, reverses,
 ## slides under the handbrake, turns in less on the brakes, shifts gears and
-## moves load between the axles, that it goes by its tyre forces (power against
+## moves load between the axles, that its drivetrain is a chain of states (free
+## revs and the limiter in neutral, a dropped clutch spinning the wheels, the
+## launch on a slipping clutch, engine braking by gear, the engine on its own
+## through a gear change, wheels drawn at their real speed), that it goes by
+## its tyre forces (power against
 ## coasting in a corner, the path bending only as fast as the tyres can bend
 ## it, rear / front / all-wheel drive, brake bias, downforce, the low-speed
 ## blend), and checks the pad's ground texture, course queries and
@@ -234,6 +238,74 @@ const SLIDE_SETTLED_YAW_RATE := 0.01
 ## tolerance is 35; a signed judge read this run as 359.2 off.
 const MIRRORED_SPIN_MAX_HEADING_ERROR := 10.0
 
+## Drivetrain dynamics: full throttle in neutral gets from idle to the limiter
+## within this [s]. Measured 0.78.
+const FREE_REV_MAX_TIME := 1.0
+
+## Held against the limiter for 1.5 s, the fuel is cut at least this often and
+## the revs swing by more than this [rpm]. Measured 11 cuts, 6964 .. 7200 rpm.
+const LIMITER_MIN_CUTS := 5
+const LIMITER_MIN_BOUNCE_RPM := 100.0
+
+## Let go at the limiter in neutral, the revs are back at idle within this [s].
+## Measured 4.67.
+const IDLE_RETURN_MAX_TIME := 6.0
+
+## Coasting downshift 4th -> 3rd at ~80 km/h: the blip raises the revs by at
+## least this [rpm] with the clutch open and leaves them within
+## DOWNSHIFT_MAX_MISMATCH_RPM of what 3rd wants; through the catch the car
+## never slows harder than this [m/s^2] (engine braking in 3rd, drag and
+## rolling resistance come to ~0.8). Measured: +520 rpm, 60 rpm off, 0.82 m/s^2.
+const DOWNSHIFT_MIN_BLIP_RPM := 400.0
+const DOWNSHIFT_MAX_MISMATCH_RPM := 300.0
+const DOWNSHIFT_MAX_DECEL := 2.5
+
+## Slip ratio that counts as wheelspin in the clutch-drop check: twice the peak,
+## a little under the ArcadeCar.DRIVE_SLIP_RATIO the clutch foot holds.
+const WHEELSPIN_SLIP_RATIO := 0.2
+
+## Clutch dropped at the limiter: the engine stays within the limiter's band on
+## the slipping clutch for at least this many physics frames, the wheelspin
+## lasts longer than this [s], and all that time the tach reads at least this
+## far above what the road speed makes in 1st [rpm]. Measured 6 frames (then
+## the clutch has dragged the revs down to ~6400, where the engine makes what
+## the spinning tyres take), 1.77 s and 1330 rpm.
+const CLUTCH_DROP_MIN_LIMITER_FRAMES := 3
+const CLUTCH_DROP_MIN_SPIN_TIME := 1.0
+const CLUTCH_DROP_MIN_TACH_LEAD := 800.0
+
+## Ordinary launch: the tach gets at least this far above the road's revs
+## [rpm] on the slipping clutch (measured 2600), the rear tyres are worked to
+## at least this share of their peak slip ratio (measured 1.0: the launch sits
+## right at the limit of adhesion), and the clutch is home within
+## LAUNCH_MAX_SLIP_TIME [s] (measured 1.63).
+const LAUNCH_MIN_FLARE_RPM := 2000.0
+const LAUNCH_MIN_PEAK_SLIP_SHARE := 0.8
+const LAUNCH_MAX_SLIP_TIME := 2.5
+
+## Lift-off runs start from this speed [m/s], ~80 km/h: 5200 rpm in 2nd,
+## 3000 in 4th. Lifting must slow the car at least this many times harder in
+## 2nd than in 4th. Measured 1.75 (1.07 vs 0.61 m/s^2, drag and rolling
+## resistance in both).
+const LIFT_OFF_SPEED := 22.0
+const ENGINE_BRAKING_MIN_GEAR_RATIO := 1.4
+
+## Upshift at full throttle: with the clutch open the revs drift down by more
+## than SHIFT_MIN_DRIFT_RPM and less than SHIFT_MAX_DRIFT_RPM in the 0.2 s
+## (friction alone; a kinematic tach would have dropped the full ~2800 to the
+## next gear), then the clutch takes out at least SHIFT_MIN_CATCH_RPM more and
+## leaves the engine within this share of the road's revs in 2nd (the tyres'
+## slip is the rest) half a second on. Measured: 460 rpm of drift, 1640 of
+## catch, the rear tyres chirping at a slip ratio of ~0.2 as it lands.
+const SHIFT_MIN_DRIFT_RPM := 200.0
+const SHIFT_MAX_DRIFT_RPM := 1200.0
+const SHIFT_MIN_CATCH_RPM := 1000.0
+const SHIFT_CAUGHT_RPM_TOLERANCE := 0.12
+
+## Wheel visuals: over the first 1.5 s of a launch the drawn rear wheels turn at
+## least this many times as far as the fronts. Measured 1.1.
+const VISUAL_MIN_SPIN_LEAD := 1.03
+
 var _failures := 0
 
 
@@ -439,6 +511,7 @@ func _run() -> void:
 	_check(car.global_position.length() < 0.1 and car.slide_yaw_rate == 0.0, "reset also clears the slide")
 
 	await _check_drivetrain(car, main.get_node_or_null("HUD/RpmLabel") as Label)
+	await _check_drivetrain_dynamics(car, main.get_node_or_null("HUD/RpmLabel") as Label)
 	await _check_force_dynamics(car)
 	await _check_low_speed_blend(car)
 	await _check_raw_steering(car)
@@ -552,6 +625,270 @@ func _check_drivetrain(car: ArcadeCar, rpm_label: Label) -> void:
 	_check(stats.min_load > 0.1 and stats.max_load < 0.9, "axle loads stay sane (%.2f..%.2f)" % [stats.min_load, stats.max_load])
 	car.reset_to_spawn()
 	await _step(5)
+
+
+## The drivetrain is a chain of states (engine, clutch, axle wheel speeds), not
+## a function of road speed: the engine free-revs and bounces off its limiter,
+## a launch flares the revs on a slipping clutch and spins the rear wheels, a
+## clutch dropped on a screaming engine keeps them spinning, engine braking
+## depends on the gear, a gear change shows the engine on its own and the
+## clutch catching it, and the wheels are drawn at the speed they really turn.
+func _check_drivetrain_dynamics(car: ArcadeCar, rpm_label: Label) -> void:
+	var tick := 1.0 / Engine.physics_ticks_per_second
+	var stats := _new_stats()
+
+	# (1) Neutral: the throttle revs the engine, not the car. It runs up to the
+	# limiter, the limiter cuts the fuel and the revs bounce against it; let go,
+	# friction and the idle controller bring it back to idle.
+	car.reset_to_spawn()
+	await _step(10)
+	await _tap("shift_down")
+	await _step(roundi(ArcadeCar.SHIFT_TIME * 60.0) + 3)
+	_check(car.gear == 0 and not car.automatic, "shift-down from 1st at a standstill selects neutral (G%d)" % car.gear)
+	Input.action_press("accelerate")
+	var frames_to_limiter := -1
+	for frame in 120:
+		await _drive(car, 1, stats)
+		if car.engine_rpm >= ArcadeCar.REDLINE_RPM - 1.0:
+			frames_to_limiter = frame + 1
+			break
+	_check(frames_to_limiter > 0 and frames_to_limiter * tick < FREE_REV_MAX_TIME, "throttle in neutral free-revs the engine to the limiter (%.2f s from idle, limit %.1f)" % [frames_to_limiter * tick, FREE_REV_MAX_TIME])
+	var cuts := 0
+	var was_cutting := car.limiter_cutting
+	var bounce_low := INF
+	var bounce_high := 0.0
+	var tach_red := true
+	for frame in 90:
+		await _drive(car, 1, stats)
+		if car.limiter_cutting and not was_cutting:
+			cuts += 1
+		was_cutting = car.limiter_cutting
+		bounce_low = minf(bounce_low, car.engine_rpm)
+		bounce_high = maxf(bounce_high, car.engine_rpm)
+		tach_red = tach_red and rpm_label.get_theme_color("font_color") == rpm_label.get_parent().TACH_REDLINE_COLOR
+	_check(cuts >= LIMITER_MIN_CUTS and bounce_high <= ArcadeCar.REDLINE_RPM + 1.0 and bounce_high - bounce_low > LIMITER_MIN_BOUNCE_RPM and bounce_low > ArcadeCar.LIMITER_RESUME_RPM - LIMITER_MIN_BOUNCE_RPM, "held there, the limiter cuts the fuel and the revs bounce against it (%d cuts in 1.5 s, %d..%d rpm)" % [cuts, bounce_low, bounce_high])
+	_check(absf(car.forward_speed) < 0.001 and car.rear_omega == 0.0 and tach_red and rpm_label.text.ends_with("N M"), "the car stands still meanwhile, wheels at rest, the tach red ('%s', %.3f m/s)" % [rpm_label.text, car.forward_speed])
+
+	# (2) Drop the clutch on it: 1st selected with the throttle still wide open.
+	# The clutch comes in on an engine at the limiter and passes more than the
+	# rear tyres hold: they spin, the clutch foot holds them at DRIVE_SLIP_RATIO,
+	# and the revs stay far above what the road speed would make them until the
+	# car has caught up. Dead straight all the while.
+	await _tap("shift_up")
+	var limiter_frames := 0
+	var spin_frames := 0
+	var least_tach_lead := INF
+	var lock_frame := -1
+	var spin_speed := 0.0
+	for frame in 240:
+		await _drive(car, 1, stats)
+		var slipping_clutch := not car.clutch_locked and car.clutch_torque > 0.0
+		if slipping_clutch and car.engine_rpm >= ArcadeCar.LIMITER_RESUME_RPM:
+			limiter_frames += 1
+		if slipping_clutch and car.rear_slip_ratio > WHEELSPIN_SLIP_RATIO:
+			spin_frames += 1
+			least_tach_lead = minf(least_tach_lead, car.engine_rpm - car.wheel_rpm(car.gear))
+			spin_speed = car.forward_speed
+		if lock_frame < 0 and car.clutch_locked:
+			lock_frame = frame
+	_check(car.gear == 1 and limiter_frames >= CLUTCH_DROP_MIN_LIMITER_FRAMES, "1st taken at full throttle: the engine is on the limiter against the slipping clutch (%d frames at %d rpm or more)" % [limiter_frames, ArcadeCar.LIMITER_RESUME_RPM])
+	_check(spin_frames * tick > CLUTCH_DROP_MIN_SPIN_TIME and least_tach_lead > CLUTCH_DROP_MIN_TACH_LEAD, "... and the rear wheels spin on and on (%.2f s past a slip ratio of %.2f, up to %.1f m/s, the tach never less than %d rpm above the road's)" % [spin_frames * tick, WHEELSPIN_SLIP_RATIO, spin_speed, least_tach_lead])
+	_check(lock_frame > 0 and car.clutch_locked and car.rear_slip_ratio < ArcadeCar.PEAK_SLIP_RATIO, "... until the car has caught up: the clutch locks and the tyres hook up (after %.2f s, slip ratio %.3f at the end)" % [lock_frame * tick, car.rear_slip_ratio])
+	_check(absf(car.global_position.x) < 0.01 and absf(car.global_rotation.y) < 0.001, "... dead straight all the while (x = %.4f m)" % car.global_position.x)
+	Input.action_release("accelerate")
+
+	# ... and with 1st held by hand the limiter is where the car tops out: the
+	# revs bounce against it under load too, the speed stays put.
+	var speed_at_limiter := car.forward_speed
+	cuts = 0
+	was_cutting = car.limiter_cutting
+	Input.action_press("accelerate")
+	for frame in 180:
+		await _drive(car, 1, stats)
+		if car.limiter_cutting and not was_cutting:
+			cuts += 1
+		was_cutting = car.limiter_cutting
+		if frame == 89:
+			speed_at_limiter = car.forward_speed
+	Input.action_release("accelerate")
+	var first_gear_top := car.speed_at_rpm(1, ArcadeCar.REDLINE_RPM)
+	_check(car.gear == 1 and cuts >= LIMITER_MIN_CUTS and absf(car.forward_speed - speed_at_limiter) < 0.3 and absf(car.forward_speed - first_gear_top) < 0.5, "flat out in 1st by hand the limiter holds the car at the top of the gear (%d cuts in 3 s, %.1f m/s, 1st tops out at %.1f)" % [cuts, car.forward_speed, first_gear_top])
+
+	# Back in neutral, throttle closed: friction brings the revs down and the
+	# idle controller catches them, no dip under idle, no hunting.
+	await _tap("shift_down")
+	var idle_frame := -1
+	var lowest_rpm := INF
+	for frame in 480:
+		await _drive(car, 1, stats)
+		lowest_rpm = minf(lowest_rpm, car.engine_rpm)
+		if idle_frame < 0 and car.engine_rpm < ArcadeCar.IDLE_RPM + 5.0:
+			idle_frame = frame
+	_check(car.gear == 0 and idle_frame > 0 and idle_frame * tick < IDLE_RETURN_MAX_TIME and lowest_rpm > ArcadeCar.IDLE_RPM - 1.0 and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < 1.0, "let go in neutral the revs fall back to idle and stay there (from the limiter in %.2f s, lowest %.1f rpm, %.1f at the end)" % [idle_frame * tick, lowest_rpm, car.engine_rpm])
+
+	# (3) The ordinary launch, automatic, flat out from rest: the revs flare to
+	# LAUNCH_RPM on the slipping clutch while the road speed is still nothing,
+	# and the rear wheels run ahead of the road, worked right up to the tyres'
+	# peak, until the car has caught up and the clutch locks.
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	var flare_rpm := 0.0
+	var flare_road_rpm := 0.0
+	var peak_slip := 0.0
+	var wheels_lead := true
+	lock_frame = -1
+	for frame in 180:
+		await _drive(car, 1, stats)
+		if lock_frame < 0:
+			if car.clutch_locked:
+				lock_frame = frame
+			elif car.engine_rpm - car.wheel_rpm(1) > flare_rpm - flare_road_rpm:
+				flare_rpm = car.engine_rpm
+				flare_road_rpm = car.wheel_rpm(1)
+			# The slip ratio is the wheel speed against the road speed of the same
+			# tick (forward_speed has this tick's acceleration in it already).
+			wheels_lead = wheels_lead and car.rear_omega > 0.0 and car.rear_slip_ratio > 0.0
+			peak_slip = maxf(peak_slip, car.rear_slip_ratio)
+	_check(flare_rpm - flare_road_rpm > LAUNCH_MIN_FLARE_RPM and flare_rpm < ArcadeCar.LAUNCH_RPM + 100.0, "launch: the revs flare on the slipping clutch, the tach reads the engine, not the road (%d rpm where the road speed makes %d)" % [flare_rpm, flare_road_rpm])
+	_check(wheels_lead and peak_slip > ArcadeCar.PEAK_SLIP_RATIO * LAUNCH_MIN_PEAK_SLIP_SHARE, "... the rear wheels turn faster than the road all the way, worked up to the tyres' peak (slip ratio up to %.3f, peak force at %.2f)" % [peak_slip, ArcadeCar.PEAK_SLIP_RATIO])
+	_check(lock_frame > 0 and lock_frame * tick < LAUNCH_MAX_SLIP_TIME and car.clutch_locked and absf(car.engine_omega - car.rear_omega * ArcadeCar.GEAR_RATIOS[1] * ArcadeCar.FINAL_DRIVE) < 0.001, "... until the car has caught up: the clutch locks after %.2f s and engine and rear wheels turn as one shaft" % (lock_frame * tick))
+	Input.action_release("accelerate")
+
+	# (4) Engine braking is a matter of gear: lift at the same speed in 2nd and
+	# in 4th. Nothing scripts the difference; it is the engine's friction (and
+	# its revs) through the ratio.
+	var decel_2nd := await _lift_off_decel(car, 2, stats)
+	var decel_4th := await _lift_off_decel(car, 4, stats)
+	_check(decel_2nd.locked and decel_4th.locked and absf(decel_2nd.entry_speed - decel_4th.entry_speed) < 0.5, "lift-off runs in 2nd and 4th start from the same speed, clutch locked (%.1f vs %.1f m/s)" % [decel_2nd.entry_speed, decel_4th.entry_speed])
+	_check(decel_2nd.decel > decel_4th.decel * ENGINE_BRAKING_MIN_GEAR_RATIO and decel_4th.decel > ArcadeCar.COAST_DECEL, "lifting off slows the car harder in 2nd than in 4th (%.2f vs %.2f m/s^2 from %.0f km/h, at %d and %d rpm)" % [decel_2nd.decel, decel_4th.decel, decel_2nd.entry_speed * 3.6, decel_2nd.rpm, decel_4th.rpm])
+
+	# (5) A gear change, flat out in the automatic: while the clutch is open the
+	# engine is on its own and drifts down on its friction; then the clutch
+	# catches it, dragging it down to the new gear's speed with more torque
+	# than the engine makes, which goes into the car.
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	for frame in 600:
+		if car.gear == 2:
+			break
+		await _drive(car, 1, stats)
+	var rpm_at_shift := car.engine_rpm
+	var drift_frames := 0
+	var rpm_after_drift := rpm_at_shift
+	var catch_torque := 0.0
+	var catch_frames := 0
+	var open_torque := 0.0
+	for frame in 60:
+		await _drive(car, 1, stats)
+		if car.clutch_locked:
+			break
+		if car.clutch_engagement <= 0.0:
+			drift_frames += 1
+			rpm_after_drift = car.engine_rpm
+			open_torque = maxf(open_torque, absf(car.clutch_torque))
+		else:
+			catch_frames += 1
+			catch_torque = maxf(catch_torque, car.clutch_torque)
+	var rpm_caught := car.engine_rpm
+	var drift := rpm_at_shift - rpm_after_drift
+	var chirp := car.rear_slip_ratio
+	await _drive(car, 30, stats)
+	_check(car.gear == 2 and drift_frames >= roundi(ArcadeCar.SHIFT_TIME * 60.0) - 1 and open_torque == 0.0 and drift > SHIFT_MIN_DRIFT_RPM and drift < SHIFT_MAX_DRIFT_RPM, "upshift: clutch open, the engine drifts down on its own friction (%d -> %d rpm in %.2f s, no torque through the clutch)" % [rpm_at_shift, rpm_after_drift, drift_frames * tick])
+	_check(catch_torque > ArcadeCar.engine_torque(4500.0) and rpm_after_drift - rpm_caught > SHIFT_MIN_CATCH_RPM, "... then the clutch catches it (%d -> %d rpm in %.2f s, up to %d Nm through the clutch, the engine's best is %d)" % [rpm_after_drift, rpm_caught, catch_frames * tick, catch_torque, ArcadeCar.engine_torque(4500.0)])
+	_check(chirp > ArcadeCar.PEAK_SLIP_RATIO and car.clutch_locked and car.rear_slip_ratio < ArcadeCar.PEAK_SLIP_RATIO and absf(car.engine_rpm - car.wheel_rpm(2)) < SHIFT_CAUGHT_RPM_TOLERANCE * car.wheel_rpm(2), "... the revs it gives up go into the car and chirp the rear tyres (slip ratio %.2f at the catch), hooked up again half a second on (%.3f, %d rpm on a road that makes %d)" % [chirp, car.rear_slip_ratio, car.engine_rpm, car.wheel_rpm(2)])
+	Input.action_release("accelerate")
+
+	# ... and on the way down the box the driver blips: clutch open, the revs
+	# RISE towards what the lower gear will want, so the catch is small and the
+	# rear tyres are not asked to spin the engine up.
+	await _reach_speed(car, LIFT_OFF_SPEED)
+	car.automatic = false
+	car.shift_to(4)
+	for frame in 120:
+		await _drive(car, 1, stats)
+		if car.clutch_locked and not car.is_shifting:
+			break
+	var rpm_in_4th := car.engine_rpm
+	car.shift_to(3)
+	var rpm_blipped := rpm_in_4th
+	var deepest_slip := 0.0
+	var hardest_decel := 0.0
+	for frame in 60:
+		await _drive(car, 1, stats)
+		if car.clutch_engagement <= 0.0:
+			rpm_blipped = car.engine_rpm
+		deepest_slip = minf(deepest_slip, car.rear_slip_ratio)
+		hardest_decel = minf(hardest_decel, car.longitudinal_accel)
+	_check(car.gear == 3 and car.clutch_locked and rpm_blipped > rpm_in_4th + DOWNSHIFT_MIN_BLIP_RPM and absf(rpm_blipped - car.wheel_rpm(3)) < DOWNSHIFT_MAX_MISMATCH_RPM, "downshift: clutch open, the driver blips the revs up to the lower gear (%d -> %d rpm, 3rd wants %d)" % [rpm_in_4th, rpm_blipped, car.wheel_rpm(3)])
+	_check(deepest_slip > -ArcadeCar.PEAK_SLIP_RATIO * 0.5 and hardest_decel > -DOWNSHIFT_MAX_DECEL, "... so the catch leaves the rear tyres alone (slip ratio no lower than %.3f, never more than %.2f m/s^2 of deceleration)" % [deepest_slip, -hardest_decel])
+
+	# (6) The wheels are drawn at the speed they turn. Flat out from rest the
+	# spinning rears visibly outrun the fronts; rolling, a wheel turns by wheel
+	# speed x tick; under the handbrake the rears stand still and the fronts
+	# roll on.
+	var front_spinner := car.get_node("Wheels/FrontLeft/Spin") as Node3D
+	var rear_spinner := car.get_node("Wheels/RearLeft/Spin") as Node3D
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	var front_turned := 0.0
+	var rear_turned := 0.0
+	var drawn_as_turning := true
+	for frame in 90:
+		var front_before := front_spinner.basis
+		var rear_before := rear_spinner.basis
+		await _drive(car, 1, stats)
+		var front_step := _turned_about_x(front_before, front_spinner.basis)
+		var rear_step := _turned_about_x(rear_before, rear_spinner.basis)
+		front_turned += front_step
+		rear_turned += rear_step
+		# Rolling forwards is a negative rotation about +X.
+		drawn_as_turning = drawn_as_turning and absf(front_step + car.front_omega * tick) < 0.0001 and absf(rear_step + car.rear_omega * tick) < 0.0001
+	_check(drawn_as_turning, "the wheels are drawn turning at their axle's real speed, every tick of a launch")
+	_check(rear_turned < front_turned * VISUAL_MIN_SPIN_LEAD and front_turned < 0.0, "... so spinning rear wheels visibly outrun the fronts (%.1f vs %.1f rad in 1.5 s)" % [-rear_turned, -front_turned])
+	Input.action_release("accelerate")
+	await _get_up_to_speed(car)
+	Input.action_press("handbrake")
+	await _step(10)
+	var front_before := front_spinner.basis
+	var rear_before := rear_spinner.basis
+	await _step(1)
+	_check(car.rear_omega == 0.0 and absf(_turned_about_x(rear_before, rear_spinner.basis)) < 0.000001 and _turned_about_x(front_before, front_spinner.basis) < -0.1, "handbraked rear wheels stand still while the fronts roll on (front %.2f rad a tick at %.0f km/h)" % [_turned_about_x(front_before, front_spinner.basis), car.speed_kmh])
+	Input.action_release("handbrake")
+
+	_check(stats.finite and stats.max_step < 1.5, "no NaN / inf / teleporting through the drivetrain checks (largest step %.2f m)" % stats.max_step)
+	_check(stats.min_rpm >= ArcadeCar.IDLE_RPM - 1.0 and stats.max_rpm <= ArcadeCar.REDLINE_RPM + 100.0, "RPM stays between idle and the limiter through all of it (%d..%d rpm)" % [stats.min_rpm, stats.max_rpm])
+	car.reset_to_spawn()
+	await _step(5)
+
+
+## Reaches LIFT_OFF_SPEED flat out, takes `in_gear` by hand, lets the clutch
+## lock, then coasts for 1 s; returns the mean deceleration over that second
+## [m/s^2], the speed and revs it started from and whether the clutch stayed
+## locked.
+func _lift_off_decel(car: ArcadeCar, in_gear: int, stats: Dictionary) -> Dictionary:
+	await _reach_speed(car, LIFT_OFF_SPEED)
+	car.automatic = false
+	car.shift_to(in_gear)
+	for frame in 120:
+		await _drive(car, 1, stats)
+		if car.clutch_locked and not car.is_shifting:
+			break
+	await _drive(car, 10, stats)
+	var result := {"entry_speed": car.forward_speed, "rpm": car.engine_rpm, "locked": car.clutch_locked, "decel": 0.0}
+	await _drive(car, 60, stats)
+	result.locked = result.locked and car.clutch_locked and car.gear == in_gear
+	result.decel = result.entry_speed - car.forward_speed
+	return result
+
+
+## How far a wheel spinner turned about its own X axis between two bases [rad],
+## signed; good for less than half a turn.
+func _turned_about_x(before: Basis, after: Basis) -> float:
+	var step := before.inverse() * after
+	return atan2(step.y.z, step.y.y)
 
 
 ## The floor under the spin tuning: flat out in a straight line the car must

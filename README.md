@@ -43,8 +43,9 @@ block at the top of that file.
 The car goes by its tyres. It is a rigid body on two axles carrying a velocity and a yaw
 rate, and nothing moves it but forces at the contact patches. Every physics tick each
 axle looks at how its patch really moves over the road: the slip angle (where the wheels
-point against where that end of the car is going) and the slip ratio (wheel speed against
-road speed, wound up by engine and brake torque) make one slip vector, which goes through
+point against where that end of the car is going) and the slip ratio (the axle's wheel
+speed, a state of its own between driveline, brakes and road, against road speed) make
+one slip vector, which goes through
 a tyre curve (peak of `TYRE_MU` x axle load at `FRONT_PEAK_SLIP_ANGLE` /
 `REAR_PEAK_SLIP_ANGLE` / `PEAK_SLIP_RATIO`, easing to `TYRE_SLIDE_GRIP` of that once the
 tyre slides). The force points against the slip, so a tyre has one grip to share between
@@ -58,13 +59,25 @@ degrees) at any speed, in any slide, and nothing but you turns the wheels. A hel
 speed is far more lock than the front tyres can use, so they scrub and the car pushes
 wide: that is the tyres' honest answer, and short presses are how you ask for less.
 
+- **Drivetrain** - engine, clutch and wheels each turn at their own speed, tied together
+  by torque, not by road speed. The engine speed is integrated from its torque against
+  `ENGINE_INERTIA`: in neutral (`Q` from 1st) the throttle free-revs it to the limiter,
+  where the fuel cut makes the tach bounce. Pulling away, the revs flare to `LAUNCH_RPM`
+  on a slipping clutch until the car has caught up; select 1st on a screaming engine and
+  the rear wheels spin for a couple of seconds. Locked, the engine's inertia rides on the
+  driven axle through the gear ratio squared, so 1st pulls less than torque x ratio says
+  and lifting off holds the car back harder the lower the gear. A gear change opens the
+  clutch for `SHIFT_TIME`: the revs drift on their own, then the clutch catches them (an
+  upshift at full throttle chirps the tyres; on downshifts the driver blips). 0 - 100
+  km/h takes ~7.1 s, as the real 2.5 does.
 - **Driven wheels** - `DRIVEN_WHEELS` is `RWD`, `FWD` or `AWD` (`TORQUE_DISTRIBUTION`
   front / rear). The Boxster is `RWD`. Nothing about the layouts is scripted: rear drive
   spends rear grip and pushes, so full throttle in a low gear steps the tail out; front
   drive pulls and steers with the same tyres, so power pushes the nose wide and a launch
   is traction-limited as the load moves off the driven axle; all-wheel drive sits in
-  between and puts the most power down. On/off keys cannot feather a throttle, so
-  wheelspin is held at `DRIVE_SLIP_RATIO`.
+  between and puts the most power down. On/off keys cannot feather a clutch, so
+  while the clutch slips (a launch, a dropped clutch) wheelspin is held at
+  `DRIVE_SLIP_RATIO`; with the clutch locked the wheels are the engine's.
 - **Brake bias** - the foot brake is split `BRAKE_BIAS_FRONT` (0.6) front / rear, each axle
   capped by its own grip with ABS holding the wheels at `ABS_SLIP_RATIO`. A full stop has
   the fronts at their limit and the rears under theirs: about 0.9 g, ~36 m from 90 km/h,
