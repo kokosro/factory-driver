@@ -270,11 +270,43 @@ const REAR_PEAK_SLIP_ANGLE := 0.10
 ## The curve eases from the peak down to this over TYRE_SLIDE_ONSET. Also the
 ## grip of a locked (handbraked) wheel. 1.0 = no drop, the limit is a plateau;
 ## lower = the car lets go more suddenly and a slide scrubs less speed.
+## The front tyres' figure, and a locked rear's; rear tyres that still roll
+## have their own (REAR_TYRE_SLIDE_GRIP).
 const TYRE_SLIDE_GRIP := 0.85
 
 ## How far past the peak the tyre is ~two thirds of the way down to
 ## TYRE_SLIDE_GRIP, in peak slip angles. Higher = a wider, more forgiving top.
 const TYRE_SLIDE_ONSET := 2.0
+
+## The same for rear tyres that still roll (0..1): the wide rears hold on in a
+## slide where the fronts let go. This is what ends a slide nobody is driving:
+## with both ends sliding the yaw moments of the two axles nearly cancel (the
+## REAR / FRONT_TYRE_GRIP margin of 1.106 is eaten by the weight a sliding,
+## slowing car moves onto its nose, x0.94, and by the rear sliding deeper down
+## the curve than the front, x0.98), and the more the sliding rear holds over
+## the sliding front, the harder the tail is pulled back into line. A grip
+## figure like the rest: it knows nothing of the steering or the heading. A
+## locked wheel stays on TYRE_SLIDE_GRIP (eased over by the handbrake, see
+## HANDBRAKE_RECOVERY_RATE), so the handbrake kicks the tail out and carries a
+## spin as before. Lower = slides hang on longer, equal to TYRE_SLIDE_GRIP = a
+## slide with the keys released carries on as a drift.
+# was TYRE_SLIDE_GRIP 0.85 for both axles -> 1.0 at the rolling rear - a 0.2 s
+# flick of the handbrake at 85 km/h, every key released: the nose took 3.83 s
+# to come back in line with the travel (within 0.1 rad) and the car turned
+# 115 degrees on the way, a drift held at 0.28 rad with a net yaw moment of
+# ~2 % of either axle's; now 2.10 s and 60 degrees. The same at 58 km/h:
+# 2.23 s / 102 degrees -> 1.57 s / 70. A deeper slide (0.67 s of handbrake at
+# 58 km/h) used to end creeping backwards, at rest after 10.28 s; now it stops
+# nose-first after 2.55 s. Lowering the shared figure instead went the wrong
+# way (0.75: 6.02 s / 210 degrees), 1.0 for both got 2.65 s and flattens the
+# front's limit too; more rear-biased REAR / FRONT_TYRE_GRIP (1.052 / 0.92)
+# stopped the 180 at 138 degrees, and less SLIDE_RECOVERY_ASSIST (0.2) brought
+# back the swing past straight after a jab at speed. It only counts for slip
+# across the wheel (see _tyre_force): wheelspin and the launch are untouched
+# (12.0 m/s after 2 s, as before). Certified runs before -> after: SPIN_180
+# 179.9 degrees, slalom closest pass 2.1 m and stop box margin 0.9 m all
+# unchanged, SPIN_360 361.9 -> 362.4, REVERSE_180 -174.1 -> -181.8.
+const REAR_TYRE_SLIDE_GRIP := 1.0
 
 ## Drag coefficient Cd (no unit). Drag force is
 ## 0.5 * AIR_DENSITY * DRAG_COEFF * FRONTAL_AREA * speed^2 (~0.40 kg/m in
@@ -561,7 +593,8 @@ const LOW_SPEED_ALIGN_RATE := 10.0
 # --- Handbrake ---------------------------------------------------------------
 
 # The handbrake locks the rear wheels. A locked tyre cannot roll, so it drags
-# against whatever way it is moving with TYRE_SLIDE_GRIP of its grip: rolling
+# against whatever way it is moving with TYRE_SLIDE_GRIP of its grip (not the
+# rolling rear's REAR_TYRE_SLIDE_GRIP): rolling
 # straight that is all braking (~0.45 g on this car's rear axle) and hardly
 # any sideways hold (a fourteenth of a rolling tyre's at small slip angles),
 # so steering kicks the tail out; sideways it is all sideways drag.
@@ -857,16 +890,18 @@ func _physics_process(delta: float) -> void:
 	var abs_active: bool = demand.brake > 0.0
 	var front_demand: float = demand.engine * front_share - signf(front_along) * demand.brake * BRAKE_BIAS_FRONT
 	var rear_demand: float = demand.engine * (1.0 - front_share) - signf(forward_speed) * demand.brake * (1.0 - BRAKE_BIAS_FRONT)
-	front_slip_ratio = _advance_slip_ratio(front_slip_ratio, front_demand / front_grip, front_slip_angle, FRONT_PEAK_SLIP_ANGLE, abs_active, delta)
-	rear_slip_ratio = _advance_slip_ratio(rear_slip_ratio, rear_demand / rear_grip, rear_slip_angle, REAR_PEAK_SLIP_ANGLE, abs_active, delta)
+	# Rolling rears slide on REAR_TYRE_SLIDE_GRIP, locked ones on TYRE_SLIDE_GRIP.
+	var rear_slide_grip := lerpf(REAR_TYRE_SLIDE_GRIP, TYRE_SLIDE_GRIP, _handbrake_amount)
+	front_slip_ratio = _advance_slip_ratio(front_slip_ratio, front_demand / front_grip, front_slip_angle, FRONT_PEAK_SLIP_ANGLE, TYRE_SLIDE_GRIP, abs_active, delta)
+	rear_slip_ratio = _advance_slip_ratio(rear_slip_ratio, rear_demand / rear_grip, rear_slip_angle, REAR_PEAK_SLIP_ANGLE, rear_slide_grip, abs_active, delta)
 	rear_slip_ratio = lerpf(rear_slip_ratio, -signf(forward_speed), _handbrake_amount)
 	front_traction_use = _traction_use(front_slip_ratio)
 	rear_traction_use = _traction_use(rear_slip_ratio)
 
 	# 5. Tyre forces, along (x) and across (y) each axle's wheels, from slip
 	#    ratio and slip angle together (see _tyre_force).
-	var front_tyre := front_grip * _tyre_force(front_slip_ratio, front_slip_angle, FRONT_PEAK_SLIP_ANGLE)
-	var rear_tyre := rear_grip * _tyre_force(rear_slip_ratio, rear_slip_angle, REAR_PEAK_SLIP_ANGLE)
+	var front_tyre := front_grip * _tyre_force(front_slip_ratio, front_slip_angle, FRONT_PEAK_SLIP_ANGLE, TYRE_SLIDE_GRIP)
+	var rear_tyre := rear_grip * _tyre_force(rear_slip_ratio, rear_slip_angle, REAR_PEAK_SLIP_ANGLE, rear_slide_grip)
 	# A tyre can stop its contact patch sliding, not throw it back the other
 	# way: no more force than brings that slip to zero this tick, sideways and
 	# (for a braked or locked wheel) along the wheel. At walking pace this is
@@ -1194,22 +1229,22 @@ func _front_drive_share() -> float:
 ## carried, so nothing divides by a road speed going to zero. The step divides
 ## by the tyre curve's slope (semi-implicit), which keeps it stable at any tick
 ## length on the steep part of the curve.
-func _advance_slip_ratio(slip_ratio: float, demand: float, slip_angle: float, peak_slip_angle: float, abs_active: bool, delta: float) -> float:
-	var force := _tyre_force(slip_ratio, slip_angle, peak_slip_angle).x
+func _advance_slip_ratio(slip_ratio: float, demand: float, slip_angle: float, peak_slip_angle: float, slide_grip: float, abs_active: bool, delta: float) -> float:
+	var force := _tyre_force(slip_ratio, slip_angle, peak_slip_angle, slide_grip).x
 	var probe := 0.01 * PEAK_SLIP_RATIO
-	var slope := maxf((_tyre_force(slip_ratio + probe, slip_angle, peak_slip_angle).x - force) / probe, 0.0)
+	var slope := maxf((_tyre_force(slip_ratio + probe, slip_angle, peak_slip_angle, slide_grip).x - force) / probe, 0.0)
 	var gain := SLIP_RATIO_RESPONSE * delta
 	var limit := ABS_SLIP_RATIO if abs_active else DRIVE_SLIP_RATIO
 	demand = clampf(demand, -2.0, 2.0)
 	var next := clampf(slip_ratio + gain * (demand - force) / (1.0 + gain * slope), -limit, limit)
-	if (demand - force) * (demand - _tyre_force(next, slip_angle, peak_slip_angle).x) < 0.0:
+	if (demand - force) * (demand - _tyre_force(next, slip_angle, peak_slip_angle, slide_grip).x) < 0.0:
 		# Stepped over the slip where force and demand balance (a wheel hooking
 		# up again after a lift): home in on it instead of overshooting into
 		# the opposite force.
 		var near := slip_ratio
 		for i in 8:
 			var middle := (near + next) * 0.5
-			if (demand - force) * (demand - _tyre_force(middle, slip_angle, peak_slip_angle).x) > 0.0:
+			if (demand - force) * (demand - _tyre_force(middle, slip_angle, peak_slip_angle, slide_grip).x) > 0.0:
 				near = middle
 			else:
 				next = middle
@@ -1231,15 +1266,18 @@ func _advance_slip_ratio(slip_ratio: float, demand: float, slip_angle: float, pe
 ## The exception is MIN_COMBINED_GRIP: under drive and ABS braking the
 ## sideways force never drops below that share of what the slip angle alone
 ## would give. A wheel on its way to locked (the handbrake) loses the floor.
-func _tyre_force(slip_ratio: float, slip_angle: float, peak_slip_angle: float) -> Vector2:
+func _tyre_force(slip_ratio: float, slip_angle: float, peak_slip_angle: float, slide_grip: float) -> Vector2:
 	var along := slip_ratio / PEAK_SLIP_RATIO
 	var across := tan(slip_angle) / tan(peak_slip_angle)
 	var slip := Vector2(along, across).length()
 	if slip < 0.0001:
 		return Vector2.ZERO
-	var share := _tyre_curve(slip) / slip
+	# Sliding along the wheel (wheelspin, a locked wheel) is TYRE_SLIDE_GRIP's
+	# on either axle; `slide_grip` has its say by how far sideways the slip is.
+	var sideways_slip := across * across / (slip * slip)
+	var share := _tyre_curve(slip, lerpf(TYRE_SLIDE_GRIP, slide_grip, sideways_slip)) / slip
 	var floor_share := MIN_COMBINED_GRIP * (1.0 - smoothstep(DRIVE_SLIP_RATIO, 1.0, absf(slip_ratio)))
-	var sideways := maxf(share * absf(across), floor_share * absf(_tyre_curve(across)))
+	var sideways := maxf(share * absf(across), floor_share * absf(_tyre_curve(across, slide_grip)))
 	return Vector2(share * along, -sideways * signf(across))
 
 
@@ -1247,7 +1285,7 @@ func _tyre_force(slip_ratio: float, slip_angle: float, peak_slip_angle: float) -
 ## tests and the HUD: the tyre curve up to the peak, all of it from there.
 func _traction_use(slip_ratio: float) -> float:
 	var x := absf(slip_ratio) / PEAK_SLIP_RATIO
-	return 1.0 if x >= 1.0 else absf(_tyre_curve(x))
+	return 1.0 if x >= 1.0 else absf(_tyre_curve(x, TYRE_SLIDE_GRIP))
 
 
 ## Automatic shifting and engine speed for this tick.
@@ -1296,13 +1334,14 @@ func _axle_grip(load: float, static_load: float) -> float:
 
 ## The tyre curve: share of the peak force (-1..1) at `slip`, the slip angle in
 ## peak slip angles (or the slip ratio in peak slip ratios). Rises smoothly into the peak at 1 (slope 1.5 at
-## zero, flat at the top), then eases down to TYRE_SLIDE_GRIP.
-func _tyre_curve(slip: float) -> float:
+## zero, flat at the top), then eases down to `slide_grip` (TYRE_SLIDE_GRIP, or
+## REAR_TYRE_SLIDE_GRIP for rear tyres that roll).
+func _tyre_curve(slip: float, slide_grip: float) -> float:
 	var x := absf(slip)
 	if x <= 1.0:
 		return slip * (3.0 - x * x) * 0.5
 	var sliding := 1.0 - exp(-(x - 1.0) / TYRE_SLIDE_ONSET)
-	return signf(slip) * lerpf(1.0, TYRE_SLIDE_GRIP, sliding)
+	return signf(slip) * lerpf(1.0, slide_grip, sliding)
 
 
 ## Caps a tyre `force` [N] at what stops its contact patch's `slip_speed` [m/s]
