@@ -8,7 +8,9 @@ extends Node
 ## are the test data in scripts/handling_tests.gd, run with the scripted driver
 ## switched off. This node only picks a test, moves a run through
 ## idle -> running -> result shown -> idle, and hands the HUD its strings. It
-## never presses or releases an input action.
+## never presses or releases an input action. While a run is on it also shows
+## where the run starts and where it is headed: a golden orb by the start point
+## and, for the tests with a fixed goal, a golden chevron by it (looks only).
 
 signal mission_started(index: int, definition: Dictionary)
 signal mission_finished(index: int, outcome: Dictionary)
@@ -31,6 +33,36 @@ const BANNER_COLOR_PASSED := Color(0.35, 1.0, 0.45, 1)
 const BANNER_COLOR_FAILED := Color(1.0, 0.3, 0.2, 1)
 const BANNER_COLOR_ABORTED := Color(1.0, 0.75, 0.25, 1)
 
+# --- Run markers ----------------------------------------------------------------
+# A golden orb by the start and a golden chevron by the goal, up while a run is
+# on. Looks only: plain meshes with no collision, stood clear of the driving
+# line, so they are never something to hit or to miss. Nothing judges them.
+
+const MARKER_COLOR := Color(1.0, 0.78, 0.2)  # Gold, albedo and glow alike.
+const MARKER_EMISSION_ENERGY := 2.0  # Glow strength, a multiplier [-].
+
+const START_ORB_RADIUS := 0.35  # [m].
+const START_ORB_HEIGHT := 1.0  # Centre of the orb above the ground [m].
+
+## From a test's start point to its orb, along the pad's X and Z whichever way
+## the car faces [m]: to the right of the way down the pad and a little behind.
+## From the spawn point that is outside the painted staging box (3.4 x 6.6 m).
+const START_ORB_OFFSET := Vector3(3.5, 0.0, 2.0)
+
+## The chevron is a V standing across the way down the pad, pointing at the
+## ground: two bars of this length, width and depth [m] ...
+const FINISH_CHEVRON_ARM_SIZE := Vector3(0.22, 1.2, 0.12)
+const FINISH_CHEVRON_ARM_DEG := 40.0  # ... each leant this far out from upright [degrees] ...
+const FINISH_CHEVRON_TIP_HEIGHT := 1.2  # ... meeting this high above the ground [m].
+
+## Stop box: the chevron stands this far to the right of the box's edge [m]
+## (x = 1.8 + 2.2 = 4.0, clear of the corner cones and the red stop bar).
+const FINISH_CHEVRON_BOX_CLEARANCE := 2.2
+
+## Slalom: from the last cone to the chevron [m]: on the way out to the painted
+## exit bar, further off the line of cones than the bar reaches (5 m).
+const FINISH_CHEVRON_SLALOM_OFFSET := Vector3(5.5, 0.0, -8.0)
+
 @export var car: ArcadeCar
 @export var pad: TestPad
 @export var hud: HUD
@@ -49,8 +81,13 @@ var last_result: Dictionary = {}
 
 var _banner_left := 0.0
 
+var _markers: Node3D
+var _start_orb: MeshInstance3D
+var _finish_chevron: Node3D
+
 
 func _ready() -> void:
+	_build_markers()
 	_show_idle_line()
 
 
@@ -94,6 +131,7 @@ func start_mission(index: int) -> bool:
 	last_result = {}
 	run = HandlingTests.begin(tests[index], car, pad, false)
 	state = State.RUNNING
+	_show_markers(run.test)
 	_show_progress()
 	mission_started.emit(index, run.test)
 	return true
@@ -106,6 +144,7 @@ func abort_mission() -> void:
 	run.abort()
 	state = State.RESULT
 	_banner_left = ABORT_BANNER_TIME
+	_hide_markers()
 	_show_idle_line()
 	if hud:
 		hud.show_mission_banner("ABORTED  %s" % run.test.title, _keys_hint(), BANNER_COLOR_ABORTED)
@@ -129,6 +168,7 @@ func _complete() -> void:
 	last_result = run.result()
 	state = State.RESULT
 	_banner_left = RESULT_BANNER_TIME
+	_hide_markers()
 	_show_idle_line()
 	_show_result(last_result)
 	mission_finished.emit(selected_index, last_result)
@@ -152,8 +192,12 @@ func _show_progress() -> void:
 	if not hud:
 		return
 	var test := run.test
+	# The clock: against the test's target time, where it has one.
+	var clock := "%.1f s" % run.elapsed
+	if test.has("target_time_s"):
+		clock = "%.1f / %.1f s" % [run.elapsed, test.target_time_s]
 	hud.set_mission_line(
-		"TEST %d  %s      %s  %.1f s\n%s   Esc / R  abort" % [selected_index + 1, test.title, _progress_text(), run.elapsed, test.objective],
+		"TEST %d  %s      %s  %s\n%s   Esc / R  abort" % [selected_index + 1, test.title, _progress_text(), clock, test.objective],
 		LINE_COLOR_RUNNING,
 	)
 
@@ -203,3 +247,94 @@ func _show_result(outcome: Dictionary) -> void:
 
 func _keys_hint() -> String:
 	return "%d  retry      1-%d  pick a test      Esc  close" % [selected_index + 1, START_ACTIONS.size()]
+
+
+# =============================================================================
+#  Run markers
+# =============================================================================
+
+## Builds the start orb and the finish chevron, hidden, under one Node3D of this
+## node's own. Meshes only: no body, no shape, the car drives through them.
+func _build_markers() -> void:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = MARKER_COLOR
+	material.roughness = 0.4
+	material.emission_enabled = true
+	material.emission = MARKER_COLOR
+	material.emission_energy_multiplier = MARKER_EMISSION_ENERGY
+
+	_markers = Node3D.new()
+	_markers.name = "RunMarkers"
+	_markers.visible = false
+	add_child(_markers)
+
+	var orb := SphereMesh.new()
+	orb.radius = START_ORB_RADIUS
+	orb.height = START_ORB_RADIUS * 2.0
+	orb.radial_segments = 24
+	orb.rings = 12
+	orb.material = material
+	_start_orb = MeshInstance3D.new()
+	_start_orb.name = "StartOrb"
+	_start_orb.mesh = orb
+	_start_orb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_markers.add_child(_start_orb)
+
+	# The chevron's own origin is its tip. Turned about Z, a bar's length (its
+	# Y) points up and out to `side`.
+	var arm := BoxMesh.new()
+	arm.size = FINISH_CHEVRON_ARM_SIZE
+	arm.material = material
+	_finish_chevron = Node3D.new()
+	_finish_chevron.name = "FinishChevron"
+	_markers.add_child(_finish_chevron)
+	for side: float in [-1.0, 1.0]:
+		var instance := MeshInstance3D.new()
+		instance.mesh = arm
+		instance.basis = Basis(Vector3.BACK, -side * deg_to_rad(FINISH_CHEVRON_ARM_DEG))
+		instance.position = instance.basis.y * FINISH_CHEVRON_ARM_SIZE.y * 0.5
+		instance.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_finish_chevron.add_child(instance)
+
+
+## Puts the orb by `test`'s start point (where HandlingTests._start() puts the
+## car: the spawn point plus the test's start_offset) and the chevron by its
+## goal, if it has one, both standing on the pad's ground, and shows them.
+func _show_markers(test: Dictionary) -> void:
+	var start_offset: Vector3 = test.get("start_offset", Vector3.ZERO)
+	var orb_at := car.get_spawn_transform().origin + start_offset + START_ORB_OFFSET
+	orb_at.y = _ground_height(orb_at.x, orb_at.z) + START_ORB_HEIGHT
+	_start_orb.position = orb_at
+
+	var goal := _goal_marker_position(test)
+	_finish_chevron.visible = goal.is_finite()
+	if _finish_chevron.visible:
+		goal.y = _ground_height(goal.x, goal.z) + FINISH_CHEVRON_TIP_HEIGHT
+		_finish_chevron.position = goal
+	_markers.visible = true
+
+
+func _hide_markers() -> void:
+	_markers.visible = false
+
+
+## Where the chevron goes (x and z; the height is the ground's), or Vector3.INF
+## for none: only the stop box and the slalom have a goal that stays put.
+func _goal_marker_position(test: Dictionary) -> Vector3:
+	# The spins and the reverse 180 end wherever the car does, 45-100 m down the road: orb only, no chevron.
+	match test.kind:
+		HandlingTests.KIND_STOP_BOX:
+			var box := TestPad.stop_box()
+			var centre: Vector3 = box.centre
+			var size: Vector2 = box.size
+			return centre + Vector3.RIGHT * (size.x * 0.5 + FINISH_CHEVRON_BOX_CLEARANCE)
+		HandlingTests.KIND_SLALOM:
+			var last_cone: Vector3 = TestPad.slalom_cone_positions().back()
+			return last_cone + FINISH_CHEVRON_SLALOM_OFFSET
+		_:
+			return Vector3.INF
+
+
+## Height of the pad's ground at (x, z) [m]; level without a pad.
+func _ground_height(x: float, z: float) -> float:
+	return pad.elevation_height(x, z) if pad else 0.0
