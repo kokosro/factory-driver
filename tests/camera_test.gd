@@ -8,11 +8,13 @@ extends SceneTree
 ## camera_cycle action: chase -> cockpit -> front -> overhead -> wheel -> chase.
 ## Checks each press lands on the expected view, that the view sits where it
 ## should relative to the car, and that the car still drives under it. Then
-## holds look_back (rear view while held, the old view back on release) and
-## toggles xray_view (translucent body, primitives inside, physics untouched).
+## holds look_back: from the chase view the rear view while held and the old
+## view back on release; from the cockpit and the bonnet the head turns round
+## over the shoulder instead (the eye stays where it is, the mode what it was,
+## the view comes back on release). Then toggles xray_view (translucent body, primitives inside, physics untouched).
 ## Then holds look_left / look_right from the chase view and from the cockpit
 ## (the view turns to that side while held and comes back on release, the mode
-## stays what it was, look_back wins over both), and checks the cockpit's
+## stays what it was, look_back wins over both, its own way in each view), and checks the cockpit's
 ## steering wheel turns with the car's own, all 450 degrees of it.
 ## Exits 0 on success, 1 on any failed check.
 
@@ -42,6 +44,16 @@ const LOOK_COCKPIT_MIN_DEG := 50.0
 const LOOK_COCKPIT_MAX_DEG := 70.0
 const LOOK_RELEASED_MAX_DEG := 3.0
 const LOOK_HOLD_FRAMES := 30
+
+## Looking back from inside the car (cockpit, front): how far round to the
+## right the view has to be while look_back is held [degrees]
+## (ChaseCamera.LOOK_BACK_HEAD_YAW_DEG 155; measured 153.2 after half a second,
+## 1.7 off the nose half a second after the release), and how far the eye may
+## be from where it sits with the head straight, same frame of the same launch,
+## in the car's space [m]. Measured: 0.0000, held and released, both views.
+const LOOK_BACK_MIN_DEG := 145.0
+const LOOK_BACK_MAX_DEG := 165.0
+const LOOK_BACK_EYE_MAX_M := 0.01
 
 var _failures := 0
 
@@ -102,6 +114,7 @@ func _run() -> void:
 	_check(dashboard != null and not dashboard.visible, "cockpit dashboard is hidden outside the cockpit view")
 
 	await _check_look_back(camera, car)
+	await _check_look_back_front(camera, car)
 	await _check_xray(car)
 	await _check_look_sideways(camera, car)
 	await _check_steering_wheel(camera, car)
@@ -109,14 +122,18 @@ func _run() -> void:
 	_finish()
 
 
-## Holds look_back from the chase view and from the cockpit: rear view while
-## held, the interrupted view back on release, and the cycle never stops on it.
+## Holds look_back from the chase view and from the cockpit. From chase: rear
+## view while held, the interrupted view back on release. From the cockpit the
+## head turns instead (_check_head_turned_back). The cycle never stops on rear.
 func _check_look_back(camera: Camera3D, car: ArcadeCar) -> void:
 	var dashboard := car.get_node_or_null("CockpitDashboard") as Node3D
 	for from in ["chase", "cockpit"]:
 		if from == "cockpit":
 			await _tap("camera_cycle")
 		if not _check(camera.mode_name() == from, "look-back: starts from the %s view ('%s')" % [from, camera.mode_name()]):
+			continue
+		if from == "cockpit":
+			await _check_head_turned_back(from, camera, car)
 			continue
 		car.reset_to_spawn()
 		await _step(20)
@@ -143,6 +160,62 @@ func _check_look_back(camera: Camera3D, car: ArcadeCar) -> void:
 		_check(camera.mode_name() == expected, "look-back: the cycle skips the rear view (%s, got '%s')" % [expected, camera.mode_name()])
 
 
+## The same from the bonnet view: the head turns there too.
+func _check_look_back_front(camera: Camera3D, car: ArcadeCar) -> void:
+	await _tap("camera_cycle")
+	await _tap("camera_cycle")
+	if _check(camera.mode_name() == "front", "look-back: starts from the front view ('%s')" % camera.mode_name()):
+		await _check_head_turned_back("front", camera, car)
+	for expected in ["overhead", "wheel", "chase"]:
+		await _tap("camera_cycle")
+	_check(camera.mode_name() == "chase", "look-back from front: the cycle is where it was left ('%s')" % camera.mode_name())
+
+
+## Holds look_back from an inside view (cockpit, front), driving straight: the
+## head turns round to the right while the key is held, the eye stays where it
+## was in the car, the mode does not change and the cycle waits; the view is
+## back on release.
+func _check_head_turned_back(from: String, camera: Camera3D, car: ArcadeCar) -> void:
+	var dashboard := car.get_node_or_null("CockpitDashboard") as Node3D
+	# Reference run, head straight: where the eye is in the car's space at the
+	# two moments the run proper is judged (it trails the accelerating car by a
+	# frame's travel, so it is held against the same frame of the same launch).
+	car.reset_to_spawn()
+	await _step(20)
+	Input.action_press("accelerate")
+	await _step(2 * LOOK_HOLD_FRAMES)
+	var eye_held := _local(car, camera.global_position)
+	await _step(2 + 2 + LOOK_HOLD_FRAMES)
+	var eye_released := _local(car, camera.global_position)
+	Input.action_release("accelerate")
+	await _step(10)
+
+	car.reset_to_spawn()
+	await _step(20)
+	Input.action_press("accelerate")
+	await _step(LOOK_HOLD_FRAMES)
+	Input.action_press("look_back")
+	await _step(LOOK_HOLD_FRAMES)
+	_check(camera.mode_name() == from and camera.current, "look-back from %s: the head turns, not the view: the mode stays '%s'" % [from, camera.mode_name()])
+	var turned := -_view_yaw_deg(camera, car)
+	_check(turned > LOOK_BACK_MIN_DEG and turned < LOOK_BACK_MAX_DEG, "look-back from %s: holding look_back turns the view round over the right shoulder (%.1f degrees, band %.0f .. %.0f)" % [from, turned, LOOK_BACK_MIN_DEG, LOOK_BACK_MAX_DEG])
+	var local := _local(car, camera.global_position)
+	_check(local.distance_to(eye_held) < LOOK_BACK_EYE_MAX_M and CAR_BOUNDS.has_point(local), "look-back from %s: the eye stays where it is with the head straight, in the car (%.4f m off, local %.2f, %.2f, %.2f)" % [from, local.distance_to(eye_held), local.x, local.y, local.z])
+	_check(car.forward_speed > 3.0, "look-back from %s: car drives on under the turned head (%.1f m/s)" % [from, car.forward_speed])
+	_check(dashboard != null and dashboard.is_visible_in_tree() == (from == "cockpit"), "look-back from %s: cockpit dashboard is %s" % [from, "still shown" if from == "cockpit" else "hidden, as before"])
+	await _tap("camera_cycle")
+	_check(camera.mode_name() == from, "look-back from %s: camera_cycle waits while look_back is held ('%s')" % [from, camera.mode_name()])
+	Input.action_release("look_back")
+	await _step(LOOK_HOLD_FRAMES)
+	var left_over := absf(_view_yaw_deg(camera, car))
+	_check(left_over < LOOK_RELEASED_MAX_DEG, "look-back from %s: releasing brings the view back (%.1f degrees off the nose)" % [from, left_over])
+	local = _local(car, camera.global_position)
+	_check(camera.mode_name() == from and local.distance_to(eye_released) < LOOK_BACK_EYE_MAX_M, "look-back from %s: still the %s view, the eye where it was ('%s', %.4f m off)" % [from, from, camera.mode_name(), local.distance_to(eye_released)])
+	_check_view(from, camera, car)
+	Input.action_release("accelerate")
+	await _step(10)
+
+
 ## How far the view is turned to the car's left of its nose [degrees], about
 ## the vertical; negative = to the right.
 func _view_yaw_deg(camera: Camera3D, car: ArcadeCar) -> float:
@@ -153,7 +226,9 @@ func _view_yaw_deg(camera: Camera3D, car: ArcadeCar) -> float:
 
 ## Holds look_left, then look_right, from the chase view and from the cockpit,
 ## driving straight: the view turns to that side while the key is held, the
-## mode does not change, and the view is back on release. look_back wins.
+## mode does not change, and the view is back on release. look_back wins, its
+## own way in each view: a cut to the rear view from chase, the head round to
+## the back in the cockpit.
 func _check_look_sideways(camera: Camera3D, car: ArcadeCar) -> void:
 	var dashboard := car.get_node_or_null("CockpitDashboard") as Node3D
 	for from: String in ["chase", "cockpit"]:
@@ -196,8 +271,14 @@ func _check_look_sideways(camera: Camera3D, car: ArcadeCar) -> void:
 		Input.action_release("look_right")
 		Input.action_press("look_back")
 		await _step(LOOK_HOLD_FRAMES)
-		_check(camera.mode_name() == "rear", "look sideways from %s: look_back wins over a held look_left ('%s')" % [from, camera.mode_name()])
-		_check_view("rear", camera, car)
+		if from == "chase":
+			_check(camera.mode_name() == "rear", "look sideways from %s: look_back wins over a held look_left ('%s')" % [from, camera.mode_name()])
+			_check_view("rear", camera, car)
+		else:
+			var back := -_view_yaw_deg(camera, car)
+			_check(camera.mode_name() == from and back > LOOK_BACK_MIN_DEG and back < LOOK_BACK_MAX_DEG, "look sideways from %s: look_back wins over a held look_left, the head goes round to the back ('%s', %.1f degrees, band %.0f .. %.0f)" % [from, camera.mode_name(), back, LOOK_BACK_MIN_DEG, LOOK_BACK_MAX_DEG])
+			var local := _local(car, camera.global_position)
+			_check(CAR_BOUNDS.has_point(local) and dashboard != null and dashboard.is_visible_in_tree(), "look sideways from %s: looking back, the eye stays in the car and the dashboard in place (local %.2f, %.2f, %.2f)" % [from, local.x, local.y, local.z])
 		Input.action_release("look_back")
 		Input.action_release("look_left")
 		await _step(LOOK_HOLD_FRAMES)

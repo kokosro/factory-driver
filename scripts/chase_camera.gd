@@ -4,11 +4,15 @@ extends Camera3D
 ## car visibly moves against the frame when it accelerates, brakes or turns.
 ## The camera_cycle action steps through the other views: cockpit, front
 ## (bonnet), overhead and wheel (down by the front-left tyre), then back to
-## chase. Holding look_back shows the rear view for as long as it is held.
+## chase. Holding look_back looks behind for as long as it is held: from the
+## inside views (cockpit, front) the head turns round over the shoulder, the eye
+## where it was and mode_name() what it was; from the outside views (chase,
+## overhead, wheel) the camera cuts to the rear view, ahead of the nose.
 ## Holding look_left / look_right turns the view to that side for as long as it
 ## is held (a glance, not a view of its own: mode_name() stays what it was).
 
-## REAR is held-only: look_back cuts to it, the cycle never lands on it.
+## REAR is held-only: look_back cuts to it from the outside views, the cycle
+## never lands on it.
 enum Mode { CHASE, COCKPIT, FRONT, OVERHEAD, WHEEL, REAR }
 
 const MODE_NAMES: Array[String] = ["chase", "cockpit", "front", "overhead", "wheel", "rear"]
@@ -44,8 +48,13 @@ const POSITION_FOLLOW_RATE := 14.0
 # Held keys (look_left / look_right; both or neither = straight ahead). Chase:
 # the camera swings round the car so the view turns to that side. Cockpit and
 # front: the head turns, the eye stays where it is. Overhead, wheel and rear
-# have no side to look to and ignore the keys. look_back wins over both: the
-# rear view is a cut, and the glance is back at 0 by the time it ends.
+# have no side to look to and ignore the keys.
+#
+# Looking back (look_back, held) depends on where the view is. Inside the car
+# (cockpit, front): the same head turns on round, over the shoulder, eased like
+# the glance; the eye stays where it is and so does the mode. Outside (chase,
+# overhead, wheel): a cut to the rear view, the old view back on release.
+# look_back wins over both glance keys: the glance eases back to 0 under it.
 
 ## How far the chase view turns to the side [degrees]: the camera ends up off
 ## the car's opposite rear quarter, the car still in frame, the road to that
@@ -60,6 +69,15 @@ const LOOK_HEAD_YAW_DEG := 60.0
 ## quarter of a second, a turn of the head, not a cut. Eased, per frame, from
 ## the frame time alone.
 const LOOK_RATE := 12.0
+
+## How far the head turns to look back from the cockpit (and the bonnet view)
+## [degrees]: to the right, over the shoulder on the car's middle, far enough
+## round to see out of the back window, short of a full about-face no neck has.
+const LOOK_BACK_HEAD_YAW_DEG := 155.0
+
+## How quickly the head goes round and comes back [1/s]: the same ease as the
+## glance, a little slower for the bigger angle.
+const LOOK_BACK_RATE := 9.0
 
 ## Field of view at standstill and at the car's top speed [degrees].
 const FOV_AT_REST := 65.0
@@ -174,7 +192,7 @@ const REAR_FOV_AT_MAX_SPEED := 80.0
 ## The active view. Change it with set_mode() or cycle_mode().
 var mode := Mode.CHASE
 
-## The view look_back interrupted, restored when the key is released.
+## The outside view look_back interrupted, restored when the key is released.
 var _mode_before_rear := Mode.CHASE
 var _yaw := 0.0
 
@@ -182,6 +200,11 @@ var _yaw := 0.0
 ## keys ask for (_look_target, polled with the other keys).
 var _look := 0.0
 var _look_target := 0.0
+
+## The look back from inside the car: 0 (ahead) .. 1 (fully round), eased
+## towards _back_target the same way.
+var _back := 0.0
+var _back_target := 0.0
 var _default_near := 0.05
 var _overhead_lead := Vector3.ZERO
 var _overhead_height := OVERHEAD_HEIGHT_AT_REST
@@ -203,15 +226,17 @@ func _ready() -> void:
 func _physics_process(_delta: float) -> void:
 	# Polled here, like the car's own keys.
 	var look_back := Input.is_action_pressed("look_back")
-	if look_back and mode != Mode.REAR:
+	# Only the outside views cut to the rear view; inside, the head turns.
+	if look_back and mode != Mode.REAR and not _is_inside_view():
 		_mode_before_rear = mode
 		set_mode(Mode.REAR)
 	elif not look_back and mode == Mode.REAR:
 		set_mode(_mode_before_rear)
 	# +1 = look_left, -1 = look_right (the sign of yaw). Not while looking back.
 	_look_target = 0.0 if look_back else Input.get_axis("look_right", "look_left")
-	# The cycle waits while the rear view is held.
-	if Input.is_action_just_pressed("camera_cycle") and mode != Mode.REAR:
+	_back_target = 1.0 if look_back and _is_inside_view() else 0.0
+	# The cycle waits while look_back is held, head turned or rear view.
+	if Input.is_action_just_pressed("camera_cycle") and not look_back:
 		cycle_mode()
 
 
@@ -220,6 +245,7 @@ func _process(delta: float) -> void:
 		return
 	var target_xform := target.get_global_transform_interpolated()
 	_look = lerpf(_look, _look_target, 1.0 - exp(-LOOK_RATE * delta))
+	_back = lerpf(_back, _back_target, 1.0 - exp(-LOOK_BACK_RATE * delta))
 	match mode:
 		Mode.CHASE:
 			_update_chase(target_xform, delta)
@@ -236,9 +262,14 @@ func _process(delta: float) -> void:
 
 
 ## Name of the active view: "chase", "cockpit", "front", "overhead" or "wheel",
-## and "rear" while look_back is held.
+## and "rear" while look_back is held from an outside view.
 func mode_name() -> String:
 	return MODE_NAMES[mode]
+
+
+## The views from the car itself, where look_back turns the head, not the view.
+func _is_inside_view() -> bool:
+	return mode == Mode.COCKPIT or mode == Mode.FRONT
 
 
 ## Steps to the next view, wrapping back to chase after the last. The held-only
@@ -336,10 +367,11 @@ func _update_front(target_xform: Transform3D) -> void:
 
 
 ## Fixes the camera to the car at `eye` (car space), looking along the nose,
-## turned to the side by the glance (LOOK_HEAD_YAW_DEG) and tilted down by
-## `pitch_deg`.
+## turned to the side by the glance (LOOK_HEAD_YAW_DEG), round to the right by
+## the look back (LOOK_BACK_HEAD_YAW_DEG) and tilted down by `pitch_deg`.
 func _mount(target_xform: Transform3D, eye: Vector3, pitch_deg: float) -> void:
-	var head := Basis(Vector3.UP, _look * deg_to_rad(LOOK_HEAD_YAW_DEG)) * Basis(Vector3.RIGHT, -deg_to_rad(pitch_deg))
+	var head_yaw := _look * deg_to_rad(LOOK_HEAD_YAW_DEG) - _back * deg_to_rad(LOOK_BACK_HEAD_YAW_DEG)
+	var head := Basis(Vector3.UP, head_yaw) * Basis(Vector3.RIGHT, -deg_to_rad(pitch_deg))
 	global_transform = Transform3D(target_xform.basis.orthonormalized() * head, target_xform * eye)
 
 
