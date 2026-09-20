@@ -96,6 +96,37 @@ patches, ground ticks every 10 m, a chequered START / FINISH zone, painted skid 
 rings with reference posts, tall perimeter pylons and cones that topple when hit (they
 never slow the car).
 
+#### The living road
+
+The pad is not flat any more. One seeded height field (`scripts/road_profile.gd`, a
+`RoadProfile` resource wired to both the pad and the car in `scenes/main.tscn`) says how
+high the tarmac is at every point, in three layers:
+
+- **Elevation** - a gentle swell: 1.0 m on an 800 m wave plus 0.18 m on a 200 m wave,
+  never steeper than 1.5 % (measured 1.35 % down the lane). This is the layer you see:
+  the ground mesh is shaped to it, every marking, cone, board, pylon and shed stands on
+  it, and the car's body rides it. It is exactly level round the start line, the stop
+  box, the slalom and the skid pad (the certifications run on level ground) and far from
+  the course, and across the straight's lane it depends on the distance down the
+  straight only, so the lane never leans sideways. Down the straight the first crest
+  (+1.1 m) comes at about 520 m, the hollow (-1.1 m) at about 900 m.
+- **Micro-bumps** - value noise up to 12 mm (3.8 mm RMS), 0.6 to 4 m long, mean-neutral.
+  Felt, not drawn.
+- **A test dip** - one 6 cm deep, 10 m long smooth dip right of the straight past the
+  slalom (x = 25, z = -450, a yellow bar painted at either lip): a test fixture, so the
+  crest test has a known crest to drive over. Felt, not drawn.
+
+The car feels it through a suspension load layer on top of the tyre model, which itself is
+untouched: every wheel has a spring and damper (`RIDE_FREQUENCY` 1.4 Hz,
+`RIDE_DAMPING_RATIO` 0.4, behind a tyre that swallows the shortest ripples,
+`TYRE_ENVELOPE_RATE`) following the road under it. A bump pushes load into its wheel; a
+crest dropping away faster than the car can follow takes load off, and grip with it -
+nobody scripts the crest, it falls out of the spring. Each axle's load is the sum of its
+two wheels (`wheel_loads` on the car, front left / front right / rear left / rear right),
+so grip breathes a few per cent with the road at speed; on a flat road the layer adds
+exactly nothing. The wheels are drawn following the road (up to 4 cm of travel) while the
+body rides the swell.
+
 ### Tests
 
 ```sh
@@ -105,7 +136,11 @@ tests/run_tests.sh
 Runs a headless import, then `tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the
-RWD / FWD / AWD signatures, brake bias, downforce and the low-speed blend), then the
+RWD / FWD / AWD signatures, brake bias, downforce and the low-speed blend; and round
+the road: the profile is pure, mean-neutral, gentle and level where the certifications
+run, every wheel's load swings over the bumps at speed while the axle means hold, the
+crest test drives over the test dip and sees each wheel unload going in and load up at
+the bottom, and cones, board posts and pylons stand on the ground), then the
 handling tests below, then
 `tests/camera_test.gd` (cycles the camera through its five views and drives under each, holds the look-back
 and toggles the X-ray)
@@ -166,7 +201,7 @@ harness prints. `scripts/mission_manager.gd` only picks the test, runs it
 (driver's eye, with a dashboard and steering wheel silhouette), front (on the bonnet),
 overhead (straight down, north always up so the pad holds still; rises with speed) and
 wheel (low by the front-left tyre, looking back at it: watch it steer, spin, lock under
-braking and the tarmac run under its contact patch). It works at any time, including
+braking, work up and down over the bumps and the tarmac run under its contact patch). It works at any time, including
 during a test. Every offset, height and field of view is a commented constant in the
 `Modes` block of that file.
 
