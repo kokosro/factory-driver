@@ -233,6 +233,11 @@ static func slalom_test() -> Dictionary:
 		"steps": steps,
 		"settle": 1.0,
 		"time_limit": SLALOM_TIME_LIMIT + 10.0,
+		# Target time for the whole run [s], run-in included: what the mission
+		# HUD shows the clock against. Presentation only, nothing judges it.
+		# target 30.0 s - certified run 27.3 s at HEAD (eed237f); the 24.7 s
+		# slalom_time_s is first cone to last only.
+		"target_time_s": 30.0,
 	}
 
 
@@ -260,6 +265,9 @@ static func spin_180_test() -> Dictionary:
 		],
 		"settle": 1.5,
 		"time_limit": 30.0,
+		# Target time for the whole run [s]; presentation only, nothing judges it.
+		# target 11.5 s - certified run 10.2 s at HEAD (eed237f).
+		"target_time_s": 11.5,
 	}
 
 
@@ -285,6 +293,9 @@ static func spin_360_test() -> Dictionary:
 		],
 		"settle": 2.0,
 		"time_limit": 30.0,
+		# Target time for the whole run [s]; presentation only, nothing judges it.
+		# target 16.5 s - certified run 14.6 s at HEAD (eed237f).
+		"target_time_s": 16.5,
 	}
 
 
@@ -308,6 +319,9 @@ static func stop_box_test() -> Dictionary:
 		],
 		"settle": 1.5,
 		"time_limit": 30.0,
+		# Target time for the whole run [s]; presentation only, nothing judges it.
+		# target 12.5 s - certified run 11.3 s at HEAD (eed237f).
+		"target_time_s": 12.5,
 	}
 
 
@@ -338,6 +352,9 @@ static func reverse_180_test() -> Dictionary:
 		],
 		"settle": 1.0,
 		"time_limit": 30.0,
+		# Target time for the whole run [s]; presentation only, nothing judges it.
+		# target 7.0 s - certified run 6.4 s at HEAD (eed237f).
+		"target_time_s": 7.0,
 	}
 
 
