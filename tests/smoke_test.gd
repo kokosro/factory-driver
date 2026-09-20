@@ -19,8 +19,10 @@ extends SceneTree
 ## and level where it has to be, the wheels feel it (bumps at speed, the test
 ## dip's crest), and what the pad places stands on it. Last come the slides
 ## nobody is driving (keys released they come back into line, scrub to a stop,
-## or are held back by the engine rolling backwards) and the handling tests'
-## 180 driven to the right. Last comes the telemetry recorder: a real mission
+## or are held back by the engine rolling backwards), the handling tests' run
+## clock (a start line on every test; the clock stands until the car is over
+## it, starts once and does not start anew) and the handling tests' 180 driven
+## to the right. Last comes the telemetry recorder: a real mission
 ## driven with it switched on, its JSON-lines file read back and checked line
 ## by line (see _check_telemetry - it writes to a fixed tmp path, never to
 ## user://, and asserts nothing that comes off the wall clock).
@@ -417,6 +419,18 @@ const TELEMETRY_MIN_SAMPLE_SPEED := 5.0
 var _failures := 0
 
 
+## Run clock: every test's start line is this far down the pad from its start
+## point [m] ...
+const RUN_CLOCK_LINE_AHEAD := 4.0
+
+## ... the check sits on the start point for this many ticks (1 s), puts the car
+## this far short of the line and over it [m], and lets the clock run for this
+## many ticks.
+const RUN_CLOCK_WAIT_TICKS := 60
+const RUN_CLOCK_STEP := 0.5
+const RUN_CLOCK_RUN_TICKS := 30
+
+
 func _initialize() -> void:
 	_run.call_deferred()
 
@@ -643,6 +657,7 @@ func _run() -> void:
 	await _check_suspension(main.get_node("TestPad") as TestPad, car)
 	_check_placed_on_ground(main.get_node("TestPad") as TestPad)
 	await _check_slide_settle(car)
+	_check_run_clock(main.get_node("TestPad") as TestPad, car)
 	await _check_mirrored_spin(main.get_node("TestPad") as TestPad, car)
 	await _check_telemetry(main, car)
 
@@ -1831,6 +1846,75 @@ func _check_slide_settle(car: ArcadeCar) -> void:
 	_check(flick.finite and scrub.finite and backwards.finite, "no NaN / inf in speeds or position while the slides settle")
 	var largest_step := maxf(flick.max_step, maxf(scrub.max_step, backwards.max_step))
 	_check(largest_step < SLIDE_SETTLE_MAX_STEP, "no teleporting while the slides settle (largest step %.2f m)" % largest_step)
+
+
+## The handling tests' run clock (HandlingTests, "The run clock"), on every
+## test. The data first: a start line, RUN_CLOCK_LINE_AHEAD down the pad from
+## the start point. Then a human run (nobody at the controls, nothing pressed)
+## with the car put where the check wants it between ticks, so no physics frame
+## passes and nothing here depends on how the car drives: a second of sitting
+## on the start point and a move away from the line leave the clock at 0 and
+## not started; the tick the car is over the line starts it; going back over
+## the line and crossing it again does not start it anew.
+func _check_run_clock(pad: TestPad, car: ArcadeCar) -> void:
+	var delta := 1.0 / Engine.physics_ticks_per_second
+	_check(MissionManager.CLOCK_NOT_STARTED == "not started", "the mission line's clock reads '%s' until the start line is crossed" % MissionManager.CLOCK_NOT_STARTED)
+	_check(
+		TestPad.SLALOM_START_LINE_Z < TestPad.START_LINE_Z and TestPad.SLALOM_START_LINE_Z > TestPad.SLALOM_FIRST_Z,
+		"the slalom's own start line lies between the pad's start line and the first cone (z = %.1f)" % TestPad.SLALOM_START_LINE_Z,
+	)
+	for definition in HandlingTests.all_tests():
+		var label: String = definition.name
+		var line_z: float = definition.get("start_line_z", NAN)
+		var start: Vector3 = car.get_spawn_transform().origin + definition.start_offset
+		var own_line := TestPad.SLALOM_START_LINE_Z if definition.kind == HandlingTests.KIND_SLALOM else TestPad.START_LINE_Z
+		_check(
+			definition.has("start_line_z") and line_z == own_line and is_equal_approx(start.z - line_z, RUN_CLOCK_LINE_AHEAD),
+			"%s: has a start line, z = %.1f, %.1f m down the pad from its start point" % [label, line_z, start.z - line_z],
+		)
+
+		var run := HandlingTests.begin(definition, car, pad, false)
+		var fresh := run.progress()
+		var waited: bool = not run.started() and run.run_time() == 0.0 and fresh.get("run_started", true) == false and fresh.get("run_time_s", -1.0) == 0.0
+		for i in RUN_CLOCK_WAIT_TICKS:
+			run.tick(delta)
+		# Away from the line, back up the pad, and to the start point again.
+		car.global_position = start + Vector3(0.0, 0.0, RUN_CLOCK_LINE_AHEAD)
+		run.tick(delta)
+		car.global_position = start
+		run.tick(delta)
+		waited = waited and not run.started() and run.run_time() == 0.0 and run.elapsed > RUN_CLOCK_WAIT_TICKS * delta
+		_check(waited, "%s: sitting on the start point and moving away from the line leave the clock at 0, not started (%.2f s into the test)" % [label, run.elapsed])
+
+		# Just short of the line, then just over it: the crossing tick is 0.
+		var short_of_line := Vector3(start.x, start.y, line_z + RUN_CLOCK_STEP)
+		var over_line := Vector3(start.x, start.y, line_z - RUN_CLOCK_STEP)
+		car.global_position = short_of_line
+		run.tick(delta)
+		var before := run.started()
+		car.global_position = over_line
+		run.tick(delta)
+		var at_crossing := run.run_time()
+		for i in RUN_CLOCK_RUN_TICKS:
+			run.tick(delta)
+		_check(
+			not before and run.started() and at_crossing == 0.0 and is_equal_approx(run.run_time(), RUN_CLOCK_RUN_TICKS * delta) and run.progress().run_started == true,
+			"%s: the clock starts the tick the car is over the line, not before (%.3f s after %d ticks)" % [label, run.run_time(), RUN_CLOCK_RUN_TICKS],
+		)
+
+		# Back over the line and across it a second time: two more ticks on the
+		# same clock, no new start.
+		car.global_position = short_of_line
+		run.tick(delta)
+		car.global_position = over_line
+		run.tick(delta)
+		_check(
+			run.started() and is_equal_approx(run.run_time(), (RUN_CLOCK_RUN_TICKS + 2) * delta),
+			"%s: crossing the line a second time does not start the clock anew (%.3f s)" % [label, run.run_time()],
+		)
+		run.abort()
+	car.reset_to_spawn()
+	pad.reset_cones()
 
 
 ## The handling tests' 180, mirrored: the same driver with steer_right for
