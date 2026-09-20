@@ -161,13 +161,12 @@ const IDLE_CONTROL_GAIN := 2.5
 ## ... and the most throttle it may open by itself (0..1): ~55 Nm at idle.
 const IDLE_CONTROL_MAX_THROTTLE := 0.3
 
-## Pulling away, the clutch slips so the engine sits at least this high [rpm]
-## until the wheels catch up. Stops the car from bogging at walking pace.
-const LAUNCH_RPM := 2000.0
-
-## Engine braking with the throttle closed in gear [Nm per rpm above idle].
-## 0.01 gives ~60 Nm at 7000 rpm: a gentle tug in top gear, a firm one in 1st.
-const ENGINE_BRAKE_TORQUE_PER_RPM := 0.01
+# was LAUNCH_RPM 2000 (the tach clamped up to it pulling away, "a slipping
+# clutch" in name only) and ENGINE_BRAKE_TORQUE_PER_RPM 0.01 (an explicit
+# engine-brake force at the wheels) -> removed with the kinematic engine speed.
+# The launch is a real slipping clutch now (see the Clutch section): the revs
+# flare against it as far as torque and inertia take them. Engine braking is
+# ENGINE_FRICTION_TORQUE* through the locked clutch and the gear.
 
 # --- Gearbox -----------------------------------------------------------------
 
@@ -188,6 +187,67 @@ const DRIVETRAIN_EFFICIENCY := 0.88
 ## Rolling radius of the tyres [m]; must match the wheel mesh. Turns wheel
 ## torque into force and wheel speed into engine RPM.
 const WHEEL_RADIUS := 0.34
+
+# --- Clutch --------------------------------------------------------------------
+
+# A dry plate between the engine and the gearbox, worked by the car (there is
+# no clutch pedal): see _clutch_target for when it opens and closes. Slipping,
+# it passes a friction torque from the faster side to the slower one, the same
+# torque on both; once the two sides turn together it locks and they are one
+# shaft (see _advance_clutch).
+
+## Most torque the clutch passes fully engaged [Nm]. Road car clutches are sized
+## at 1.5 - 2.5 times the engine's peak torque so they never slip once home;
+## ~2 x 245 Nm. It is also the most the clutch can push into the driveline
+## while it drags a fast-turning engine down after a shift or a launch: more
+## than the engine itself ever makes. Higher = harsher catches.
+const CLUTCH_TORQUE_MAX := 500.0
+
+## Time the clutch takes to come in from fully open pulling away [s]: the
+## torque it can pass ramps up over this, the engine flares against it and the
+## car moves off on the slip torque.
+const CLUTCH_ENGAGE_TIME := 0.5
+
+## The same on the move, after a gear change [s]: the revs the engine has too
+## many (upshift) or too few (downshift) are dragged to the new gear's speed
+## within about this. Shorter = quicker, harsher shifts.
+const CLUTCH_SHIFT_ENGAGE_TIME := 0.1
+
+## Downshifts: while the clutch is open the driver blips the throttle towards
+## the speed the lower gear will turn the engine at, wide open until this close
+## to it [rad/s] (~300 rpm), easing off from there. The engine has 0.2 s and
+## its own torque to get there (~1500 rpm at most); what is still missing when
+## the clutch comes back in, the clutch drags out of the car. Without the blip
+## it is all dragged out of the car: a 2nd-to-1st change at 42 km/h asks the
+## rear tyres for 2000 rpm of engine through 1st gear, more than they have, and
+## they lock for a moment. Upshifts need none: the engine has revs to lose and
+## loses them into the clutch.
+const DOWNSHIFT_BLIP_BAND := 30.0
+
+## Slipping, the friction torque follows the sign of the speed difference
+## across the clutch; within this band [rad/s] (~50 rpm) it eases through zero
+## instead of flipping, and inside it the clutch can lock.
+const CLUTCH_SLIP_BAND := 5.0
+
+## With the throttle closed the clutch opens when the gearbox would turn the
+## engine slower than this [rpm]: coming to a stop in gear the engine is let
+## go a little above idle instead of being stalled.
+const CLUTCH_DISENGAGE_RPM := 1000.0
+
+## How far the clutch stays in (0..1) while the car rolls AGAINST the selected
+## gear with the pedals released (backwards in a forward gear, out of a spin):
+## a light drag, ~10 Nm at the clutch, ~430 N at the wheels in 1st, the idling
+## engine leaning against the roll.
+# was an explicit engine-brake force either way round (iteration 2I: "the
+# engine is a pump, it holds back a car rolling backwards in a forward gear") ->
+# absorbed into the clutch - rolling forwards the engine braking now comes out
+# of the engine's friction through the locked clutch, per gear. Rolling
+# backwards a locked clutch would turn the engine backwards, which it cannot;
+# what a driveline can honestly do there is slip, so the old floor lives on as
+# this drag: the torque goes through the clutch, loads the idling engine (the
+# idle controller carries it) and reaches the driven wheels through the gear.
+# ~0.33 m/s^2 in 1st on top of rolling resistance, was 0.17 at 3.7 m/s.
+const CLUTCH_DRAG_ENGAGEMENT := 0.02
 
 # --- Drivetrain layout ---------------------------------------------------------
 
@@ -434,8 +494,12 @@ const FORWARD_ENGAGE_GRACE := 0.2
 
 # --- Gear shifting -----------------------------------------------------------
 
-## Time a gear change takes [s]. The clutch is open meanwhile: no drive
-## torque and no engine braking.
+## Time a gear change takes [s]. The clutch is open meanwhile and the driver's
+## foot off the throttle: no drive torque, no engine braking, and the engine
+## on its own, drifting down on its friction. Then the clutch comes back in
+## (CLUTCH_SHIFT_ENGAGE_TIME) and drags the engine to the new gear's speed:
+## down after an upshift, the revs it gives up pushing the car for a moment; up
+## after a downshift, the car paying for them.
 const SHIFT_TIME := 0.2
 
 ## Automatic mode shifts up at this engine speed under throttle [rpm].
@@ -453,9 +517,11 @@ const DOWNSHIFT_MARGIN_RPM := 1000.0
 ## Automatic mode waits at least this long between two shifts [s].
 const AUTO_SHIFT_HOLD := 0.5
 
-## How quickly the engine speed follows its target [1/s]. Sets how fast the
-## revs drop across an upshift and flare on a launch.
-const RPM_RESPONSE := 20.0
+# was RPM_RESPONSE 20.0 [1/s], how quickly the engine speed followed a target
+# worked out from road speed and gear -> removed. The engine speed has no
+# target any more: it is integrated from torque against ENGINE_INERTIA, and
+# how fast the revs drop across an upshift is CLUTCH_TORQUE_MAX dragging that
+# inertia down (CLUTCH_SHIFT_ENGAGE_TIME).
 
 # --- Weight transfer ---------------------------------------------------------
 
@@ -743,6 +809,18 @@ var engine_rpm: float:
 	set(value):
 		engine_omega = value * TAU / 60.0
 
+## How far the clutch is in, 0 (open) .. 1 (home): the share of
+## CLUTCH_TORQUE_MAX it can pass.
+var clutch_engagement := 0.0
+
+## True while the two sides of the clutch turn as one shaft.
+var clutch_locked := false
+
+## Torque the clutch passes into the gearbox right now [Nm], positive = the
+## engine driving the car the way the gear points, negative = the car turning
+## the engine (engine braking).
+var clutch_torque := 0.0
+
 ## True while the rev limiter holds the fuel back (REDLINE_RPM reached, not yet
 ## back under LIMITER_RESUME_RPM).
 var limiter_cutting := false
@@ -806,6 +884,11 @@ var _forward_engage_timer := 0.0
 
 ## Time left in the current gear change [s].
 var _shift_timer := 0.0
+
+## True from the start of a gear change until the clutch has locked again: the
+## driver's foot is off the throttle for the change and comes back on once the
+## clutch is home.
+var _shift_catching := false
 
 ## Time since the last gear change [s]; the automatic waits AUTO_SHIFT_HOLD.
 var _since_shift := AUTO_SHIFT_HOLD
@@ -1067,6 +1150,10 @@ func reset_to(target: Transform3D) -> void:
 	automatic = true
 	engine_omega = IDLE_RPM * TAU / 60.0
 	limiter_cutting = false
+	clutch_engagement = 0.0
+	clutch_locked = false
+	clutch_torque = 0.0
+	_shift_catching = false
 	_shift_timer = 0.0
 	_since_shift = AUTO_SHIFT_HOLD
 	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
@@ -1162,6 +1249,7 @@ func shift_to(new_gear: int) -> bool:
 		return false
 	gear = new_gear
 	_shift_timer = SHIFT_TIME
+	_shift_catching = true
 	_since_shift = 0.0
 	return true
 
@@ -1220,9 +1308,10 @@ func _update_direction(speed: float, drive: float, delta: float) -> void:
 
 
 ## What the pedals ask of the wheels this tick, as { engine, brake }, and the
-## gearbox and engine RPM update on the way. `engine` is the force at the
-## driven wheels [N], signed along the nose: drive under throttle, engine
-## braking with the throttle closed, reverse gear. `brake` is the total brake
+## gearbox, clutch and engine update on the way. `engine` is the force at the
+## driven wheels [N], signed along the nose: whatever torque the clutch passes
+## (drive under throttle, engine braking with it closed, the launch on a
+## slipping clutch, reverse gear), through the gear. `brake` is the total brake
 ## force asked for [N], always positive; it works against the way each wheel
 ## rolls. `drive` is +1 for the accelerate key and -1 for the brake key.
 func _longitudinal_demand(speed: float, drive: float, delta: float) -> Dictionary:
@@ -1235,34 +1324,116 @@ func _longitudinal_demand(speed: float, drive: float, delta: float) -> Dictionar
 	var against_travel := is_moving and signf(speed) != direction
 	var braking := not is_zero_approx(drive) and (signf(drive) != direction or against_travel)
 	var reversing := reverse_engaged
-	var throttle := drive if drive > 0.0 and not braking and not reversing else 0.0
+	var throttle := 0.0
+	if not braking and drive > 0.0 and not reversing:
+		throttle = drive
+	elif not braking and drive < 0.0 and reversing:
+		# was a flat force of REVERSE_ACCEL x CAR_MASS -> the engine, through the
+		# clutch and REVERSE_RATIO like any other gear. The driver's foot eases
+		# off into MAX_REVERSE_SPEED (the old limiter, now on the throttle): wide
+		# open until REVERSE_ACCEL / REVERSE_LIMITER_RATE short of it, shut at it.
+		throttle = -drive * clampf((speed + MAX_REVERSE_SPEED) * REVERSE_LIMITER_RATE / REVERSE_ACCEL, 0.0, 1.0)
 
 	_update_gearbox(speed, throttle, reversing, delta)
+	# The driver lifts for a gear change and comes back on the throttle once
+	# the clutch is home again. On the way down the box the same foot blips the
+	# throttle while the clutch is open (DOWNSHIFT_BLIP_BAND).
+	if _shift_catching:
+		var revs_missing := speed / WHEEL_RADIUS * _drive_ratio() - engine_omega
+		throttle = clampf(revs_missing / DOWNSHIFT_BLIP_BAND, 0.0, 1.0) if is_shifting else 0.0
+	_advance_clutch(speed, throttle, delta)
 
-	# Engine force at the driven wheels: drive under throttle, engine braking
-	# with the throttle closed. Both need the clutch in and a gear engaged.
-	var engine := 0.0
-	if reversing:
-		if drive < 0.0 and not braking:
-			# Tails off into the top speed in reverse (a rev limiter).
-			engine = -clampf((speed + MAX_REVERSE_SPEED) * REVERSE_LIMITER_RATE, 0.0, REVERSE_ACCEL * -drive) * CAR_MASS
-	elif gear > 0 and not is_shifting:
-		var ratio: float = GEAR_RATIOS[gear] * FINAL_DRIVE
-		if throttle > 0.0:
-			engine = engine_torque(engine_rpm) * throttle * ratio * DRIVETRAIN_EFFICIENCY / WHEEL_RADIUS
-		# was speed > STANDSTILL_SPEED, forwards only -> either way - the engine
-		# is a pump, it holds back a car rolling backwards in a forward gear
-		# just as it does one rolling forwards. A slide that ended with the car
-		# rolling backwards had rolling resistance alone to stop it: 0.15 m/s^2
-		# at 3.7 m/s, now 0.32 (1 s of handbrake at 58 km/h, keys released: from
-		# 3.7 m/s backwards under 2 m/s after 8.1 s, was ~12.5 s; below idle
-		# revs in 1st, 2.2 m/s, it is rolling resistance again, the same as
-		# forwards). Only the direction-symmetric floor: per-gear engine braking
-		# curves are the drivetrain's (iteration 3A).
-		elif absf(speed) > STANDSTILL_SPEED:
-			engine = -signf(speed) * ENGINE_BRAKE_TORQUE_PER_RPM * maxf(engine_rpm - IDLE_RPM, 0.0) * ratio / WHEEL_RADIUS
+	# Torque flowing from the engine to the wheels loses DRIVETRAIN_EFFICIENCY on
+	# the way; the other way round the wheels turn the engine with all of theirs.
+	var efficiency := DRIVETRAIN_EFFICIENCY if clutch_torque > 0.0 else 1.0
+	var engine := clutch_torque * _drive_ratio() * efficiency / WHEEL_RADIUS
 	var brake := BRAKE_DECEL * absf(drive) * CAR_MASS if braking else 0.0
 	return {"engine": engine, "brake": brake}
+
+
+## Overall ratio between the engine and the driven wheels right now: gear x
+## final drive, negative in reverse (the engine turns its own way, the wheels
+## backwards), 0 in neutral.
+func _drive_ratio() -> float:
+	if reverse_engaged:
+		return -REVERSE_RATIO * FINAL_DRIVE
+	return GEAR_RATIOS[gear] * FINAL_DRIVE
+
+
+## How far in the car wants its clutch (0..1). Open in neutral, for the
+## SHIFT_TIME of a gear change, while the handbrake locks driven rear wheels
+## (or it would stall the engine), and, throttle closed, once the gearbox
+## would turn the engine under CLUTCH_DISENGAGE_RPM: that is the stop in gear,
+## and the standstill. Home otherwise: under throttle from any speed (from a
+## standstill that is the launch, slipping), and throttle closed at speed
+## (engine braking). Rolling against the gear it drags at
+## CLUTCH_DRAG_ENGAGEMENT.
+func _clutch_target(speed: float, gearbox_omega: float, throttle: float) -> float:
+	var rear_driven := driven_wheels != DrivenWheels.FWD
+	if (gear == 0 and not reverse_engaged) or is_shifting or (_handbrake_amount > 0.0 and rear_driven):
+		return 0.0
+	if throttle > 0.0:
+		return 1.0
+	if gearbox_omega < 0.0:
+		return CLUTCH_DRAG_ENGAGEMENT if absf(speed) > STANDSTILL_SPEED else 0.0
+	return 1.0 if gearbox_omega >= CLUTCH_DISENGAGE_RPM * TAU / 60.0 else 0.0
+
+
+## One tick of clutch and engine. The gearbox side of the clutch turns at road
+## speed through the gear; the engine side is the engine (engine_omega).
+##   Slipping: the clutch passes CLUTCH_TORQUE_MAX x clutch_engagement from the
+## faster side to the slower one (eased through zero over CLUTCH_SLIP_BAND).
+## The engine is integrated under its own torque less that; the same torque
+## goes into the gearbox. While the gearbox side is slower than the engine's
+## idle the car feathers the clutch so it never drags the engine under
+## IDLE_RPM (no more torque than the engine can spare above it this tick):
+## pulling away on little throttle the engine sits at idle and the car moves
+## off on what it makes there.
+##   Locked: once the speeds have met and the clutch can hold what the engine
+## puts through it, the two sides are one shaft: the engine turns at gearbox
+## speed and the clutch passes the engine's net torque, friction and all;
+## throttle closed that is negative, which is the engine braking, more in the
+## lower gears without anybody scripting it. It lets go again when it is
+## opened, overloaded, or the gearbox falls under idle speed.
+func _advance_clutch(speed: float, throttle: float, delta: float) -> void:
+	var idle_omega := IDLE_RPM * TAU / 60.0
+	var gearbox_omega := speed / WHEEL_RADIUS * _drive_ratio()
+	var target := _clutch_target(speed, gearbox_omega, throttle)
+	if target <= clutch_engagement:
+		# Opening is a stab at the pedal: at once.
+		clutch_engagement = target
+	else:
+		var engage_time := CLUTCH_ENGAGE_TIME if gearbox_omega < idle_omega else CLUTCH_SHIFT_ENGAGE_TIME
+		clutch_engagement = minf(clutch_engagement + delta / engage_time, target)
+	var capacity := CLUTCH_TORQUE_MAX * clutch_engagement
+
+	if clutch_locked:
+		var held := _engine_net_torque(gearbox_omega * 60.0 / TAU, throttle, 0.0)
+		if absf(held) <= capacity and gearbox_omega >= idle_omega:
+			clutch_torque = held
+			engine_omega = gearbox_omega
+			_update_limiter()
+			return
+		clutch_locked = false
+
+	var slip := engine_omega - gearbox_omega
+	clutch_torque = capacity * clampf(slip / CLUTCH_SLIP_BAND, -1.0, 1.0)
+	if gearbox_omega < idle_omega and clutch_torque > 0.0:
+		# What the engine can spare: all the idle controller could add, and
+		# whatever speed it has above idle.
+		var spare := _engine_net_torque(engine_rpm, maxf(throttle, IDLE_CONTROL_MAX_THROTTLE), 0.0) \
+				+ ENGINE_INERTIA * (engine_omega - idle_omega) / delta
+		clutch_torque = clampf(clutch_torque, 0.0, maxf(spare, 0.0))
+	_advance_engine(_engine_net_torque(engine_rpm, throttle, clutch_torque) - clutch_torque, delta)
+	var slip_after := engine_omega - gearbox_omega
+	var met := slip * slip_after <= 0.0 or absf(slip_after) < CLUTCH_SLIP_BAND
+	var held := _engine_net_torque(gearbox_omega * 60.0 / TAU, throttle, 0.0)
+	if met and clutch_engagement > 0.0 and gearbox_omega >= idle_omega and absf(held) <= capacity:
+		clutch_locked = true
+		_shift_catching = false
+		clutch_torque = held
+		engine_omega = gearbox_omega
+		_update_limiter()
 
 
 ## Share of the engine's force that goes to the front axle (0..1).
@@ -1368,41 +1539,24 @@ func _update_gearbox(speed: float, throttle: float, reversing: bool, delta: floa
 			):
 				shift_to(lower)
 
-	if gear == 0 and not reversing:
-		# Neutral: nothing on the crankshaft but the engine's own torques. It
-		# free-revs against its inertia, up to the limiter and back to idle.
-		_advance_engine(_engine_net_torque(engine_rpm, throttle), delta)
-		return
-	# In gear the engine speed still follows the wheels kinematically (with a
-	# stand-in for the slipping clutch when pulling away) until the clutch model
-	# couples the two through torque.
-	var target := wheel_rpm(gear)
-	if reversing:
-		target = absf(speed) / WHEEL_RADIUS * REVERSE_RATIO * FINAL_DRIVE * 60.0 / TAU
-	elif throttle > 0.0:
-		target = maxf(target, LAUNCH_RPM)
-	target = maxf(target, IDLE_RPM)
-	engine_rpm = lerpf(engine_rpm, target, 1.0 - exp(-RPM_RESPONSE * delta))
-	_update_limiter()
-
 
 ## Net torque on the crankshaft from the engine itself [Nm] at `rpm` with the
 ## pedal at `throttle` (0..1): what the burning fuel makes, less friction and
 ## pumping losses. TORQUE_CURVE is what is left of the two at full throttle, so
 ## combustion is the curve plus the losses, scaled by the throttle; closed, the
 ## losses are all there is, and that is the engine braking. Two things work the
-## throttle besides the driver: the idle controller opens it as the revs come
-## down to IDLE_RPM (enough to carry the friction there, plus
-## IDLE_CONTROL_GAIN for every rad/s below), and the rev limiter shuts the fuel
-## off (limiter_cutting).
-func _engine_net_torque(rpm: float, throttle: float) -> float:
+## throttle besides the driver: the idle controller adds to it as the revs come
+## down to IDLE_RPM (enough to carry the friction and the `load` [Nm] the
+## clutch takes off the crankshaft there, plus IDLE_CONTROL_GAIN for every
+## rad/s below), and the rev limiter shuts the fuel off (limiter_cutting).
+func _engine_net_torque(rpm: float, throttle: float, load: float) -> float:
 	var friction := ENGINE_FRICTION_TORQUE + ENGINE_FRICTION_TORQUE_PER_RPM * rpm
 	if limiter_cutting:
 		return -friction
 	var full_combustion := engine_torque(rpm) + friction
-	var idle_torque := friction + IDLE_CONTROL_GAIN * (IDLE_RPM - rpm) * TAU / 60.0
+	var idle_torque := friction + load + IDLE_CONTROL_GAIN * (IDLE_RPM - rpm) * TAU / 60.0
 	var idle_throttle := clampf(idle_torque / full_combustion, 0.0, IDLE_CONTROL_MAX_THROTTLE)
-	return full_combustion * maxf(throttle, idle_throttle) - friction
+	return full_combustion * minf(throttle + idle_throttle, 1.0) - friction
 
 
 ## One tick of the engine speed under `torque` [Nm], everything on the
