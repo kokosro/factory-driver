@@ -20,7 +20,10 @@ extends SceneTree
 ## dip's crest), and what the pad places stands on it. Last come the slides
 ## nobody is driving (keys released they come back into line, scrub to a stop,
 ## or are held back by the engine rolling backwards) and the handling tests'
-## 180 driven to the right.
+## 180 driven to the right. Last comes the telemetry recorder: a real mission
+## driven with it switched on, its JSON-lines file read back and checked line
+## by line (see _check_telemetry - it writes to a fixed tmp path, never to
+## user://, and asserts nothing that comes off the wall clock).
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -374,6 +377,43 @@ const SHIFT_CAUGHT_RPM_TOLERANCE := 0.12
 ## least this many times as far as the fronts. Measured 1.1.
 const VISUAL_MIN_SPIN_LEAD := 1.03
 
+# --- Telemetry ------------------------------------------------------------------
+# Where the telemetry phase writes. A fixed tmp path, outside user://, deleted
+# before the phase so the same file is written every run.
+
+const TELEMETRY_DIR := "/tmp/fd-3E-telemetry"
+const TELEMETRY_FILE := TELEMETRY_DIR + "/smoke.jsonl"
+
+## Physics frames of free driving before the mission starts, 1 s: two samples
+## at FREE_SAMPLE_STRIDE_TICKS ...
+const TELEMETRY_FREE_FRAMES := 60
+
+## ... and how long the mission is driven for [physics frames], 2.5 s: ~30
+## samples at SAMPLE_STRIDE_TICKS.
+const TELEMETRY_DRIVE_FRAMES := 150
+
+## Fields every sample line carries, whatever the car is doing ...
+const TELEMETRY_SAMPLE_FIELDS: Array[String] = [
+	"t_session_s", "pos", "heading_deg", "speed_ms", "gear", "rpm",
+	"throttle", "brake", "handbrake", "steer", "load_front", "load_rear",
+	"slip_front_deg", "slip_rear_deg", "slip_ratio_front", "slip_ratio_rear",
+	"yaw_rate_deg_s",
+]
+
+## ... the two a sample taken during a mission carries on top ...
+const TELEMETRY_MISSION_FIELDS: Array[String] = ["t_run_s", "mission"]
+
+## ... and what the mission block itself holds.
+const TELEMETRY_CONTEXT_FIELDS: Array[String] = ["title", "kind", "elapsed_s", "progress"]
+
+## How far apart two sample times may be from the stride they are counted in
+## [s]: the times are tick counts times 1/60 s, snapped to 1e-5 s in the file.
+const TELEMETRY_STRIDE_TOLERANCE := 0.001
+
+## Least speed the mission samples have to show [m/s], ~20 km/h: the car is
+## driven, so the file has to show it moving.
+const TELEMETRY_MIN_SAMPLE_SPEED := 5.0
+
 var _failures := 0
 
 
@@ -604,6 +644,7 @@ func _run() -> void:
 	_check_placed_on_ground(main.get_node("TestPad") as TestPad)
 	await _check_slide_settle(car)
 	await _check_mirrored_spin(main.get_node("TestPad") as TestPad, car)
+	await _check_telemetry(main, car)
 
 	_finish()
 
@@ -1822,6 +1863,167 @@ func _check_mirrored_spin(pad: TestPad, car: ArcadeCar) -> void:
 	_check(metrics.rotation_deg < -90.0, "the rotation metric keeps its sign: right is negative (%.1f degrees)" % metrics.rotation_deg)
 	_check(metrics.heading_error_deg < MIRRORED_SPIN_MAX_HEADING_ERROR, "the heading error is measured against the target heading, not the signed rotation (%.1f degrees)" % metrics.heading_error_deg)
 	pad.reset_cones()
+
+
+## Telemetry: the recorder writes a drive down and we read it back.
+##
+## The recorder is off in a headless run, so the phase switches it on in
+## process and points it at a fixed tmp file (TELEMETRY_FILE, deleted first):
+## the suite writes nothing under user:// at all, and the last check here says
+## so. Then a real mission through the MissionManager - its signals do the work
+## - driven with the same simulated keys as the rest of this test, and aborted.
+##
+## What is asserted is the schema, the tick-derived timestamps, the sampling
+## stride and the event lines. The wall clock in the file is never asserted:
+## the session_start line's `started_at` (and, in a normal session, the file's
+## own name) are the only clock readings there are, and both are documented as
+## such in scripts/telemetry.gd. Everything else is counted in physics ticks,
+## so this phase reads the same on every run.
+func _check_telemetry(main: Node, car: ArcadeCar) -> void:
+	var manager := main.get_node_or_null("MissionManager") as MissionManager
+	var recorder: TelemetryRecorder = manager.telemetry if manager else null
+	if not _check(manager != null and recorder != null and not recorder.recording, "the mission manager owns a telemetry recorder, recording nothing with no window"):
+		return
+	# Whether user://telemetry was there before the phase: on a machine that has
+	# really been driven it is, and it must come out unchanged either way.
+	var user_dir_before := DirAccess.dir_exists_absolute(TelemetryRecorder.ROOT_DIR)
+
+	DirAccess.make_dir_recursive_absolute(TELEMETRY_DIR)
+	if FileAccess.file_exists(TELEMETRY_FILE):
+		DirAccess.remove_absolute(TELEMETRY_FILE)
+	car.reset_to_spawn()
+	await _step(10)
+	recorder.record_to_file(TELEMETRY_FILE)
+	_check(recorder.recording and FileAccess.file_exists(TELEMETRY_FILE), "switched on in process it records to the fixed tmp file (%s)" % TELEMETRY_FILE)
+	await _step(TELEMETRY_FREE_FRAMES)
+
+	_check(manager.start_mission(0), "a real mission starts through the manager with the recorder listening")
+	var peak_speed := 0.0
+	Input.action_press("accelerate")
+	for frame in TELEMETRY_DRIVE_FRAMES:
+		if frame == 60:
+			Input.action_press("steer_left")
+		if frame == 105:
+			Input.action_release("steer_left")
+		await physics_frame
+		peak_speed = maxf(peak_speed, car.forward_speed)
+	Input.action_release("accelerate")
+	Input.action_release("steer_left")
+	manager.abort_mission()
+	await _step(2)
+	_check(not recorder.recording, "aborting the run closes the file and ends the recording")
+	car.reset_to_spawn()
+	(main.get_node("TestPad") as TestPad).reset_cones()
+
+	# Read it back.
+	var lines := PackedStringArray()
+	for raw in FileAccess.get_file_as_string(TELEMETRY_FILE).split("\n"):
+		if not raw.strip_edges().is_empty():
+			lines.append(raw)
+	if not _check(lines.size() > 10, "the file is written, one line per sample (%d lines)" % lines.size()):
+		return
+	var objects: Array[Dictionary] = []
+	for line in lines:
+		var value: Variant = JSON.parse_string(line)
+		if value is Dictionary:
+			objects.append(value)
+	if not _check(objects.size() == lines.size(), "every line is one JSON object (%d of %d lines parsed)" % [objects.size(), lines.size()]):
+		return
+
+	var header := objects[0]
+	_check(
+		header.get("event", "") == "session_start" and header.has("started_at") and header.has("godot_version")
+			and int(header.get("sample_stride_ticks", 0)) == TelemetryRecorder.SAMPLE_STRIDE_TICKS
+			and int(header.get("physics_ticks_per_second", 0)) == Engine.physics_ticks_per_second,
+		"the first line is the session_start object: the wall-clock start (its content is not asserted), the engine, and the %d-tick stride it was sampled at" % TelemetryRecorder.SAMPLE_STRIDE_TICKS,
+	)
+
+	var events: Array[Dictionary] = []
+	var free_samples: Array[Dictionary] = []
+	var mission_samples: Array[Dictionary] = []
+	for object in objects:
+		if object.has("event"):
+			events.append(object)
+		elif object.has("mission"):
+			mission_samples.append(object)
+		else:
+			free_samples.append(object)
+
+	var missing := PackedStringArray()
+	var shaped := true
+	var sample_speed := 0.0
+	for sample: Dictionary in free_samples + mission_samples:
+		for field in TELEMETRY_SAMPLE_FIELDS:
+			if not sample.has(field) and not missing.has(field):
+				missing.append(field)
+		var position: Variant = sample.get("pos", null)
+		shaped = shaped and position is Array and (position as Array).size() == 3
+		sample_speed = maxf(sample_speed, float(sample.get("speed_ms", 0.0)))
+	_check(
+		missing.is_empty() and shaped,
+		"every sample carries the car's state: position, heading, speed, gear, rpm, pedals, steering, axle loads, slip angles, slip ratios, yaw rate (missing: %s)" % ("none" if missing.is_empty() else ", ".join(missing)),
+	)
+	_check(sample_speed > TELEMETRY_MIN_SAMPLE_SPEED and sample_speed <= peak_speed + 0.01, "the samples are the car's own state, not zeroes (fastest sample %.1f m/s, the car's own peak %.1f)" % [sample_speed, peak_speed])
+
+	var context_missing := PackedStringArray()
+	for sample: Dictionary in mission_samples:
+		for field in TELEMETRY_MISSION_FIELDS:
+			if not sample.has(field) and not context_missing.has(field):
+				context_missing.append(field)
+		var context: Variant = sample.get("mission", null)
+		if context is Dictionary:
+			for field in TELEMETRY_CONTEXT_FIELDS:
+				if not (context as Dictionary).has(field) and not context_missing.has(field):
+					context_missing.append(field)
+		else:
+			context_missing.append("mission (not an object)")
+	_check(
+		not mission_samples.is_empty() and context_missing.is_empty(),
+		"every sample taken during the mission carries the run with it: run time, title, kind, elapsed, progress (%d samples, missing: %s)" % [mission_samples.size(), "none" if context_missing.is_empty() else ", ".join(context_missing)],
+	)
+	var slalom := HandlingTests.all_tests()[0]
+	var first_context: Dictionary = mission_samples[0].get("mission", {}) if not mission_samples.is_empty() else {}
+	var first_progress: Dictionary = first_context.get("progress", {})
+	_check(
+		first_context.get("title", "") == slalom.title and first_context.get("kind", "") == String(slalom.kind) and first_progress.get("kind", "") == String(slalom.kind),
+		"the mission block names the test that was running ('%s', kind '%s', progress of the same kind)" % [first_context.get("title", "?"), first_context.get("kind", "?")],
+	)
+
+	# The stride, in the only clock the samples know: tick counts times 1/60 s.
+	var stride := TelemetryRecorder.SAMPLE_STRIDE_TICKS / 60.0
+	var worst_gap := 0.0
+	var whole_ticks := true
+	for index in range(1, mission_samples.size()):
+		var gap: float = float(mission_samples[index].get("t_run_s", 0.0)) - float(mission_samples[index - 1].get("t_run_s", 0.0))
+		worst_gap = maxf(worst_gap, absf(gap - stride))
+	for sample: Dictionary in mission_samples:
+		var ticks: float = float(sample.get("t_session_s", 0.0)) * 60.0
+		whole_ticks = whole_ticks and absf(ticks - roundf(ticks)) < 0.01
+	_check(
+		mission_samples.size() > TELEMETRY_DRIVE_FRAMES / TelemetryRecorder.SAMPLE_STRIDE_TICKS - 3 and worst_gap < TELEMETRY_STRIDE_TOLERANCE,
+		"mission samples stand exactly %d ticks apart (%.4f s; worst gap off by %.5f s over %d samples)" % [TelemetryRecorder.SAMPLE_STRIDE_TICKS, stride, worst_gap, mission_samples.size()],
+	)
+	_check(whole_ticks, "the timestamps are counted in whole physics ticks, not read off the clock")
+
+	var free_stride := TelemetryRecorder.FREE_SAMPLE_STRIDE_TICKS / 60.0
+	var worst_free_gap := 0.0
+	var free_plain := true
+	for index in range(1, free_samples.size()):
+		var gap: float = float(free_samples[index].get("t_session_s", 0.0)) - float(free_samples[index - 1].get("t_session_s", 0.0))
+		worst_free_gap = maxf(worst_free_gap, absf(gap - free_stride))
+	for sample: Dictionary in free_samples:
+		free_plain = free_plain and not sample.has("t_run_s")
+	_check(
+		free_samples.size() >= 2 and worst_free_gap < TELEMETRY_STRIDE_TOLERANCE and free_plain,
+		"free driving before the mission is sampled coarser, every %d ticks, with no mission on the line (%d samples, worst gap off by %.5f s)" % [TelemetryRecorder.FREE_SAMPLE_STRIDE_TICKS, free_samples.size(), worst_free_gap],
+	)
+
+	var last: Dictionary = objects.back()
+	_check(events.size() == 2 and last.get("event", "") == "aborted" and last.size() == 1, "the last line is the abort event and nothing else ('%s')" % lines[lines.size() - 1])
+	_check(
+		DirAccess.dir_exists_absolute(TelemetryRecorder.ROOT_DIR) == user_dir_before,
+		"recording to the fixed path left user://telemetry alone (%s)" % ("it was there before the phase and is unchanged" if user_dir_before else "never created"),
+	)
 
 
 ## Resets the car and accelerates it in a straight line to ~60 km/h.
