@@ -51,9 +51,26 @@ const LOW_GEAR_ENTRY_SPEED := 9.0
 ## Was 1.0, the bare key -> 0.35 - with raw steering the key is the full 27.5
 ## degrees at any speed, the fronts scrub far past their peak and the car just
 ## pushes wide whatever the throttle, brakes or driven wheels do (that push is
-## the honest car). Slip-sensitive steering used to
+## the honest car, see _check_raw_steering). Slip-sensitive steering used to
 ## ease the lock to ~1.2 peak slip angles by itself; the driver does it now.
 const CORNER_STEER := 0.35
+
+## Raw steering checks: speeds the identity is checked at [m/s], ~30 and ~60
+## km/h (parking pace is covered by _check_low_speed_blend) ...
+const RAW_STEER_SPEEDS: Array[float] = [8.5, 16.7]
+
+## ... how long a key is held before full lock is read off the wheels [physics
+## frames], 0.4 s: twice the 0.2 s STEER_RESPONSE takes from centre to lock ...
+const RAW_STEER_HOLD_FRAMES := 24
+
+## ... and how long from one lock to the other [physics frames], 0.6 s: the
+## steering takes 0.4 s of it.
+const RAW_STEER_SWAP_FRAMES := 36
+
+## ... and the least time the held-lock slide must really be a slide (rear slip
+## angle past SLIDE_CATCH_ANGLE, handbrake let go) for its check to count
+## [physics frames], 0.25 s.
+const RAW_STEER_MIN_SLIDE_FRAMES := 15
 
 ## How fast the test driver rolls the steering on in the turn-in trace [1/s]:
 ## 0 to CORNER_STEER in 0.2 s. Was the bare key, which STEER_RESPONSE ramped
@@ -355,6 +372,7 @@ func _run() -> void:
 	await _check_drivetrain(car, main.get_node_or_null("HUD/RpmLabel") as Label)
 	await _check_force_dynamics(car)
 	await _check_low_speed_blend(car)
+	await _check_raw_steering(car)
 	await _check_high_speed_stability(car)
 	await _check_course(main.get_node("TestPad") as TestPad, car)
 	_check_road_profile(main.get_node("TestPad") as TestPad, car)
@@ -641,6 +659,117 @@ func _check_low_speed_blend(car: ArcadeCar) -> void:
 	Input.action_release("steer_left")
 	_check(car.forward_speed > ArcadeCar.LOW_SPEED_BLEND_END + 2.0, "accelerated up through the blend and out of it (%.1f m/s)" % car.forward_speed)
 	_check(largest_yaw_step < 0.06 and finite, "no step in the yaw rate on the way through the blend (largest change %.3f rad/s in a tick)" % largest_yaw_step)
+	car.reset_to_spawn()
+	await _step(5)
+
+
+## Raw steering: the front wheel angle is the (smoothed) steering input times
+## MAX_STEER_LOCK, at any speed, in any slide, either way round - nothing but
+## the driver turns the wheels. The user's complaints were wheels that turned
+## by themselves, barely moved at speed, and stuck on one side of centre under
+## the handbrake; slip-sensitive steering and the slide feed did all three.
+func _check_raw_steering(car: ArcadeCar) -> void:
+	var lock := ArcadeCar.MAX_STEER_LOCK
+	var ticks_to_lock := ceili(Engine.physics_ticks_per_second / ArcadeCar.STEER_RESPONSE)
+
+	# (1) The identity at speed: on the way to full lock the wheels follow the
+	# steering ramp and nothing else, then stand at full lock to the bit.
+	var forward_yaw_rate := 0.0
+	for entry_speed in RAW_STEER_SPEEDS:
+		await _reach_speed(car, entry_speed)
+		var speed_kmh := car.speed_kmh
+		var identity := true
+		var ramping := true
+		Input.action_press("steer_left")
+		for frame in RAW_STEER_HOLD_FRAMES:
+			await physics_frame
+			identity = identity and car.wheel_angle == car.steer * lock
+			if frame < ticks_to_lock - 1:
+				var ramp_share := (frame + 1) * ArcadeCar.STEER_RESPONSE / Engine.physics_ticks_per_second
+				ramping = ramping and car.wheel_angle > 0.0 and car.wheel_angle <= ramp_share * lock + 0.000001
+		_check(ramping, "from %.0f km/h the wheels follow the steering ramp on the way to lock, never ahead of it" % speed_kmh)
+		_check(identity, "... and are the steering input x MAX_STEER_LOCK on every tick, to the bit")
+		_check(car.wheel_angle == lock, "... full lock reaches the wheels at that speed, to the bit (%.2f rad)" % car.wheel_angle)
+		_check(absf(car.front_slip_angle) > ArcadeCar.FRONT_PEAK_SLIP_ANGLE, "... more than the front tyres can use: they scrub and the car pushes wide (front slip angle %.2f rad, peak %.2f)" % [absf(car.front_slip_angle), ArcadeCar.FRONT_PEAK_SLIP_ANGLE])
+		forward_yaw_rate = car.yaw_rate
+		Input.action_release("steer_left")
+
+	# (2) Lock held into a slide stays on the wheels. A tap of the handbrake
+	# going in, the key held throughout: once the handbrake is let go and the
+	# tail is out past SLIDE_CATCH_ANGLE, the slide feed used to take the lock
+	# off the wheels and trail them into line. Now they stay where the key
+	# puts them, every tick.
+	await _get_up_to_speed(car)
+	Input.action_press("steer_left")
+	Input.action_press("handbrake")
+	var held := true
+	var slide_frames := 0
+	var slide_held := true
+	var peak_slide_angle := 0.0
+	var rolling_forward := true
+	for frame in 150:
+		if frame == HANDBRAKE_TAP_FRAMES:
+			Input.action_release("handbrake")
+		await physics_frame
+		rolling_forward = rolling_forward and car.forward_speed > 0.0
+		if frame >= RAW_STEER_HOLD_FRAMES:
+			held = held and car.wheel_angle == lock
+		if frame >= HANDBRAKE_TAP_FRAMES + RAW_STEER_HOLD_FRAMES and absf(car.rear_slip_angle) > ArcadeCar.SLIDE_CATCH_ANGLE:
+			slide_frames += 1
+			slide_held = slide_held and car.wheel_angle == lock
+			peak_slide_angle = maxf(peak_slide_angle, absf(car.rear_slip_angle))
+	_check(slide_frames >= RAW_STEER_MIN_SLIDE_FRAMES and rolling_forward, "a handbrake tap with the lock held slides the car, handbrake long let go (%d ticks past SLIDE_CATCH_ANGLE, peak %.2f rad)" % [slide_frames, peak_slide_angle])
+	_check(slide_held, "lock held into the slide stays on the wheels on every one of those ticks: no easing off, no trailing into line")
+	_check(held, "... and on every other tick of the 2.5 s the key was down")
+	Input.action_release("steer_left")
+	await _step(RAW_STEER_HOLD_FRAMES)
+	_check(car.steer == 0.0 and car.wheel_angle == 0.0, "let go, the steering springs back to centre (wheel angle %.3f rad)" % car.wheel_angle)
+
+	# (3) Under the handbrake the wheels go lock to lock. The complaint: "go
+	# straight at speed, handbrake, steer right or left - the wheel gets stuck,
+	# can't steer to the opposite side more than straightening."
+	await _get_up_to_speed(car)
+	Input.action_press("handbrake")
+	Input.action_press("steer_left")
+	var identity := true
+	peak_slide_angle = 0.0
+	for frame in RAW_STEER_HOLD_FRAMES:
+		await physics_frame
+		identity = identity and car.wheel_angle == car.steer * lock
+	_check(car.wheel_angle == lock, "handbrake held at speed: full lock one way reaches the wheels (%.2f rad)" % car.wheel_angle)
+	Input.action_release("steer_left")
+	Input.action_press("steer_right")
+	for frame in RAW_STEER_SWAP_FRAMES:
+		await physics_frame
+		identity = identity and car.wheel_angle == car.steer * lock
+		peak_slide_angle = maxf(peak_slide_angle, absf(car.rear_slip_angle))
+	_check(car.wheel_angle == -lock, "... and full lock the other way, straight through centre (%.2f rad, the tail %.2f rad out, %.0f km/h)" % [car.wheel_angle, car.rear_slip_angle, car.speed_kmh])
+	_check(peak_slide_angle > ArcadeCar.SLIDE_CATCH_ANGLE and car.forward_speed > 0.0, "... in a real slide (peak rear slip angle %.2f rad)" % peak_slide_angle)
+	_check(identity, "... the wheels being the steering input x MAX_STEER_LOCK on every tick of it, to the bit")
+	Input.action_release("steer_right")
+	Input.action_release("handbrake")
+
+	# (4) Rolling backwards the wheels stand at the same angle for the same
+	# key: it is the car that answers the other way round, not the steering.
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("brake")
+	for frame in 600:
+		if car.forward_speed <= -5.0:
+			break
+		await physics_frame
+	Input.action_release("brake")
+	var reverse_speed := car.forward_speed
+	Input.action_press("steer_left")
+	await _step(RAW_STEER_HOLD_FRAMES)
+	_check(car.reverse_engaged and reverse_speed <= -5.0 and car.forward_speed < -1.0, "rolling backwards for the reverse steering check (%.1f m/s)" % reverse_speed)
+	_check(car.wheel_angle == lock, "in reverse the same key puts the same full lock on the wheels, to the bit (%.2f rad)" % car.wheel_angle)
+	_check(forward_yaw_rate > 0.05 and car.yaw_rate < -0.05, "... and swings the nose the other way (yaw %.2f rad/s, %.2f rolling forwards)" % [car.yaw_rate, forward_yaw_rate])
+	Input.action_release("steer_left")
+	Input.action_press("steer_right")
+	await _step(RAW_STEER_SWAP_FRAMES)
+	_check(car.forward_speed < -1.0 and car.wheel_angle == -lock and car.yaw_rate > 0.05, "... the same with the other key: the wheels point where they are steered, the car answers the other way round (%.2f rad, yaw %.2f rad/s)" % [car.wheel_angle, car.yaw_rate])
+	Input.action_release("steer_right")
 	car.reset_to_spawn()
 	await _step(5)
 
