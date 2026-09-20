@@ -224,8 +224,12 @@ func _sample(in_mission: bool) -> String:
 		"yaw_rate_deg_s": snappedf(rad_to_deg(car.yaw_rate), VALUE_SNAP),
 	}
 	if in_mission:
-		# Seconds since the run started, counted in ticks, and what the run
-		# says about itself (HandlingTests.progress(), which depends on kind).
+		# Seconds since the test began (the car put on its start point), counted
+		# in ticks, and what the run says about itself (HandlingTests.progress(),
+		# which depends on kind). t_run_s and elapsed_s are both since the test
+		# began; the run clock, which starts at the start line and is what a
+		# result's run_time_s reports, rides in the progress: run_started and
+		# run_time_s.
 		sample["t_run_s"] = _seconds(_run_ticks)
 		var run: HandlingTests = _manager.run
 		sample["mission"] = {
@@ -272,6 +276,12 @@ func _on_mission_started(_index: int, definition: Dictionary) -> void:
 
 ## A finished run: the verdict goes in as the file's last line, and the stored
 ## summary gains the run.
+# was: run_time_s, as the run reports it, was the time from the start of the
+# test to the end of the run, settle included -> it is the run clock: from the
+# car crossing the test's start line to its finish (HandlingTests, "The run
+# clock"). Nothing changes here, the recorder writes what the run reports; but
+# times stored before the change are 2.5 - 3.5 s longer for the same drive, so
+# a stored best from then falls to the first like drive on the new clock.
 func _on_mission_finished(_index: int, outcome: Dictionary) -> void:
 	if not recording or _mission_test.is_empty():
 		return

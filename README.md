@@ -250,11 +250,33 @@ godot --headless --fixed-fps 60 --path . --script res://tests/handling_test.gd -
 The same five tests, playable. Press `1` (slalom), `2` (180 spin), `3` (360 spin),
 `4` (stop box) or `5` (reverse 180): the car is put on that test's start point, the cones stand back up and
 the run starts at once. While it runs, the line under the controls text shows the test,
-live progress and the clock against the test's target time, e.g. `GATE 5/14  12.3 / 30.0 s`,
-`ROTATION 213° / 360°  12.3 / 23.5 s`, `BRAKE! 62 m to box  9.8 / 12.5 s` or
-`REVERSE 28/36 km/h  3.1 / 11.0 s`, with the objective under it. The target is a time to
-beat, 5-15 % over the scripted driver's run (`target_time_s` in the test's data); it
-judges nothing. The spins are a manoeuvre and a destination: do the 180 and return to the
+live progress and the clock against the test's target time, e.g. `GATE 5/14  12.3 / 31.0 s`,
+`ROTATION 213° / 360°  12.3 / 19.5 s`, `BRAKE! 62 m to box  6.8 / 9.3 s` or
+`REVERSE 28/36 km/h  not started / 8.3 s`, with the objective under it. The target is a time to
+beat, 5-10 % over the scripted driver's run (`target_time_s` in the test's data, the gold
+time); it judges nothing.
+<!-- was: the clock counted from the moment the test began (examples `12.3 / 30.0 s`,
+`12.3 / 23.5 s`, `9.8 / 12.5 s`, `3.1 / 11.0 s`; target 5-15 % over the scripted run)
+-> the run clock below, and the targets re-measured on it. -->
+
+**The clock times the run, not the nerves.** It reads `not started` until the car crosses
+the test's start line, starts on that crossing and stops at the finish: over the goal
+line (360, reverse 180), back within 8 m of the start point (180), at a standstill (stop
+box), level with the last cone (slalom). Lining up, waiting, even a run-up from further
+back are free; reaction time is never scored. The start line is 4 m down the pad from
+where the car is put: the painted START / FINISH line under the gantry (z = -4) for the
+spins, the stop box and the reverse 180 - which crosses it tail-first - and a white bar
+of its own across the slalom's lane (z = -24), since the slalom starts further down the
+pad. There is one timed window per run: going back over the line and crossing it again
+does not restart the clock, and a run that finishes without ever crossing its line fails.
+The scripted driver is timed the same way, so its certified times (slalom 28.75 s,
+180 15.83 s, 360 18.23 s, stop box 8.67 s, reverse 180 7.70 s) are what the medals are
+set against. The time limit is the one thing still counted from the moment the test
+began, so a run nobody drives still ends by itself.
+<!-- was: one clock from the moment the test began to the end of the run, the 1 - 2 s
+the run is watched for after the finish included; a late start was a slow time. -->
+
+The spins are a manoeuvre and a destination: do the 180 and return to the
 start, do the 360 and drive on to the 400 m board, do the J-turn and drive on to the 100 m
 board; the rotation is judged the moment the spin settles, then the line reads
 `SPIN DONE — RETURN TO START 43 m` or `SPIN DONE — DRIVE ON 87 m`, and the run must get
@@ -280,8 +302,8 @@ harness prints. `scripts/mission_manager.gd` only picks the test, runs it
 
 Every run is also written down (see [Telemetry](#telemetry)), and what that leaves
 behind comes back on the HUD: the idle mission line ends with your last medal and your
-best time on that test (`| last: GOLD, best: 31.3 s`) and a `PASSED` banner shows your
-standing best under the medal times (`BEST 31.3 s GOLD — your 4 run(s)`). Before your
+best time on that test (`| last: GOLD, best: 28.8 s`) and a `PASSED` banner shows your
+standing best under the medal times (`BEST 28.8 s GOLD — your 4 run(s)`). Before your
 first run there is nothing stored and nothing is shown.
 
 ### Telemetry
@@ -306,7 +328,7 @@ A sample line holds the time and the car:
 
 | Field | What it is |
 | --- | --- |
-| `t_session_s`, `t_run_s` | seconds since the recording started and since the run did; a tick count times 1/60 s, never a clock reading (`t_run_s` only during a mission) |
+| `t_session_s`, `t_run_s` | seconds since the recording started and since the test began (the car put on its start point, not the run clock); a tick count times 1/60 s, never a clock reading (`t_run_s` only during a mission) |
 | `pos`, `heading_deg` | `[x, y, z]` in metres, and where the nose points in degrees (left positive) |
 | `speed_ms` | speed along the nose [m/s], negative while reversing |
 | `gear`, `rpm` | 0 neutral, 1-5 forward, -1 reverse engaged; engine speed [rpm] |
@@ -314,7 +336,7 @@ A sample line holds the time and the car:
 | `load_front`, `load_rear` | share of the load each axle carries (they add to 1) |
 | `slip_front_deg`, `slip_rear_deg`, `slip_ratio_front`, `slip_ratio_rear` | how far each axle's tyres are sliding: slip angles [degrees], slip ratios (a speed difference over the road speed, no unit) |
 | `yaw_rate_deg_s` | how fast the nose is swinging [degrees/s], left positive |
-| `mission` | while a run is on: its `title`, `kind`, `elapsed_s` and the `progress` the HUD shows |
+| `mission` | while a run is on: its `title`, `kind`, `elapsed_s` (since the test began) and the `progress` the HUD shows, which carries the run clock: `run_started` (over the start line) and `run_time_s` (0 until then, standing once at the finish) |
 
 The first line of every file is the `session_start`: the session id, the context, the
 engine version, the sampling it was written at - and `started_at`, the wall clock. That
@@ -323,13 +345,17 @@ are; everything else is counted in physics ticks, so the same drive always write
 same numbers.
 
 A mission's file ends with its verdict, `{"event":"result", "passed": true,
-"run_time_s": 31.3, "medal": "gold"}`, or `{"event":"aborted"}` if the run was
-cancelled. `index.json` keeps the running summary - `next_session_id`, the `sessions`
+"run_time_s": 28.75, "medal": "gold"}`, or `{"event":"aborted"}` if the run was
+cancelled. `run_time_s` is the run clock: from the car crossing the test's start line to
+its finish, the time the medal is given for.
+<!-- was: `run_time_s` (example 31.3) was the time from the start of the test to the end
+of the run -> the run clock, see Mission mode. Times stored before the change are
+2.5 - 3.5 s longer for the same drive. --> `index.json` keeps the running summary - `next_session_id`, the `sessions`
 whose files are kept, the test driven `last_test`, and per test `best_time_s`, `runs`,
 `last_time_s` and `last_medal` (times in seconds, `best_time_s` 0 for a test never
 passed) - and that is what the HUD shows back: the idle mission line ends with
-`| last: GOLD, best: 31.3 s` and a `PASSED` banner carries
-`BEST 31.3 s GOLD — your 4 run(s)` under the medal times. Nothing stored, nothing shown.
+`| last: GOLD, best: 28.8 s` and a `PASSED` banner carries
+`BEST 28.8 s GOLD — your 4 run(s)` under the medal times. Nothing stored, nothing shown.
 
 ### Camera
 
