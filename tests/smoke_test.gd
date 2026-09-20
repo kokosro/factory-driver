@@ -11,7 +11,9 @@ extends SceneTree
 ## coasting in a corner, the path bending only as fast as the tyres can bend
 ## it, rear / front / all-wheel drive, brake bias, downforce, the low-speed
 ## blend), and checks the pad's ground texture, course queries and
-## drive-through cones.
+## drive-through cones, and the road: the profile is pure, mean-neutral, gentle
+## and level where it has to be, the wheels feel it (bumps at speed, the test
+## dip's crest), and what the pad places stands on it.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -74,6 +76,65 @@ const CRAWL_SPEED := 2.0
 ## ~670 N of downforce to find; a car without downforce is 670 N off.
 const DOWNFORCE_AVERAGE_FRAMES := 30
 const DOWNFORCE_TOLERANCE := 150.0
+
+## Micro-bumps: most their mean may be off 0 over the 200 m lane strip x = 0,
+## z = 0 .. -200 in 5 cm steps [m], and least RMS they must show there [m].
+## Measured: mean 0.06 mm, RMS 3.8 mm.
+const MICRO_MEAN_TOLERANCE := 0.0005
+const MICRO_MIN_RMS := 0.001
+
+## The lane's elevation has to be worth the name: least height between its
+## lowest and highest point along x = 0 [m]. Measured: 2.2 m.
+const LANE_MIN_ELEVATION_RANGE := 1.0
+
+## Bumps at speed: the flat-out run gets this long to build speed, then the
+## wheel loads are sampled for this long [physics frames], 5 s and 10 s.
+const ROAD_FEEL_RUN_UP_FRAMES := 300
+const ROAD_FEEL_SAMPLE_FRAMES := 600
+
+## ... every wheel's load must swing at least this much about its baseline
+## (half its axle's static + transfer + aero share) [RMS, share of the wheel's
+## static load]. Measured: 0.070 - 0.073. A car that does not feel the road
+## shows 0.
+const ROAD_FEEL_MIN_RIPPLE := 0.02
+
+## ... and each axle's load, averaged over the run, must stay this close to its
+## baseline [N]: the road moves load around, it does not add any. Measured:
+## front +13 N, rear +22 N (of ~5000 N and ~8200 N; the run ends on the way up
+## the first swell, whose hollow presses the car down a little).
+const ROAD_FEEL_MEAN_TOLERANCE := 60.0
+
+## ... and the run has to get onto the swell: least elevation it must reach
+## [m]. Measured: 0.43 m, at z = -428.
+const ROAD_FEEL_MIN_CLIMB := 0.25
+
+## ... while the body rides the elevation: most the car's height may be off the
+## ground's under it [m]. Measured: 0.
+const BODY_ON_GROUND_TOLERANCE := 0.001
+
+## Crest test: a standing start this far before the road's test dip [m], flat
+## out, crosses it at ~25 m/s (90 km/h), where the dip's 10 m come by at 2.5 Hz:
+## close above the ride frequency, the suspension cannot follow it down.
+const CREST_RUN_UP := 75.0
+
+## Going in, every wheel's load must dip at least this far below its baseline,
+## and at the bottom of the dip rise at least this far above it [share of the
+## baseline]. Measured: dips 0.33 - 0.43, rises 0.53 - 0.72.
+const CREST_MIN_DIP := 0.2
+const CREST_MIN_RISE := 0.25
+
+## A wheel counts as in the dip within this far of its centre [m] (the dip is
+## 10 m long), and as past it from CREST_SETTLED_FROM to CREST_SETTLED_TO past
+## the centre [m]: there its load must average back to the baseline to within
+## CREST_SETTLED_TOLERANCE [share of the baseline]. Measured: 0.012.
+const CREST_WINDOW := 7.0
+const CREST_SETTLED_FROM := 25.0
+const CREST_SETTLED_TO := 45.0
+const CREST_SETTLED_TOLERANCE := 0.03
+
+## Placed objects: most the foot of a cone, board post or pylon may be off the
+## ground under it [m]. Measured: 0 (they are placed on the same function).
+const PLACED_ON_GROUND_TOLERANCE := 0.01
 
 var _failures := 0
 
@@ -279,6 +340,10 @@ func _run() -> void:
 	await _check_low_speed_blend(car)
 	await _check_high_speed_stability(car)
 	await _check_course(main.get_node("TestPad") as TestPad, car)
+	_check_road_profile(main.get_node("TestPad") as TestPad, car)
+	await _check_road_feel(main.get_node("TestPad") as TestPad, car)
+	await _check_crest(car)
+	_check_placed_on_ground(main.get_node("TestPad") as TestPad)
 
 	_finish()
 
@@ -634,6 +699,257 @@ func _check_course(pad: TestPad, car: ArcadeCar) -> void:
 	_check(pad.get_toppled_count(TestPad.GROUP_SLALOM) == 0, "resetting stands the cones back up")
 	car.reset_to_spawn()
 	await _step(5)
+
+
+## The road profile by itself: pure, mean-neutral, gentle, level where the
+## certifications run, and one road shared by pad and car.
+func _check_road_profile(pad: TestPad, car: ArcadeCar) -> void:
+	var road := pad.road_profile
+	_check(road != null and road == car.road_profile, "pad and car drive on the same road profile")
+	if road == null:
+		return
+
+	# Pure: the same point twice, and from a second road built from the same
+	# constants, gives the same height to the last bit.
+	var twin := RoadProfile.new()
+	var pure := true
+	for i in 200:
+		var x := -300.0 + 7.3 * i
+		var z := 140.0 - 6.1 * i
+		var height := road.sample_height(x, z)
+		pure = pure and height == road.sample_height(x, z) and height == twin.sample_height(x, z) and height == pad.sample_height(x, z)
+		pure = pure and road.elevation_height(x, z) == pad.elevation_height(x, z)
+	_check(pure, "road height is a pure function of (x, z): same point, same height, on every instance")
+
+	# Micro-bumps: no DC part, but really there, and inside their bound.
+	var micro_sum := 0.0
+	var micro_squares := 0.0
+	var micro_peak := 0.0
+	var samples := 4000
+	for i in samples:
+		var micro := road.micro_height(0.0, -0.05 * i)
+		micro_sum += micro
+		micro_squares += micro * micro
+		micro_peak = maxf(micro_peak, absf(micro))
+	var micro_mean := micro_sum / samples
+	_check(absf(micro_mean) < MICRO_MEAN_TOLERANCE, "micro-bumps are mean-neutral over a 200 m lane strip (mean %.3f mm, limit %.1f mm)" % [micro_mean * 1000.0, MICRO_MEAN_TOLERANCE * 1000.0])
+	_check(sqrt(micro_squares / samples) > MICRO_MIN_RMS and micro_peak <= RoadProfile.MICRO_AMPLITUDE, "micro-bumps are there and bounded (RMS %.1f mm, peak %.1f mm of at most %.0f mm)" % [sqrt(micro_squares / samples) * 1000.0, micro_peak * 1000.0, RoadProfile.MICRO_AMPLITUDE * 1000.0])
+
+	# Elevation along the lane: gentle, worth the name, and a function of z
+	# only across the lane band.
+	var steepest := 0.0
+	var lowest := 0.0
+	var highest := 0.0
+	var side_pull := 0.0
+	for i in 1451:
+		var z := 150.0 - i
+		var height := road.elevation_height(0.0, z)
+		steepest = maxf(steepest, road.elevation_slope(0.0, z))
+		lowest = minf(lowest, height)
+		highest = maxf(highest, height)
+		for x: float in [-RoadProfile.LANE_BAND_HALF_WIDTH, -2.5, 2.5, RoadProfile.LANE_BAND_HALF_WIDTH]:
+			side_pull = maxf(side_pull, absf(road.elevation_height(x, z) - height))
+	_check(steepest <= RoadProfile.MAX_SLOPE, "the lane's elevation stays gentle (steepest %.2f %%, limit %.1f %%)" % [steepest * 100.0, RoadProfile.MAX_SLOPE * 100.0])
+	_check(highest - lowest > LANE_MIN_ELEVATION_RANGE and highest <= 1.5 and lowest >= -1.5, "the lane rises and falls (%.2f m .. %.2f m)" % [lowest, highest])
+	_check(side_pull == 0.0, "across the lane band the elevation depends on z only (largest difference %.6f m)" % side_pull)
+
+	# The four flat zones: exactly level, sampled out to a centimetre short of
+	# their radius (on the radius itself rounding decides).
+	var circle := TestPad.skid_circle()
+	var box := TestPad.stop_box()
+	var start_zone := 0.0
+	var stop_zone := 0.0
+	var skid_zone := 0.0
+	var slalom_zone := 0.0
+	for i in 64:
+		var around := Vector3(cos(i * 0.7), 0.0, sin(i * 0.7))
+		var reach := (i % 8 + 1) / 8.0
+		var at_start := Vector3(0.0, 0.0, TestPad.START_LINE_Z) + around * (RoadProfile.START_ZONE_RADIUS - 0.01) * reach
+		var at_stop: Vector3 = box.centre + around * (RoadProfile.STOP_ZONE_RADIUS - 0.01) * reach
+		var at_skid: Vector3 = circle.centre + around * (RoadProfile.SKID_ZONE_RADIUS - 0.01) * reach
+		start_zone = maxf(start_zone, absf(road.elevation_height(at_start.x, at_start.z)))
+		stop_zone = maxf(stop_zone, absf(road.elevation_height(at_stop.x, at_stop.z)))
+		skid_zone = maxf(skid_zone, absf(road.elevation_height(at_skid.x, at_skid.z)))
+	for cone in TestPad.slalom_cone_positions():
+		for side: float in [-1.0, -0.5, 0.0, 0.5, 1.0]:
+			slalom_zone = maxf(slalom_zone, absf(road.elevation_height(cone.x + side * (RoadProfile.SLALOM_ZONE_BUFFER - 0.01), cone.z)))
+	_check(start_zone == 0.0, "the start zone is level (largest elevation %.6f m within %.0f m of the line)" % [start_zone, RoadProfile.START_ZONE_RADIUS])
+	_check(stop_zone == 0.0, "the stop box zone is level (largest elevation %.6f m within %.0f m of the box)" % [stop_zone, RoadProfile.STOP_ZONE_RADIUS])
+	_check(slalom_zone == 0.0, "the slalom line is level (largest elevation %.6f m within %.0f m of the cones)" % [slalom_zone, RoadProfile.SLALOM_ZONE_BUFFER])
+	_check(skid_zone == 0.0, "the skid pad is level (largest elevation %.6f m within %.0f m of its centre)" % [skid_zone, RoadProfile.SKID_ZONE_RADIUS])
+
+
+## Half of what each axle carries before the road has its say [N]: static
+## split, load transfer and downforce, front then rear. A wheel's baseline.
+func _wheel_baselines(car: ArcadeCar) -> Array[float]:
+	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+	var weight := ArcadeCar.CAR_MASS * gravity
+	var downforce := ArcadeCar.DOWNFORCE_COEFF * car.forward_speed * car.forward_speed
+	return [
+		(weight * car.front_load_fraction + downforce * ArcadeCar.AERO_BALANCE_FRONT) * 0.5,
+		(weight * car.rear_load_fraction + downforce * (1.0 - ArcadeCar.AERO_BALANCE_FRONT)) * 0.5,
+	]
+
+
+## The car over bumps at speed: at rest the springs are at rest; flat out down
+## the straight every wheel load swings with the road, the axle loads keep
+## their mean, the body rides the elevation with the floor under it.
+func _check_road_feel(pad: TestPad, car: ArcadeCar) -> void:
+	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+	var weight := ArcadeCar.CAR_MASS * gravity
+	var static_loads: Array[float] = [weight * (1.0 - ArcadeCar.REAR_WEIGHT_FRACTION) * 0.5, weight * ArcadeCar.REAR_WEIGHT_FRACTION * 0.5]
+	car.reset_to_spawn()
+	await _step(10)
+	var at_rest := car.wheel_loads.size() == 4
+	for i in car.wheel_loads.size():
+		at_rest = at_rest and absf(car.wheel_loads[i] - static_loads[i / 2]) < 0.01
+	_check(at_rest, "standing still every wheel carries its static share (front %.1f N, rear %.1f N)" % [car.wheel_loads[0], car.wheel_loads[2]])
+
+	var stats := _new_stats()
+	Input.action_press("accelerate")
+	await _drive(car, ROAD_FEEL_RUN_UP_FRAMES, stats)
+	var deviation_sum: Array[float] = [0.0, 0.0, 0.0, 0.0]
+	var deviation_squares: Array[float] = [0.0, 0.0, 0.0, 0.0]
+	var loads_finite := true
+	var on_floor := true
+	var ground_gap := 0.0
+	var highest := 0.0
+	for frame in ROAD_FEEL_SAMPLE_FRAMES:
+		await _drive(car, 1, stats)
+		var baselines := _wheel_baselines(car)
+		for i in 4:
+			var deviation := car.wheel_loads[i] - baselines[i / 2]
+			deviation_sum[i] += deviation
+			deviation_squares[i] += deviation * deviation
+			loads_finite = loads_finite and is_finite(car.wheel_loads[i]) and car.wheel_loads[i] >= 0.0
+		on_floor = on_floor and car.is_on_floor()
+		var ground := pad.elevation_height(car.global_position.x, car.global_position.z)
+		ground_gap = maxf(ground_gap, absf(car.global_position.y - ground))
+		highest = maxf(highest, ground)
+	Input.action_release("accelerate")
+
+	var least_ripple := INF
+	var most_ripple := 0.0
+	for i in 4:
+		var ripple := sqrt(deviation_squares[i] / ROAD_FEEL_SAMPLE_FRAMES) / static_loads[i / 2]
+		least_ripple = minf(least_ripple, ripple)
+		most_ripple = maxf(most_ripple, ripple)
+	var front_mean := (deviation_sum[0] + deviation_sum[1]) / ROAD_FEEL_SAMPLE_FRAMES
+	var rear_mean := (deviation_sum[2] + deviation_sum[3]) / ROAD_FEEL_SAMPLE_FRAMES
+	_check(car.forward_speed > 40.0 and highest > ROAD_FEEL_MIN_CLIMB, "flat-out run gets up to speed and onto the swell (%.1f m/s, %.2f m up)" % [car.forward_speed, highest])
+	_check(least_ripple > ROAD_FEEL_MIN_RIPPLE, "every wheel's load swings with the road at speed (RMS %.3f .. %.3f of its static load, floor %.2f)" % [least_ripple, most_ripple, ROAD_FEEL_MIN_RIPPLE])
+	_check(absf(front_mean) < ROAD_FEEL_MEAN_TOLERANCE and absf(rear_mean) < ROAD_FEEL_MEAN_TOLERANCE, "the road moves load around, it adds none: mean axle loads stay on their baseline (front %+.1f N, rear %+.1f N)" % [front_mean, rear_mean])
+	_check(stats.finite and loads_finite, "no NaN / inf / negative wheel loads over the bumps")
+	_check(stats.max_step < 1.5, "no teleporting over the bumps (largest step %.2f m)" % stats.max_step)
+	_check(on_floor and ground_gap < BODY_ON_GROUND_TOLERANCE, "the body rides the elevation with the floor under it (largest gap %.4f m)" % ground_gap)
+	_check(absf(car.global_position.x) < 0.01 and absf(car.global_rotation.y) < 0.001, "bumps and swell do not pull the car off line (x = %.4f m)" % car.global_position.x)
+
+	car.reset_to_spawn()
+	var reset_clean := true
+	for i in 4:
+		reset_clean = reset_clean and car.wheel_loads[i] == static_loads[i / 2]
+	await _step(2)
+	for i in 4:
+		reset_clean = reset_clean and absf(car.wheel_loads[i] - static_loads[i / 2]) < 0.01
+	_check(reset_clean, "reset puts the suspension at rest (front %.1f N, rear %.1f N a tick later)" % [car.wheel_loads[0], car.wheel_loads[2]])
+	await _step(5)
+
+
+## The crest test: drive over the road's test dip. Going in, the road drops
+## away under each wheel faster than the car can follow: the load dips. At the
+## bottom it comes back up: the load peaks. Past it the load settles again.
+## Everything is timed by where each wheel is, not by frames.
+func _check_crest(car: ArcadeCar) -> void:
+	var dip := RoadProfile.TEST_DIP_CENTRE
+	var spawn := car.get_spawn_transform()
+	car.reset_to(Transform3D(spawn.basis, Vector3(dip.x, spawn.origin.y, dip.y + CREST_RUN_UP)))
+	await _step(10)
+	var stats := _new_stats()
+	var lowest: Array[float] = [INF, INF, INF, INF]
+	var lowest_at: Array[float] = [0.0, 0.0, 0.0, 0.0]
+	var highest: Array[float] = [0.0, 0.0, 0.0, 0.0]
+	var highest_at: Array[float] = [0.0, 0.0, 0.0, 0.0]
+	var settled_sum: Array[float] = [0.0, 0.0, 0.0, 0.0]
+	var settled_count: Array[int] = [0, 0, 0, 0]
+	var crossing_speed := 0.0
+	Input.action_press("accelerate")
+	for frame in 900:
+		await _drive(car, 1, stats)
+		var baselines := _wheel_baselines(car)
+		for i in 4:
+			# How far this wheel is past the middle of the dip [m].
+			var past := dip.y - (car.global_transform * ArcadeCar.WHEEL_CONTACT_POINTS[i]).z
+			var load_ratio := car.wheel_loads[i] / baselines[i / 2]
+			if absf(past) < CREST_WINDOW:
+				if load_ratio < lowest[i]:
+					lowest[i] = load_ratio
+					lowest_at[i] = past
+				if load_ratio > highest[i]:
+					highest[i] = load_ratio
+					highest_at[i] = past
+			elif past > CREST_SETTLED_FROM and past < CREST_SETTLED_TO:
+				settled_sum[i] += load_ratio
+				settled_count[i] += 1
+		if crossing_speed == 0.0 and car.global_position.z <= dip.y:
+			crossing_speed = car.forward_speed
+		if car.global_position.z < dip.y - CREST_SETTLED_TO - 5.0:
+			break
+	Input.action_release("accelerate")
+
+	var least_dip := INF
+	var least_rise := INF
+	var dip_first := true
+	var worst_settled := 0.0
+	for i in 4:
+		least_dip = minf(least_dip, 1.0 - lowest[i])
+		least_rise = minf(least_rise, highest[i] - 1.0)
+		dip_first = dip_first and lowest_at[i] < highest_at[i]
+		worst_settled = maxf(worst_settled, absf(settled_sum[i] / maxi(settled_count[i], 1) - 1.0) if settled_count[i] > 0 else INF)
+	_check(crossing_speed > 20.0 and crossing_speed < 30.0, "crest run crosses the test dip at speed (%.1f m/s)" % crossing_speed)
+	_check(least_dip > CREST_MIN_DIP, "the road dropping away unloads every wheel (front left down to %.2f of its baseline %.1f m before the middle; least dip %.2f, floor %.2f)" % [lowest[0], -lowest_at[0], least_dip, CREST_MIN_DIP])
+	_check(least_rise > CREST_MIN_RISE and dip_first, "the bottom of the dip loads every wheel up again, after the dip in load (front left up to %.2f, %.1f m past the middle; least rise %.2f, floor %.2f)" % [highest[0], highest_at[0], least_rise, CREST_MIN_RISE])
+	_check(worst_settled < CREST_SETTLED_TOLERANCE, "past the dip the wheel loads settle back on their baseline (mean off by %.3f at most, limit %.2f)" % [worst_settled, CREST_SETTLED_TOLERANCE])
+	_check(stats.finite and stats.max_step < 1.5, "no NaN / inf / teleporting through the dip (largest step %.2f m)" % stats.max_step)
+	car.reset_to_spawn()
+	await _step(5)
+
+
+## What the pad places stands on the ground it shows: cones (their homes),
+## the straight's distance board posts and the perimeter pylons.
+func _check_placed_on_ground(pad: TestPad) -> void:
+	var cone_gap := 0.0
+	var cone_count := 0
+	for group: StringName in [TestPad.GROUP_SLALOM, TestPad.GROUP_SKID_INNER, TestPad.GROUP_SKID_OUTER, TestPad.GROUP_STOP_BOX]:
+		for home in pad.get_cone_positions(group):
+			cone_gap = maxf(cone_gap, absf(home.y - pad.elevation_height(home.x, home.z)))
+			cone_count += 1
+	_check(cone_count > 0 and cone_gap <= PLACED_ON_GROUND_TOLERANCE, "all %d cones stand on the ground (largest gap %.4f m)" % [cone_count, cone_gap])
+
+	# Boxes stand with their middle half their height above the ground.
+	var box_gap := 0.0
+	var box_count := 0
+	var highest_foot := 0.0
+	var lowest_foot := 0.0
+	for path: String in ["Straight", "Pylons"]:
+		var group := pad.get_node_or_null(path)
+		if group == null:
+			continue
+		for child in group.get_children():
+			var instance := child as MeshInstance3D
+			if instance == null or not instance.mesh is BoxMesh:
+				continue
+			var size := (instance.mesh as BoxMesh).size
+			# Uprights only: board posts and pylon shafts, not paint or caps.
+			if size.y < 2.0 or size.y < size.x * 2.0:
+				continue
+			var foot := instance.position.y - size.y * 0.5
+			var ground := pad.elevation_height(instance.position.x, instance.position.z)
+			box_gap = maxf(box_gap, absf(foot - ground))
+			highest_foot = maxf(highest_foot, foot)
+			lowest_foot = minf(lowest_foot, foot)
+			box_count += 1
+	_check(box_count >= 40 and box_gap <= PLACED_ON_GROUND_TOLERANCE, "all %d board posts and pylons stand on the ground (largest gap %.4f m)" % [box_count, box_gap])
+	_check(highest_foot > 0.5 and lowest_foot < -0.5, "... up and down the swell (feet from %.2f m to %.2f m)" % [lowest_foot, highest_foot])
 
 
 ## Resets the car and accelerates it in a straight line for 3 s, to ~60 km/h.
