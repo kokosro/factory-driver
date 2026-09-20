@@ -88,7 +88,12 @@ with opposite lock, which is there all the way to full lock at once, handbrake o
 (`SLIDE_CATCH_ANGLE` survives only inside the assist, as where it starts to leave a slide
 that is coming back alone). The assist fades once the tail is more
 than ~25 degrees out (`SPIN_COMMIT_ANGLE`) and is off while the handbrake is held, so a
-committed flick goes all the way round. A tap of handbrake with steering gives a drift
+committed flick goes all the way round. A slide nobody is driving settles by itself:
+rear tyres that still roll keep their hold sliding sideways (`REAR_TYRE_SLIDE_GRIP`)
+where the fronts and a locked wheel let go to `TYRE_SLIDE_GRIP`, so with every key
+released the tail is pulled back into line, the sliding tyres scrub the speed off and the
+car rolls on straight or comes to rest, held back by the engine whichever way it rolls.
+A tap of handbrake with steering gives a drift
 that comes back on its own; holding both from ~90 km/h until the car is nearly round,
 then centring the steering and braking once it has lined up, gives a 180; from ~125 km/h,
 steering the other way while the car travels backwards and releasing the handbrake past
@@ -162,8 +167,8 @@ cannot be passed, either the driver or the car is not set up properly.
 | Test          | Course                                                       | Passes when                                                              |
 | ------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------ |
 | `SLALOM_TEST` | the 14-cone slalom line right of the straight                | at most 1 gate missed (wrong side, too wide, cone knocked over), in 45 s |
-| `SPIN_180`    | the straight, handbrake turn from ~90 km/h                   | ends within 35 degrees of 180, net forward displacement positive         |
-| `SPIN_360`    | the straight, full spin from ~125 km/h                       | ends within 35 degrees of 360, net forward displacement positive         |
+| `SPIN_180`    | the straight, handbrake turn from ~90 km/h                   | ends within 35 degrees of 180, spun either way, net forward displacement positive |
+| `SPIN_360`    | the straight, full spin from ~125 km/h                       | ends within 35 degrees of 360, spun either way, net forward displacement positive |
 | `STOP_BOX`    | the hatched box on the straight, 150 m from the start        | stopped with the whole car inside the box, braked from 72 km/h or more   |
 | `REVERSE_180` | the straight, J-turn out of ~40 km/h in reverse              | ends within 35 degrees of 180, driving away forwards at 18 km/h or more, reversed at 36 km/h or more, net travel along the reversing line positive |
 
