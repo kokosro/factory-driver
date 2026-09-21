@@ -39,7 +39,9 @@ extends SceneTree
 ## is a dump, let go on an idling one a stall), the stall and the starter (a
 ## stopped engine burns and fires nothing, a stalled car does not creep, the
 ## starter catches it, a dry tank never does), reverse under neutral on the
-## shift keys, the automatic's comfort and sport programs, and the telemetry's
+## shift keys, the automatic's sport, comfort and eco programs (sport to the
+## digit what it was, shift points that are the engine's own, the drivers the
+## mode key seats, eco's throttle ceiling, fuel and drive cycle), and the telemetry's
 ## two pedal fields reading the pedals. Then the telemetry recorder: a real mission
 ## driven with it switched on, its JSON-lines file read back and checked line
 ## by line (see _check_telemetry - it writes to a fixed tmp path, never to
@@ -575,9 +577,55 @@ const CONTROLS_MAX_START_TIME := 0.5
 const CONTROLS_IDLE_FRAMES := 120
 const CONTROLS_IDLE_TOLERANCE := 20.0
 
-## Frames of full throttle the two shift programs are compared over, 10 s: the
-## sport program is in 3rd by then, comfort in 4th.
+## Frames of full throttle the shift programs are compared over, 10 s: the
+## sport program is in 3rd by then, comfort in 5th, eco in 4th under its
+## throttle ceiling.
+# was "comfort in 4th" -> 5th - comfort shifts up at 2800 rpm now, not 4500.
 const CONTROLS_MODE_FRAMES := 600
+
+## What the sport program does over those 10 s, to the digit, measured on the
+## tree before the automatic had a third program (e7698ed): the road turning
+## 1st at this [rpm] on its last tick in it, the highest engine speed [rpm], and
+## the speed at the end [m/s] in 3rd. Sport is the certified program: nothing
+## done for comfort or eco may move it.
+const CONTROLS_SPORT_FIRST_SHIFT_RPM := 6825.6489
+const CONTROLS_SPORT_PEAK_RPM := 7116.769
+const CONTROLS_SPORT_END_SPEED := 33.73244
+
+## Every program has to leave 1st at least this far under the one before it
+## [rpm] (eco under comfort; comfort under sport by four times this).
+const CONTROLS_MIN_PROGRAM_GAP := 500.0
+
+## The most the tach may show on comfort in those 10 s [rpm], the launch's
+## flare and 5th gear's pull included: under the 4000 the user called "still
+## sporty" (2026-09-21), measured 2953.
+const CONTROLS_COMFORT_MAX_RPM := 3200.0
+
+## How far a program's constants may stand from what derived_shift_points makes
+## of the engine [rpm]: they are rounded to the 100.
+const CONTROLS_DERIVATION_TOLERANCE := 50.0
+
+## The tap the feet are compared on [frames]: what the test driver's foot takes
+## to the floor (throttle_attack 10), and the most of the pedal it may be for the
+## comfort and eco drivers (0..1; 0.45 and 0.35 by their rates).
+const CONTROLS_FOOT_TAP_FRAMES := 6
+const CONTROLS_SOFT_TAP_MAX := 0.5
+
+## The trip the programs' fuel is compared over: this far [m] from rest with
+## this much of the pedal held (0..1, under eco's ceiling: the same pedal for
+## all), given this many frames at most (eco takes ~1500). And the most eco may
+## burn over it as a share of what sport burns (measured ~0.4).
+const CONTROLS_TRIP_DISTANCE := 300.0
+const CONTROLS_TRIP_PEDAL := 0.5
+const CONTROLS_TRIP_MAX_FRAMES := 2400
+const CONTROLS_ECO_MAX_FUEL_SHARE := 0.6
+
+## Eco's drive cycle, Vector2(pedal 0..1, frames): flat out up the box, a coast
+## down it, part throttle, a coast to a crawl and into 1st, flat out again. A
+## change down within CONTROLS_HUNT_FRAMES of a change up (2 s; AUTO_SHIFT_HOLD
+## would allow one after 0.5 s) is hunting.
+const CONTROLS_ECO_CYCLE: Array[Vector2] = [Vector2(1.0, 600), Vector2(0.0, 900), Vector2(0.4, 600), Vector2(0.0, 1200), Vector2(1.0, 300)]
+const CONTROLS_HUNT_FRAMES := 120
 
 ## Frames of half throttle, then of half brake, recorded for the telemetry
 ## check, 1 s each, and the file they go to (next to the telemetry phase's own).
@@ -2634,11 +2682,35 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 	car.reset_to_spawn()
 	await _step(5)
 	_check(not car.tcs_on and not car.abs_on and car.gearbox_mode == ArcadeCar.GearboxMode.COMFORT and car.automatic, "controls: a reset leaves the switches as the driver has them (it puts the car back, not the dashboard)")
+	_check(car.driver_profile == ArcadeCar.DRIVER_PROFILES["comfort_driver"] and car.driver_profile.throttle_attack == 4.5 and car.driver_profile.brake_attack == 5.0, "controls: the gearbox mode key seated the comfort driver with the program, and the reset left them in the seat (throttle attack %.1f / s, brake %.1f / s)" % [car.driver_profile.throttle_attack, car.driver_profile.brake_attack])
 	await _tap("tcs_toggle")
 	await _tap("abs_toggle")
 	await _tap("gearbox_mode")
 	await _step(2)
+	# was the second press of the gearbox mode key back on sport, the check
+	# below straight after it -> the key goes round three programs (sport,
+	# comfort, eco), so the second press is eco and the third is sport: eco is
+	# looked at here, and the check that was here follows the third press as it
+	# stood.
+	_check(car.gearbox_mode == ArcadeCar.GearboxMode.ECO and rpm_label.text.ends_with("G1 eco"), "controls: the second press of the gearbox mode key is the eco program, and the tach names it ('%s')" % rpm_label.text)
+	_check(car.driver_profile == ArcadeCar.DRIVER_PROFILES["eco_driver"] and car.driver_profile.throttle_attack == 3.5 and car.driver_profile.brake_attack == 4.5, "controls: ... with the eco driver in the seat (throttle attack %.1f / s, brake %.1f / s)" % [car.driver_profile.throttle_attack, car.driver_profile.brake_attack])
+	car.reset_to_spawn()
+	await _step(5)
+	_check(car.gearbox_mode == ArcadeCar.GearboxMode.ECO and car.driver_profile == ArcadeCar.DRIVER_PROFILES["eco_driver"] and rpm_label.text.ends_with("G1 eco"), "controls: eco and its driver are still there after a reset ('%s')" % rpm_label.text)
+	# A driver seated by hand has the seat until the key is pressed again: not
+	# a reset, not a program set from code puts the program's own driver back.
+	car.set_driver_profile(ArcadeCar.DRIVER_PROFILES["chauffeur"])
+	car.reset_to_spawn()
+	car.gearbox_mode = ArcadeCar.GearboxMode.COMFORT
+	await _step(5)
+	var by_hand_kept: bool = car.driver_profile == ArcadeCar.DRIVER_PROFILES["chauffeur"]
+	car.gearbox_mode = ArcadeCar.GearboxMode.ECO
+	await _step(2)
+	_check(by_hand_kept and car.driver_profile == ArcadeCar.DRIVER_PROFILES["chauffeur"], "controls: a driver seated by hand stays through a reset and a program set from code (throttle attack %.1f / s, the chauffeur's)" % car.driver_profile.throttle_attack)
+	await _tap("gearbox_mode")
+	await _step(2)
 	_check(car.tcs_on and car.abs_on and car.gearbox_mode == ArcadeCar.GearboxMode.SPORT and tcs_lamp.text == "TCS" and abs_lamp.text == "ABS" and rpm_label.text.ends_with("G1"), "controls: the same keys switch them back on, the HUD is quiet again ('%s')" % rpm_label.text)
+	_check(car.driver_profile == ArcadeCar.DRIVER_PROFILES["test_driver"], "controls: the third press is sport again, and it puts the test driver back in the seat over the one seated by hand (throttle attack %.1f / s)" % car.driver_profile.throttle_attack)
 
 	# (2) TCS: the same launch with and without. With, the clutch is feathered
 	# and the driven wheels held at DRIVE_SLIP_RATIO; without, the clutch is let
@@ -2831,11 +2903,100 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 	# (8) Comfort and sport: the same 8 s flat out from rest.
 	var sport := await _controls_shift_program(car, ArcadeCar.GearboxMode.SPORT, true)
 	var comfort := await _controls_shift_program(car, ArcadeCar.GearboxMode.COMFORT, true)
+	# was comfort measured at 4526 rpm against COMFORT_UPSHIFT_RPM 4500 -> ~2829
+	# against 2800 - the user's report (2026-09-21): "4500 is still sporty". The
+	# check reads the constant and stands as it was.
 	_check(sport.first_shift_rpm >= ArcadeCar.UPSHIFT_RPM and comfort.first_shift_rpm >= ArcadeCar.COMFORT_UPSHIFT_RPM and comfort.first_shift_rpm < sport.first_shift_rpm - 2000.0, "controls: flat out, comfort leaves 1st at %d rpm where sport holds it to %d" % [comfort.first_shift_rpm, sport.first_shift_rpm])
 	_check(comfort.gear > sport.gear and comfort.speed < sport.speed and comfort.peak_rpm < sport.peak_rpm, "controls: %.0f s on comfort end a gear further up the box and slower (G%d at %.1f m/s, never over %d rpm; sport G%d at %.1f m/s)" % [CONTROLS_MODE_FRAMES * tick, comfort.gear, comfort.speed, comfort.peak_rpm, sport.gear, sport.speed])
 	var manual_comfort := await _controls_shift_program(car, ArcadeCar.GearboxMode.COMFORT, false)
 	_check(manual_comfort.gear == 1 and manual_comfort.peak_rpm > ArcadeCar.UPSHIFT_RPM and manual_comfort.first_shift_rpm == 0.0, "controls: manual mode knows neither program: 1st is held to the limiter (G%d, %d rpm)" % [manual_comfort.gear, manual_comfort.peak_rpm])
 	_check(sport.finite and comfort.finite and manual_comfort.finite and car.gearbox_mode == ArcadeCar.GearboxMode.SPORT, "controls: no NaN / inf through the three runs, and the car is back on sport")
+
+	# (8b) Three programs. Sport is the certified one and has not moved by a
+	# hundredth of an rpm; comfort is under it, eco under comfort; and the
+	# constants the box shifts by are what the engine's curve says they are.
+	var eco := await _controls_shift_program(car, ArcadeCar.GearboxMode.ECO, true)
+	_check(absf(sport.first_shift_rpm - CONTROLS_SPORT_FIRST_SHIFT_RPM) < 0.01 and absf(sport.peak_rpm - CONTROLS_SPORT_PEAK_RPM) < 0.01 and sport.gear == 3 and absf(sport.speed - CONTROLS_SPORT_END_SPEED) < 0.0001, "controls: sport is the certified program to the digit: out of 1st at %.4f rpm, never over %.3f, G%d at %.5f m/s after %.0f s" % [sport.first_shift_rpm, sport.peak_rpm, sport.gear, sport.speed, CONTROLS_MODE_FRAMES * tick])
+	_check(comfort.first_shift_rpm < sport.first_shift_rpm - CONTROLS_MIN_PROGRAM_GAP * 4.0 and comfort.first_shift_rpm < ArcadeCar.COMFORT_UPSHIFT_RPM + 100.0 and comfort.peak_rpm < CONTROLS_COMFORT_MAX_RPM, "controls: comfort is nowhere near sporty any more: out of 1st at %d rpm, %d under sport, and never over %d rpm on the way to G%d, the launch included" % [comfort.first_shift_rpm, sport.first_shift_rpm - comfort.first_shift_rpm, comfort.peak_rpm, comfort.gear])
+	_check(eco.first_shift_rpm >= ArcadeCar.ECO_UPSHIFT_RPM and eco.first_shift_rpm < comfort.first_shift_rpm - CONTROLS_MIN_PROGRAM_GAP, "controls: eco leaves 1st lower again, at %d rpm where comfort holds it to %d" % [eco.first_shift_rpm, comfort.first_shift_rpm])
+	_check(eco.speed < comfort.speed and eco.peak_rpm < comfort.peak_rpm and eco.peak_rpm < ArcadeCar.ECO_UPSHIFT_RPM + 100.0 and eco.gear >= 4, "controls: %.0f s on eco are slower still and never over %d rpm (G%d at %.1f m/s; comfort G%d at %.1f m/s)" % [CONTROLS_MODE_FRAMES * tick, eco.peak_rpm, eco.gear, eco.speed, comfort.gear, comfort.speed])
+	var manual_eco := await _controls_shift_program(car, ArcadeCar.GearboxMode.ECO, false)
+	_check(manual_eco.gear == 1 and manual_eco.first_shift_rpm == 0.0 and manual_eco.peak_rpm == manual_comfort.peak_rpm and manual_eco.speed == manual_comfort.speed, "controls: manual mode knows nothing of eco either, its throttle ceiling included: 1st to the limiter, the same run to the bit (G%d, %d rpm, %.3f m/s)" % [manual_eco.gear, manual_eco.peak_rpm, manual_eco.speed])
+	_check(eco.finite and manual_eco.finite and car.gearbox_mode == ArcadeCar.GearboxMode.SPORT, "controls: no NaN / inf through the two eco runs, and the car is back on sport")
+	var derived_ok := true
+	var derived_line := ""
+	var program_constants := {
+		ArcadeCar.GearboxMode.SPORT: ["sport", ArcadeCar.UPSHIFT_RPM, ArcadeCar.DOWNSHIFT_RPM, ArcadeCar.DOWNSHIFT_MARGIN_RPM],
+		ArcadeCar.GearboxMode.COMFORT: ["comfort", ArcadeCar.COMFORT_UPSHIFT_RPM, ArcadeCar.COMFORT_DOWNSHIFT_RPM, ArcadeCar.COMFORT_DOWNSHIFT_MARGIN_RPM],
+		ArcadeCar.GearboxMode.ECO: ["eco", ArcadeCar.ECO_UPSHIFT_RPM, ArcadeCar.ECO_DOWNSHIFT_RPM, ArcadeCar.ECO_DOWNSHIFT_MARGIN_RPM],
+	}
+	for mode: ArcadeCar.GearboxMode in program_constants:
+		var constants: Array = program_constants[mode]
+		var derived := ArcadeCar.derived_shift_points(mode)
+		derived_ok = derived_ok and absf(derived.upshift_rpm - constants[1]) <= CONTROLS_DERIVATION_TOLERANCE and absf(derived.downshift_rpm - constants[2]) <= CONTROLS_DERIVATION_TOLERANCE and absf(derived.margin_rpm - constants[3]) <= CONTROLS_DERIVATION_TOLERANCE
+		derived_line += " %s %d / %d / %d for %d / %d / %d;" % [constants[0], derived.upshift_rpm, derived.downshift_rpm, derived.margin_rpm, constants[1], constants[2], constants[3]]
+	_check(derived_ok, "controls: every program's shift points are the engine's own, within %d rpm of what its torque curve and friction make them (up / down / margin:%s)" % [CONTROLS_DERIVATION_TOLERANCE, derived_line.trim_suffix(";")])
+	_check(ArcadeCar.ECO_DOWNSHIFT_RPM > ArcadeCar.CLUTCH_DISENGAGE_RPM and ArcadeCar.ECO_DOWNSHIFT_RPM < ArcadeCar.COMFORT_DOWNSHIFT_RPM and ArcadeCar.COMFORT_DOWNSHIFT_RPM < ArcadeCar.DOWNSHIFT_RPM and ArcadeCar.ECO_UPSHIFT_RPM - ArcadeCar.ECO_DOWNSHIFT_MARGIN_RPM > ArcadeCar.ECO_DOWNSHIFT_RPM, "controls: the programs change down in the same order, eco last and still over where the clutch lets go (%d / %d / %d rpm, the clutch at %d)" % [ArcadeCar.DOWNSHIFT_RPM, ArcadeCar.COMFORT_DOWNSHIFT_RPM, ArcadeCar.ECO_DOWNSHIFT_RPM, ArcadeCar.CLUTCH_DISENGAGE_RPM])
+
+	# (8c) The feet that go with the programs: the same tap of the key, long
+	# enough for the test driver's foot to reach the floor, is a fine fraction
+	# of the pedal under the comfort driver's and the eco driver's.
+	var taps := {}
+	for who: String in ["test_driver", "comfort_driver", "eco_driver"]:
+		car.reset_to_spawn()
+		car.set_driver_profile(ArcadeCar.DRIVER_PROFILES[who])
+		await _step(10)
+		taps[who] = await _press_and_watch(car, "accelerate", CONTROLS_FOOT_TAP_FRAMES, PEDAL_RELEASE_FRAMES)
+		in_range = in_range and taps[who].in_range
+	car.set_driver_profile(ArcadeCar.DRIVER_PROFILES["test_driver"])
+	_check(taps.test_driver.peak_throttle == 1.0 and taps.comfort_driver.peak_throttle <= CONTROLS_SOFT_TAP_MAX and taps.comfort_driver.peak_throttle > PEDAL_TAP_MIN and taps.eco_driver.peak_throttle < taps.comfort_driver.peak_throttle and taps.eco_driver.peak_throttle > PEDAL_TAP_MIN, "controls: a %d-tick tap of the key is the floor for the test driver (%.2f), %.2f of the pedal for the comfort driver and %.2f for the eco driver" % [CONTROLS_FOOT_TAP_FRAMES, taps.test_driver.peak_throttle, taps.comfort_driver.peak_throttle, taps.eco_driver.peak_throttle])
+	_check(taps.comfort_driver.end_throttle == 0.0 and taps.eco_driver.end_throttle == 0.0 and taps.comfort_driver.ticks_to_release > taps.test_driver.ticks_to_release and taps.eco_driver.ticks_to_release > taps.test_driver.ticks_to_release, "controls: ... and they let it up as gently, all the way (%d and %d ticks from where the tap got it; the test driver %d from the floor)" % [taps.comfort_driver.ticks_to_release, taps.eco_driver.ticks_to_release, taps.test_driver.ticks_to_release])
+	var profiles_ok := true
+	for who: String in ["comfort_driver", "eco_driver"]:
+		var profile: Dictionary = ArcadeCar.DRIVER_PROFILES[who]
+		var test_driver: Dictionary = ArcadeCar.DRIVER_PROFILES["test_driver"]
+		var chauffeur: Dictionary = ArcadeCar.DRIVER_PROFILES["chauffeur"]
+		profiles_ok = profiles_ok and profile.size() == test_driver.size() and profile.brake_attack >= profile.throttle_attack
+		for key: String in test_driver:
+			profiles_ok = profiles_ok and profile.has(key) and profile[key] < test_driver[key] and profile[key] > chauffeur[key]
+	_check(profiles_ok, "controls: both new drivers have every rate, each between the chauffeur's and the test driver's, the brake no slower than the throttle")
+	car.set_driver_profile({"throttle_attack": ArcadeCar.DRIVER_PROFILES["eco_driver"].throttle_attack, "brake_attack": NAN, "brake_release": -2.0})
+	_check(car.driver_profile.throttle_attack == 3.5 and car.driver_profile.throttle_release == ArcadeCar.DRIVER_PROFILES["test_driver"].throttle_release and car.driver_profile.brake_attack == ArcadeCar.DRIVER_PROFILES["test_driver"].brake_attack and car.driver_profile.brake_release == 0.0 and car.driver_profile.steering_hand_speed == ArcadeCar.STEERING_HAND_SPEED, "controls: a part of the eco driver seated by hand gets the rest from the test driver, NaN too, and a negative rate is none (release %.0f / s, brake %.0f and %.0f / s)" % [car.driver_profile.throttle_release, car.driver_profile.brake_attack, car.driver_profile.brake_release])
+	car.set_driver_profile(ArcadeCar.DRIVER_PROFILES["test_driver"])
+
+	# (8d) Eco's throttle ceiling: the pedal on the floor is ECO_MAX_THROTTLE at
+	# the engine, whatever is asked for and however; every other program, and
+	# manual mode, gets the pedal as it is.
+	var ceilings := {}
+	var pedals_asked := {"floor": 1.0, "five": 5.0, "nan": NAN, "negative": -3.0, "half": 0.5}
+	for asked: String in pedals_asked:
+		ceilings[asked] = await _controls_pedal_in_program(car, ArcadeCar.GearboxMode.ECO, true, pedals_asked[asked])
+	var comfort_floor := await _controls_pedal_in_program(car, ArcadeCar.GearboxMode.COMFORT, true, 1.0)
+	var sport_floor := await _controls_pedal_in_program(car, ArcadeCar.GearboxMode.SPORT, true, 1.0)
+	var manual_floor := await _controls_pedal_in_program(car, ArcadeCar.GearboxMode.ECO, false, 1.0)
+	_check(ceilings.floor.peak == ArcadeCar.ECO_MAX_THROTTLE and ceilings.five.peak == ArcadeCar.ECO_MAX_THROTTLE and ceilings.half.peak == 0.5 and ceilings.floor.speed > ceilings.half.speed, "controls: on eco the engine gets %.2f of its throttle with the pedal on the floor, and with 5 asked for (%.2f); half a pedal is half (%.2f)" % [ceilings.floor.peak, ceilings.five.peak, ceilings.half.peak])
+	_check(ceilings.nan.peak == 0.0 and ceilings.negative.peak == 0.0 and absf(ceilings.nan.speed) < CRAWL_SPEED and absf(ceilings.negative.speed) < CRAWL_SPEED, "controls: NaN and a negative pedal on eco are nothing asked for (throttle %.2f and %.2f, the car at %.2f m/s)" % [ceilings.nan.peak, ceilings.negative.peak, ceilings.nan.speed])
+	_check(comfort_floor.peak == 1.0 and sport_floor.peak == 1.0 and manual_floor.peak == 1.0, "controls: comfort, sport and manual mode (eco selected) give the engine the whole pedal (%.2f, %.2f, %.2f)" % [comfort_floor.peak, sport_floor.peak, manual_floor.peak])
+	var ceilings_finite: bool = comfort_floor.finite and sport_floor.finite and manual_floor.finite
+	for asked: String in ceilings:
+		ceilings_finite = ceilings_finite and ceilings[asked].finite
+	_check(ceilings_finite and car.gearbox_mode == ArcadeCar.GearboxMode.SPORT and car.automatic, "controls: no NaN / inf and the throttle inside 0..1 through all of it, the car back on sport")
+
+	# (8e) What eco is for: the same pedal over the same road burns less.
+	var sport_trip := await _controls_trip(car, ArcadeCar.GearboxMode.SPORT)
+	var comfort_trip := await _controls_trip(car, ArcadeCar.GearboxMode.COMFORT)
+	var eco_trip := await _controls_trip(car, ArcadeCar.GearboxMode.ECO)
+	_check(sport_trip.arrived and comfort_trip.arrived and eco_trip.arrived and sport_trip.running and comfort_trip.running and eco_trip.running and sport_trip.finite and comfort_trip.finite and eco_trip.finite, "controls: %.0f m at %.1f of the pedal arrive on all three programs, the engine running, nothing NaN (%.1f / %.1f / %.1f s)" % [CONTROLS_TRIP_DISTANCE, CONTROLS_TRIP_PEDAL, sport_trip.ticks * tick, comfort_trip.ticks * tick, eco_trip.ticks * tick])
+	_check(eco_trip.fuel_l > 0.0 and eco_trip.fuel_l < sport_trip.fuel_l * CONTROLS_ECO_MAX_FUEL_SHARE and eco_trip.fuel_l < comfort_trip.fuel_l and comfort_trip.fuel_l < sport_trip.fuel_l, "controls: eco burns %.4f L over them where sport burns %.4f (%.0f %% of it) and comfort %.4f" % [eco_trip.fuel_l, sport_trip.fuel_l, eco_trip.fuel_l / sport_trip.fuel_l * 100.0, comfort_trip.fuel_l])
+	_check(eco_trip.min_rpm >= ArcadeCar.IDLE_RPM - 1.0 and eco_trip.gear > sport_trip.gear and eco_trip.peak_rpm < sport_trip.peak_rpm * 0.5, "controls: ... in G%d and never over %d rpm nor under %d, sport in G%d and up to %d" % [eco_trip.gear, eco_trip.peak_rpm, eco_trip.min_rpm, sport_trip.gear, sport_trip.peak_rpm])
+
+	# (8f) Eco through a drive cycle: up the box flat out, a long coast down it,
+	# part throttle, another coast to a crawl and flat out again. The box never
+	# takes an upshift back, and the engine never comes near a stall.
+	var cycle := await _controls_eco_cycle(car)
+	_check(cycle.upshifts >= 4 and cycle.downshifts >= 3 and cycle.soonest_downshift > CONTROLS_HUNT_FRAMES, "controls: eco's drive cycle is %d upshifts and %d downshifts and no hunting: the soonest change down comes %.1f s after a change up" % [cycle.upshifts, cycle.downshifts, cycle.soonest_downshift * tick])
+	_check(cycle.running and cycle.min_rpm >= ArcadeCar.IDLE_RPM - 1.0 and cycle.finite and cycle.lowest_gear_under_load_rpm >= ArcadeCar.IDLE_RPM - 1.0, "controls: ... and no stall: the engine never under %d rpm, %d at its lowest with the throttle open and the clutch home" % [cycle.min_rpm, cycle.lowest_gear_under_load_rpm])
+	_check(car.gearbox_mode == ArcadeCar.GearboxMode.SPORT and car.automatic and car.driver_profile == ArcadeCar.DRIVER_PROFILES["test_driver"], "controls: the car is back on sport with the test driver in the seat")
 
 	# (9) Telemetry: the throttle and brake fields are the pedals. Half a pedal
 	# asked for through set_driver_input, no key down, reads half in the file.
@@ -2964,6 +3125,92 @@ func _controls_shift_program(car: ArcadeCar, mode: ArcadeCar.GearboxMode, automa
 	Input.action_release("accelerate")
 	seen.gear = car.gear
 	seen.speed = car.forward_speed
+	car.gearbox_mode = ArcadeCar.GearboxMode.SPORT
+	return seen
+
+
+## CONTROLS_PEDAL_FRAMES of `asked` on the throttle through set_driver_input
+## (out of range and NaN as they come) from rest on the automatic's `mode`
+## program, or in manual mode with it selected: the most throttle the engine
+## was given, the speed at the end, whether everything stayed finite and the
+## throttle inside 0..1. Leaves the car on sport, automatic, on the keys.
+func _controls_pedal_in_program(car: ArcadeCar, mode: ArcadeCar.GearboxMode, automatic: bool, asked: float) -> Dictionary:
+	car.reset_to_spawn()
+	car.gearbox_mode = mode
+	car.automatic = automatic
+	await _step(10)
+	var seen := {"peak": 0.0, "speed": 0.0, "finite": true}
+	car.set_driver_input(asked, 0.0, 0.0)
+	for frame in CONTROLS_PEDAL_FRAMES:
+		await physics_frame
+		seen.peak = maxf(seen.peak, car.throttle_pedal)
+		seen.finite = seen.finite and is_finite(car.throttle_pedal) and car.throttle_pedal >= 0.0 and car.throttle_pedal <= 1.0 and is_finite(car.forward_speed) and is_finite(car.engine_rpm) and is_finite(car.fuel_l)
+	car.clear_driver_input()
+	seen.speed = car.forward_speed
+	car.gearbox_mode = ArcadeCar.GearboxMode.SPORT
+	car.automatic = true
+	return seen
+
+
+## CONTROLS_TRIP_DISTANCE from rest with CONTROLS_TRIP_PEDAL held on the
+## automatic's `mode` program: the fuel burnt [L], the ticks it took, the gear at
+## the end, the rev range, whether the car got there, the engine still running
+## and everything finite. Leaves the car on sport.
+func _controls_trip(car: ArcadeCar, mode: ArcadeCar.GearboxMode) -> Dictionary:
+	car.reset_to_spawn()
+	car.gearbox_mode = mode
+	await _step(10)
+	var seen := {"fuel_l": 0.0, "ticks": 0, "gear": 0, "min_rpm": INF, "peak_rpm": 0.0, "arrived": false, "running": true, "finite": true}
+	var start := car.global_position
+	var fuel_before := car.fuel_l
+	car.set_driver_input(CONTROLS_TRIP_PEDAL, 0.0, 0.0)
+	for frame in CONTROLS_TRIP_MAX_FRAMES:
+		await physics_frame
+		seen.ticks += 1
+		seen.min_rpm = minf(seen.min_rpm, car.engine_rpm)
+		seen.peak_rpm = maxf(seen.peak_rpm, car.engine_rpm)
+		seen.finite = seen.finite and is_finite(car.forward_speed) and is_finite(car.engine_rpm) and is_finite(car.fuel_l) and car.global_position.is_finite()
+		if car.global_position.distance_to(start) >= CONTROLS_TRIP_DISTANCE:
+			seen.arrived = true
+			break
+	car.clear_driver_input()
+	seen.fuel_l = fuel_before - car.fuel_l
+	seen.gear = car.gear
+	seen.running = car.engine_running
+	car.gearbox_mode = ArcadeCar.GearboxMode.SPORT
+	return seen
+
+
+## The eco program through CONTROLS_ECO_CYCLE (pedal, frames): how often the
+## box changed up and down, the fewest ticks between a change up and the change
+## down that followed it, the lowest engine speed, the lowest with the throttle
+## open and the clutch locked, whether the engine ran throughout and everything
+## stayed finite. Leaves the car on sport.
+func _controls_eco_cycle(car: ArcadeCar) -> Dictionary:
+	car.reset_to_spawn()
+	car.gearbox_mode = ArcadeCar.GearboxMode.ECO
+	await _step(10)
+	var seen := {"upshifts": 0, "downshifts": 0, "soonest_downshift": 1000000, "min_rpm": INF, "lowest_gear_under_load_rpm": INF, "running": true, "finite": true}
+	var gear_was := car.gear
+	var since_upshift := 1000000
+	for phase: Vector2 in CONTROLS_ECO_CYCLE:
+		car.set_driver_input(phase.x, 0.0, 0.0)
+		for frame in int(phase.y):
+			await physics_frame
+			since_upshift += 1
+			if car.gear > gear_was:
+				seen.upshifts += 1
+				since_upshift = 0
+			elif car.gear < gear_was:
+				seen.downshifts += 1
+				seen.soonest_downshift = mini(seen.soonest_downshift, since_upshift)
+			gear_was = car.gear
+			seen.min_rpm = minf(seen.min_rpm, car.engine_rpm)
+			if car.throttle_pedal > 0.0 and car.clutch_locked:
+				seen.lowest_gear_under_load_rpm = minf(seen.lowest_gear_under_load_rpm, car.engine_rpm)
+			seen.running = seen.running and car.engine_running
+			seen.finite = seen.finite and is_finite(car.forward_speed) and is_finite(car.engine_rpm) and is_finite(car.clutch_torque) and car.global_position.is_finite()
+	car.clear_driver_input()
 	car.gearbox_mode = ArcadeCar.GearboxMode.SPORT
 	return seen
 
