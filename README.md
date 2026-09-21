@@ -21,8 +21,13 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Brake; press again at a stop to reverse | `Down` or `S`   |
 | Steer left / right                      | `Left` / `Right` or `A` / `D` |
 | Handbrake (hold mid-corner to slide)    | `Space`         |
-| Shift down / up (switches to manual)    | `Q` / `E`       |
+| Shift down / up (switches to manual; under neutral: reverse) | `Q` / `E` |
 | Toggle automatic / manual gearbox       | `M`             |
+| Automatic: comfort / sport shift program | `N`            |
+| Traction control on / off               | `T`             |
+| ABS on / off                            | `G`             |
+| Clutch pedal (hold; manual mode only)   | `Left Shift`    |
+| Starter (hold, for a stalled engine)    | `I`             |
 | Reset the car to the start line         | `R`             |
 | Cycle camera: chase, cockpit, front, overhead, wheel | `C` |
 | Look back (hold)                        | `B`             |
@@ -33,7 +38,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 
 Look left / right are on `,` and `.` (the `<` / `>` pair, under the right hand's reach from the arrows and next to `B`'s row): `Q` / `E` are the gearbox, `B` is look back. Hold to glance to that side, let go and the view comes back: the chase camera swings ~65 degrees round the car, in the cockpit and the bonnet view the head turns ~60 degrees; the overhead and wheel views have no side to look to. It is a glance, not a view of its own (`C` still cycles the same five), both keys at once look straight ahead, and look back wins over either.
 
-The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged), with two thin pedal bars beside it (green throttle, red brake: how far the driver's feet really have the pedals, see The driver below) and a thin fuel bar under them. Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual) and turns red near the redline. The gearbox starts in automatic and goes back to automatic when you reset the car.
+The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged), with two thin pedal bars beside it (green throttle, red brake: how far the driver's feet really have the pedals, see The driver below) and a thin fuel bar under them. Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual, `comfort` on the automatic's comfort program and `STALL` once the engine has stopped) and turns red near the redline; over it sit the two driver aids' lamps, `TCS` and `ABS`, dim unless an aid is switched off (see The driver's controls below). The gearbox starts in automatic and goes back to automatic when you reset the car.
 
 ### Driving feel
 
@@ -182,7 +187,8 @@ indicated efficiency of 0.30 and petrol's 44 MJ/kg: ~0.6 L/h idling, ~67 L/h fla
 at the limiter, nothing on the overrun with the throttle shut. The tank holds the 986's
 64 L (`fuel_l`, `fuel_fraction()`), every reset fills it, and the thin bar lying under
 the pedal bars shows it: amber under 15 %, red under 8 %. With the tank dry nothing
-burns: the engine runs down and stays down until a reset.
+burns: the engine runs down, stops running, and stays down until there is fuel again
+(a reset fills the tank and starts the engine; see the starter below).
 
 The car has one mass, `car.total_mass()`: `BASE_MASS` (the car with a dry tank, 1252 kg)
 plus the fuel in the tank (`fuel_mass`, 48 kg full) plus `payload_mass`, a plain variable
@@ -240,6 +246,63 @@ flat out down the lane); standing still every wheel carries exactly its static s
 wheels are drawn on the road, up to `MAX_WHEEL_VISUAL_TRAVEL` (9 cm) from their place
 under the body, while the body heaves, pitches and rolls above them.
 
+#### The driver's controls
+
+Two aids, both on unless switched off, each with a small lamp over the tach that is dim
+while the aid is on and amber with `OFF` behind it once it is not. They are switches on
+the dashboard (`tcs_on`, `abs_on`, and `gearbox_mode` below), not the car's state: a
+reset puts the car back and leaves them as the driver has them.
+
+- **TCS** (`T`). The car's traction control is its clutch foot: pulling away it holds
+  the revs at the launch floor, passes what the engine makes there, and eases off
+  whenever the driven wheels get to a slip ratio of 0.25. Switched off, the launch is
+  what a driver without one does: the revs flare to the floor as before, and once they
+  are there the clutch is let in for good, all it can pass, with no slip limit. In 1st
+  that is far more than the rear tyres hold: they spin up to the engine's speed (slip
+  ratio ~2.8 for the 0.10 of a launch with TCS), the clutch is home after 0.8 s on
+  spinning wheels instead of 1.9 s, and the engine keeps them spinning until the car has
+  caught up. Nothing about the tyres changes; the wheelspin is what the tyre curve makes
+  of the torque.
+- **ABS** (`G`). With it a braked wheel is held at a slip ratio of 0.15; without it a
+  full pedal asks the front axle for more than its tyres have and the front wheels
+  lock: wheel speed 0 with the car still moving, sliding on 0.85 of their grip with next
+  to no sideways hold. From 90 km/h the stop is 37.8 m for 35.8, and full lock on the
+  brakes for a second turns the car by nothing where the ABS car turns 18 degrees, until
+  the pedal comes up and the wheels roll again.
+
+The automatic has two shift programs, `N` switches between them: **sport** (up at
+6800 rpm, down under 2800; what the car starts in, and what it was certified with) and
+**comfort** (up at the torque peak, 4500 rpm, down under 2000, no kickdown; the tach
+line says `comfort`). Manual mode knows neither. In manual the shift keys now reach
+reverse as well: it is the position under neutral, so `Q` from 1st is neutral as it
+always was and `Q` again is reverse (refused while the car rolls forwards, or backwards
+fast enough to over-rev the engine through the reverse gear); `E` out of reverse is
+neutral, `E` again 1st. In reverse the keys are swapped as they are when the brake key
+selected it. The automatic never takes reverse by itself.
+
+**The clutch pedal** (`Left Shift`, manual mode only; the car that shifts for itself is
+a two-pedal car) is the driver's left foot, 0.2 s from up to the floor and as long back
+up (`clutch_pedal`). The car still works its clutch for gear changes and stops; the
+pedal comes on top, and the driver's foot wins: from the moment it is touched until the
+clutch is home again the car's feathering stays out of it - no launch floor, no easing
+for wheelspin. Held, the clutch is open whatever the throttle does (full throttle: the
+limiter, and the car goes nowhere); let go on a revving engine it is a clutch dump,
+TCS or not; let go on an idling engine with the throttle only just going down, the
+clutch is in before the revs are up and drags the engine down.
+
+**Stall and starter.** Under 450 rpm (`STALL_RPM`) the engine stops running
+(`engine_running`), whatever brought it there - the driver's clutch foot, or a dry
+tank: no combustion, so no fuel burnt and no exhaust events, the tach runs down to 0
+and says `STALL`, the throttle does nothing, the car lets its clutch go and rolls free,
+and a stalled automatic does not creep. The car's own clutch never lets it come to
+that (it opens above idle coming to a stop and feathers every launch over a floor), so
+the automatic cannot be stalled and no certified run comes near it. `I` held is the
+starter: 150 Nm on a standing crankshaft, easing off to none at 700 rpm; the engine
+catches at 500 rpm with fuel in the tank (after ~0.2 s) and the idle controller takes
+it up to 900. Cranking burns no fuel, a dry tank only ever spins at ~620 rpm, and there
+is no bump start (the clutch stays open on an engine that is not running). A reset
+starts a stopped engine: it puts a car there that is ready to drive.
+
 ### Tests
 
 ```sh
@@ -268,7 +331,16 @@ reset fills it, the fuel bar reads the tank and changes colour, `total_mass()` h
 fuel and the payload in it, 300 kg on board ride level and are slower over the same 5 s,
 a test's `payload_kg` is loaded at its start, the exhaust fires three times a turn and
 its flow follows the throttle, and the car creeps when the brake is let go at a
-standstill, stands on a held brake, untouched and in manual), then the
+standstill, stands on a held brake, untouched and in manual; and the driver's controls:
+the three switches start on / on / sport, flip on their keys, light their lamps and
+survive a reset, a launch without TCS spins the rears far past what the TCS holds them
+at and has the clutch home sooner, a stop without ABS locks the front wheels, is longer
+and does not steer, the clutch pedal held keeps a car at the limiter standing and let go
+is a dump, does nothing in automatic, and let go on an idling engine stalls it, a
+stalled engine burns and fires nothing and its car does not creep, the starter catches
+it, never on a dry tank, and a reset starts it, reverse sits under neutral on the shift
+keys and is refused rolling forwards, comfort leaves 1st at 4500 rpm where sport holds
+it to 6800, and the telemetry's throttle and brake read the pedals), then the
 handling tests below, then
 `tests/camera_test.gd` (cycles the camera through its five views and drives under each, holds the look-back,
 toggles the X-ray, holds look left / right from the chase view and the cockpit, turns the
@@ -404,7 +476,7 @@ A sample line holds the time and the car:
 | `pos`, `heading_deg` | `[x, y, z]` in metres, and where the nose points in degrees (left positive) |
 | `speed_ms` | speed along the nose [m/s], negative while reversing |
 | `gear`, `rpm` | 0 neutral, 1-5 forward, -1 reverse engaged; engine speed [rpm] |
-| `throttle`, `brake`, `handbrake`, `steer` | pedals 0..1 as the keys are held (the two swap roles in reverse), steering as a share of full lock, -1 (right) .. +1 (left) |
+| `throttle`, `brake`, `handbrake`, `steer` | the two pedals 0..1 as the driver's feet have them (`throttle_pedal` / `brake_pedal`: in reverse the throttle is the brake key's pedal), the handbrake key, steering as a share of full lock, -1 (right) .. +1 (left) |
 | `load_front`, `load_rear` | share of the load each axle carries (they add to 1) |
 | `slip_front_deg`, `slip_rear_deg`, `slip_ratio_front`, `slip_ratio_rear` | how far each axle's tyres are sliding: slip angles [degrees], slip ratios (a speed difference over the road speed, no unit) |
 | `yaw_rate_deg_s` | how fast the nose is swinging [degrees/s], left positive |
