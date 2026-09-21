@@ -14,7 +14,8 @@ extends CharacterBody3D
 ## the same curve. Both share one friction circle:
 ## grip spent along the wheel is not there across it. The forces act at the
 ## contact patches, along and across each wheel's heading: their sum
-## accelerates the 1300 kg, their moments about the centre of mass (front force
+## accelerates the car's mass (total_mass(): 1300 kg on a full tank, less as
+## it burns, more with what it carries), their moments about the centre of mass (front force
 ## x front arm, rear force x rear arm) wind the yaw inertia up and down
 ## (YAW_GYRATION_RADIUS). Heading and direction of travel are separate things,
 ## tied together only by the tyres. The steering sets the front wheel angle
@@ -32,7 +33,10 @@ extends CharacterBody3D
 ## final drive put that torque on the DRIVEN wheels (DRIVEN_WHEELS: rear, front
 ## or all four), and each axle's WHEEL SPEED is a state too, between driveline,
 ## brakes and the road (_advance_drivetrain). Nothing in the chain follows road
-## speed by decree: the tach reads what the engine does.
+## speed by decree: the tach reads what the engine does. The work costs fuel
+## (see Fuel and exhaust), the fuel in the tank is mass the car carries, and
+## the exhaust is there as data. In automatic the clutch also creeps the car
+## off a released brake (see Creep, by the clutch).
 ## The driven wheels are where the layouts get their character, nobody scripts it: a
 ## rear-driven car spends rear grip on drive and pushes from behind, so power
 ## in a corner loosens the tail (power oversteer); a front-driven car asks its
@@ -92,8 +96,24 @@ extends CharacterBody3D
 
 # --- Mass and weight distribution --------------------------------------------
 
-## Mass with a driver on board [kg]. 986 kerb weight ~1250 kg.
-const CAR_MASS := 1300.0
+## Mass of the car as it stands ready to drive: a driver on board, the tank
+## full, nothing loaded [kg]. 986 kerb weight (full tank, no driver) ~1250 kg.
+## The car everything here was tuned and certified as, and the one the
+## suspension is set up for (see FRONT / REAR_CORNER_MASS).
+const KERB_MASS := 1300.0
+
+## The same car with a dry tank [kg], ~1252: the part of its mass that never
+## changes. What the car weighs on the road is total_mass(): this plus the fuel
+## in the tank (fuel_mass) plus whatever it carries (payload_mass), and every
+## force, inertia and weight in the model reads that one figure.
+# was CAR_MASS 1300.0, the one mass of the car whatever was in it -> KERB_MASS
+# 1300.0 less a full tank (64 L, 47.68 kg) - the 1300 kg had the fuel in them
+# all along (a kerb weight does), so the car on a full tank weighs what it
+# always did and gets lighter as it burns. 1300 for the dry car was tried: the
+# 48 kg on top took the launch in 1st off the rear tyres' limit (grip use 0.981,
+# smoke asks for 0.999) and a full stop 2 mm into the front bump stops (7.2 cm
+# of 7).
+const BASE_MASS := KERB_MASS - FUEL_TANK_CAPACITY_L * FUEL_DENSITY
 
 ## Share of the car's weight on the rear axle at rest (0..1). The Boxster's
 ## flat-six sits behind the seats (mid engine), putting ~62 % on the rear.
@@ -116,7 +136,7 @@ const AXLE_DISTANCE := 1.3
 const CG_OFFSET := (REAR_WEIGHT_FRACTION - 0.5) * 2.0 * AXLE_DISTANCE
 
 ## Radius of gyration about the vertical axis [m]: yaw inertia is
-## CAR_MASS * radius^2 (~2000 kg m^2 here). How much the mass resists being
+## total_mass() * radius^2 (~2000 kg m^2 on a full tank). How much the mass resists being
 ## turned: the front tyres have to wind the car up into a corner and back out
 ## of it. A mid-engined car keeps its mass near the middle (~1.2); a 911 with
 ## the engine slung out behind the rear axle gets more. Higher = lazier
@@ -187,6 +207,48 @@ const IDLE_CONTROL_MAX_THROTTLE := 0.3
 # wheels) -> removed with the kinematic engine speed: engine braking is
 # ENGINE_FRICTION_TORQUE* through the locked clutch and the gear.
 # LAUNCH_RPM moved to the Clutch section, where it means something now.
+
+# --- Fuel and exhaust ----------------------------------------------------------
+
+# The engine burns what its work costs. What the burning fuel makes on the
+# crankshaft is the combustion torque (see _engine_net_torque: the torque curve
+# plus the losses, times the throttle the engine really has, the idle
+# controller's share included); times the engine speed that is a power [W], and
+# the fuel that takes is
+#   burn [kg/s] = combustion torque x engine_omega / FUEL_BURN_EFFICIENCY / FUEL_LHV
+# Idling (~18 Nm at 900 rpm) that is ~0.6 L/h, flat out at 7000 rpm (~250 Nm)
+# ~67 L/h; a certified handling run burns a few hundredths of a litre. The fuel
+# in the tank is mass the car carries (fuel_mass, in total_mass()). With the
+# tank dry nothing burns: the engine runs down on its friction and stays down
+# (there is no starter) until a reset fills the tank.
+
+## What the tank holds [L]: the 1997 Boxster 986's tank. A reset fills it.
+const FUEL_TANK_CAPACITY_L := 64.0
+
+## Share of the fuel's heat that arrives on the crankshaft as combustion torque
+## (no unit): a petrol engine's indicated efficiency, ~0.3 across the map.
+const FUEL_BURN_EFFICIENCY := 0.30
+
+## Lower heating value of petrol [J/kg].
+const FUEL_LHV := 44.0e6
+
+## Density of petrol [kg/L]: 64 L weigh ~48 kg.
+const FUEL_DENSITY := 0.745
+
+## Combustion events per turn of the crankshaft: a four-stroke fires each
+## cylinder every other turn, the flat six three times a turn (see
+## exhaust_events).
+const FIRINGS_PER_REVOLUTION := 3.0
+
+## Share of exhaust_flow that the throttle alone makes, at no revs at all
+## (0..1); the rest comes with the engine speed, all of it at REDLINE_RPM. An
+## open throttle at low revs already puffs, the same throttle at the limiter
+## blows.
+const EXHAUST_FLOW_AT_REST := 0.3
+
+## How quickly exhaust_flow follows the engine [1/s]: the gas has the manifold
+## and the pipes to get through, ~0.1 s. Lower = lazier smoke.
+const EXHAUST_FLOW_RATE := 10.0
 
 # --- Gearbox -----------------------------------------------------------------
 
@@ -301,6 +363,47 @@ const CLUTCH_DISENGAGE_RPM := 1000.0
 # idle controller carries it) and reaches the driven wheels through the gear.
 # ~0.33 m/s^2 in 1st on top of rolling resistance, was 0.17 at 3.7 m/s.
 const CLUTCH_DRAG_ENGAGEMENT := 0.02
+
+# Creep. An automatic held on the brake in gear pulls away gently when the
+# brake is let go. This car has a plate clutch and no torque converter, so it
+# does what automated clutches do to stand in for one: standing in 1st,
+# automatic, the brake that held it released and nothing asked of either pedal,
+# the car lets the clutch in by a sliver and the idling engine (the idle
+# controller carrying the load, the fuel paying for it) pushes the car along at
+# a crawl, the sliver easing out as the crawl speed comes. It goes through the
+# clutch like everything else: clutch_torque, the driven tyres' slip, the
+# feathering under the launch floor. The pedals are never touched
+# (throttle_pedal and brake_pedal show the feet). It is the brake coming off
+# that starts it: a car that came to rest by itself (a reset, a coast-down, a
+# slide scrubbed off, a mission's start point) stands until its driver does
+# something. Forward only: there is no creep in reverse, and none in manual
+# mode (the shift keys make the driver the one who decides when the car moves).
+# The crawl stays under STANDSTILL_SPEED, so the brake pressed anew selects
+# reverse from it as it does from rest.
+
+## How far the clutch comes in for the creep at a standstill (0..1): the torque
+## converter's stall push, as a plate clutch gives it. ~10 Nm at the clutch,
+## ~390 N at the wheels in 1st, twice the rolling resistance. It eases out
+## linearly with forward speed, to nothing at CREEP_FREE_SPEED, as a
+## converter's push does when its turbine catches its pump up.
+const CREEP_CLUTCH_ENGAGEMENT := 0.02
+
+## Forward speed at which the creep's push has eased out altogether [m/s]. The
+## crawl settles where what is left of the push carries the rolling resistance:
+## ~0.43 m/s (1.5 km/h) on a full tank, slower loaded.
+const CREEP_FREE_SPEED := 0.9
+
+## The creep only ever starts from a true standstill: slower than this [m/s],
+## held there by the brake ...
+const CREEP_ENGAGE_SPEED := 0.05
+
+## ... and then, the brake let go, still standing for this long [s]: the car
+## picks itself up as the clutch finds its bite, not the tick the foot is off.
+const CREEP_DWELL := 0.4
+
+## Rolling faster than this either way [m/s] the creep lets go, and waits for
+## the next standstill. A fence: the crawl settles well under it.
+const CREEP_MAX_SPEED := 0.8
 
 # --- Drivetrain layout ---------------------------------------------------------
 
@@ -544,7 +647,7 @@ const BRAKE_DECEL_G := 1.0
 
 ## Deceleration a full brake application asks for [m/s^2]: what the tyres
 ## could hold with every one of them at its limit, ~9.3 (0.95 g). The force
-## (this times CAR_MASS) is split by BRAKE_BIAS_FRONT, put on each axle as a
+## (this times total_mass()) is split by BRAKE_BIAS_FRONT, put on each axle as a
 ## brake torque (with what it takes to slow the turning parts down as well,
 ## see _brake_torque), and each axle delivers what its grip allows (ABS holds a
 ## wheel at ABS_SLIP_RATIO, it never locks):
@@ -709,8 +812,15 @@ const REAR_RIDE_FREQUENCY := 1.7
 const RIDE_DAMPING_RATIO := 0.4
 
 ## Sprung mass riding on one front / rear wheel at rest [kg]: ~247 and ~403.
-const FRONT_CORNER_MASS := CAR_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5
-const REAR_CORNER_MASS := CAR_MASS * REAR_WEIGHT_FRACTION * 0.5
+## The car's as it stands ready to drive (KERB_MASS), not total_mass(): springs
+## and dampers are chosen once, for that car, and a burning tank and a payload
+## ride on them as they find them. A loaded car bounces a little slower and a
+## little less damped on the same rates (300 kg on board: 1.35 / 1.53 Hz for
+## 1.5 / 1.7). What the load does not do here is sink the car: each spring's
+## seat carries its static share of what the car weighs NOW (see
+## _corner_forces), so it stands at its ride height whatever is in it.
+const FRONT_CORNER_MASS := KERB_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5
+const REAR_CORNER_MASS := KERB_MASS * REAR_WEIGHT_FRACTION * 0.5
 
 ## Spring rate at the wheel [N/m]: corner mass x (TAU x ride frequency)^2.
 ## Front ~21.9 kN/m, rear ~46.0 kN/m (static compression 11.0 and 8.6 cm).
@@ -1160,6 +1270,37 @@ var clutch_torque := 0.0
 ## back under LIMITER_RESUME_RPM).
 var limiter_cutting := false
 
+## Fuel left in the tank [L], 0 .. FUEL_TANK_CAPACITY_L (kept inside that, NaN
+## is an empty tank). Burnt by the engine every tick (_run_engine_outputs),
+## filled by reset_to.
+var fuel_l := FUEL_TANK_CAPACITY_L:
+	set(value):
+		fuel_l = 0.0 if is_nan(value) else clampf(value, 0.0, FUEL_TANK_CAPACITY_L)
+
+## Mass of that fuel [kg]: fuel_l x FUEL_DENSITY, brought up to date at the
+## start of every tick, so one tick works with one mass throughout.
+var fuel_mass := FUEL_TANK_CAPACITY_L * FUEL_DENSITY
+
+## Mass of what the car carries on top of itself and its fuel [kg]: packages,
+## passengers, ballast. Payload is mass and nothing else: it rides at the
+## centre of mass and is in total_mass() from the next tick on. Never negative,
+## NaN is nothing loaded; reset_to unloads the car.
+var payload_mass := 0.0:
+	set(value):
+		payload_mass = 0.0 if is_nan(value) else maxf(value, 0.0)
+
+## Combustion events since the car was last reset (a count, fractional while a
+## cylinder is on its way): FIRINGS_PER_REVOLUTION for every turn of the
+## crankshaft while the engine fires, none while the limiter or a dry tank
+## holds the fuel back. Pure data, for whatever draws or sounds the exhaust.
+var exhaust_events := 0.0
+
+## How hard the exhaust blows right now, 0..1: the throttle the engine really
+## has (the idle controller's share included) times EXHAUST_FLOW_AT_REST plus
+## the rest by engine speed, followed at EXHAUST_FLOW_RATE. ~0.04 idling, 1 flat
+## out at the limiter. Pure data, as exhaust_events.
+var exhaust_flow := 0.0
+
 ## Share of the load the four tyres carry that is on each axle right now
 ## (0..1, sums to 1): the static split at rest, moved by braking, power, aero
 ## and the road. Read off the springs (wheel_loads), not set by anything.
@@ -1274,6 +1415,13 @@ var _shift_catching := false
 ## Time since the last gear change [s]; the automatic waits AUTO_SHIFT_HOLD.
 var _since_shift := AUTO_SHIFT_HOLD
 
+## True while the car creeps (see CREEP_CLUTCH_ENGAGEMENT); on the way there,
+## whether the brake has held the car at a standstill (what arms the creep) and
+## how long it has stood with nothing asked of it since [s] (CREEP_DWELL).
+var _creeping := false
+var _creep_armed := false
+var _creep_rest_time := 0.0
+
 ## Per wheel (the order of wheel_loads): the road height as the tyre passes it
 ## on [m, world], and how fast that is changing under the moving car [m/s].
 var _tyre_heights: Array[float] = [0.0, 0.0, 0.0, 0.0]
@@ -1346,6 +1494,10 @@ func _physics_process(delta: float) -> void:
 		steer_input = _driver_steer
 		handbrake_held = _driver_handbrake
 
+	# What the car weighs this tick (total_mass()): the fuel burnt last tick is
+	# off it.
+	fuel_mass = fuel_l * FUEL_DENSITY
+
 	# 1. The state: the velocity in the car's own frame, and the yaw rate.
 	#    Reading the velocity back from `velocity` means collisions are
 	#    respected automatically. `velocity` belongs to the car's origin, the
@@ -1380,7 +1532,7 @@ func _physics_process(delta: float) -> void:
 	#    was a static split shifted by acceleration x CG_HEIGHT / wheelbase
 	#    (eased in at LOAD_TRANSFER_RESPONSE, capped at MAX_LOAD_TRANSFER) plus
 	#    downforce, halved per wheel, plus a road ripple -> the spring forces.
-	var weight := CAR_MASS * _gravity
+	var weight := total_mass() * _gravity
 	var downforce := DOWNFORCE_COEFF * ground_speed * ground_speed
 	_corner_forces(vertical_speed, delta)
 	front_axle_load = wheel_loads[0] + wheel_loads[1]
@@ -1411,7 +1563,7 @@ func _physics_process(delta: float) -> void:
 	steer = steering_wheel_deg / STEERING_WHEEL_LOCK_DEG
 	var front_arm := AXLE_DISTANCE + CG_OFFSET
 	var rear_arm := AXLE_DISTANCE - CG_OFFSET
-	var yaw_inertia := CAR_MASS * YAW_GYRATION_RADIUS * YAW_GYRATION_RADIUS
+	var yaw_inertia := total_mass() * YAW_GYRATION_RADIUS * YAW_GYRATION_RADIUS
 	var front_lateral := cg_lateral_speed - yaw_rate * front_arm
 	var rear_lateral := cg_lateral_speed + yaw_rate * rear_arm
 	wheel_angle = steer * MAX_STEER_LOCK
@@ -1427,7 +1579,8 @@ func _physics_process(delta: float) -> void:
 	#    slip ratio -1 (+1 rolling backwards).
 	var pedals := _pedals(forward_speed, drive_input, delta)
 	throttle_pedal = pedals.throttle
-	brake_pedal = pedals.brake / (BRAKE_DECEL * CAR_MASS)
+	brake_pedal = pedals.brake / (BRAKE_DECEL * total_mass())
+	_update_creep(forward_speed, delta)
 	# Rolling rears slide on REAR_TYRE_SLIDE_GRIP, locked ones on TYRE_SLIDE_GRIP.
 	var rear_slide_grip := lerpf(REAR_TYRE_SLIDE_GRIP, TYRE_SLIDE_GRIP, _handbrake_amount)
 	var front_contact := {"along": front_along, "grip": front_grip, "slip_angle": front_slip_angle, "peak_slip_angle": FRONT_PEAK_SLIP_ANGLE, "slide_grip": TYRE_SLIDE_GRIP}
@@ -1462,7 +1615,7 @@ func _physics_process(delta: float) -> void:
 	var front_forward := front_drive * cos(wheel_angle) + front_force * sin(wheel_angle)
 	var front_right := front_force * cos(wheel_angle) - front_drive * sin(wheel_angle)
 	var air_drag := 0.5 * AIR_DENSITY * DRAG_COEFF * FRONTAL_AREA * forward_speed * forward_speed
-	var rolling_drag := COAST_DECEL * CAR_MASS
+	var rolling_drag := COAST_DECEL * total_mass()
 	var right_force := front_right + rear_force
 	var yaw_moment := rear_force * rear_arm - front_right * front_arm
 	# Forces that push the car along, and forces that only ever slow it down
@@ -1479,10 +1632,10 @@ func _physics_process(delta: float) -> void:
 		else:
 			slowing += absf(force)
 	var speed_before := forward_speed
-	forward_speed += pushing / CAR_MASS * delta
-	forward_speed = move_toward(forward_speed, 0.0, slowing / CAR_MASS * delta)
+	forward_speed += pushing / total_mass() * delta
+	forward_speed = move_toward(forward_speed, 0.0, slowing / total_mass() * delta)
 	longitudinal_accel = (forward_speed - speed_before) / delta
-	lateral_accel = -right_force / CAR_MASS
+	lateral_accel = -right_force / total_mass()
 
 	# 7. Stability assist: a bounded yaw moment against the nose swinging
 	#    relative to the direction of travel. The path bends at the rate the
@@ -1506,7 +1659,7 @@ func _physics_process(delta: float) -> void:
 
 	# 8. Integrate: force / mass into the velocity, moment / yaw inertia into
 	#    the yaw rate. Nothing else turns the car or bends its path.
-	cg_lateral_speed += right_force / CAR_MASS * delta
+	cg_lateral_speed += right_force / total_mass() * delta
 	yaw_rate += (yaw_moment / yaw_inertia + assist) * delta
 
 	# 9. Low-speed blend (see LOW_SPEED_BLEND_END): ease the car onto the circle
@@ -1534,7 +1687,8 @@ func _physics_process(delta: float) -> void:
 	_update_visuals(delta)
 
 
-## Puts the car back where the scene placed it, at rest, in 1st, automatic.
+## Puts the car back where the scene placed it, at rest, in 1st, automatic, the
+## tank full and nothing loaded.
 func reset_to_spawn() -> void:
 	reset_to(_spawn_transform)
 
@@ -1552,8 +1706,9 @@ func get_spawn_transform() -> Transform3D:
 	return _spawn_transform
 
 
-## Puts the car at `target`, at rest, in 1st, automatic. The height of
-## `target` counts from the road: the car is stood on its springs on the road
+## Puts the car at `target`, at rest, in 1st, automatic, the tank full and
+## nothing loaded (payload_mass is for whoever resets the car to load again
+## afterwards). The height of `target` counts from the road: the car is stood on its springs on the road
 ## there (_settle_suspension), 0 = at its ride height.
 func reset_to(target: Transform3D) -> void:
 	global_transform = target
@@ -1581,6 +1736,14 @@ func reset_to(target: Transform3D) -> void:
 	_shift_catching = false
 	_shift_timer = 0.0
 	_since_shift = AUTO_SHIFT_HOLD
+	_creeping = false
+	_creep_armed = false
+	_creep_rest_time = 0.0
+	fuel_l = FUEL_TANK_CAPACITY_L
+	fuel_mass = fuel_l * FUEL_DENSITY
+	payload_mass = 0.0
+	exhaust_events = 0.0
+	exhaust_flow = 0.0
 	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
 	rear_load_fraction = REAR_WEIGHT_FRACTION
 	front_traction_use = 0.0
@@ -1597,6 +1760,18 @@ func reset_to(target: Transform3D) -> void:
 	_settle_suspension(target.origin.y)
 	_update_visuals(0.0)
 	reset_physics_interpolation()
+
+
+## What the car weighs right now [kg]: the base car, the fuel in its tank and
+## what it carries. The one mass of the model: everything that pushes, turns,
+## brakes or carries the car reads this.
+func total_mass() -> float:
+	return BASE_MASS + fuel_mass + payload_mass
+
+
+## How full the tank is, 0 (dry) .. 1 (full). What the HUD's fuel bar shows.
+func fuel_fraction() -> float:
+	return clampf(fuel_l / FUEL_TANK_CAPACITY_L, 0.0, 1.0)
 
 
 ## Drives the car without the keys: from the next tick on the driver is asked
@@ -1655,7 +1830,7 @@ func _settle_suspension(height := _stand_height) -> void:
 	# the wheelbase, where the plane is at the mean of the four.
 	global_position.y = height + (front + rear) * 0.5 - body_pitch * CG_OFFSET
 	velocity.y = 0.0
-	var weight := CAR_MASS * _gravity
+	var weight := total_mass() * _gravity
 	for i in wheel_loads.size():
 		_tyre_heights[i] = heights[i]
 		_tyre_height_rates[i] = 0.0
@@ -1701,7 +1876,10 @@ func _corner_forces(vertical_speed: float, delta: float) -> void:
 		_tyre_heights[i] = lerpf(tyre_before, _road_height_under_wheel(i), envelope)
 		_tyre_height_rates[i] = (_tyre_heights[i] - tyre_before) / delta
 		wheel_travel[i] = _tyre_heights[i] - _corner_height(i) - _corner_trim[i]
-	var weight := CAR_MASS * _gravity
+	# The static share is that of the car as it weighs now, fuel and payload in:
+	# the spring seats carry the load, the rates stay those of the car on its
+	# kerb weight (see FRONT / REAR_CORNER_MASS).
+	var weight := total_mass() * _gravity
 	for i in wheel_loads.size():
 		var front := i < 2
 		var spring_rate := FRONT_SPRING_RATE if front else REAR_SPRING_RATE
@@ -1727,7 +1905,7 @@ func _corner_forces(vertical_speed: float, delta: float) -> void:
 ## what accelerates it plus what holds it against the air (`air_drag` [N],
 ## signed like the speed, taken to act at the height of the centre of mass),
 ## across it what bends its path.
-##   heave:  CAR_MASS     x d(vertical speed) = sum of loads - weight - downforce
+##   heave:  total_mass()  x d(vertical speed) = sum of loads - weight - downforce
 ##   pitch:  PITCH_INERTIA x d(pitch_rate)    = sum of load x (how far ahead of the CG)
 ##                                              + tyre force along x CG_HEIGHT - aero moment
 ##   roll:   ROLL_INERTIA  x d(roll_rate)     = sum of load x (how far right of the CG)
@@ -1745,14 +1923,14 @@ func _advance_body(vertical_speed: float, downforce: float, air_drag: float, del
 		roll_moment += wheel_loads[i] * WHEEL_ARMS_RIGHT[i]
 	var front_arm := AXLE_DISTANCE + CG_OFFSET
 	var rear_arm := AXLE_DISTANCE - CG_OFFSET
-	pitch_moment += (CAR_MASS * longitudinal_accel + air_drag) * CG_HEIGHT
+	pitch_moment += (total_mass() * longitudinal_accel + air_drag) * CG_HEIGHT
 	pitch_moment -= downforce * (AERO_BALANCE_FRONT * front_arm - (1.0 - AERO_BALANCE_FRONT) * rear_arm)
-	roll_moment -= CAR_MASS * lateral_accel * CG_HEIGHT
+	roll_moment -= total_mass() * lateral_accel * CG_HEIGHT
 	pitch_rate += pitch_moment / PITCH_INERTIA * delta
 	roll_rate += roll_moment / ROLL_INERTIA * delta
 	body_pitch += pitch_rate * delta
 	body_roll += roll_rate * delta
-	return vertical_speed + (lift - CAR_MASS * _gravity - downforce) / CAR_MASS * delta
+	return vertical_speed + (lift - total_mass() * _gravity - downforce) / total_mass() * delta
 
 
 ## Starts a gear change to `new_gear` (0 = neutral). Refuses gears that do not
@@ -1879,8 +2057,33 @@ func _pedals(speed: float, drive: float, delta: float) -> Dictionary:
 	if _shift_catching:
 		var revs_missing := _gearbox_omega() - engine_omega
 		throttle = clampf(revs_missing / DOWNSHIFT_BLIP_BAND, 0.0, 1.0) if is_shifting else 0.0
-	var brake := BRAKE_DECEL * absf(drive) * CAR_MASS if braking else 0.0
+	var brake := BRAKE_DECEL * absf(drive) * total_mass() if braking else 0.0
 	return {"throttle": throttle, "brake": brake, "coasting": coasting}
+
+
+## Whether the car creeps this tick (_creeping; what it does with it is
+## _clutch_target's). The car has to be in the mood: automatic, 1st, not in
+## reverse, no gear change on, the engine firing, handbrake off, no throttle,
+## rolling no faster than CREEP_MAX_SPEED; anything else ends the creep and
+## disarms it. The brake holding the car at a standstill arms it (and a brake
+## on the moving car disarms it: that one is slowing it, not holding it); the
+## brake let go, the car armed and still standing, it creeps after CREEP_DWELL
+## and goes on until something above ends it. The pedals are read where the
+## drivetrain sees them (throttle_pedal, brake_pedal).
+func _update_creep(speed: float, delta: float) -> void:
+	var standing := absf(speed) < CREEP_ENGAGE_SPEED
+	var in_the_mood := (
+		automatic and gear == 1 and not reverse_engaged and not is_shifting
+		and fuel_l > 0.0 and _handbrake_amount <= 0.0
+		and throttle_pedal <= 0.0 and absf(speed) <= CREEP_MAX_SPEED
+	)
+	if not in_the_mood or brake_pedal > 0.0:
+		_creeping = false
+		_creep_armed = in_the_mood and standing
+		_creep_rest_time = 0.0
+	elif not _creeping:
+		_creep_rest_time = _creep_rest_time + delta if _creep_armed and standing else 0.0
+		_creeping = _creep_rest_time >= CREEP_DWELL
 
 
 ## Overall ratio between the engine and the driven wheels right now: gear x
@@ -1903,13 +2106,17 @@ func _drive_ratio() -> float:
 ## than the gearbox (the revs left over from before a handbrake turn) it stays
 ## open and waits for the revs to fall. A gear change is seen through either
 ## way: that catch is part of the change. Rolling
-## against the gear it drags at CLUTCH_DRAG_ENGAGEMENT.
+## against the gear it drags at CLUTCH_DRAG_ENGAGEMENT, and creeping
+## (_update_creep) it is in by CREEP_CLUTCH_ENGAGEMENT, less with every bit of
+## forward speed, out at CREEP_FREE_SPEED.
 func _clutch_target(speed: float, gearbox_omega: float, throttle: float, coasting: bool) -> float:
 	var rear_driven := driven_wheels != DrivenWheels.FWD
 	if (gear == 0 and not reverse_engaged) or is_shifting or (_handbrake_amount > 0.0 and rear_driven):
 		return 0.0
 	if throttle > 0.0:
 		return 1.0
+	if _creeping:
+		return CREEP_CLUTCH_ENGAGEMENT * clampf(1.0 - speed / CREEP_FREE_SPEED, 0.0, 1.0)
 	if gearbox_omega < 0.0:
 		return CLUTCH_DRAG_ENGAGEMENT if absf(speed) > STANDSTILL_SPEED else 0.0
 	if coasting and not _shift_catching and not clutch_locked and engine_omega > gearbox_omega + CLUTCH_SLIP_BAND:
@@ -1999,6 +2206,7 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 		var next_engine := (next_front * front_share + next_rear * rear_share) * ratio
 		var held := net - ENGINE_INERTIA * (next_engine - engine_omega) / delta
 		if absf(held) <= capacity and next_engine >= idle_omega:
+			_run_engine_outputs(throttle, 0.0, delta)
 			front_omega = next_front
 			rear_omega = next_rear
 			engine_omega = next_engine
@@ -2041,6 +2249,7 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 		clutch_torque = (front_torque + rear_torque) / (ratio * DRIVETRAIN_EFFICIENCY)
 	front_omega = next_front
 	rear_omega = next_rear
+	_run_engine_outputs(throttle, clutch_torque, delta)
 	_advance_engine(_engine_net_torque(engine_rpm, throttle, clutch_torque) - clutch_torque, delta)
 	if clutch_engagement <= 0.0:
 		return
@@ -2088,7 +2297,7 @@ func _ease_for_wheelspin(omega: float, next: float, torque: float, contact: Dict
 ## brake torque on top of the tyres' share; without it a stop in a low gear
 ## would be the engine's flywheel unloading the rear brakes.
 func _brake_torque(share: float, brake: float, inertia: float) -> float:
-	return share * brake * WHEEL_RADIUS + inertia * brake / (CAR_MASS * WHEEL_RADIUS)
+	return share * brake * WHEEL_RADIUS + inertia * brake / (total_mass() * WHEEL_RADIUS)
 
 
 ## One tick of an axle's wheel speed [rad/s], positive = rolling forwards:
@@ -2246,14 +2455,50 @@ func _update_gearbox(speed: float, throttle: float, reversing: bool, delta: floa
 ## down to IDLE_RPM (enough to carry the friction and the `load` [Nm] the
 ## clutch takes off the crankshaft there, plus IDLE_CONTROL_GAIN for every
 ## rad/s below), and the rev limiter shuts the fuel off (limiter_cutting).
+## A dry tank is a fuel cut that stays.
 func _engine_net_torque(rpm: float, throttle: float, load: float) -> float:
-	var friction := ENGINE_FRICTION_TORQUE + ENGINE_FRICTION_TORQUE_PER_RPM * rpm
-	if limiter_cutting:
-		return -friction
-	var full_combustion := engine_torque(rpm) + friction
+	return _combustion_torque(rpm, throttle, load) - _engine_friction(rpm)
+
+
+## Friction and pumping losses of the engine at `rpm` [Nm] (see
+## ENGINE_FRICTION_TORQUE).
+func _engine_friction(rpm: float) -> float:
+	return ENGINE_FRICTION_TORQUE + ENGINE_FRICTION_TORQUE_PER_RPM * rpm
+
+
+## What the burning fuel makes on the crankshaft [Nm] at `rpm` with the pedal
+## at `throttle` and the clutch taking `load` [Nm] (see _engine_net_torque):
+## full combustion times the throttle the engine really has, the driver's plus
+## the idle controller's. None while the fuel is cut. What the fuel burn and the
+## exhaust go by.
+func _combustion_torque(rpm: float, throttle: float, load: float) -> float:
+	if limiter_cutting or fuel_l <= 0.0:
+		return 0.0
+	return (engine_torque(rpm) + _engine_friction(rpm)) * _engine_throttle(rpm, throttle, load)
+
+
+## The throttle the engine really has (0..1) with the pedal at `throttle`: the
+## driver's plus what the idle controller opens by itself.
+func _engine_throttle(rpm: float, throttle: float, load: float) -> float:
+	var friction := _engine_friction(rpm)
 	var idle_torque := friction + load + IDLE_CONTROL_GAIN * (IDLE_RPM - rpm) * TAU / 60.0
-	var idle_throttle := clampf(idle_torque / full_combustion, 0.0, IDLE_CONTROL_MAX_THROTTLE)
-	return full_combustion * minf(throttle + idle_throttle, 1.0) - friction
+	var idle_throttle := clampf(idle_torque / (engine_torque(rpm) + friction), 0.0, IDLE_CONTROL_MAX_THROTTLE)
+	return minf(throttle + idle_throttle, 1.0)
+
+
+## What comes out of the engine over one tick at the speed and throttle it has
+## going into it, the clutch taking `load` [Nm]: the fuel it burns (see Fuel and
+## exhaust) and the exhaust it makes (exhaust_events, exhaust_flow). Called
+## once a tick, where the engine's speed is integrated.
+func _run_engine_outputs(throttle: float, load: float, delta: float) -> void:
+	var combustion := _combustion_torque(engine_rpm, throttle, load)
+	var burn := combustion * engine_omega / FUEL_BURN_EFFICIENCY / FUEL_LHV
+	fuel_l -= burn / FUEL_DENSITY * delta
+	var blowing := 0.0
+	if combustion > 0.0:
+		exhaust_events += engine_omega / TAU * FIRINGS_PER_REVOLUTION * delta
+		blowing = _engine_throttle(engine_rpm, throttle, load) * lerpf(EXHAUST_FLOW_AT_REST, 1.0, clampf(engine_rpm / REDLINE_RPM, 0.0, 1.0))
+	exhaust_flow = lerpf(exhaust_flow, blowing, 1.0 - exp(-EXHAUST_FLOW_RATE * delta))
 
 
 ## One tick of the engine speed under `torque` [Nm], everything on the
@@ -2301,7 +2546,7 @@ func _tyre_curve(slip: float, slide_grip: float) -> float:
 ## in the force's direction within this tick. A push at an axle `arm` metres from the centre of
 ## mass moves that axle as if it weighed 1 / (1 / mass + arm^2 / yaw inertia).
 func _limit_to_stick(force: float, slip_speed: float, arm: float, yaw_inertia: float, delta: float) -> float:
-	var stopping_force := absf(slip_speed) / ((1.0 / CAR_MASS + arm * arm / yaw_inertia) * delta)
+	var stopping_force := absf(slip_speed) / ((1.0 / total_mass() + arm * arm / yaw_inertia) * delta)
 	return clampf(force, -stopping_force, stopping_force)
 
 

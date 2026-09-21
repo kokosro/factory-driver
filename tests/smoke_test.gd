@@ -1181,7 +1181,9 @@ func _check_force_dynamics(car: ArcadeCar) -> void:
 	await _step(900)
 	Input.action_release("accelerate")
 	await _step(30)
-	var weight := ArcadeCar.CAR_MASS * gravity
+	# was ArcadeCar.CAR_MASS x gravity, the one mass the car had -> what the car
+	# weighs now (total_mass(): the base car, the fuel left in the tank, payload).
+	var weight := car.total_mass() * gravity
 	# The road moves load in and out of the wheels tick by tick, so what the
 	# axles carry and what downforce should add are both averaged over
 	# DOWNFORCE_AVERAGE_FRAMES before they are compared.
@@ -1547,11 +1549,13 @@ func _check_road_profile(pad: TestPad, car: ArcadeCar) -> void:
 # road and all, and the springs have to come out on this by themselves.
 func _wheel_baselines(car: ArcadeCar) -> Array[float]:
 	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
-	var weight := ArcadeCar.CAR_MASS * gravity
+	# was ArcadeCar.CAR_MASS, here and in the transfer -> car.total_mass(), the
+	# mass the car's forces and weights work with (fuel and payload in).
+	var weight := car.total_mass() * gravity
 	var speed := car.forward_speed
 	var downforce := ArcadeCar.DOWNFORCE_COEFF * speed * speed
 	var air_drag := 0.5 * ArcadeCar.AIR_DENSITY * ArcadeCar.DRAG_COEFF * ArcadeCar.FRONTAL_AREA * speed * absf(speed)
-	var transfer := (ArcadeCar.CAR_MASS * car.longitudinal_accel + air_drag) * ArcadeCar.CG_HEIGHT / (2.0 * ArcadeCar.AXLE_DISTANCE)
+	var transfer := (car.total_mass() * car.longitudinal_accel + air_drag) * ArcadeCar.CG_HEIGHT / (2.0 * ArcadeCar.AXLE_DISTANCE)
 	return [
 		(weight * (1.0 - ArcadeCar.REAR_WEIGHT_FRACTION) + downforce * ArcadeCar.AERO_BALANCE_FRONT - transfer) * 0.5,
 		(weight * ArcadeCar.REAR_WEIGHT_FRACTION + downforce * (1.0 - ArcadeCar.AERO_BALANCE_FRONT) + transfer) * 0.5,
@@ -1584,9 +1588,13 @@ func _check_tyre_curve(car: ArcadeCar) -> void:
 ## their mean, the body rides the elevation on its springs.
 func _check_road_feel(pad: TestPad, car: ArcadeCar) -> void:
 	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
-	var weight := ArcadeCar.CAR_MASS * gravity
-	var static_loads: Array[float] = [weight * (1.0 - ArcadeCar.REAR_WEIGHT_FRACTION) * 0.5, weight * ArcadeCar.REAR_WEIGHT_FRACTION * 0.5]
 	car.reset_to_spawn()
+	# was ArcadeCar.CAR_MASS x gravity, worked out before the reset -> the weight
+	# of the car as the reset leaves it (total_mass(), the tank full): the static
+	# shares are held to the hundredth of a Newton standing (ten ticks of idling
+	# burn 0.0002 N of fuel) and to the bit at the reset further down.
+	var weight := car.total_mass() * gravity
+	var static_loads: Array[float] = [weight * (1.0 - ArcadeCar.REAR_WEIGHT_FRACTION) * 0.5, weight * ArcadeCar.REAR_WEIGHT_FRACTION * 0.5]
 	await _step(10)
 	var at_rest := car.wheel_loads.size() == 4
 	for i in car.wheel_loads.size():
@@ -1765,7 +1773,8 @@ func _check_suspension(pad: TestPad, car: ArcadeCar) -> void:
 	var corner := await _suspension_average(car, stats)
 	most_travel = maxf(most_travel, corner.most_travel)
 	_check(corner.roll < -SUSPENSION_MIN_ROLL and corner.lateral_accel > 3.0, "cornering rolls the body out of the corner (roll %.4f rad at %.1f m/s^2 to the left: %.1f degrees per g)" % [corner.roll, corner.lateral_accel, absf(rad_to_deg(corner.roll)) / corner.lateral_accel * gravity])
-	var roll_statics: float = ArcadeCar.CAR_MASS * corner.lateral_accel * ArcadeCar.CG_HEIGHT / ArcadeCar.HALF_TRACK
+	# was ArcadeCar.CAR_MASS -> car.total_mass(), the mass that is cornering.
+	var roll_statics: float = car.total_mass() * corner.lateral_accel * ArcadeCar.CG_HEIGHT / ArcadeCar.HALF_TRACK
 	_check(absf(corner.right_minus_left - roll_statics) < SUSPENSION_STATICS_TOLERANCE * roll_statics, "... onto the outside wheels, by what statics has it (right pair %.0f N over the left, acceleration x mass x CG height / half track says %.0f)" % [corner.right_minus_left, roll_statics])
 
 	# What shows, mid-corner: every wheel on the road under it, the body mesh at
@@ -1797,7 +1806,8 @@ func _suspension_average(car: ArcadeCar, stats: Dictionary) -> Dictionary:
 	var mean := {
 		"pitch": 0.0, "roll": 0.0, "front_travel": 0.0, "rear_travel": 0.0, "front_load": 0.0, "front_baseline": 0.0,
 		"right_minus_left": 0.0, "longitudinal_accel": 0.0, "lateral_accel": 0.0, "most_travel": 0.0,
-		"front_static": ArcadeCar.CAR_MASS * gravity * (1.0 - ArcadeCar.REAR_WEIGHT_FRACTION),
+		# was ArcadeCar.CAR_MASS x gravity -> the weight of the car as it is.
+		"front_static": car.total_mass() * gravity * (1.0 - ArcadeCar.REAR_WEIGHT_FRACTION),
 	}
 	var share := 1.0 / SUSPENSION_AVERAGE_FRAMES
 	for frame in SUSPENSION_SETTLE_IN_FRAMES + SUSPENSION_AVERAGE_FRAMES:

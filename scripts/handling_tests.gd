@@ -8,6 +8,10 @@ extends RefCounted
 ##   title, objective       what a human driver is shown: a short name and
 ##                          one line on what to do,
 ##   start_offset/heading   where the car starts, relative to its spawn point,
+##   payload_kg             optional, what the car carries on the run [kg]
+##                          (ArcadeCar.payload_mass): loaded at the start, gone
+##                          with the next reset. None of the certified tests
+##                          carries anything,
 ##   start_line_z           where the run clock starts: the pad z of the test's
 ##                          start line [m] (see "The run clock" below),
 ##   hold_speed             optional cruise control for the scripted driver
@@ -652,6 +656,8 @@ func _start() -> void:
 	var offset: Vector3 = test.get("start_offset", Vector3.ZERO)
 	var heading := deg_to_rad(test.get("start_heading_deg", 0.0))
 	car.reset_to(Transform3D(spawn.basis.rotated(Vector3.UP, heading), spawn.origin + offset))
+	# The reset unloads the car; the test's payload goes on after it.
+	car.payload_mass = float(test.get("payload_kg", 0.0))
 	if pad != null and pad.has_method("reset_cones"):
 		pad.reset_cones()
 
