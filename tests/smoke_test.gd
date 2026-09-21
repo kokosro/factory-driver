@@ -61,9 +61,30 @@ extends SceneTree
 ## wagon-wheel effect.
 ## Last the odometer: the way the body went, through resets and in reverse, on
 ## the HUD, and nothing of it on disk in a headless run.
+## And, ahead of the mass checks, the car's config: the file the car was built
+## from passes its validation, the engine the car runs is the certified curve,
+## and a broken config is reported by the validation's functions alone - it is
+## never read into the running car (see _check_car_config).
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
+
+## The car's config and what checks it. The validation is preloaded: a --script
+## SceneTree is compiled before the autoloads are there, its autoload name
+## (ConfigValidation) does not resolve in here.
+const CAR_CONFIG := "res://configs/cars/boxster_986.json"
+const CarConfigValidation := preload("res://configs/validation.gd")
+
+## The engine the five runs were certified with: the config's torque curve has
+## to arrive in the car as exactly these anchors (rpm, Nm).
+const CERTIFIED_TORQUE_CURVE: Array[Vector2] = [
+	Vector2(1000.0, 160.0),
+	Vector2(2000.0, 200.0),
+	Vector2(3000.0, 225.0),
+	Vector2(4500.0, 245.0),
+	Vector2(6000.0, 238.0),
+	Vector2(7200.0, 180.0),
+]
 
 ## How long the handbrake corner holds the handbrake [physics frames], 0.4 s:
 ## a tap that kicks the tail out and lets the car catch it again. Was 60 (1 s):
@@ -1009,6 +1030,7 @@ func _run() -> void:
 	await _check_mirrored_spin(main.get_node("TestPad") as TestPad, car)
 	await _check_pedals(car, hud as HUD)
 	await _check_fuel_and_exhaust(car, hud as HUD)
+	_check_car_config()
 	await _check_mass_and_payload(main.get_node("TestPad") as TestPad, car)
 	await _check_creep(car)
 	await _check_driver_controls(main, car)
@@ -2527,6 +2549,37 @@ func _check_fuel_and_exhaust(car: ArcadeCar, hud: HUD) -> void:
 	car.reset_to_spawn()
 	await _step(5)
 	_check(refilled and car.fuel_fraction() > 0.9999 and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < 1.0 and car.exhaust_events > 0.0, "fuel: reset_to and reset_to_spawn fill the tank, and the engine idles again (%.4f of a tank, %.0f rpm)" % [car.fuel_fraction(), car.engine_rpm])
+
+
+## The car's config: the file passes, the car runs the certified engine, and
+## the validation says what is wrong with a config that is not one. Functions
+## and data only - the broken configs below go to the validation and nowhere
+## else, the running car never sees them. (That every program's shift constants
+## still stand within 50 rpm of what derived_shift_points makes of the loaded
+## curve is the controls phase's check, all three programs: not repeated here.)
+func _check_car_config() -> void:
+	var config: Variant = JSON.parse_string(FileAccess.get_file_as_string(CAR_CONFIG))
+	var errors := CarConfigValidation.validate(config, "boxster_986")
+	_check(errors.is_empty(), "config: the car's config passes its validation (%d faults%s)" % [errors.size(), "" if errors.is_empty() else ": " + "; ".join(errors)])
+	_check(ArcadeCar.TORQUE_CURVE == CERTIFIED_TORQUE_CURVE and ArcadeCar.CAR_ID == "boxster_986", "config: the car that read it runs the certified engine, %d anchors to the bit, %d Nm at %d rpm the peak" % [ArcadeCar.TORQUE_CURVE.size(), ArcadeCar.TORQUE_CURVE[3].y, ArcadeCar.TORQUE_CURVE[3].x])
+	if not errors.is_empty():
+		return
+	var lean: Dictionary = config.duplicate(true)
+	for section: String in CarConfigValidation.OPTIONAL_NUMBERS:
+		for key: String in CarConfigValidation.OPTIONAL_NUMBERS[section]:
+			lean[section].erase(key)
+	for section: String in ["idle", "exhaust", "creep"]:
+		lean.erase(section)
+	errors = CarConfigValidation.validate(lean, "lean")
+	_check(errors.is_empty(), "config: a config without any of its optional keys is still a car, the defaults are car.gd's (%d faults)" % errors.size())
+	var no_mass: Dictionary = config.duplicate(true)
+	no_mass.mass.erase("kerb_mass")
+	errors = CarConfigValidation.validate(no_mass, "broken")
+	_check(errors.size() == 1 and errors[0] == "broken: mass.kerb_mass is missing", "config: a required key left out is refused by name ('%s')" % "; ".join(errors))
+	var nan_anchor: Dictionary = config.duplicate(true)
+	nan_anchor.engine.torque_curve[2][1] = NAN
+	errors = CarConfigValidation.validate(nan_anchor, "broken")
+	_check(errors.size() == 1 and errors[0].begins_with("broken: engine.torque_curve[2]"), "config: a torque anchor that is not a number is refused ('%s')" % "; ".join(errors))
 
 
 ## The one mass of the car: fuel and payload are in it.

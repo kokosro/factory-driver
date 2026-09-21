@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Headless checks: import the project, run the smoke test, then the handling,
-# camera and mission tests. Fails on a non-zero exit code or on any
-# engine/script error in the output.
+# Headless checks: import the project, check the car configs (seconds: a broken
+# config fails here, not 25 minutes into the smoke test), run the smoke test,
+# then the handling, camera and mission tests. Fails on a non-zero exit code or
+# on any engine/script error in the output.
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,6 +33,7 @@ run_step() {
 }
 
 run_step "import" "$GODOT" --headless --path "$ROOT" --import
+run_step "config test" "$GODOT" --headless --path "$ROOT" --script res://tests/config_test.gd
 run_step "smoke test" "$GODOT" --headless --path "$ROOT" --script res://tests/smoke_test.gd
 # --fixed-fps: same 1/60 s physics steps, without waiting for the wall clock.
 run_step "handling tests" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/handling_test.gd
