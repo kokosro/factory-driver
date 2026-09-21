@@ -30,7 +30,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Clutch pedal (hold; manual mode only)   | `Left Shift`    |
 | Starter (press to crank; hold to keep cranking) | `I`     |
 | Reset the car to the start line         | `R`             |
-| Cycle camera: chase, cockpit, front, overhead, wheel | `C` |
+| Cycle camera: cockpit, front, overhead, wheel, chase (it starts where the car was left) | `C` |
 | Look back (hold)                        | `B`             |
 | Look left / right (hold)                | `,` / `.`       |
 | X-ray view on / off                     | `X`             |
@@ -39,7 +39,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 
 Look left / right are on `,` and `.` (the `<` / `>` pair, under the right hand's reach from the arrows and next to `B`'s row): `Q` / `E` are the gearbox, `B` is look back. Hold to glance to that side, let go and the view comes back: the chase camera swings ~65 degrees round the car, in the cockpit and the bonnet view the head turns ~60 degrees; the overhead and wheel views have no side to look to. It is a glance, not a view of its own (`C` still cycles the same five), both keys at once look straight ahead, and look back wins over either.
 
-The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged), with two thin pedal bars beside it (green throttle, red brake: how far the driver's feet really have the pedals, see The driver below) and a thin fuel bar under them. Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual, `comfort` or `eco` on the automatic's comfort and eco programs and `STALL` once the engine has stopped) and turns red near the redline; over it sit the two driver aids' lamps, `TCS` and `ABS`, dim unless an aid is switched off (see The driver's controls below). The gearbox starts in automatic and goes back to automatic when you reset the car.
+The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged), with two thin pedal bars beside it (green throttle, red brake: how far the driver's feet really have the pedals, see The driver below) and a thin fuel bar under them. Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual, `comfort` or `eco` on the automatic's comfort and eco programs and `STALL` once the engine has stopped) and turns red near the redline; over it sit the two driver aids' lamps, `TCS` and `ABS`, dim unless an aid is switched off (see The driver's controls below). The gearbox starts in whatever the car was last left in - automatic on a car that has not been driven - and goes back to automatic when you reset the car (the switches and the camera view stay as the driver has them; see The car's own file below).
 
 ### Driving feel
 
@@ -504,6 +504,16 @@ null and a bool are no fuel level (a full tank and the reason, as text); and a c
 loads 5 L starts with 5 L, their 3.7 kg and a red bar - a reset fills it, the file is not
 told.
 
+And the dashboard kept with them: the car came out of `_ready` with the aids on, the
+sport program, automatic and the camera in the cockpit, the store off; all six settings
+go through the store and come back as they went in, in the one entry beside the odometer
+and the fuel and in the one write; a switch that is not true or false, a program this
+gearbox has not got, a view outside 0 .. 4, a fraction of a view, NaN, inf, words, null
+and a list are no driver setting (that one default and the reason, as text, naming the
+car and the field); and a car left with the aids off, the eco program, the gearbox in
+manual and the bonnet view starts exactly that way, its own eco driver in the seat - a
+reset puts the gearbox back in automatic and leaves the rest standing, the file untold.
+
 And the car's config, ahead of the mass checks: the file passes its validation, the car
 that read it runs the certified torque curve to the bit, a config without any of its
 optional keys is still a car, and a required key left out or a torque anchor that is NaN
@@ -652,13 +662,19 @@ passed) - and that is what the HUD shows back: the idle mission line ends with
 
 ### Camera
 
-`C` cycles the one camera (`scripts/chase_camera.gd`) through chase (default), cockpit
+`C` cycles the one camera (`scripts/chase_camera.gd`) through chase, cockpit
 (driver's eye, with a dashboard and steering wheel silhouette), front (on the bonnet),
 overhead (straight down, north always up so the pad holds still; rises with speed) and
 wheel (low by the front-left tyre, looking back at it: watch it steer, spin, lock under
 braking, work up and down over the bumps and the tarmac run under its contact patch). It works at any time, including
 during a test. Every offset, height and field of view is a commented constant in the
 `Modes` block of that file.
+
+It comes up in the view the car was last driven in, and a car that has not been driven
+yet comes up in the cockpit, inside it: the view is the driver's, kept per car with the
+rest of the dashboard (see The car's own file). The car holds it and the store keeps it;
+the camera reads it once when it comes up and hands back every view `C` lands on - and
+only those, since the look-back view is held, not chosen.
 
 Holding `B` looks back, for as long as the key is held. From the inside views (cockpit,
 front) you stay in the seat and turn your head round over your shoulder, far enough to see
@@ -758,3 +774,27 @@ the next save on the 45 s cadence writes the tank as it then stands, which after
 is the full one the car has. The headless suite and the certified handling runs read
 nothing: every car there starts on the config's full tank (and every handling run begins
 with a `reset_to` anyway).
+
+The dashboard lives in the same entry too, under `driver`: the three aid switches
+(`tcs_on`, `abs_on`, `sc_on`), the gearbox program by name (`sport`, `comfort` or `eco`),
+automatic or manual (`automatic`) and the camera view the driver was looking through
+(`camera_view`, 0 chase, 1 cockpit, 2 front, 3 overhead, 4 wheel - the held look-back
+view is never one a car is left in). Read once when the car enters the scene, written
+with the odometer and the fuel in the same save:
+
+```json
+{"version": 1, "cars": {"boxster_986": {"odometer_m": 123.4, "fuel_l": 31.5,
+  "driver": {"tcs_on": true, "abs_on": true, "sc_on": true,
+    "gearbox_mode": "sport", "automatic": true, "camera_view": 1}}}}
+```
+
+These belong to the car, not to the session: whoever drives next starts where the last
+driver left it - the aids as they were switched, the program that was selected (its own
+driver in the seat with it), manual if it was left in manual, and the same view. A car
+that has not been driven yet gets the defaults: every aid on, sport, automatic, and the
+cockpit view, inside the car. A setting in the file that is none of its own (a switch
+that is not true or false, a program this gearbox has not got, a view outside 0 .. 4) is
+an error in the log and that one default; the rest still load. A reset (`R`) still puts
+the gearbox back in automatic, as it always did, and leaves the switches and the view
+alone - it is the driver who has them. Nothing of this reaches the headless suite or the
+certified runs: the store is off there and every car starts on the defaults.
