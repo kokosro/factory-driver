@@ -40,10 +40,16 @@ extends SceneTree
 ## stopped engine burns and fires nothing, a stalled car does not creep, the
 ## starter catches it, a dry tank never does), reverse under neutral on the
 ## shift keys, the automatic's comfort and sport programs, and the telemetry's
-## two pedal fields reading the pedals. Last comes the telemetry recorder: a real mission
+## two pedal fields reading the pedals. Then the telemetry recorder: a real mission
 ## driven with it switched on, its JSON-lines file read back and checked line
 ## by line (see _check_telemetry - it writes to a fixed tmp path, never to
-## user://, and asserts nothing that comes off the wall clock).
+## user://, and asserts nothing that comes off the wall clock). Last come the
+## tyre marks: none while the tyres grip, trails under a handbrake slide, a
+## launch without TCS and a stop on locked wheels, lying on the ground along the
+## way the car went; the pool bounded and the oldest laid anew, the fade and
+## the places it frees, the same slide leaving the same marks to the bit, a
+## reset clearing them, and the car driving the same with the marks switched
+## off.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -569,6 +575,33 @@ const CONTROLS_MODE_FRAMES := 600
 const CONTROLS_PEDAL_FRAMES := 60
 const CONTROLS_TELEMETRY_FILE := TELEMETRY_DIR + "/pedals.jsonl"
 
+## Tyre marks: the grip run is flat out for this many ticks (3 s, through the
+## change into 2nd) and then a full pedal to a stop ...
+const MARKS_GRIP_FRAMES := 180
+
+## ... the slide is SLIDE_SETTLE_STEER and the handbrake from ~60 km/h for this
+## many ticks and everything let go for this many more ...
+const MARKS_SLIDE_FRAMES := 40
+const MARKS_SLIDE_WATCH_FRAMES := 120
+
+## ... a mark lies on the ground to this [m] (single precision at pad
+## distances) ...
+const MARKS_GROUND_TOLERANCE := 0.0001
+
+## ... the marks of a straight run are, laid end to end, at least this share of
+## twice the way the car went with an axle marking (two wheels; what is short
+## of it is the tick a trail starts on and an end under MARK_MIN_LENGTH; and at
+## most a tick's way more for each of the four wheels, the tick a trail ends
+## on) ...
+const MARKS_MIN_TRAIL_SHARE := 0.95
+
+## ... the fade is watched tick by tick for this long (1 s) ...
+const MARKS_FADE_FRAMES := 60
+
+## ... and the late mark of the expiry check is laid this many ticks after the
+## early ones (1 s).
+const MARKS_LATE_FRAMES := 60
+
 var _failures := 0
 
 
@@ -818,6 +851,7 @@ func _run() -> void:
 	await _check_creep(car)
 	await _check_driver_controls(main, car)
 	await _check_telemetry(main, car)
+	await _check_tyre_marks(main, car)
 
 	_finish()
 
@@ -3035,6 +3069,317 @@ func _check_telemetry(main: Node, car: ArcadeCar) -> void:
 		DirAccess.dir_exists_absolute(TelemetryRecorder.ROOT_DIR) == user_dir_before,
 		"recording to the fixed path left user://telemetry alone (%s)" % ("it was there before the phase and is unchanged" if user_dir_before else "never created"),
 	)
+
+
+## Tyre marks: the pool in main.tscn, read like the HUD reads the car - what the
+## marks script has in its arrays, nothing off the renderer (headless there is
+## none).
+func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
+	var tick := 1.0 / Engine.physics_ticks_per_second
+	var pad := main.get_node("TestPad") as TestPad
+	var marks := main.get_node_or_null("TyreMarks") as TyreMarks
+	if not _check(marks != null and marks.car == car and marks.pad == pad, "marks: main.tscn has the tyre marks, wired to the car and the pad"):
+		return
+	var finite := true
+
+	# (1) One multimesh of quads, coloured per mark, and the pool empty.
+	var multimesh := marks.multimesh
+	var material := (multimesh.mesh.surface_get_material(0) as BaseMaterial3D) if multimesh and multimesh.mesh else null
+	_check(
+		multimesh != null and multimesh.mesh is QuadMesh and multimesh.use_colors and multimesh.instance_count == TyreMarks.MAX_MARKS and marks.get_child_count() == 0,
+		"marks: one MultiMesh of %d quads with a colour each, not a node per mark (%d children)" % [TyreMarks.MAX_MARKS, marks.get_child_count()],
+	)
+	_check(material != null and material.vertex_color_use_as_albedo and material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA, "marks: the material takes colour and alpha per mark (vertex colour as albedo, alpha blended)")
+	_check(TyreMarks.MARK_LIFETIME >= 20.0 and TyreMarks.MARK_LIFETIME <= 40.0, "marks: a mark lives 20..40 s (%.0f s)" % TyreMarks.MARK_LIFETIME)
+	car.reset_to_spawn()
+	await _step(5)
+	_check(marks.mark_count == 0 and _marks_empty_places(marks) == TyreMarks.MAX_MARKS, "marks: nothing on the pad after a reset (%d marks, %d of %d places empty)" % [marks.mark_count, _marks_empty_places(marks), TyreMarks.MAX_MARKS])
+	_check(
+		not TyreMarks.tyre_marks(0.0, ArcadeCar.DRIVE_SLIP_RATIO) and not TyreMarks.tyre_marks(0.0, -ArcadeCar.ABS_SLIP_RATIO) and not TyreMarks.tyre_marks(ArcadeCar.FRONT_PEAK_SLIP_ANGLE, 0.0)
+			and TyreMarks.tyre_marks(0.0, -1.0) and TyreMarks.tyre_marks(0.0, 1.0) and TyreMarks.tyre_marks(-0.5, 0.0),
+		"marks: a tyre held by TCS (%.2f) or ABS (%.2f) or at its peak slip angle (%.2f rad) marks nothing, a locked, a spinning and a sideways one do (past %.2f / %.2f rad)" % [ArcadeCar.DRIVE_SLIP_RATIO, ArcadeCar.ABS_SLIP_RATIO, ArcadeCar.FRONT_PEAK_SLIP_ANGLE, TyreMarks.MARK_SLIP_RATIO, TyreMarks.MARK_SLIP_ANGLE],
+	)
+
+	# (2) Gripping: flat out from rest with TCS, through a gear change, and a
+	# full pedal to a stop with ABS, dead straight. Not a mark.
+	var peak_drive_slip := 0.0
+	var peak_brake_slip := 0.0
+	Input.action_press("accelerate")
+	for frame in MARKS_GRIP_FRAMES:
+		await physics_frame
+		peak_drive_slip = maxf(peak_drive_slip, car.rear_slip_ratio)
+	Input.action_release("accelerate")
+	var grip_speed := car.forward_speed
+	Input.action_press("brake")
+	for frame in CREEP_WATCH_FRAMES:
+		await physics_frame
+		peak_brake_slip = minf(peak_brake_slip, minf(car.front_slip_ratio, car.rear_slip_ratio))
+		if car.forward_speed == 0.0:
+			break
+	Input.action_release("brake")
+	_check(
+		car.tcs_on and car.abs_on and marks.mark_count == 0 and grip_speed > 10.0 and car.forward_speed == 0.0,
+		"marks: none while the tyres grip - flat out to %.1f m/s with TCS (slip ratio %.2f at most) and a full pedal to a stop with ABS (%.2f): %d marks" % [grip_speed, peak_drive_slip, peak_brake_slip, marks.mark_count],
+	)
+
+	# (3) The handbrake slide leaves trails, and every mark of them is a quad
+	# TYRE_WIDTH wide lying on the ground the pad shows, no longer than the
+	# spacing and a tick's travel, the newer the younger.
+	var slide := await _marks_slide(car, marks)
+	finite = finite and slide.finite
+	_check(slide.count > 0 and slide.peak_rear_slip == -1.0, "marks: a handbrake slide from %.0f km/h leaves marks (%d of them, the rears locked at a slip ratio of %.2f, the tail out to %.2f rad)" % [slide.entry_speed * 3.6, slide.count, slide.peak_rear_slip, slide.peak_rear_angle])
+	var worst_width := 0.0
+	var worst_height := 0.0
+	var shortest := INF
+	var longest := 0.0
+	var worst_lean := 0.0
+	var face_up := true
+	var in_order := marks.oldest_mark() == 0
+	for slot in marks.mark_count:
+		var mark := marks.mark_transforms[slot]
+		worst_width = maxf(worst_width, absf(mark.basis.x.length() - TyreMarks.TYRE_WIDTH))
+		worst_height = maxf(worst_height, absf(mark.origin.y - pad.elevation_height(mark.origin.x, mark.origin.z) - TyreMarks.MARK_LIFT))
+		shortest = minf(shortest, mark.basis.z.length())
+		longest = maxf(longest, mark.basis.z.length())
+		worst_lean = maxf(worst_lean, 1.0 - mark.basis.y.normalized().dot(Vector3.UP))
+		face_up = face_up and mark.basis.determinant() > 0.0
+		in_order = in_order and (slot == 0 or marks.mark_ages[slot] <= marks.mark_ages[slot - 1])
+	_check(worst_width < 0.00001 and worst_height < MARKS_GROUND_TOLERANCE and worst_lean < 0.001 and face_up, "marks: every mark is a tyre wide (%.2f m) and lies on the ground the pad shows, %.3f m over it (off by %.6f m at most), face up and not mirrored" % [TyreMarks.TYRE_WIDTH, TyreMarks.MARK_LIFT, worst_height])
+	_check(
+		shortest >= TyreMarks.MARK_MIN_LENGTH and longest < TyreMarks.MARK_SPACING + slide.max_step + 0.1 and slide.count < slide.wheel_ticks,
+		"marks: a trail is a mark every %.1f m, not one a tick (%.2f .. %.2f m long; %d marks from %d ticks of a wheel marking)" % [TyreMarks.MARK_SPACING, shortest, longest, slide.count, slide.wheel_ticks],
+	)
+	_check(in_order and marks.mark_ages[0] > marks.mark_ages[marks.mark_count - 1], "marks: the pool fills in order, the first mark the oldest (%.2f s, the last %.2f s)" % [marks.mark_ages[0], marks.mark_ages[marks.mark_count - 1]])
+
+	# (4) The fade, tick by tick, with nothing driving: alpha down every tick,
+	# by the tick's share of the lifetime.
+	var slot_watched := marks.mark_count - 1
+	var fading := true
+	var alpha_before := marks.mark_alpha(slot_watched)
+	var alpha_start := alpha_before
+	var age_start := marks.mark_ages[slot_watched]
+	for frame in MARKS_FADE_FRAMES:
+		await physics_frame
+		var alpha := marks.mark_alpha(slot_watched)
+		fading = fading and alpha < alpha_before and alpha > 0.0
+		alpha_before = alpha
+	var age_gained := marks.mark_ages[slot_watched] - age_start
+	var alpha_lost := alpha_start - alpha_before
+	_check(
+		fading and absf(age_gained - MARKS_FADE_FRAMES * tick) < 0.000001 and absf(alpha_lost - TyreMarks.MARK_COLOR.a * age_gained / TyreMarks.MARK_LIFETIME) < 0.000001,
+		"marks: a mark fades every physics tick (alpha %.4f -> %.4f over %.0f s, %.4f s older)" % [alpha_start, alpha_before, MARKS_FADE_FRAMES * tick, age_gained],
+	)
+	finite = finite and _marks_finite(marks)
+
+	# (5) The same slide again leaves the same marks, to the bit; and the car
+	# drives it the same with the marks switched off.
+	var again := await _marks_slide(car, marks)
+	finite = finite and again.finite
+	_check(
+		again.count == slide.count and again.transforms == slide.transforms and again.ages == slide.ages and again.next == slide.next,
+		"marks: the same slide from a reset leaves the same marks, transforms and ages to the bit (%d and %d marks)" % [slide.count, again.count],
+	)
+	marks.process_mode = Node.PROCESS_MODE_DISABLED
+	var unmarked := await _marks_slide(car, marks)
+	marks.process_mode = Node.PROCESS_MODE_INHERIT
+	_check(
+		unmarked.end == slide.end and unmarked.end_speed == slide.end_speed and unmarked.end_yaw_rate == slide.end_yaw_rate and unmarked.end_rpm == slide.end_rpm,
+		"marks: the car never reads them - the slide with the marks switched off ends where it ends with them, to the bit (%.3f, %.3f, heading %.4f rad, %.3f m/s)" % [slide.end.origin.x, slide.end.origin.z, slide.end.basis.get_euler().y, slide.end_speed],
+	)
+
+	# (6) A reset clears the marks: reset_to_spawn, reset_to and the key alike.
+	marks.lay_mark(Vector3(5.0, 0.0, 5.0), Vector3(5.5, 0.0, 5.0))
+	var before_reset := marks.mark_count
+	car.reset_to_spawn()
+	await _step(2)
+	var after_spawn_reset := marks.mark_count
+	marks.lay_mark(Vector3(5.0, 0.0, 5.0), Vector3(5.5, 0.0, 5.0))
+	car.reset_to(car.get_spawn_transform().translated(Vector3(3.0, 0.0, 0.0)))
+	await _step(2)
+	var after_reset_to := marks.mark_count
+	marks.lay_mark(Vector3(5.0, 0.0, 5.0), Vector3(5.5, 0.0, 5.0))
+	await _tap("reset_car")
+	_check(
+		before_reset > 0 and after_spawn_reset == 0 and after_reset_to == 0 and marks.mark_count == 0 and _marks_empty_places(marks) == TyreMarks.MAX_MARKS,
+		"marks: a reset clears them (%d marks before reset_to_spawn, %d after; %d after reset_to; %d after the reset key; every place empty)" % [before_reset, after_spawn_reset, after_reset_to, marks.mark_count],
+	)
+
+	# (7) The launch without TCS: the rears spin and mark, the fronts roll - the
+	# marks are, end to end, the way the car went on spinning rears, twice (two
+	# wheels), in the two rear wheel tracks.
+	car.tcs_on = false
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	var spin := await _marks_watch(car, CONTROLS_LAUNCH_FRAMES, false)
+	Input.action_release("accelerate")
+	car.tcs_on = true
+	await _step(2)
+	var spin_trail := _marks_trail_length(marks)
+	var off_track := 0.0
+	for slot in marks.mark_count:
+		off_track = maxf(off_track, absf(absf(marks.mark_transforms[slot].origin.x) - ArcadeCar.HALF_TRACK))
+	_check(
+		marks.mark_count > 0 and spin.front_way == 0.0 and spin.rear_way > 1.0 and off_track < 0.01
+			and spin_trail >= spin.rear_way * 2.0 * MARKS_MIN_TRAIL_SHARE and spin_trail <= spin.rear_way * 2.0 + spin.max_step * 4.0,
+		"marks: a launch with TCS off leaves the rears' wheelspin on the road (slip ratio %.2f: %.1f m on spinning rears, %.1f m of marks in their two tracks, %d marks; the fronts none)" % [spin.peak_rear_slip, spin.rear_way, spin_trail, marks.mark_count],
+	)
+	finite = finite and _marks_finite(marks)
+
+	# (8) The stop without ABS: the fronts stand still and their marks are as
+	# long as the way the car slid on them - the length is the patch's way over
+	# the ground, the wheel's own speed is 0.
+	car.abs_on = false
+	await _reach_speed(car, CONTROLS_BRAKE_SPEED)
+	Input.action_press("brake")
+	var stop := await _marks_watch(car, CREEP_WATCH_FRAMES, true)
+	Input.action_release("brake")
+	car.abs_on = true
+	await _step(2)
+	var stop_trail := _marks_trail_length(marks)
+	var stop_way: float = (stop.front_way + stop.rear_way) * 2.0
+	_check(
+		stop.locked_way > 20.0 and stop.locked_way <= stop.front_way and stop_trail >= stop_way * MARKS_MIN_TRAIL_SHARE and stop_trail <= stop_way + stop.max_step * 4.0,
+		"marks: a stop on locked fronts (ABS off, wheel speed 0 for %.1f m) marks the way the car slid: %.1f m on marking fronts, %.1f m on marking rears, %.1f m of marks (%d)" % [stop.locked_way, stop.front_way, stop.rear_way, stop_trail, marks.mark_count],
+	)
+	finite = finite and _marks_finite(marks)
+
+	# (9) The pool is bounded: one mark more than it holds goes where the oldest
+	# was, and the count stands.
+	car.reset_to_spawn()
+	await _step(2)
+	for i in TyreMarks.MAX_MARKS:
+		marks.lay_mark(Vector3(i, 0.0, 50.0), Vector3(i + 0.5, 0.0, 50.0))
+	var full_count := marks.mark_count
+	var first_place := marks.mark_transforms[0]
+	var second_place := marks.mark_transforms[1]
+	marks.lay_mark(Vector3(0.0, 0.0, 60.0), Vector3(0.5, 0.0, 60.0))
+	_check(
+		full_count == TyreMarks.MAX_MARKS and marks.mark_count == TyreMarks.MAX_MARKS and marks.mark_transforms.size() == TyreMarks.MAX_MARKS and marks.mark_ages.size() == TyreMarks.MAX_MARKS,
+		"marks: the pool is bounded - %d marks laid, %d on the pad, %d places" % [TyreMarks.MAX_MARKS + 1, marks.mark_count, marks.mark_transforms.size()],
+	)
+	_check(
+		marks.mark_transforms[0] != first_place and marks.mark_transforms[0].origin.z == 60.0 and marks.mark_transforms[1] == second_place and marks.oldest_mark() == 1,
+		"marks: full, the oldest mark is the one laid anew (place 0 moved from z = %.0f to %.0f, place 1 is the oldest now and lies where it lay)" % [first_place.origin.z, marks.mark_transforms[0].origin.z],
+	)
+	marks.lay_mark(Vector3(1.0, 0.0, 70.0), Vector3(1.0, 0.0, 70.0))
+	marks.lay_mark(Vector3(NAN, 0.0, 70.0), Vector3(1.0, 0.0, 70.0))
+	_check(marks.oldest_mark() == 1 and _marks_finite(marks), "marks: a mark of no length or not finite is not laid (the pool as it was)")
+
+	# (10) The end of the fade frees the place: three marks, a fourth
+	# MARKS_LATE_FRAMES later, and physics time to the early ones' lifetime.
+	car.reset_to_spawn()
+	await _step(2)
+	for i in 3:
+		marks.lay_mark(Vector3(i, 0.0, 50.0), Vector3(i + 0.5, 0.0, 50.0))
+	await _step(MARKS_LATE_FRAMES)
+	marks.lay_mark(Vector3(3.0, 0.0, 50.0), Vector3(3.5, 0.0, 50.0))
+	var lifetime_frames := ceili(TyreMarks.MARK_LIFETIME / tick)
+	await _step(lifetime_frames - MARKS_LATE_FRAMES - 2)
+	var early_alpha := marks.mark_alpha(0)
+	var count_before_end := marks.mark_count
+	await _step(4)
+	_check(
+		count_before_end == 4 and early_alpha > 0.0 and early_alpha < 0.001 and marks.mark_count == 1 and marks.oldest_mark() == 3
+			and marks.mark_transforms[0] == TyreMarks.NO_MARK and marks.mark_alpha(0) == 0.0 and marks.mark_ages[0] == 0.0 and marks.mark_alpha(3) > 0.0,
+		"marks: at the end of its %.0f s a mark is gone and its place free (alpha %.5f two ticks before; of 4 marks the late one is left, alpha %.4f)" % [TyreMarks.MARK_LIFETIME, early_alpha, marks.mark_alpha(3)],
+	)
+	await _step(MARKS_LATE_FRAMES)
+	_check(marks.mark_count == 0 and _marks_empty_places(marks) == TyreMarks.MAX_MARKS, "marks: %.0f s later the late one has gone too, the pool is empty (%d marks)" % [MARKS_LATE_FRAMES * tick, marks.mark_count])
+
+	_check(finite and _marks_finite(marks), "marks: no NaN / inf in any mark's transform or age throughout")
+	car.reset_to_spawn()
+	await _step(2)
+
+
+## The marks' scripted slide: from a reset to ~60 km/h, SLIDE_SETTLE_STEER of
+## left steering and the handbrake for MARKS_SLIDE_FRAMES, everything let go
+## for MARKS_SLIDE_WATCH_FRAMES. Returns what the pool holds at the end (count,
+## copies of the transforms and ages, the next place), how the rears slid, the
+## ticks of a wheel marking (two an axle), the longest step of a tick [m], where and how
+## the car ended and whether the pool was finite on every tick.
+func _marks_slide(car: ArcadeCar, marks: TyreMarks) -> Dictionary:
+	await _get_up_to_speed(car)
+	var slide := {
+		"entry_speed": car.forward_speed, "peak_rear_slip": 0.0, "peak_rear_angle": 0.0, "wheel_ticks": 0,
+		"max_step": 0.0, "finite": true, "count": 0, "transforms": [], "ages": PackedFloat64Array(), "next": 0,
+		"end": Transform3D.IDENTITY, "end_speed": 0.0, "end_yaw_rate": 0.0, "end_rpm": 0.0,
+	}
+	Input.action_press("steer_left", SLIDE_SETTLE_STEER)
+	Input.action_press("handbrake")
+	for frame in MARKS_SLIDE_FRAMES + MARKS_SLIDE_WATCH_FRAMES:
+		if frame == MARKS_SLIDE_FRAMES:
+			Input.action_release("handbrake")
+			Input.action_release("steer_left")
+		var before := car.global_position
+		await physics_frame
+		slide.max_step = maxf(slide.max_step, car.global_position.distance_to(before))
+		slide.peak_rear_slip = minf(slide.peak_rear_slip, car.rear_slip_ratio)
+		slide.peak_rear_angle = maxf(slide.peak_rear_angle, absf(car.rear_slip_angle))
+		if TyreMarks.tyre_marks(car.front_slip_angle, car.front_slip_ratio):
+			slide.wheel_ticks += 2
+		if TyreMarks.tyre_marks(car.rear_slip_angle, car.rear_slip_ratio):
+			slide.wheel_ticks += 2
+		slide.finite = slide.finite and _marks_finite(marks)
+	slide.count = marks.mark_count
+	slide.transforms = marks.mark_transforms.duplicate()
+	slide.ages = marks.mark_ages.duplicate()
+	slide.next = marks.oldest_mark() + marks.mark_count
+	slide.end = car.global_transform
+	slide.end_speed = car.forward_speed
+	slide.end_yaw_rate = car.yaw_rate
+	slide.end_rpm = car.engine_rpm
+	return slide
+
+
+## Steps `frames` ticks of a straight run (to a standstill at the latest, if
+## `until_rest`): the way the car went while the front tyres were marking, the
+## rear ones, and of the fronts' the way on wheels standing still [m], the
+## longest way of a tick [m] and the rears' peak slip ratio.
+func _marks_watch(car: ArcadeCar, frames: int, until_rest: bool) -> Dictionary:
+	var seen := {"front_way": 0.0, "rear_way": 0.0, "locked_way": 0.0, "max_step": 0.0, "peak_rear_slip": 0.0}
+	for frame in frames:
+		var before := car.global_position
+		await physics_frame
+		var way := car.global_position.distance_to(before)
+		seen.max_step = maxf(seen.max_step, way)
+		if TyreMarks.tyre_marks(car.front_slip_angle, car.front_slip_ratio):
+			seen.front_way += way
+			if car.front_omega == 0.0:
+				seen.locked_way += way
+		if TyreMarks.tyre_marks(car.rear_slip_angle, car.rear_slip_ratio):
+			seen.rear_way += way
+		seen.peak_rear_slip = maxf(seen.peak_rear_slip, absf(car.rear_slip_ratio))
+		if until_rest and car.forward_speed == 0.0:
+			break
+	return seen
+
+
+## The live marks laid end to end [m].
+func _marks_trail_length(marks: TyreMarks) -> float:
+	var length := 0.0
+	var slot := marks.oldest_mark()
+	for i in marks.mark_count:
+		length += marks.mark_transforms[slot].basis.z.length()
+		slot = (slot + 1) % TyreMarks.MAX_MARKS
+	return length
+
+
+## True if every place of the marks' pool holds finite numbers.
+func _marks_finite(marks: TyreMarks) -> bool:
+	for slot in TyreMarks.MAX_MARKS:
+		if not marks.mark_transforms[slot].is_finite() or not is_finite(marks.mark_ages[slot]):
+			return false
+	return true
+
+
+## How many places of the marks' pool are empty.
+func _marks_empty_places(marks: TyreMarks) -> int:
+	var empty := 0
+	for slot in TyreMarks.MAX_MARKS:
+		if marks.mark_transforms[slot] == TyreMarks.NO_MARK and marks.mark_ages[slot] == 0.0 and marks.mark_alpha(slot) == 0.0:
+			empty += 1
+	return empty
 
 
 ## Resets the car and accelerates it in a straight line to ~60 km/h.
