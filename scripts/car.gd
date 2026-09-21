@@ -1248,9 +1248,26 @@ const DRIVER_PROFILES := {
 
 # --- Visual only (no effect on handling) -------------------------------------
 
-## Cap on the visual wheel spin [rad/s], kept under half a turn per physics
-## tick so the wheels never appear to spin backwards at high speed.
-const MAX_WHEEL_SPIN := 100.0
+## The angle after which a drawn wheel looks the same again [rad]: half a turn,
+## wheel.tscn's one bar across the rim. A wheel is drawn turning by its real
+## step each physics tick, folded into half of this either way (a quarter
+## turn): the same picture on every tick, reached the short way in between
+## (the renderer interpolates between ticks). What shows is what a wheel
+## filmed at 60 frames a second shows, the wagon-wheel effect: its real speed
+## up to a quarter turn a tick (94 rad/s, ~115 km/h), a flicker around there,
+## then the wheel seeming to turn BACKWARDS, slower the faster the car goes,
+## to a standstill at half a turn a tick (~230 km/h).
+## was MAX_WHEEL_SPIN 100.0 [rad/s], a cap on the drawn spin "kept under half a
+## turn per physics tick so the wheels never appear to spin backwards at high
+## speed" -> removed for the fold. The user's report from the driving seat
+## (2026-09-21, in the morning) was the opposite of what the cap was for: at
+## speed the wheels only shimmered and never showed the backward rotation a
+## fast wheel has. The cap held them at 95 degrees a tick from 122 km/h up, and
+## with a bar that repeats every 180 that is the one step that reads neither
+## forwards nor backwards. (A lower cap, 20 rad/s, was weighed: calm, but one
+## and the same forward spin from 24 km/h up, and spinning or locking wheels
+## would no longer show against the road.)
+const WHEEL_DRAW_PERIOD := PI
 
 # was BODY_ROLL_PER_ACCEL 0.004 and BODY_PITCH_PER_ACCEL 0.003 [rad per m/s^2],
 # MAX_BODY_TILT 0.09 [rad] and BODY_TILT_RESPONSE 6.0 [1/s]: a cosmetic lean,
@@ -2870,11 +2887,13 @@ func _update_visuals(delta: float) -> void:
 	# braked ones lag it, handbraked rears stand still.
 	# was road speed x (1 + slip ratio), the handbrake faded in by hand -> the
 	# wheel speed states themselves; nothing to reconstruct any more.
-	var front_spin := clampf(front_omega, -MAX_WHEEL_SPIN, MAX_WHEEL_SPIN)
-	var rear_spin := clampf(rear_omega, -MAX_WHEEL_SPIN, MAX_WHEEL_SPIN)
+	# The step of a tick is folded into a quarter turn either way (see
+	# WHEEL_DRAW_PERIOD): the same picture, and at speed the wagon-wheel effect.
+	var front_step := wrapf(front_omega * delta, -WHEEL_DRAW_PERIOD * 0.5, WHEEL_DRAW_PERIOD * 0.5)
+	var rear_step := wrapf(rear_omega * delta, -WHEEL_DRAW_PERIOD * 0.5, WHEEL_DRAW_PERIOD * 0.5)
 	for i in _wheel_spinners.size():
 		# Rolling towards -Z is a negative rotation about +X.
-		_wheel_spinners[i].rotate_x(-(front_spin if i < 2 else rear_spin) * delta)
+		_wheel_spinners[i].rotate_x(-(front_step if i < 2 else rear_step))
 
 	for wheel in _front_wheels:
 		wheel.rotation.y = wheel_angle

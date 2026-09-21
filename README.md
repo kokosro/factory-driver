@@ -249,6 +249,14 @@ flat out down the lane); standing still every wheel carries exactly its static s
 wheels are drawn on the road, up to `MAX_WHEEL_VISUAL_TRAVEL` (9 cm) from their place
 under the body, while the body heaves, pitches and rolls above them.
 
+The wheels are drawn turning at their axle's real speed, a tick's step at a time, folded
+into a quarter turn either way (`WHEEL_DRAW_PERIOD`: the one bar across the rim looks the
+same every half turn). That is what a wheel filmed at 60 frames a second shows, the
+wagon-wheel effect: the real spin up to ~115 km/h, a flicker around there, then the
+wheel seeming to turn backwards, slower the faster the car goes. (A cap on the drawn
+spin, 100 rad/s, used to hold the wheels at 95 degrees a tick from 122 km/h up - for
+that bar the one step that reads neither way, a shimmer.) Purely visual.
+
 #### The driver's controls
 
 Three aids, all on unless switched off, each with a small lamp over the tach that is dim
@@ -401,6 +409,9 @@ Then the starter's cycle: a tap of one tick starts a stalled engine (caught afte
 0.17 s, no fuel burnt cranking, the tach says `CRANKING`), does nothing to a running
 one, cranks a dry tank for its 0.8 s and never catches; held, the key cranks on; a reset
 in the middle of a cycle ends it.
+
+Then the wheels at 130 km/h: drawn the real step less a half turn, never more than a
+quarter turn a tick, which is backwards.
 
 
 ### Handling tests

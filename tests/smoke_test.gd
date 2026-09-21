@@ -55,6 +55,8 @@ extends SceneTree
 ## handbrake showing it, the low-speed blend not its to take.
 ## Then the starter's crank cycle: a tap starts a stalled engine, a dry tank is
 ## cranked and never catches.
+## Then the wheels drawn at speed: the real step less a half turn, the
+## wagon-wheel effect.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -650,6 +652,17 @@ const STARTER_WATCH_FRAMES := 120
 const STARTER_CYCLE_TOLERANCE_TICKS := 2
 const STARTER_HOLD_FRAMES := 90
 
+# --- Wheel strobe ------------------------------------------------------------------
+
+## Speed the drawn wheels are watched at [m/s], 130 km/h: the wheels turn 106
+## rad/s, 101 degrees a tick, past the quarter turn from which the one bar
+## across the rim reads as turning backwards; the ticks the car is given to
+## get there flat out (20 s, it takes ~12) and the ticks the wheels are then
+## watched for, still flat out.
+const STROBE_SPEED := 36.0
+const STROBE_RUN_UP_FRAMES := 1200
+const STROBE_FRAMES := 30
+
 var _failures := 0
 
 
@@ -902,6 +915,7 @@ func _run() -> void:
 	await _check_tyre_marks(main, car)
 	await _check_stability_switch(main, car)
 	await _check_starter_cycle(main, car)
+	await _check_wheel_strobe(car)
 
 	_finish()
 
@@ -3702,6 +3716,45 @@ func _check_starter_cycle(main: Node, car: ArcadeCar) -> void:
 	car.reset_to_spawn()
 	await _step(CONTROLS_STALLED_FRAMES)
 	_check(mid_cycle and car.engine_running and not car.cranking() and car._crank_timer == 0.0 and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < CONTROLS_IDLE_TOLERANCE, "starter: a reset in the middle of a cycle starts the engine as ever and ends the cycle (%d rpm)" % car.engine_rpm)
+
+
+## The wheels at speed: drawn turning by their real step folded into a quarter
+## turn either way, which past 115 km/h reads as turning backwards - the
+## wagon-wheel effect the user missed under the old cap on the drawn spin.
+func _check_wheel_strobe(car: ArcadeCar) -> void:
+	var tick := 1.0 / Engine.physics_ticks_per_second
+	var front_spinner := car.get_node("Wheels/FrontLeft/Spin") as Node3D
+	var rear_spinner := car.get_node("Wheels/RearRight/Spin") as Node3D
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	for frame in STROBE_RUN_UP_FRAMES:
+		if car.forward_speed >= STROBE_SPEED:
+			break
+		await physics_frame
+	var largest_step := 0.0
+	var worst_residual := 0.0
+	var slowest_omega := INF
+	var backwards := true
+	for frame in STROBE_FRAMES:
+		var front_before := front_spinner.basis
+		var rear_before := rear_spinner.basis
+		await physics_frame
+		var steps := [_turned_about_x(front_before, front_spinner.basis), _turned_about_x(rear_before, rear_spinner.basis)]
+		var omegas := [car.front_omega, car.rear_omega]
+		for axle in 2:
+			largest_step = maxf(largest_step, absf(steps[axle]))
+			# Rolling forwards is a negative rotation about +X: drawn step + real
+			# step is nothing, or whole half turns (what the one bar hides).
+			worst_residual = maxf(worst_residual, absf(wrapf(steps[axle] + omegas[axle] * tick, -ArcadeCar.WHEEL_DRAW_PERIOD * 0.5, ArcadeCar.WHEEL_DRAW_PERIOD * 0.5)))
+			slowest_omega = minf(slowest_omega, omegas[axle])
+			backwards = backwards and steps[axle] > 0.0
+	Input.action_release("accelerate")
+	_check(ArcadeCar.WHEEL_DRAW_PERIOD == PI and slowest_omega * tick > ArcadeCar.WHEEL_DRAW_PERIOD * 0.5 and slowest_omega * tick < ArcadeCar.WHEEL_DRAW_PERIOD, "strobe: at %.0f km/h the wheels turn more than a quarter turn a tick (%.1f rad/s, %.2f rad a tick; the bar across the rim looks the same every half turn)" % [car.speed_kmh, slowest_omega, slowest_omega * tick])
+	_check(largest_step <= ArcadeCar.WHEEL_DRAW_PERIOD * 0.5 + 0.0001 and worst_residual < 0.0001, "strobe: they are drawn the real step less a half turn, never more than a quarter turn a tick (%.3f rad at most, %.6f rad off the real picture)" % [largest_step, worst_residual])
+	_check(backwards, "strobe: ... which is a wheel turning backwards, every tick: the wagon-wheel effect (was a cap of 100 rad/s on the drawn spin, 95 degrees a tick and a shimmer at any speed over 122 km/h)")
+	car.reset_to_spawn()
+	await _step(5)
 
 
 ## Resets the car and accelerates it in a straight line to ~60 km/h.
