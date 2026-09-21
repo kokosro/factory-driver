@@ -204,11 +204,16 @@ func _sample(in_mission: bool) -> String:
 		# 0 = neutral, 1..5 forward, -1 = reverse engaged.
 		"gear": -1 if car.reverse_engaged else car.gear,
 		"rpm": snappedf(car.engine_rpm, VALUE_SNAP),
-		# What the driver is asking for: pedals 0..1 as the keys are held (in
-		# reverse the two keys swap roles, see ArcadeCar.reverse_engaged),
-		# steering as a share of full lock, -1 (right) .. +1 (left).
-		"throttle": snappedf(Input.get_action_strength(&"accelerate"), VALUE_SNAP),
-		"brake": snappedf(Input.get_action_strength(&"brake"), VALUE_SNAP),
+		# What the driver's feet are doing: the two pedals 0..1 as the
+		# drivetrain is given them (ArcadeCar.throttle_pedal / brake_pedal; in
+		# reverse the throttle is the brake key's pedal, see
+		# ArcadeCar.reverse_engaged). The handbrake is its key, steering a share
+		# of full lock, -1 (right) .. +1 (left).
+		# was the strength of the accelerate / brake keys -> the pedals: a key is
+		# on / off, the foot is not, and a driver without keys (set_driver_input)
+		# never pressed one.
+		"throttle": snappedf(car.throttle_pedal, VALUE_SNAP),
+		"brake": snappedf(car.brake_pedal, VALUE_SNAP),
 		"handbrake": snappedf(Input.get_action_strength(&"handbrake"), VALUE_SNAP),
 		"steer": snappedf(car.steer, VALUE_SNAP),
 		# Share of the load the car carries on each axle (the two add to 1).
