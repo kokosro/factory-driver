@@ -51,6 +51,8 @@ extends SceneTree
 ## reset clearing them, and the car driving the same with the marks switched
 ## off; and their severity: cornering on tyres that grip lays nothing, a slow
 ## scrub a shade, the handbrake black, the same shades every time.
+## Then the stability switch: a key, a lamp, the assist gone and a flick of the
+## handbrake showing it, the low-speed blend not its to take.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -620,6 +622,22 @@ const MARKS_SCRUB_MAX_ALPHA := 0.3
 const MARKS_SLIDE_MIN_DARKER := 2.0
 const MARKS_SLIDE_MIN_FULL_SHARE := 0.5
 
+# --- Stability switch ---------------------------------------------------------
+
+## With the stability assist switched off the flick of _check_slide_settle
+## (SLIDE_FLICK_FRAMES of handbrake at SLIDE_SETTLE_STEER from ~60 km/h) has to
+## swing the nose at least this many times as far off the way the car travels
+## as with it (measured 0.46 rad against 0.16), and turn the car at least this
+## much further [rad] before it is back in line (measured 1.58 against 0.73).
+const SC_MIN_ANGLE_GAIN := 2.0
+const SC_MIN_TURN_GAIN := 0.5
+
+## The low-speed blend with the assist off: the car creeps round at full lock
+## for this many ticks (5 s), and its yaw rate has to be the rolling circle's
+## (speed x tan(wheel angle) / wheelbase) to this share by then.
+const SC_CREEP_FRAMES := 300
+const SC_ROLLING_TOLERANCE := 0.05
+
 var _failures := 0
 
 
@@ -870,6 +888,7 @@ func _run() -> void:
 	await _check_driver_controls(main, car)
 	await _check_telemetry(main, car)
 	await _check_tyre_marks(main, car)
+	await _check_stability_switch(main, car)
 
 	_finish()
 
@@ -3497,6 +3516,84 @@ func _marks_empty_places(marks: TyreMarks) -> int:
 		if marks.mark_transforms[slot] == TyreMarks.NO_MARK and marks.mark_ages[slot] == 0.0 and marks.mark_severities[slot] == 0.0 and marks.mark_alpha(slot) == 0.0:
 			empty += 1
 	return empty
+
+
+## The stability switch: on unless switched off, a key, a lamp, left alone by a
+## reset; off, the assist is gone on every branch and a slide shows it; the
+## low-speed blend is not the switch's to take.
+func _check_stability_switch(main: Node, car: ArcadeCar) -> void:
+	var sc_lamp := main.get_node_or_null("HUD/ScLamp") as Label
+	var abs_lamp := main.get_node_or_null("HUD/AbsLamp") as Label
+	var tcs_lamp := main.get_node_or_null("HUD/TcsLamp") as Label
+	car.reset_to_spawn()
+	await _step(5)
+	_check(InputMap.has_action("sc_toggle") and car.sc_on, "stability: the car starts with the stability assist on, and there is a key for it")
+	if not _check(sc_lamp != null and sc_lamp.text == "SC" and sc_lamp.get_theme_color("font_color") == HUD.AID_ON_COLOR, "stability: the HUD's third aid lamp is quiet while the assist is on ('%s', dim)" % (sc_lamp.text if sc_lamp else "?")):
+		return
+	_check(
+		sc_lamp.offset_right <= tcs_lamp.offset_left and tcs_lamp.offset_right <= abs_lamp.offset_left and sc_lamp.offset_top == abs_lamp.offset_top and sc_lamp.offset_bottom == abs_lamp.offset_bottom,
+		"stability: the lamp sits in the row of the other two, left of them and clear of them (SC to %.0f, TCS from %.0f to %.0f, ABS from %.0f)" % [sc_lamp.offset_right, tcs_lamp.offset_left, tcs_lamp.offset_right, abs_lamp.offset_left],
+	)
+	var damping_on := car._slide_yaw_damping(20.0, 0.0)
+	await _tap("sc_toggle")
+	await _step(2)
+	_check(not car.sc_on and car.tcs_on and car.abs_on, "stability: the SC key switches the assist off and leaves TCS and ABS alone (SC %s, TCS %s, ABS %s)" % [car.sc_on, car.tcs_on, car.abs_on])
+	_check(sc_lamp.text == "SC OFF" and sc_lamp.get_theme_color("font_color") == HUD.AID_OFF_COLOR and tcs_lamp.text == "TCS" and abs_lamp.text == "ABS", "stability: the lamp lights up and says OFF, the other two stay quiet ('%s', '%s', '%s')" % [sc_lamp.text, tcs_lamp.text, abs_lamp.text])
+	var damping_off := car._slide_yaw_damping(20.0, 0.0)
+	var damping_off_slow := car._slide_yaw_damping(ArcadeCar.SPIN_MIN_SPEED * 0.5, 0.0)
+	var damping_off_sideways := car._slide_yaw_damping(0.0, 20.0)
+	car.reverse_engaged = true
+	var damping_off_reverse := car._slide_yaw_damping(-20.0, 0.0)
+	car.sc_on = true
+	var damping_on_reverse := car._slide_yaw_damping(-20.0, 0.0)
+	car.sc_on = false
+	_check(
+		damping_on == ArcadeCar.SLIDE_YAW_DAMPING and damping_on_reverse == ArcadeCar.SPIN_YAW_DAMPING and damping_off == 0.0 and damping_off_slow == 0.0 and damping_off_sideways == 0.0 and damping_off_reverse == 0.0,
+		"stability: switched off, the assist has no strength on any branch - rolling straight %.1f -> %.1f 1/s, and none at a crawl, sideways or in reverse (%.1f with it on)" % [damping_on, damping_off, damping_on_reverse],
+	)
+	car.reset_to_spawn()
+	await _step(5)
+	_check(not car.sc_on and not car.reverse_engaged and sc_lamp.text == "SC OFF", "stability: a reset leaves the switch as the driver has it (SC %s, '%s')" % [car.sc_on, sc_lamp.text])
+
+	# The same flick of the handbrake with and without: with the assist the tail
+	# is checked and the car rolls on; without, the nose swings far further out
+	# and the car turns far further before its tyres have it back.
+	var without := await _slide_and_let_go(car, SLIDE_FLICK_FRAMES)
+	var still_off := not car.sc_on
+	car.sc_on = true
+	var with := await _slide_and_let_go(car, SLIDE_FLICK_FRAMES)
+	_check(
+		still_off and without.peak_angle > with.peak_angle * SC_MIN_ANGLE_GAIN and absf(without.turned) > absf(with.turned) + SC_MIN_TURN_GAIN,
+		"stability: the same flick of the handbrake slides far deeper without the assist - the nose %.2f rad off the way the car goes against %.2f, the car turned %.2f rad against %.2f" % [without.peak_angle, with.peak_angle, absf(without.turned), absf(with.turned)],
+	)
+	_check(
+		(without.in_line_at < 0.0 or without.in_line_at > with.in_line_at) and with.in_line_at >= 0.0,
+		"stability: ... and hangs on longer (back in line %.2f s after the release against %.2f s; -1 = never)" % [without.in_line_at, with.in_line_at],
+	)
+	_check(without.finite and with.finite and without.max_step < SLIDE_SETTLE_MAX_STEP, "stability: no NaN / inf and no teleporting through either slide (largest step %.2f m without)" % without.max_step)
+
+	# The low-speed blend is numerics, not an aid: with the assist off a car
+	# creeping round at full lock is still eased onto its rolling circle.
+	car.sc_on = false
+	car.reset_to_spawn()
+	await _step(5)
+	await _brake_to_a_stop(car)
+	await _step(CREEP_HOLD_FRAMES)
+	Input.action_release("brake")
+	Input.action_press("steer_left")
+	await _step(SC_CREEP_FRAMES)
+	var rolling_yaw_rate := car.forward_speed * tan(car.wheel_angle) / (2.0 * ArcadeCar.AXLE_DISTANCE)
+	var creep_speed := car.forward_speed
+	var creep_yaw_rate := car.yaw_rate
+	Input.action_release("steer_left")
+	car.sc_on = true
+	_check(
+		creep_speed > 0.1 and creep_speed < ArcadeCar.LOW_SPEED_BLEND_END and rolling_yaw_rate > 0.0 and absf(creep_yaw_rate - rolling_yaw_rate) < rolling_yaw_rate * SC_ROLLING_TOLERANCE,
+		"stability: the low-speed blend has no switch - assist off, creeping at %.2f m/s on full lock the car turns at %.4f rad/s, its rolling circle's %.4f" % [creep_speed, creep_yaw_rate, rolling_yaw_rate],
+	)
+	car.reset_to_spawn()
+	await _step(5)
+	_check(car.sc_on and sc_lamp.text == "SC", "stability: switched back on, the lamp is quiet again ('%s')" % sc_lamp.text)
 
 
 ## Resets the car and accelerates it in a straight line to ~60 km/h.

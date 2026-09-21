@@ -1067,7 +1067,9 @@ const STEERING_RATIO := STEERING_WHEEL_LOCK_DEG / (MAX_STEER_LOCK * 180.0 / PI)
 ## turns the car for the driver. It checks the tail stepping out and the car
 ## rotating on after the tyres have stopped turning it, which keeps a power
 ## slide or a handbrake slide catchable instead of an instant spin.
-## Lower = wilder slides that spin more easily, higher = tamer.
+## Lower = wilder slides that spin more easily, higher = tamer. The driver can
+## switch the whole assist off (sc_on, the SC key); the low-speed blend further
+## down is numerics, not an aid, and has no switch.
 const SLIDE_YAW_DAMPING := 8.0
 
 ## The assist only leans on a slide that is getting deeper; it comes in over
@@ -1346,6 +1348,15 @@ var gearbox_mode := GearboxMode.SPORT
 var tcs_on := true
 var abs_on := true
 
+## The stability assist (see SLIDE_YAW_DAMPING), on unless switched off (the SC
+## key): a dashboard switch like the two above, and like them left alone by a
+## reset. Off, _slide_yaw_damping is 0 on every branch and the assist's yaw
+## moment with it: the car rotates on its tyres alone, a slide hangs on for as
+## long as they let it and a spin is the driver's to catch. The low-speed blend
+## (LOW_SPEED_BLEND_END) is not part of it and stays on: that is numerics, what
+## keeps the tyre model meaningful near a standstill, not a driver aid.
+var sc_on := true
+
 ## True while the engine runs. False once it has been dragged or has run down
 ## under STALL_RPM: nothing burns, the tach falls to 0, the throttle does
 ## nothing, until something turns it past ENGINE_CATCH_RPM again (the starter
@@ -1617,6 +1628,8 @@ func _physics_process(delta: float) -> void:
 		tcs_on = not tcs_on
 	if Input.is_action_just_pressed("abs_toggle"):
 		abs_on = not abs_on
+	if Input.is_action_just_pressed("sc_toggle"):
+		sc_on = not sc_on
 	_starter_held = Input.is_action_pressed("starter")
 
 	# What is asked of the driver: the two pedal keys 0..1, the steering +1 =
@@ -1854,7 +1867,7 @@ func get_spawn_transform() -> Transform3D:
 ## (a stalled one is started: the car is put there ready to drive), the tank
 ## full and nothing loaded (payload_mass is for whoever resets the car to load
 ## again afterwards). The switches stay as the driver has them: tcs_on, abs_on,
-## gearbox_mode. The height of `target` counts from the road: the car is stood on its springs on the road
+## sc_on, gearbox_mode. The height of `target` counts from the road: the car is stood on its springs on the road
 ## there (_settle_suspension), 0 = at its ride height.
 func reset_to(target: Transform3D) -> void:
 	global_transform = target
@@ -2803,8 +2816,11 @@ func _limit_to_stick(force: float, slip_speed: float, arm: float, yaw_inertia: f
 ## angle (nose vs direction of travel, 0..PI) grows past SPIN_COMMIT_ANGLE.
 ## Off while the handbrake is held (that slide is deliberate) and, like a real
 ## stability system, with reverse engaged: a flick at speed in reverse swings
-## the nose round (J-turn).
+## the nose round (J-turn). None at all with the assist switched off (sc_on),
+## not even the SPIN_YAW_DAMPING those two leave.
 func _slide_yaw_damping(along: float, across: float) -> float:
+	if not sc_on:
+		return 0.0
 	if reverse_engaged:
 		return SPIN_YAW_DAMPING
 	if Vector2(along, across).length() < SPIN_MIN_SPEED:

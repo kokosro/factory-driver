@@ -26,6 +26,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Automatic: comfort / sport shift program | `N`            |
 | Traction control on / off               | `T`             |
 | ABS on / off                            | `G`             |
+| Stability control on / off              | `K`             |
 | Clutch pedal (hold; manual mode only)   | `Left Shift`    |
 | Starter (hold, for a stalled engine)    | `I`             |
 | Reset the car to the start line         | `R`             |
@@ -135,7 +136,9 @@ with opposite lock, which is there all the way to full lock at once, handbrake o
 (`SLIDE_CATCH_ANGLE` survives only inside the assist, as where it starts to leave a slide
 that is coming back alone). The assist fades once the tail is more
 than ~25 degrees out (`SPIN_COMMIT_ANGLE`) and is off while the handbrake is held, so a
-committed flick goes all the way round. A slide nobody is driving settles by itself:
+committed flick goes all the way round. `K` switches the whole assist off (`sc_on`, the
+`SC` lamp; see the driver's controls below): the car then rotates on its tyres alone. A
+slide nobody is driving settles by itself:
 rear tyres that still roll keep their hold sliding sideways (`REAR_TYRE_SLIDE_GRIP`)
 where the fronts and a locked wheel let go to `TYRE_SLIDE_GRIP`, so with every key
 released the tail is pulled back into line, the sliding tyres scrub the speed off and the
@@ -248,10 +251,10 @@ under the body, while the body heaves, pitches and rolls above them.
 
 #### The driver's controls
 
-Two aids, both on unless switched off, each with a small lamp over the tach that is dim
+Three aids, all on unless switched off, each with a small lamp over the tach that is dim
 while the aid is on and amber with `OFF` behind it once it is not. They are switches on
-the dashboard (`tcs_on`, `abs_on`, and `gearbox_mode` below), not the car's state: a
-reset puts the car back and leaves them as the driver has them.
+the dashboard (`tcs_on`, `abs_on`, `sc_on`, and `gearbox_mode` below), not the car's
+state: a reset puts the car back and leaves them as the driver has them.
 
 - **TCS** (`T`). The car's traction control is its clutch foot: pulling away it holds
   the revs at the launch floor, passes what the engine makes there, and eases off
@@ -269,6 +272,15 @@ reset puts the car back and leaves them as the driver has them.
   to no sideways hold. From 90 km/h the stop is 37.8 m for 35.8, and full lock on the
   brakes for a second turns the car by nothing where the ABS car turns 18 degrees, until
   the pedal comes up and the wheels roll again.
+
+- **SC** (`K`). The stability assist of "Slides and spins" above. Switched off it has no
+  strength on any branch (`_slide_yaw_damping` is 0, also in reverse and under the
+  handbrake, where the assist otherwise keeps a sliver): nothing leans on the nose any
+  more, a slide hangs on for as long as the tyres let it and a spin is yours to catch.
+  The same 0.2 s flick of the handbrake from 60 km/h swings the nose 0.46 rad off the way
+  the car goes for 0.16 with the assist, turns the car 1.6 rad for 0.7 and takes 2 s to
+  come back into line for 1. The low-speed blend is not part of it and has no switch: it
+  is numerics, what keeps the tyre model meaningful near a standstill, not a driver aid.
 
 The automatic has two shift programs, `N` switches between them: **sport** (up at
 6800 rpm, down under 2800; what the car starts in, and what it was certified with) and
@@ -372,6 +384,12 @@ and the slide ending in the same place, to the bit, with the marks switched off.
 their severity: full lock off the throttle from 30 km/h lays nothing, from 45 km/h faint
 marks (fresh alpha under 0.3), the handbrake slide's are black against them (most of them
 at the full 0.75), and the same scrub leaves the same shades to the bit.
+
+The stability switch comes next: on at the start, `K` flips it and nothing else, the
+`SC` lamp in the row of the other two, a reset leaves it alone, switched off the assist
+has no strength on any branch, the same flick of the handbrake slides far deeper and
+hangs on longer without it, and the low-speed blend still has a creeping car on its
+rolling circle.
 
 
 ### Handling tests

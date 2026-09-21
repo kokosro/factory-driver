@@ -2,7 +2,7 @@ class_name HUD
 extends CanvasLayer
 ## Minimal driving HUD: speed, plus a tach line (engine RPM and gear), the two
 ## pedal bars so the driving feel can be checked, the fuel bar, and a lamp each
-## for the two driver aids. The mission line and
+## for the three driver aids. The mission line and
 ## banner only show what they are handed (see scripts/mission_manager.gd).
 
 ## Tach text colour normally and from ArcadeCar.SHIFT_LIGHT_RPM up.
@@ -17,7 +17,7 @@ const FUEL_LOW_COLOR := Color(1.0, 0.25, 0.2, 1)
 const FUEL_RESERVE_FRACTION := 0.15
 const FUEL_LOW_FRACTION := 0.08
 
-## The driver aids' lamps (TCS, ABS): dim while the aid is on, which is how the
+## The driver aids' lamps (SC, TCS, ABS): dim while the aid is on, which is how the
 ## car starts and nothing to look at; lit in the fuel bar's amber, with OFF
 ## behind the letters, once it has been switched off.
 const AID_ON_COLOR := Color(1, 1, 1, 0.35)
@@ -35,6 +35,7 @@ const AID_OFF_COLOR := Color(1.0, 0.7, 0.15, 1)
 @onready var _fuel_bar: ColorRect = $FuelBarBack/FuelBar
 @onready var _tcs_lamp: Label = $TcsLamp
 @onready var _abs_lamp: Label = $AbsLamp
+@onready var _sc_lamp: Label = $ScLamp
 
 
 func _process(_delta: float) -> void:
@@ -60,6 +61,7 @@ func _process(_delta: float) -> void:
 	_rpm_label.add_theme_color_override("font_color", TACH_REDLINE_COLOR if near_redline else TACH_COLOR)
 	set_aid_lamp(_tcs_lamp, "TCS", car.tcs_on)
 	set_aid_lamp(_abs_lamp, "ABS", car.abs_on)
+	set_aid_lamp(_sc_lamp, "SC", car.sc_on)
 
 
 ## The pedal bars follow the pedals tick by tick (ArcadeCar.throttle_pedal /
