@@ -61,6 +61,9 @@ extends SceneTree
 ## wagon-wheel effect.
 ## Last the odometer: the way the body went, through resets and in reverse, on
 ## the HUD, and nothing of it on disk in a headless run.
+## And the fuel kept beside it: every car of the suite starts on a full tank
+## whatever the game's file holds, the store gives a level back to the bit and
+## says what is wrong with one that is none, and a car that loads 5 L has 5 L.
 ## And, ahead of the mass checks, the car's config: the file the car was built
 ## from passes its validation, the engine the car runs is the certified curve,
 ## and a broken config is reported by the validation's functions alone - it is
@@ -782,6 +785,16 @@ var _failures := 0
 ## loaded: 0, whatever the game's own odometer file holds.
 var _odometer_at_start := -1.0
 
+## The car's fuel [L] and its mass [kg] as _ready left them, before the first
+## tick burnt any: the full tank, whatever the game's own file holds.
+var _fuel_at_start := -1.0
+var _fuel_mass_at_start := -1.0
+
+## Fuel store: a level that has to come back to the bit [L], and the one a car
+## is started with, under the HUD's red (5 L of 64 are 7.8 % of the tank).
+const FUEL_STORE_HARD_LEVEL := 37.123456789012345
+const FUEL_STORE_LOW_LEVEL := 5.0
+
 
 ## Run clock: every test's start line is this far down the pad from its start
 ## point [m] ...
@@ -806,6 +819,10 @@ func _run() -> void:
 		return
 	var main := packed.instantiate()
 	root.add_child(main)
+	var car_at_ready := main.get_node_or_null("Car") as ArcadeCar
+	if car_at_ready:
+		_fuel_at_start = car_at_ready.fuel_l
+		_fuel_mass_at_start = car_at_ready.fuel_mass
 	await _step(60)
 
 	var car := main.get_node_or_null("Car") as ArcadeCar
@@ -1038,6 +1055,7 @@ func _run() -> void:
 	await _check_wheel_strobe(car)
 	await _check_odometer(main, car)
 	await _check_handbrake_release(car)
+	await _check_fuel_store(hud as HUD, car)
 
 	_finish()
 
@@ -4265,6 +4283,93 @@ func _check_odometer(main: Node, car: ArcadeCar) -> void:
 	_check(loaded == 100.5 and negative == 0.0 and kept, "odometer: a save touches its car's metres and nothing else in the file (version 1, the garage's own fields and the other cars as they were; a negative odometer reads 0)")
 	DirAccess.remove_absolute(ODOMETER_TEST_FILE)
 	car.reset_to_spawn()
+	await _step(5)
+
+
+## The fuel kept from one session to the next, beside the odometer: not in the
+## headless suite, to the bit through the store, never a level that is none,
+## and the car that loads one starts with it. Last in the run: nothing after it
+## drives a car this has touched.
+func _check_fuel_store(hud: HUD, car: ArcadeCar) -> void:
+	var capacity := ArcadeCar.FUEL_TANK_CAPACITY_L
+
+	# (1) Nothing read: the store is off (the odometer's switch, the one gate)
+	# and the car came out of _ready with the config's full tank to the bit,
+	# before a tick had burnt any - whatever the game's file holds for it.
+	_check(
+		not OdometerStore.enabled() and not car._odometer_kept and _fuel_at_start == capacity and _fuel_mass_at_start == capacity * ArcadeCar.FUEL_DENSITY,
+		"fuel store: the headless suite reads no fuel level - the store is off, the car came out of _ready with %.1f L and %.2f kg of it, the full tank to the bit, whatever %s holds" % [_fuel_at_start, _fuel_mass_at_start, OdometerStore.PATH],
+	)
+
+	# (2) The store itself, on a file of the test's own: a level comes back the
+	# float it was, beside the odometer and in the one entry; a car the file
+	# does not know has a full tank and nothing wrong with it; NaN is not written.
+	DirAccess.make_dir_recursive_absolute(TELEMETRY_DIR)
+	if FileAccess.file_exists(ODOMETER_TEST_FILE):
+		DirAccess.remove_absolute(ODOMETER_TEST_FILE)
+	var new_car := OdometerStore.load_fuel(ArcadeCar.CAR_ID, capacity, ODOMETER_TEST_FILE)
+	OdometerStore.save_car(ArcadeCar.CAR_ID, NAN, NAN, ODOMETER_TEST_FILE)
+	var nan_not_written := not FileAccess.file_exists(ODOMETER_TEST_FILE)
+	OdometerStore.save_car(ArcadeCar.CAR_ID, 1234567.891, FUEL_STORE_HARD_LEVEL, ODOMETER_TEST_FILE)
+	OdometerStore.save_car("some_other_car", 42.5, 0.1 + 0.2, ODOMETER_TEST_FILE)
+	OdometerStore.save_car(ArcadeCar.CAR_ID, 1234600.0, NAN, ODOMETER_TEST_FILE)
+	OdometerStore.save_odometer("some_other_car", 43.5, ODOMETER_TEST_FILE)
+	var back := OdometerStore.load_fuel(ArcadeCar.CAR_ID, capacity, ODOMETER_TEST_FILE)
+	var other := OdometerStore.load_fuel("some_other_car", capacity, ODOMETER_TEST_FILE)
+	var unknown := OdometerStore.load_fuel("no_such_car", capacity, ODOMETER_TEST_FILE)
+	_check(
+		new_car.fuel_l == capacity and new_car.problem == "" and nan_not_written
+			and back.fuel_l == FUEL_STORE_HARD_LEVEL and back.problem == "" and other.fuel_l == 0.1 + 0.2 and other.problem == ""
+			and unknown.fuel_l == capacity and unknown.problem == ""
+			and OdometerStore.load_odometer(ArcadeCar.CAR_ID, ODOMETER_TEST_FILE) == 1234600.0 and OdometerStore.load_odometer("some_other_car", ODOMETER_TEST_FILE) == 43.5,
+		"fuel store: a level comes back to the bit (%.15f L), an entry per car beside its odometer, a save of the metres alone or with a NaN level leaves the level as it was, and a car or a file that is not there is a full tank" % back.fuel_l,
+	)
+
+	# (3) A level that is none of this tank's: a full tank and the reason, as
+	# text - the car that asks makes the error of it (push_error; not here, the
+	# suite's output has none). NaN and inf never get through a JSON file, so
+	# they go to the check itself.
+	var refused := 0
+	var not_levels: Array = [NAN, INF, -INF, -0.5, capacity + 0.001, "half", null, true, [32.0]]
+	for stored: Variant in not_levels:
+		if OdometerStore.fuel_problem(stored, capacity) != "":
+			refused += 1
+	var levels_ok := OdometerStore.fuel_problem(0.0, capacity) == "" and OdometerStore.fuel_problem(capacity, capacity) == "" and OdometerStore.fuel_problem(32, capacity) == ""
+	var garage_file := FileAccess.open(ODOMETER_TEST_FILE, FileAccess.WRITE)
+	garage_file.store_string('{"version": 1, "cars": {"words": {"fuel_l": "half"}, "negative": {"fuel_l": -1.0}, "over": {"fuel_l": 64.5}, "null": {"fuel_l": null}, "bool": {"fuel_l": true}, "whole": {"odometer_m": 7.5, "fuel_l": 32}}}')
+	garage_file.close()
+	var full_and_said := 0
+	for bad_car: String in ["words", "negative", "over", "null", "bool"]:
+		var bad := OdometerStore.load_fuel(bad_car, capacity, ODOMETER_TEST_FILE)
+		if bad.fuel_l == capacity and (bad.problem as String).contains(bad_car + "'s fuel_l"):
+			full_and_said += 1
+	var whole := OdometerStore.load_fuel("whole", capacity, ODOMETER_TEST_FILE)
+	_check(
+		refused == not_levels.size() and levels_ok and full_and_said == 5 and whole.fuel_l == 32.0 and whole.problem == "" and typeof(whole.fuel_l) == TYPE_FLOAT,
+		"fuel store: NaN, inf, under 0, over the tank, words, null, a bool and a list are no fuel level (%d of %d refused, %d of 5 in a file read as a full tank with the reason); 0, a whole 32 and the full %.0f L are" % [refused, not_levels.size(), full_and_said, capacity],
+	)
+
+	# (4) The car that loads a level starts with it, not with a full tank: the
+	# litres, their mass, the red bar. And a reset fills the tank - the debug
+	# verb it always was - without a word to the file.
+	OdometerStore.save_car(ArcadeCar.CAR_ID, 1000.0, FUEL_STORE_LOW_LEVEL, ODOMETER_TEST_FILE)
+	var file_before := FileAccess.get_file_as_string(ODOMETER_TEST_FILE)
+	car.reset_to_spawn()
+	car._load_stored_fuel(ODOMETER_TEST_FILE)
+	var loaded_l := car.fuel_l
+	var loaded_mass := car.fuel_mass
+	await _step(5)
+	var fuel_bar := hud.get_node("FuelBarBack/FuelBar") as ColorRect
+	var red := fuel_bar.visible and fuel_bar.color == HUD.FUEL_LOW_COLOR and is_equal_approx(fuel_bar.scale.x, car.fuel_fraction())
+	var burning := car.fuel_l < loaded_l and car.fuel_l > loaded_l - 0.01 and car.engine_running
+	var weighs := is_equal_approx(car.total_mass(), ArcadeCar.BASE_MASS + car.fuel_l * ArcadeCar.FUEL_DENSITY)
+	car.reset_to_spawn()
+	_check(
+		loaded_l == FUEL_STORE_LOW_LEVEL and loaded_mass == FUEL_STORE_LOW_LEVEL * ArcadeCar.FUEL_DENSITY and red and burning and weighs
+			and car.fuel_l == capacity and FileAccess.get_file_as_string(ODOMETER_TEST_FILE) == file_before and not car._odometer_kept,
+		"fuel store: a car that loads %.1f L starts with %.1f L and %.3f kg of it, not a full tank - the bar red at %.3f, the engine idling on it; a reset fills the tank and the file is not told" % [FUEL_STORE_LOW_LEVEL, loaded_l, loaded_mass, loaded_l / capacity],
+	)
+	DirAccess.remove_absolute(ODOMETER_TEST_FILE)
 	await _step(5)
 
 
