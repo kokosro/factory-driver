@@ -127,6 +127,46 @@ grow_vertical = 2
 mouse_filter = 2
 color = Color(0.85, 0.85, 0.8, 1)
 
+[node name="TcsLamp" type="Label" parent="."]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -250.0
+offset_top = -200.0
+offset_right = -150.0
+offset_bottom = -174.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 1, 1, 0.35)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 6
+theme_override_font_sizes/font_size = 18
+text = "TCS"
+horizontal_alignment = 2
+vertical_alignment = 2
+
+[node name="AbsLamp" type="Label" parent="."]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -140.0
+offset_top = -200.0
+offset_right = -40.0
+offset_bottom = -174.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 1, 1, 0.35)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 6
+theme_override_font_sizes/font_size = 18
+text = "ABS"
+horizontal_alignment = 2
+vertical_alignment = 2
+
 [node name="ControlsLabel" type="Label" parent="."]
 offset_left = 24.0
 offset_top = 18.0
@@ -138,7 +178,8 @@ theme_override_constants/outline_size = 6
 theme_override_font_sizes/font_size = 18
 text = "Up / W  accelerate      Down / S  brake (press again at a stop: reverse)
 Left / A, Right / D  steer      Space  handbrake      R  reset car
-Q / E  shift down / up (manual)      M  automatic / manual"
+Q / E  shift down / up (manual; under neutral: reverse)      M  automatic / manual
+N  comfort / sport      T  TCS      G  ABS      Left Shift  clutch (manual)      I  starter"
 
 [node name="MissionLabel" type="Label" parent="."]
 offset_left = 24.0
