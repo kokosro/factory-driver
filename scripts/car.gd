@@ -90,9 +90,31 @@ extends CharacterBody3D
 # -----------------------------------------------------------------------------
 #  CAR: 1997 Boxster 986 (placeholder tuning)
 #  Everything that makes this car *this* car. Rounded public specs of the
-#  2.5 L 986, bent where the placeholder model needs it. The next car (911)
-#  gets its own section like this one.
+#  2.5 L 986, bent where the placeholder model needs it.
+# was "The next car (911) gets its own section like this one", every number a
+# const in this file -> the car's own numbers live in its config,
+# configs/cars/boxster_986.json (schema: configs/README.md), and a car reads
+# them as the first thing it does (_read_config). The same car.gd with another
+# config file is another car. What this file keeps is the model, and what
+# follows from a car's numbers: everything DERIVED from them (BASE_MASS, the
+# corner masses, springs and dampers, the contact points, STEERING_RATIO ...)
+# is worked out here, in code, again whenever a config has been read, so it
+# can never go stale against the numbers it comes from.
+#   The numbers that moved are static vars now, each under its old name and
+# with its certified value still written here: the fallback default. For a key
+# the schema marks optional that is what a config without it gets; for a
+# required one a config without it is refused out loud (ConfigValidation), and
+# the default is only what the class holds until a car has read its config.
+# Static, not per car: engine_torque, derived_shift_points and _engine_friction
+# are static functions, and the tests read the numbers off the class.
 # -----------------------------------------------------------------------------
+
+## The car's config, and the checks it has to pass before a number of it is
+## used. Preloaded and not reached by its autoload name (ConfigValidation): this
+## script is compiled before the autoloads are there whenever a headless test
+## names ArcadeCar, and the name does not resolve then.
+const CONFIG_PATH := "res://configs/cars/boxster_986.json"
+const CarConfigValidation := preload("res://configs/validation.gd")
 
 # --- Mass and weight distribution --------------------------------------------
 
@@ -100,40 +122,41 @@ extends CharacterBody3D
 ## full, nothing loaded [kg]. 986 kerb weight (full tank, no driver) ~1250 kg.
 ## The car everything here was tuned and certified as, and the one the
 ## suspension is set up for (see FRONT / REAR_CORNER_MASS).
-const KERB_MASS := 1300.0
+# was a const -> read from the car's config (mass.kerb_mass, required); the
+# certified value stays here as the fallback default.
+static var KERB_MASS := 1300.0
 
-## The same car with a dry tank [kg], ~1252: the part of its mass that never
-## changes. What the car weighs on the road is total_mass(): this plus the fuel
-## in the tank (fuel_mass) plus whatever it carries (payload_mass), and every
-## force, inertia and weight in the model reads that one figure.
-# was CAR_MASS 1300.0, the one mass of the car whatever was in it -> KERB_MASS
-# 1300.0 less a full tank (64 L, 47.68 kg) - the 1300 kg had the fuel in them
-# all along (a kerb weight does), so the car on a full tank weighs what it
-# always did and gets lighter as it burns. 1300 for the dry car was tried: the
-# 48 kg on top took the launch in 1st off the rear tyres' limit (grip use 0.981,
-# smoke asks for 0.999) and a full stop 2 mm into the front bump stops (7.2 cm
-# of 7).
-const BASE_MASS := KERB_MASS - FUEL_TANK_CAPACITY_L * FUEL_DENSITY
+# BASE_MASS, the same car with a dry tank, follows from this and the tank: it
+# stands under FUEL_DENSITY, the last of the numbers it is made of (a static
+# var's initializer can only read what is declared above it).
 
 ## Share of the car's weight on the rear axle at rest (0..1). The Boxster's
 ## flat-six sits behind the seats (mid engine), putting ~62 % on the rear.
 ## The front axle carries the rest.
-const REAR_WEIGHT_FRACTION := 0.62
+# was a const -> read from the car's config (mass.rear_weight_fraction,
+# required); the certified value stays here as the fallback default.
+static var REAR_WEIGHT_FRACTION := 0.62
 
 ## Height of the centre of mass above the road [m]. Higher = more weight moves
 ## between the axles under braking and acceleration.
-const CG_HEIGHT := 0.48
+# was a const -> read from the car's config (mass.cg_height, required); the
+# certified value stays here as the fallback default.
+static var CG_HEIGHT := 0.48
 
 ## Distance from the car's centre to each axle [m]; half the wheelbase. Must
 ## match the wheel positions in car.tscn. Longer = the tail swings more lazily
 ## and less weight moves between the axles. (Real 986: 2.415 m wheelbase.)
-const AXLE_DISTANCE := 1.3
+# was a const -> read from the car's config (mass.axle_distance, required);
+# the certified value stays here as the fallback default.
+static var AXLE_DISTANCE := 1.3
 
 ## How far the centre of mass sits behind the middle of the wheelbase [m]:
 ## follows from the weight distribution. The front tyres work on the longer
 ## lever arm, the heavier-loaded rears on the shorter, so with both axles
 ## sliding flat out the car neither straightens nor tightens by itself.
-const CG_OFFSET := (REAR_WEIGHT_FRACTION - 0.5) * 2.0 * AXLE_DISTANCE
+# was a const -> derived, never read: worked out again from the config's
+# numbers when a car reads them (_derive_from_config, the same sum as here).
+static var CG_OFFSET := (REAR_WEIGHT_FRACTION - 0.5) * 2.0 * AXLE_DISTANCE
 
 ## Radius of gyration about the vertical axis [m]: yaw inertia is
 ## total_mass() * radius^2 (~2000 kg m^2 on a full tank). How much the mass resists being
@@ -141,14 +164,18 @@ const CG_OFFSET := (REAR_WEIGHT_FRACTION - 0.5) * 2.0 * AXLE_DISTANCE
 ## of it. A mid-engined car keeps its mass near the middle (~1.2); a 911 with
 ## the engine slung out behind the rear axle gets more. Higher = lazier
 ## turn-in that carries on longer, lower = darty.
-const YAW_GYRATION_RADIUS := 1.25
+# was a const -> read from the car's config (mass.yaw_gyration_radius,
+# required); the certified value stays here as the fallback default.
+static var YAW_GYRATION_RADIUS := 1.25
 
 # --- Engine ------------------------------------------------------------------
 
 ## Torque curve at full throttle: Vector2(rpm, torque [Nm]) anchor points,
 ## linearly interpolated, flat below the first point. 245 Nm peak at 4500 rpm,
 ## ~150 kW peak power at 6000 rpm.
-const TORQUE_CURVE: Array[Vector2] = [
+# was a const -> read from the car's config (engine.torque_curve, required);
+# the certified value stays here as the fallback default.
+static var TORQUE_CURVE: Array[Vector2] = [
 	Vector2(1000.0, 160.0),
 	Vector2(2000.0, 200.0),
 	Vector2(3000.0, 225.0),
@@ -162,7 +189,9 @@ const TORQUE_CURVE: Array[Vector2] = [
 ## the revs come down to this, and holds them there. The engine idles from
 ## _ready on, and after every reset; a cold start is out of scope.
 # was "there is no starter and no stall" -> there are both: see STALL_RPM.
-const IDLE_RPM := 900.0
+# was a const -> read from the car's config (engine.idle_rpm, required); the
+# certified value stays here as the fallback default.
+static var IDLE_RPM := 900.0
 
 ## Under this the engine stops running [rpm]: it cannot fire slowly enough to
 ## keep itself turning, whatever brought it down here (engine_running = false:
@@ -173,7 +202,9 @@ const IDLE_RPM := 900.0
 ## the creep's sliver. What gets an engine down here is the driver's own clutch
 ## foot (see CLUTCH_PEDAL_SPEED) letting the clutch in on more car than the
 ## engine can move, or a dry tank.
-const STALL_RPM := 450.0
+# was a const -> read from the car's config (engine.stall_rpm, optional); the
+# certified value here is the fallback default a config without it gets.
+static var STALL_RPM := 450.0
 
 ## The starter motor (the starter key): torque on the crankshaft with the
 ## engine standing [Nm], easing off in a line to none at STARTER_FREE_RPM [rpm],
@@ -182,8 +213,14 @@ const STALL_RPM := 450.0
 ## ENGINE_CATCH_RPM in ~0.2 s, and with a dry tank spins it at ~620 rpm for as
 ## long as it cranks. Cranking burns no fuel: nothing burns until the
 ## engine has caught (the few drops a real start takes are not modelled).
-const CRANKING_TORQUE := 150.0
-const STARTER_FREE_RPM := 700.0
+# was a const -> read from the car's config (engine.cranking_torque,
+# optional); the certified value here is the fallback default a config without
+# it gets.
+static var CRANKING_TORQUE := 150.0
+# was a const -> read from the car's config (engine.starter_free_rpm,
+# optional); the certified value here is the fallback default a config without
+# it gets.
+static var STARTER_FREE_RPM := 700.0
 
 ## A fresh press of the starter key on an engine that is not running cranks for
 ## this long [s of physics time] whether the key is held or not, as a modern
@@ -192,24 +229,34 @@ const STARTER_FREE_RPM := 700.0
 ## was the key held and nothing else -> the cycle: a tap of one tick wound the
 ## engine to ~96 rpm, so tapping the key never restarted a stalled engine (the
 ## user's report from the driving seat).
-const STARTER_CYCLE_TIME := 0.8
+# was a const -> read from the car's config (engine.starter_cycle_time,
+# optional); the certified value here is the fallback default a config without
+# it gets.
+static var STARTER_CYCLE_TIME := 0.8
 
 ## Turning at least this fast [rpm] with fuel in the tank, an engine that is not
 ## running catches (engine_running = true) and the idle controller takes it up
 ## to IDLE_RPM. Above STALL_RPM, so a caught engine is not stalled again on the
 ## spot. Only the starter ever turns it: the car keeps its clutch open on an
 ## engine that is not running (see _clutch_target), there is no bump start.
-const ENGINE_CATCH_RPM := 500.0
+# was a const -> read from the car's config (engine.engine_catch_rpm,
+# optional); the certified value here is the fallback default a config without
+# it gets.
+static var ENGINE_CATCH_RPM := 500.0
 
 ## Rev limiter [rpm]: a fuel cut. At this speed the engine stops firing and
 ## falls back on its own friction until LIMITER_RESUME_RPM, then fires again:
 ## held against it, the revs bounce between the two (~8 times a second with
 ## no load). Free, the engine never turns faster than this; in gear the car's
 ## momentum can carry it a few rpm past before the cut bites.
-const REDLINE_RPM := 7200.0
+# was a const -> read from the car's config (engine.redline_rpm, required);
+# the certified value stays here as the fallback default.
+static var REDLINE_RPM := 7200.0
 
 ## Engine speed at which the rev limiter lets the fuel back in [rpm].
-const LIMITER_RESUME_RPM := 7000.0
+# was a const -> read from the car's config (engine.limiter_resume_rpm,
+# required); the certified value stays here as the fallback default.
+static var LIMITER_RESUME_RPM := 7000.0
 
 ## Moment of inertia of what turns with the crankshaft [kg m^2]: crank,
 ## flywheel, clutch cover. 0.25 is the order of the real 986's flat six with
@@ -217,7 +264,9 @@ const LIMITER_RESUME_RPM := 7000.0
 ## down by torque against this: d(omega) / dt = net torque / ENGINE_INERTIA.
 ## With no load, full throttle takes it from idle to the limiter in ~0.8 s.
 ## Lower = revs that snap up and down, higher = a lazy engine.
-const ENGINE_INERTIA := 0.25
+# was a const -> read from the car's config (engine.engine_inertia, required);
+# the certified value stays here as the fallback default.
+static var ENGINE_INERTIA := 0.25
 
 ## Friction and pumping losses of the engine [Nm]: ENGINE_FRICTION_TORQUE
 ## whatever the speed, plus ENGINE_FRICTION_TORQUE_PER_RPM [Nm per rpm] for
@@ -230,16 +279,25 @@ const ENGINE_INERTIA := 0.25
 ## rear tyres at their ABS limit under braking from 60 km/h. TORQUE_CURVE is torque at the flywheel, these
 ## losses already taken off: what the burning fuel makes at full throttle is
 ## the curve plus the losses, and the throttle scales that.
-const ENGINE_FRICTION_TORQUE := 12.0
-const ENGINE_FRICTION_TORQUE_PER_RPM := 0.007
+# was a const -> read from the car's config (engine.friction_torque,
+# required); the certified value stays here as the fallback default.
+static var ENGINE_FRICTION_TORQUE := 12.0
+# was a const -> read from the car's config (engine.friction_torque_per_rpm,
+# required); the certified value stays here as the fallback default.
+static var ENGINE_FRICTION_TORQUE_PER_RPM := 0.007
 
 ## Idle controller: torque it adds per rad/s the engine is below IDLE_RPM, on
 ## top of what carries the friction there [Nm per rad/s]; 2.5 against
 ## ENGINE_INERTIA closes a gap at 10 per second, no overshoot ...
-const IDLE_CONTROL_GAIN := 2.5
+# was a const -> read from the car's config (idle.control_gain, optional); the
+# certified value here is the fallback default a config without it gets.
+static var IDLE_CONTROL_GAIN := 2.5
 
 ## ... and the most throttle it may open by itself (0..1): ~35 Nm net at idle.
-const IDLE_CONTROL_MAX_THROTTLE := 0.3
+# was a const -> read from the car's config (idle.control_max_throttle,
+# optional); the certified value here is the fallback default a config without
+# it gets.
+static var IDLE_CONTROL_MAX_THROTTLE := 0.3
 
 # was ENGINE_BRAKE_TORQUE_PER_RPM 0.01 (an explicit engine-brake force at the
 # wheels) -> removed with the kinematic engine speed: engine braking is
@@ -264,51 +322,91 @@ const IDLE_CONTROL_MAX_THROTTLE := 0.3
 # starter, see CRANKING_TORQUE.
 
 ## What the tank holds [L]: the 1997 Boxster 986's tank. A reset fills it.
-const FUEL_TANK_CAPACITY_L := 64.0
+# was a const -> read from the car's config (fuel.tank_capacity_l, required);
+# the certified value stays here as the fallback default.
+static var FUEL_TANK_CAPACITY_L := 64.0
 
 ## Share of the fuel's heat that arrives on the crankshaft as combustion torque
 ## (no unit): a petrol engine's indicated efficiency, ~0.3 across the map.
-const FUEL_BURN_EFFICIENCY := 0.30
+# was a const -> read from the car's config (fuel.burn_efficiency, required);
+# the certified value stays here as the fallback default.
+static var FUEL_BURN_EFFICIENCY := 0.30
 
 ## Lower heating value of petrol [J/kg].
-const FUEL_LHV := 44.0e6
+# was a const -> read from the car's config (fuel.lhv, required); the
+# certified value stays here as the fallback default.
+static var FUEL_LHV := 44.0e6
 
 ## Density of petrol [kg/L]: 64 L weigh ~48 kg.
-const FUEL_DENSITY := 0.745
+# was a const -> read from the car's config (fuel.density, required); the
+# certified value stays here as the fallback default.
+static var FUEL_DENSITY := 0.745
+
+## The same car with a dry tank [kg], ~1252: the part of its mass that never
+## changes. What the car weighs on the road is total_mass(): this plus the fuel
+## in the tank (fuel_mass) plus whatever it carries (payload_mass), and every
+## force, inertia and weight in the model reads that one figure.
+# was CAR_MASS 1300.0, the one mass of the car whatever was in it -> KERB_MASS
+# 1300.0 less a full tank (64 L, 47.68 kg) - the 1300 kg had the fuel in them
+# all along (a kerb weight does), so the car on a full tank weighs what it
+# always did and gets lighter as it burns. 1300 for the dry car was tried: the
+# 48 kg on top took the launch in 1st off the rear tyres' limit (grip use 0.981,
+# smoke asks for 0.999) and a full stop 2 mm into the front bump stops (7.2 cm
+# of 7).
+# was a const in the Mass section, above the tank it reads -> down here, a
+# static var's initializer only seeing what is declared above it; and derived,
+# never read: worked out again from the config's numbers when a car reads them
+# (_derive_from_config, the same sum as here).
+static var BASE_MASS := KERB_MASS - FUEL_TANK_CAPACITY_L * FUEL_DENSITY
 
 ## Combustion events per turn of the crankshaft: a four-stroke fires each
 ## cylinder every other turn, the flat six three times a turn (see
 ## exhaust_events).
-const FIRINGS_PER_REVOLUTION := 3.0
+# was a const -> read from the car's config (engine.firings_per_revolution,
+# optional); the certified value here is the fallback default a config without
+# it gets.
+static var FIRINGS_PER_REVOLUTION := 3.0
 
 ## Share of exhaust_flow that the throttle alone makes, at no revs at all
 ## (0..1); the rest comes with the engine speed, all of it at REDLINE_RPM. An
 ## open throttle at low revs already puffs, the same throttle at the limiter
 ## blows.
-const EXHAUST_FLOW_AT_REST := 0.3
+# was a const -> read from the car's config (exhaust.flow_at_rest, optional);
+# the certified value here is the fallback default a config without it gets.
+static var EXHAUST_FLOW_AT_REST := 0.3
 
 ## How quickly exhaust_flow follows the engine [1/s]: the gas has the manifold
 ## and the pipes to get through, ~0.1 s. Lower = lazier smoke.
-const EXHAUST_FLOW_RATE := 10.0
+# was a const -> read from the car's config (exhaust.flow_rate, optional); the
+# certified value here is the fallback default a config without it gets.
+static var EXHAUST_FLOW_RATE := 10.0
 
 # --- Gearbox -----------------------------------------------------------------
 
 ## Gear ratios; index 0 is neutral, 1..5 the forward gears (986 5-speed).
-const GEAR_RATIOS: Array[float] = [0.0, 3.82, 2.20, 1.52, 1.22, 0.97]
+# was a const -> read from the car's config (gearbox.ratios, required); the
+# certified value stays here as the fallback default.
+static var GEAR_RATIOS: Array[float] = [0.0, 3.82, 2.20, 1.52, 1.22, 0.97]
 
 ## Final drive (differential) ratio.
-const FINAL_DRIVE := 3.89
+# was a const -> read from the car's config (gearbox.final_drive, required);
+# the certified value stays here as the fallback default.
+static var FINAL_DRIVE := 3.89
 
 ## Reverse gear ratio: a gear like the others, engine, clutch and driven wheels
 ## work through it the same way (the wheels turning backwards).
 # was tach-only, the drive force in reverse a flat REVERSE_ACCEL x CAR_MASS ->
 # the real thing. What is left of the flat force is the driver's foot easing
 # off into MAX_REVERSE_SPEED (see _pedals).
-const REVERSE_RATIO := 3.55
+# was a const -> read from the car's config (gearbox.reverse_ratio, required);
+# the certified value stays here as the fallback default.
+static var REVERSE_RATIO := 3.55
 
 ## Share of engine torque that reaches the wheels (0..1); the rest is lost in
 ## the gearbox and differential.
-const DRIVETRAIN_EFFICIENCY := 0.88
+# was a const -> read from the car's config (gearbox.drivetrain_efficiency,
+# required); the certified value stays here as the fallback default.
+static var DRIVETRAIN_EFFICIENCY := 0.88
 
 ## Rolling radius of the tyres [m]; must match the wheel mesh. Turns wheel
 ## torque into force and wheel speed into engine RPM.
@@ -331,7 +429,9 @@ const WHEEL_RADIUS := 0.34
 ## ~2 x 245 Nm. It is also the most the clutch can push into the driveline
 ## while it drags a fast-turning engine down after a shift or a launch: more
 ## than the engine itself ever makes. Higher = harsher catches.
-const CLUTCH_TORQUE_MAX := 500.0
+# was a const -> read from the car's config (gearbox.clutch_torque_max,
+# required); the certified value stays here as the fallback default.
+static var CLUTCH_TORQUE_MAX := 500.0
 
 ## Pulling away, the car feathers the clutch so the engine is not dragged
 ## under a floor [rpm]: IDLE_RPM with the throttle closed, this at full
@@ -354,21 +454,29 @@ const CLUTCH_TORQUE_MAX := 500.0
 # say; 9.6 m/s after 2 s against 9.5, the clutch home after 1.83 s against 1.63.
 # The automatic's comfort and eco programs shift up under this, and their
 # launch is held no higher than they shift at (see _advance_drivetrain).
-const LAUNCH_RPM := 4000.0
+# was a const -> read from the car's config (launch.rpm, required); the
+# certified value stays here as the fallback default.
+static var LAUNCH_RPM := 4000.0
 
 ## While the revs are still under that floor the clutch takes this share of
 ## the engine's torque (0..1) and the rest winds the engine up: the car moves
 ## off at once, gently, and harder as the revs arrive ...
-const LAUNCH_CLUTCH_SHARE := 0.5
+# was a const -> read from the car's config (launch.clutch_share, optional);
+# the certified value here is the fallback default a config without it gets.
+static var LAUNCH_CLUTCH_SHARE := 0.5
 
 ## ... over the last this many rad/s (~500 rpm) under the floor the share eases
 ## up to all of it, so the clutch bites over a few ticks and not in one.
-const LAUNCH_BITE_BAND := 50.0
+# was a const -> read from the car's config (launch.bite_band, optional); the
+# certified value here is the fallback default a config without it gets.
+static var LAUNCH_BITE_BAND := 50.0
 
 ## Time the clutch takes to come in from fully open pulling away [s]: the
 ## torque it can pass ramps up over this, the engine flares against it and the
 ## car moves off on the slip torque.
-const CLUTCH_ENGAGE_TIME := 0.5
+# was a const -> read from the car's config (gearbox.clutch_engage_time,
+# required); the certified value stays here as the fallback default.
+static var CLUTCH_ENGAGE_TIME := 0.5
 
 ## The clutch pedal (the clutch key, the driver's LEFT foot; the two pedal keys
 ## are the right one's): how fast the foot moves it, down and up [1/s], travel
@@ -391,7 +499,9 @@ const CLUTCH_PEDAL_SPEED := 5.0
 ## The same on the move, after a gear change [s]: the revs the engine has too
 ## many (upshift) or too few (downshift) are dragged to the new gear's speed
 ## within about this. Shorter = quicker, harsher shifts.
-const CLUTCH_SHIFT_ENGAGE_TIME := 0.1
+# was a const -> read from the car's config (gearbox.clutch_shift_engage_time,
+# required); the certified value stays here as the fallback default.
+static var CLUTCH_SHIFT_ENGAGE_TIME := 0.1
 
 ## Downshifts: while the clutch is open the driver blips the throttle towards
 ## the speed the lower gear will turn the engine at, wide open until this close
@@ -451,24 +561,35 @@ const CLUTCH_DRAG_ENGAGEMENT := 0.02
 ## ~390 N at the wheels in 1st, twice the rolling resistance. It eases out
 ## linearly with forward speed, to nothing at CREEP_FREE_SPEED, as a
 ## converter's push does when its turbine catches its pump up.
-const CREEP_CLUTCH_ENGAGEMENT := 0.02
+# was a const -> read from the car's config (creep.clutch_engagement,
+# optional); the certified value here is the fallback default a config without
+# it gets.
+static var CREEP_CLUTCH_ENGAGEMENT := 0.02
 
 ## Forward speed at which the creep's push has eased out altogether [m/s]. The
 ## crawl settles where what is left of the push carries the rolling resistance:
 ## ~0.43 m/s (1.5 km/h) on a full tank, slower loaded.
-const CREEP_FREE_SPEED := 0.9
+# was a const -> read from the car's config (creep.free_speed, optional); the
+# certified value here is the fallback default a config without it gets.
+static var CREEP_FREE_SPEED := 0.9
 
 ## The creep only ever starts from a true standstill: slower than this [m/s],
 ## held there by the brake ...
-const CREEP_ENGAGE_SPEED := 0.05
+# was a const -> read from the car's config (creep.engage_speed, optional);
+# the certified value here is the fallback default a config without it gets.
+static var CREEP_ENGAGE_SPEED := 0.05
 
 ## ... and then, the brake let go, still standing for this long [s]: the car
 ## picks itself up as the clutch finds its bite, not the tick the foot is off.
-const CREEP_DWELL := 0.4
+# was a const -> read from the car's config (creep.dwell, optional); the
+# certified value here is the fallback default a config without it gets.
+static var CREEP_DWELL := 0.4
 
 ## Rolling faster than this either way [m/s] the creep lets go, and waits for
 ## the next standstill. A fence: the crawl settles well under it.
-const CREEP_MAX_SPEED := 0.8
+# was a const -> read from the car's config (creep.max_speed, optional); the
+# certified value here is the fallback default a config without it gets.
+static var CREEP_MAX_SPEED := 0.8
 
 # --- Drivetrain layout ---------------------------------------------------------
 
@@ -501,7 +622,9 @@ const TORQUE_DISTRIBUTION := 0.4
 ## under theirs: on the brakes the nose pushes wide and the tail stays planted.
 ## Lower = the rears give up first and braking into a corner swings the tail;
 ## higher = longer stops, the rears hardly working.
-const BRAKE_BIAS_FRONT := 0.6
+# was a const -> read from the car's config (brakes.bias_front, required); the
+# certified value stays here as the fallback default.
+static var BRAKE_BIAS_FRONT := 0.6
 
 # --- Tyres and aero ----------------------------------------------------------
 
@@ -511,7 +634,9 @@ const BRAKE_BIAS_FRONT := 0.6
 ## slipping clutch (the launch) it is; with the clutch locked a quarter of it
 ## winds up the engine's own inertia and the rears run just under their peak.
 ## 2nd and up stay well under it.
-const TYRE_MU := 0.95
+# was a const -> read from the car's config (tyres.mu, required); the
+# certified value stays here as the fallback default.
+static var TYRE_MU := 0.95
 
 ## Grip of each axle's tyres relative to TYRE_MU (no unit). The Boxster's 255
 ## rears grip their share of the weight a little better than its 205 fronts
@@ -520,15 +645,21 @@ const TYRE_MU := 0.95
 ## ends sliding the front gives up first, the nose pushes wide and the tail
 ## pulls the car straight again, until power or the handbrake says otherwise.
 ## Equal = neutral: a slide, once started, just carries on.
-const FRONT_TYRE_GRIP := 0.94
-const REAR_TYRE_GRIP := 1.04
+# was a const -> read from the car's config (tyres.front_grip, required); the
+# certified value stays here as the fallback default.
+static var FRONT_TYRE_GRIP := 0.94
+# was a const -> read from the car's config (tyres.rear_grip, required); the
+# certified value stays here as the fallback default.
+static var REAR_TYRE_GRIP := 1.04
 
 ## Slip ratio at which a tyre makes its peak force ALONG the wheel (no unit):
 ## (wheel surface speed - road speed) / road speed, 0.1 = the wheel turning
 ## 10 % faster than the road (drive) or slower (braking). The same curve shape
 ## as sideways (_tyre_curve): up to the peak the tyre hooks up, past it the
 ## wheel spins up or locks and the force eases to TYRE_SLIDE_GRIP of the peak.
-const PEAK_SLIP_RATIO := 0.1
+# was a const -> read from the car's config (tyres.peak_slip_ratio, required);
+# the certified value stays here as the fallback default.
+static var PEAK_SLIP_RATIO := 0.1
 
 ## Slip ratio the ABS holds a braked wheel at when the pedal asks for more than
 ## the tyre has (no unit). A little past the peak, as real systems run: in a
@@ -540,7 +671,9 @@ const PEAK_SLIP_RATIO := 0.1
 ## next to no sideways hold (see _tyre_force: a locked wheel drags against the
 ## way it travels, and MIN_COMBINED_GRIP has faded out by then) - a longer stop,
 ## and no steering until the pedal comes up.
-const ABS_SLIP_RATIO := 0.15
+# was a const -> read from the car's config (tyres.abs_slip_ratio, required);
+# the certified value stays here as the fallback default.
+static var ABS_SLIP_RATIO := 0.15
 
 ## Slip ratio the driver's feet hold a spinning driven wheel at while the
 ## clutch slips and passes more than the tyre can take (no unit): pulling away
@@ -565,7 +698,9 @@ const ABS_SLIP_RATIO := 0.15
 # foot's limit while the clutch slips. With the clutch locked nothing holds the
 # wheels back but the engine's own inertia and the limiter: what the throttle
 # spins up, the throttle has to let go again.
-const DRIVE_SLIP_RATIO := 0.25
+# was a const -> read from the car's config (tyres.drive_slip_ratio,
+# required); the certified value stays here as the fallback default.
+static var DRIVE_SLIP_RATIO := 0.25
 
 ## A slip angle is sideways speed over rolling speed; this is the least
 ## rolling speed it is worked out against [m/s]. Keeps the angle (and its
@@ -592,7 +727,9 @@ const SLIP_RATIO_MIN_SPEED := 1.0
 # was SLIP_RATIO_RESPONSE 12.0 [1/s], a relaxation rate that "stands in for the
 # wheel's inertia" -> removed: the wheel speed is a state and this is its
 # inertia.
-const AXLE_INERTIA := 2.4
+# was a const -> read from the car's config (tyres.axle_inertia, required);
+# the certified value stays here as the fallback default.
+static var AXLE_INERTIA := 2.4
 
 ## Slip angle at which the front tyres make their peak sideways force [rad]
 ## (0.11 = 6.3 degrees). Up to the peak the force rises along a smooth curve
@@ -604,7 +741,9 @@ const AXLE_INERTIA := 2.4
 ## 170 km/h, 0.125 left the car still drifting straight 1.5 s after a jab.
 ## Replaces FRONT_LATERAL_GRIP 6.0 / REAR_LATERAL_GRIP 5.6, hand-set rates at
 ## which each axle's slip decayed [1/s], with no force and no mass in them.
-const FRONT_PEAK_SLIP_ANGLE := 0.11
+# was a const -> read from the car's config (tyres.front_peak_slip_angle,
+# required); the certified value stays here as the fallback default.
+static var FRONT_PEAK_SLIP_ANGLE := 0.11
 
 ## The same for the rear tyres [rad] (0.10 = 5.7 degrees): the Boxster's wide
 ## 255 rears are stiffer than its 205 fronts. The balance of the car is the
@@ -615,7 +754,9 @@ const FRONT_PEAK_SLIP_ANGLE := 0.11
 ## = oversteer, with a speed above which the car will not run straight. More
 ## understeer than this (0.03 apart) and the nose visibly swings back past
 ## straight when the steering is let go at speed.
-const REAR_PEAK_SLIP_ANGLE := 0.10
+# was a const -> read from the car's config (tyres.rear_peak_slip_angle,
+# required); the certified value stays here as the fallback default.
+static var REAR_PEAK_SLIP_ANGLE := 0.10
 
 ## Sideways force a fully sliding tyre still makes, as a share of its peak
 ## (0..1): rubber sliding over the road grips less than rubber keying into it.
@@ -624,7 +765,9 @@ const REAR_PEAK_SLIP_ANGLE := 0.10
 ## lower = the car lets go more suddenly and a slide scrubs less speed.
 ## The front tyres' figure, and a locked rear's; rear tyres that still roll
 ## have their own (REAR_TYRE_SLIDE_GRIP).
-const TYRE_SLIDE_GRIP := 0.85
+# was a const -> read from the car's config (tyres.slide_grip, required); the
+# certified value stays here as the fallback default.
+static var TYRE_SLIDE_GRIP := 0.85
 
 ## How far past the peak the tyre is ~two thirds of the way down to
 ## TYRE_SLIDE_GRIP, in peak slip angles. Higher = a wider, more forgiving top.
@@ -636,7 +779,9 @@ const TYRE_SLIDE_GRIP := 0.85
 # (0.89), 0.82 g scrubbing at full lock (0.79); the peak itself is untouched
 # (0.96 g at 6.9 - 8.3 degrees). Handbrake slides go in exactly as before (yaw
 # rate 0.64 / 1.14 / 1.62 rad/s at the release of a 12 / 20 / 30 tick pull).
-const TYRE_SLIDE_ONSET := 3.0
+# was a const -> read from the car's config (tyres.slide_onset, required); the
+# certified value stays here as the fallback default.
+static var TYRE_SLIDE_ONSET := 3.0
 
 ## The same for rear tyres that still roll (0..1): the wide rears hold on in a
 ## slide where the fronts let go. This is what ends a slide nobody is driving:
@@ -685,29 +830,39 @@ const TYRE_SLIDE_ONSET := 3.0
 # SPIN_180 184.3 -> 184.6 degrees, SPIN_360 362.4 -> 361.7, stop box margin
 # 0.79 -> 0.61 m (the ABS runs its tyres 1.5 peaks out, where the wider top
 # grips more: shorter stops), REVERSE_180 -186.8 -> -185.3.
-const REAR_TYRE_SLIDE_GRIP := 0.97
+# was a const -> read from the car's config (tyres.rear_slide_grip, required);
+# the certified value stays here as the fallback default.
+static var REAR_TYRE_SLIDE_GRIP := 0.97
 
 ## Drag coefficient Cd (no unit). Drag force is
 ## 0.5 * AIR_DENSITY * DRAG_COEFF * FRONTAL_AREA * speed^2 (~0.40 kg/m in
 ## all). 986: 0.31 roof up; 0.34 allows for the roof down. Balances full power
 ## in 5th at ~65 m/s (~234 km/h), just under the rev limiter.
 ## Replaces the flat AERO_DRAG 0.40 [kg/m], the same number in one lump.
-const DRAG_COEFF := 0.34
+# was a const -> read from the car's config (aero.drag_coeff, required); the
+# certified value stays here as the fallback default.
+static var DRAG_COEFF := 0.34
 
 ## Frontal area [m^2] (986: 1.93).
-const FRONTAL_AREA := 1.93
+# was a const -> read from the car's config (aero.frontal_area, required); the
+# certified value stays here as the fallback default.
+static var FRONTAL_AREA := 1.93
 
 ## Downforce [N per (m/s)^2]: force pressing the car onto the road is this
 ## times speed squared, ~90 N at 60 km/h, ~490 N at 140, ~1250 N at 215 (a
 ## tenth of the car's weight). More load = more grip, so fast corners hold
 ## more than TYRE_MU g while slow ones are untouched. The road 986 makes next
 ## to none; this is the arcade aero kit. 0 = none.
-const DOWNFORCE_COEFF := 0.35
+# was a const -> read from the car's config (aero.downforce_coeff, required);
+# the certified value stays here as the fallback default.
+static var DOWNFORCE_COEFF := 0.35
 
 ## Share of the downforce that lands on the FRONT axle (0..1). Below the static
 ## front weight share (0.38) the rear gains more than the front: the faster the
 ## car goes, the more planted the tail and the less eager the nose.
-const AERO_BALANCE_FRONT := 0.35
+# was a const -> read from the car's config (aero.balance_front, required);
+# the certified value stays here as the fallback default.
+static var AERO_BALANCE_FRONT := 0.35
 
 ## Nominal top speed [m/s], ~237 km/h. Not a hard cap: the real top speed
 ## comes out of drag vs engine power (a touch below this). Used to scale
@@ -724,7 +879,9 @@ const MAX_SPEED := 66.0
 ## brakes themselves are stronger than the tyres, so the tyres set the limit:
 ## 1.0 = a threshold-braking stop right at the grip limit, below 1 = a driver
 ## who leaves a margin, above 1 = stickier than the tyres really are (arcade).
-const BRAKE_DECEL_G := 1.0
+# was a const -> read from the car's config (brakes.decel_g, required); the
+# certified value stays here as the fallback default.
+static var BRAKE_DECEL_G := 1.0
 
 ## Deceleration a full brake application asks for [m/s^2]: what the tyres
 ## could hold with every one of them at its limit, ~9.3 (0.95 g). The force
@@ -735,14 +892,20 @@ const BRAKE_DECEL_G := 1.0
 ## with the fronts at their limit and the rears under theirs, a real stop
 ## comes out at ~0.9 of this, ~8.4 m/s^2 plus drag. (With the ABS switched off
 ## the fronts do lock under a full pedal, see ABS_SLIP_RATIO.)
-const BRAKE_DECEL := BRAKE_DECEL_G * TYRE_MU * 9.8
+# was a const -> derived, never read: worked out again from the config's
+# numbers when a car reads them (_derive_from_config, the same sum as here).
+static var BRAKE_DECEL := BRAKE_DECEL_G * TYRE_MU * 9.8
 
 ## Density of air [kg/m^3], for the drag force.
-const AIR_DENSITY := 1.225
+# was a const -> read from the car's config (aero.air_density, optional); the
+# certified value here is the fallback default a config without it gets.
+static var AIR_DENSITY := 1.225
 
 ## Rolling resistance [m/s^2], always on while the car rolls. With engine
 ## braking and aero drag it makes up the coast-down.
-const COAST_DECEL := 0.15
+# was a const -> read from the car's config (brakes.coast_decel, optional);
+# the certified value here is the fallback default a config without it gets.
+static var COAST_DECEL := 0.15
 
 ## Acceleration the driver counts on in reverse gear [m/s^2], about what the
 ## engine gives through REVERSE_RATIO: with REVERSE_LIMITER_RATE it says how
@@ -807,6 +970,14 @@ const SHIFT_TIME := 0.2
 ## below is picked by hand, each is what derived_shift_points makes of
 ## TORQUE_CURVE and the engine's friction, rounded to the 100 rpm, and the smoke
 ## test holds the two together. Another engine: run the helper on its curve.
+# The shift points, the shares they are derived by and the box's timing stay
+# consts in this file while the engine they are read off lives in the car's
+# config: they are the certified program, rounded by hand to the 100 rpm, and
+# the smoke test holds every one of them within 50 rpm of what
+# derived_shift_points makes of the TORQUE_CURVE the car has loaded. A config
+# with another curve fails that check until the constants here follow it: code
+# and config are held together by the derivation, not by a second copy of the
+# figures in the file.
 # was enum GearboxMode { COMFORT, SPORT } -> ECO appended, never reordered: the
 # user's report (2026-09-21), "we should have an eco mode as well, so the
 # gearbox changes around perfect consumption not perfect torque".
@@ -932,7 +1103,9 @@ const AUTO_SHIFT_HOLD := 0.5
 ## (load / static load) ^ exponent. Below 1 = tyres gain grip slower than
 ## load, as real tyres do, so moving weight onto one axle costs the other one
 ## more than it gains: the balance shift is felt. 0 = no effect.
-const LOAD_GRIP_EXPONENT := 0.7
+# was a const -> read from the car's config (tyres.load_grip_exponent,
+# required); the certified value stays here as the fallback default.
+static var LOAD_GRIP_EXPONENT := 0.7
 
 # was MAX_LOAD_TRANSFER 0.18 (largest share of the weight that could move
 # between the axles) and LOAD_TRANSFER_RESPONSE 8.0 [1/s] (the pace of a formula
@@ -960,7 +1133,9 @@ const LOAD_GRIP_EXPONENT := 0.7
 ## the ABS (and a driver's right foot) giving up a little of the stop to keep
 ## the car steerable, which on/off keys cannot do themselves. Lower = braking
 ## and turning exclude each other more, snappier power oversteer.
-const MIN_COMBINED_GRIP := 0.4
+# was a const -> read from the car's config (tyres.min_combined_grip,
+# required); the certified value stays here as the fallback default.
+static var MIN_COMBINED_GRIP := 0.4
 
 # --- Suspension ----------------------------------------------------------------
 
@@ -997,14 +1172,20 @@ const MIN_COMBINED_GRIP := 0.4
 # all round dived 0.028 rad and ran the front springs 7.7 cm in, onto their
 # bump stops (travel 7); 1.5 / 1.7 dives 0.022 rad and peaks at 6.8 cm, 5 cm
 # once the first swing is over. And no flat ride with the two ends the same.
-const FRONT_RIDE_FREQUENCY := 1.5
-const REAR_RIDE_FREQUENCY := 1.7
+# was a const -> read from the car's config (suspension.front_ride_frequency,
+# required); the certified value stays here as the fallback default.
+static var FRONT_RIDE_FREQUENCY := 1.5
+# was a const -> read from the car's config (suspension.rear_ride_frequency,
+# required); the certified value stays here as the fallback default.
+static var REAR_RIDE_FREQUENCY := 1.7
 
 ## Damping ratio of each corner on its spring (no unit): 0.3 - 0.5 on a road
 ## car. 1 would settle without any overshoot, lower floats on after a crest.
 ## Unchanged from 2G; it now also damps pitch (ratio ~0.4, the car's pitch
 ## inertia being what its corner masses make it) and roll (~0.43 with the bars).
-const RIDE_DAMPING_RATIO := 0.4
+# was a const -> read from the car's config (suspension.ride_damping_ratio,
+# required); the certified value stays here as the fallback default.
+static var RIDE_DAMPING_RATIO := 0.4
 
 ## Sprung mass riding on one front / rear wheel at rest [kg]: ~247 and ~403.
 ## The car's as it stands ready to drive (KERB_MASS), not total_mass(): springs
@@ -1014,18 +1195,30 @@ const RIDE_DAMPING_RATIO := 0.4
 ## 1.5 / 1.7). What the load does not do here is sink the car: each spring's
 ## seat carries its static share of what the car weighs NOW (see
 ## _corner_forces), so it stands at its ride height whatever is in it.
-const FRONT_CORNER_MASS := KERB_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5
-const REAR_CORNER_MASS := KERB_MASS * REAR_WEIGHT_FRACTION * 0.5
+# was a const -> derived, never read: worked out again from the config's
+# numbers when a car reads them (_derive_from_config, the same sum as here).
+static var FRONT_CORNER_MASS := KERB_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5
+# was a const -> derived, never read: worked out again from the config's
+# numbers when a car reads them (_derive_from_config, the same sum as here).
+static var REAR_CORNER_MASS := KERB_MASS * REAR_WEIGHT_FRACTION * 0.5
 
 ## Spring rate at the wheel [N/m]: corner mass x (TAU x ride frequency)^2.
 ## Front ~21.9 kN/m, rear ~46.0 kN/m (static compression 11.0 and 8.6 cm).
-const FRONT_SPRING_RATE := FRONT_CORNER_MASS * (TAU * FRONT_RIDE_FREQUENCY) * (TAU * FRONT_RIDE_FREQUENCY)
-const REAR_SPRING_RATE := REAR_CORNER_MASS * (TAU * REAR_RIDE_FREQUENCY) * (TAU * REAR_RIDE_FREQUENCY)
+# was a const -> derived, never read: worked out again from the config's
+# numbers when a car reads them (_derive_from_config, the same sum as here).
+static var FRONT_SPRING_RATE := FRONT_CORNER_MASS * (TAU * FRONT_RIDE_FREQUENCY) * (TAU * FRONT_RIDE_FREQUENCY)
+# was a const -> derived, never read: worked out again from the config's
+# numbers when a car reads them (_derive_from_config, the same sum as here).
+static var REAR_SPRING_RATE := REAR_CORNER_MASS * (TAU * REAR_RIDE_FREQUENCY) * (TAU * REAR_RIDE_FREQUENCY)
 
 ## Damper rate at the wheel [N s/m]: 2 x ratio x corner mass x TAU x ride
 ## frequency. Front ~1860, rear ~3440. One rate for bump and rebound.
-const FRONT_DAMPER_RATE := 2.0 * RIDE_DAMPING_RATIO * FRONT_CORNER_MASS * TAU * FRONT_RIDE_FREQUENCY
-const REAR_DAMPER_RATE := 2.0 * RIDE_DAMPING_RATIO * REAR_CORNER_MASS * TAU * REAR_RIDE_FREQUENCY
+# was a const -> derived, never read: worked out again from the config's
+# numbers when a car reads them (_derive_from_config, the same sum as here).
+static var FRONT_DAMPER_RATE := 2.0 * RIDE_DAMPING_RATIO * FRONT_CORNER_MASS * TAU * FRONT_RIDE_FREQUENCY
+# was a const -> derived, never read: worked out again from the config's
+# numbers when a car reads them (_derive_from_config, the same sum as here).
+static var REAR_DAMPER_RATE := 2.0 * RIDE_DAMPING_RATIO * REAR_CORNER_MASS * TAU * REAR_RIDE_FREQUENCY
 
 ## Anti-roll bars [N per m of travel difference between an axle's two wheels]:
 ## the bar pushes the more compressed wheel down and lifts the other with this
@@ -1035,12 +1228,18 @@ const REAR_DAMPER_RATE := 2.0 * RIDE_DAMPING_RATIO * REAR_CORNER_MASS * TAU * RE
 ## would be 3.6. Front-biased, as on the real car. The tyres work with AXLE
 ## loads (the bicycle model), so how the bars split the roll between the axles
 ## shows in wheel_loads and in the body, not in the balance of the car.
-const FRONT_ANTI_ROLL_RATE := 8000.0
-const REAR_ANTI_ROLL_RATE := 5000.0
+# was a const -> read from the car's config (suspension.front_anti_roll_rate,
+# required); the certified value stays here as the fallback default.
+static var FRONT_ANTI_ROLL_RATE := 8000.0
+# was a const -> read from the car's config (suspension.rear_anti_roll_rate,
+# required); the certified value stays here as the fallback default.
+static var REAR_ANTI_ROLL_RATE := 5000.0
 
 ## Suspension travel either way from the static position [m]: 7 cm of bump and
 ## 7 cm of droop before the stops.
-const SUSPENSION_TRAVEL := 0.07
+# was a const -> read from the car's config (suspension.travel, required); the
+# certified value stays here as the fallback default.
+static var SUSPENSION_TRAVEL := 0.07
 
 ## Bump stops. Past SUSPENSION_TRAVEL a rubber stop joins the spring, and it is
 ## progressive: its force is BUMP_STOP_RATE x the corner's spring rate x the
@@ -1054,8 +1253,14 @@ const SUSPENSION_TRAVEL := 0.07
 ## stiffness is 19 spring rates, w x delta = 0.78 at 60 ticks a second, where
 ## semi-implicit Euler holds to 2; on the springs alone it is 0.16 / 0.18, in
 ## roll with the bars 0.25.
-const BUMP_STOP_RATE := 3.0
-const BUMP_STOP_PROGRESSION := 0.02
+# was a const -> read from the car's config (suspension.bump_stop_rate,
+# optional); the certified value here is the fallback default a config without
+# it gets.
+static var BUMP_STOP_RATE := 3.0
+# was a const -> read from the car's config (suspension.bump_stop_progression,
+# optional); the certified value here is the fallback default a config without
+# it gets.
+static var BUMP_STOP_PROGRESSION := 0.02
 
 ## Moment of inertia of the body in pitch [kg m^2]. A car's two ends bounce
 ## independently of each other when its pitch gyration radius squared equals
@@ -1073,7 +1278,9 @@ const ROLL_INERTIA := 600.0
 ## [m], the 986's ~12 cm. The springs hold the body up; the floor only ever
 ## meets it 5 cm into the bump stops of all four wheels at once. Must match the
 ## CollisionShape3D in car.tscn.
-const GROUND_CLEARANCE := 0.12
+# was a const -> read from the car's config (suspension.ground_clearance,
+# required); the certified value stays here as the fallback default.
+static var GROUND_CLEARANCE := 0.12
 
 ## How quickly the tyre lets the road through to the suspension [1/s], ~6 Hz:
 ## carcass and contact patch swallow what is shorter than themselves, and at
@@ -1090,7 +1297,9 @@ const HALF_TRACK := 0.86
 ## Where each tyre meets the road, in the car's frame [m]: front left, front
 ## right, rear left, rear right (the order of wheel_loads). Must match the
 ## wheel positions in car.tscn.
-const WHEEL_CONTACT_POINTS: Array[Vector3] = [
+# was a const -> derived, never read: worked out again from the config's
+# numbers when a car reads them (_derive_from_config, the same sum as here).
+static var WHEEL_CONTACT_POINTS: Array[Vector3] = [
 	Vector3(-HALF_TRACK, 0.0, -AXLE_DISTANCE),
 	Vector3(HALF_TRACK, 0.0, -AXLE_DISTANCE),
 	Vector3(-HALF_TRACK, 0.0, AXLE_DISTANCE),
@@ -1103,7 +1312,9 @@ const WHEEL_CONTACT_POINTS: Array[Vector3] = [
 ## (roll). In full precision, not read back off the Vector3s above (32 bit):
 ## the static loads times these arms cancel exactly, as they have to for a car
 ## at rest to stay at rest.
-const WHEEL_ARMS_AHEAD: Array[float] = [
+# was a const -> derived, never read: worked out again from the config's
+# numbers when a car reads them (_derive_from_config, the same sum as here).
+static var WHEEL_ARMS_AHEAD: Array[float] = [
 	AXLE_DISTANCE + CG_OFFSET, AXLE_DISTANCE + CG_OFFSET, CG_OFFSET - AXLE_DISTANCE, CG_OFFSET - AXLE_DISTANCE,
 ]
 const WHEEL_ARMS_RIGHT: Array[float] = [-HALF_TRACK, HALF_TRACK, -HALF_TRACK, HALF_TRACK]
@@ -1126,11 +1337,15 @@ const WHEEL_ARMS_RIGHT: Array[float] = [-HALF_TRACK, HALF_TRACK, -HALF_TRACK, HA
 ## the car travelled, so the wheels moved less the faster the car went, and by
 ## themselves as that travel angle moved - the driver asked for the wheels
 ## back). There is no such easing any more.
-const MAX_STEER_LOCK := 0.48
+# was a const -> read from the car's config (steering.max_steer_lock,
+# required); the certified value stays here as the fallback default.
+static var MAX_STEER_LOCK := 0.48
 
 ## The driver's steering wheel turns this far each way from centre [degrees]:
 ## 900 degrees lock to lock, two and a half turns, a road car's rack.
-const STEERING_WHEEL_LOCK_DEG := 450.0
+# was a const -> read from the car's config (steering.wheel_lock_deg,
+# required); the certified value stays here as the fallback default.
+static var STEERING_WHEEL_LOCK_DEG := 450.0
 
 ## How fast the driver's hands turn the steering wheel [degrees per second],
 ## towards where the steer input asks for it and back to centre on release:
@@ -1147,14 +1362,18 @@ const STEERING_WHEEL_LOCK_DEG := 450.0
 # centre to lock (a wheel spun at 2250 degrees per second, had there been one)
 # -> the wheel is a state (steering_wheel_deg) turned at a hand's speed: 0.35 s
 # centre to lock, 1.7 times as long.
-const STEERING_HAND_SPEED := 1300.0
+# was a const -> read from the car's config (steering.hand_speed, required);
+# the certified value stays here as the fallback default.
+static var STEERING_HAND_SPEED := 1300.0
 
 ## Steering ratio: degrees of steering wheel per degree of front wheel. Follows
 ## from the two ends of the rack, 450 degrees of steering wheel for
 ## MAX_STEER_LOCK (27.5 degrees) at the front wheels: 16.4 to 1, a road car's
 ## (the 986's rack is 16.9 to 1). Front wheel angle = steering wheel angle /
 ## this, at any speed, however sideways the car is.
-const STEERING_RATIO := STEERING_WHEEL_LOCK_DEG / (MAX_STEER_LOCK * 180.0 / PI)
+# was a const -> derived, never read: worked out again from the config's
+# numbers when a car reads them (_derive_from_config, the same sum as here).
+static var STEERING_RATIO := STEERING_WHEEL_LOCK_DEG / (MAX_STEER_LOCK * 180.0 / PI)
 
 # --- Slides ------------------------------------------------------------------
 
@@ -1282,7 +1501,9 @@ const LOW_SPEED_ALIGN_RATE := 10.0
 # rest 5.03 s after the release, against 1.90 and 5.07 before. Firmer still
 # only holds the rears on past their use: see REAR_LOCK_RECOVERY_RATE for what
 # a longer hold costs the same pull.
-const HANDBRAKE_RELEASE_TORQUE := 4500.0
+# was a const -> read from the car's config (handbrake.release_torque,
+# required); the certified value stays here as the fallback default.
+static var HANDBRAKE_RELEASE_TORQUE := 4500.0
 
 ## How fast that hold dies away once the key is up [1/s], and with it the slide
 ## grip of a tyre that was locked: 3.0 = gone 0.33 s after the release, so the
@@ -1310,7 +1531,10 @@ const HANDBRAKE_RELEASE_TORQUE := 4500.0
 # the old 0.4 s holds the rears too long at either torque for the smoke test's
 # 0.67 s pull to be at rest inside its 6 s (6.18 s at 3000 Nm, 6.62 at 4500,
 # against 5.07 s before this change).
-const REAR_LOCK_RECOVERY_RATE := 3.0
+# was a const -> read from the car's config
+# (handbrake.rear_lock_recovery_rate, required); the certified value stays
+# here as the fallback default.
+static var REAR_LOCK_RECOVERY_RATE := 3.0
 
 # --- Driver: feet and hands ----------------------------------------------------
 
@@ -1391,7 +1615,9 @@ const REAR_LOCK_RECOVERY_RATE := 3.0
 # goes on, in keeping with the rest of this driver.
 # With these the five certified runs read 28.77 / 15.83 / 18.28 / 8.72 / 7.68 s
 # against 28.75 / 15.83 / 18.23 / 8.67 / 7.70 on keys that were switches.
-const DRIVER_PROFILES := {
+# was a const -> read from the car's config (driver_profiles, required); the
+# certified value stays here as the fallback default.
+static var DRIVER_PROFILES := {
 	"test_driver": {
 		"throttle_attack": 10.0,
 		"throttle_release": 30.0,
@@ -1426,7 +1652,10 @@ const DRIVER_PROFILES := {
 ## programs: GearboxMode -> a name in DRIVER_PROFILES. Only the key does it (see
 ## _physics_process); whoever calls set_driver_profile after that has the seat
 ## until the key is pressed again.
-const MODE_DRIVERS := {
+# was a const -> built again when a car reads its config (mode_drivers,
+# required: its program names are put onto GearboxMode here, an enum's values
+# being code and not car data); the certified seating is the fallback default.
+static var MODE_DRIVERS := {
 	GearboxMode.SPORT: "test_driver",
 	GearboxMode.COMFORT: "comfort_driver",
 	GearboxMode.ECO: "eco_driver",
@@ -1470,7 +1699,9 @@ const WHEEL_DRAW_PERIOD := PI
 # was 0.04, a clamp on how far the wheel was drawn off a body that did not move
 # -> 0.09 = SUSPENSION_TRAVEL + 0.02: the travel is real now and the clamp is
 # its mechanical end.
-const MAX_WHEEL_VISUAL_TRAVEL := SUSPENSION_TRAVEL + 0.02
+# was a const -> derived, never read: worked out again from the config's
+# numbers when a car reads them (_derive_from_config, the same sum as here).
+static var MAX_WHEEL_VISUAL_TRAVEL := SUSPENSION_TRAVEL + 0.02
 
 ## Engine speed from which the HUD tach turns to its warning colour [rpm].
 const SHIFT_LIGHT_RPM := 6500.0
@@ -1811,7 +2042,9 @@ var _stand_height := 0.0
 
 ## This car's name in the odometer file (see OdometerStore): one entry per car,
 ## so the garage's cars can each keep their own.
-const CAR_ID := "boxster_986"
+# was a const -> read from the car's config (identity.car_id, required); the
+# certified value stays here as the fallback default.
+static var CAR_ID := "boxster_986"
 
 ## How often the odometer is written to its file while the car is driven [s of
 ## physics time]; and once more when the car leaves the scene tree.
@@ -1856,6 +2089,7 @@ var _spawn_transform: Transform3D
 
 
 func _ready() -> void:
+	_read_config()
 	_spawn_transform = global_transform
 	# The body floats on its springs over the floor; nothing may pull it onto
 	# it (CharacterBody3D snaps to a floor within 0.1 m by default).
@@ -1870,6 +2104,182 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if _odometer_kept:
 		OdometerStore.save_odometer(CAR_ID, odometer_m)
+
+
+## Makes this car the one its config describes (CONFIG_PATH), before anything
+## else in _ready looks at a number: the file is read and checked
+## (CarConfigValidation), its primary numbers go into the static vars of the
+## tuning section, what follows from them is worked out again, and the state
+## this car was created with from the fallback defaults is set again from what
+## was read. A config that is not there, is not JSON or does not pass is an
+## error and an assert, and none of it is used: a bad config never becomes
+## physics, the car stands on the certified defaults it was written with.
+func _read_config() -> void:
+	var config: Variant = JSON.parse_string(FileAccess.get_file_as_string(CONFIG_PATH))
+	var errors := CarConfigValidation.validate(config, CONFIG_PATH)
+	if not errors.is_empty():
+		push_error("car config refused, none of it is used:\n  " + "\n  ".join(errors))
+		assert(false, "car config refused: " + CONFIG_PATH)
+		return
+	_apply_config(config)
+	_derive_from_config()
+	engine_omega = IDLE_RPM * TAU / 60.0
+	fuel_l = FUEL_TANK_CAPACITY_L
+	fuel_mass = FUEL_TANK_CAPACITY_L * FUEL_DENSITY
+	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
+	rear_load_fraction = REAR_WEIGHT_FRACTION
+	driver_profile = DRIVER_PROFILES["test_driver"]
+
+
+## A checked config's primary numbers into the static vars, section by section
+## (the schema: configs/README.md). A key the schema marks optional, left out,
+## leaves the static var what it is: the fallback default it was declared with.
+static func _apply_config(config: Dictionary) -> void:
+	CAR_ID = config.identity.car_id
+
+	var mass: Dictionary = config.mass
+	KERB_MASS = mass.kerb_mass
+	REAR_WEIGHT_FRACTION = mass.rear_weight_fraction
+	CG_HEIGHT = mass.cg_height
+	AXLE_DISTANCE = mass.axle_distance
+	YAW_GYRATION_RADIUS = mass.yaw_gyration_radius
+
+	var engine: Dictionary = config.engine
+	TORQUE_CURVE = []
+	for anchor: Array in engine.torque_curve:
+		TORQUE_CURVE.append(Vector2(anchor[0], anchor[1]))
+	IDLE_RPM = engine.idle_rpm
+	STALL_RPM = engine.get("stall_rpm", STALL_RPM)
+	CRANKING_TORQUE = engine.get("cranking_torque", CRANKING_TORQUE)
+	STARTER_FREE_RPM = engine.get("starter_free_rpm", STARTER_FREE_RPM)
+	STARTER_CYCLE_TIME = engine.get("starter_cycle_time", STARTER_CYCLE_TIME)
+	ENGINE_CATCH_RPM = engine.get("engine_catch_rpm", ENGINE_CATCH_RPM)
+	REDLINE_RPM = engine.redline_rpm
+	LIMITER_RESUME_RPM = engine.limiter_resume_rpm
+	ENGINE_INERTIA = engine.engine_inertia
+	ENGINE_FRICTION_TORQUE = engine.friction_torque
+	ENGINE_FRICTION_TORQUE_PER_RPM = engine.friction_torque_per_rpm
+	FIRINGS_PER_REVOLUTION = engine.get("firings_per_revolution", FIRINGS_PER_REVOLUTION)
+
+	var idle: Dictionary = config.get("idle", {})
+	IDLE_CONTROL_GAIN = idle.get("control_gain", IDLE_CONTROL_GAIN)
+	IDLE_CONTROL_MAX_THROTTLE = idle.get("control_max_throttle", IDLE_CONTROL_MAX_THROTTLE)
+
+	var fuel: Dictionary = config.fuel
+	FUEL_TANK_CAPACITY_L = fuel.tank_capacity_l
+	FUEL_BURN_EFFICIENCY = fuel.burn_efficiency
+	FUEL_LHV = fuel.lhv
+	FUEL_DENSITY = fuel.density
+
+	var exhaust: Dictionary = config.get("exhaust", {})
+	EXHAUST_FLOW_AT_REST = exhaust.get("flow_at_rest", EXHAUST_FLOW_AT_REST)
+	EXHAUST_FLOW_RATE = exhaust.get("flow_rate", EXHAUST_FLOW_RATE)
+
+	var gearbox: Dictionary = config.gearbox
+	GEAR_RATIOS = []
+	GEAR_RATIOS.assign(gearbox.ratios)
+	FINAL_DRIVE = gearbox.final_drive
+	REVERSE_RATIO = gearbox.reverse_ratio
+	DRIVETRAIN_EFFICIENCY = gearbox.drivetrain_efficiency
+	CLUTCH_TORQUE_MAX = gearbox.clutch_torque_max
+	CLUTCH_ENGAGE_TIME = gearbox.clutch_engage_time
+	CLUTCH_SHIFT_ENGAGE_TIME = gearbox.clutch_shift_engage_time
+
+	var launch: Dictionary = config.launch
+	LAUNCH_RPM = launch.rpm
+	LAUNCH_CLUTCH_SHARE = launch.get("clutch_share", LAUNCH_CLUTCH_SHARE)
+	LAUNCH_BITE_BAND = launch.get("bite_band", LAUNCH_BITE_BAND)
+
+	var creep: Dictionary = config.get("creep", {})
+	CREEP_CLUTCH_ENGAGEMENT = creep.get("clutch_engagement", CREEP_CLUTCH_ENGAGEMENT)
+	CREEP_FREE_SPEED = creep.get("free_speed", CREEP_FREE_SPEED)
+	CREEP_ENGAGE_SPEED = creep.get("engage_speed", CREEP_ENGAGE_SPEED)
+	CREEP_DWELL = creep.get("dwell", CREEP_DWELL)
+	CREEP_MAX_SPEED = creep.get("max_speed", CREEP_MAX_SPEED)
+
+	var brakes: Dictionary = config.brakes
+	BRAKE_BIAS_FRONT = brakes.bias_front
+	BRAKE_DECEL_G = brakes.decel_g
+	COAST_DECEL = brakes.get("coast_decel", COAST_DECEL)
+
+	var tyres: Dictionary = config.tyres
+	TYRE_MU = tyres.mu
+	FRONT_TYRE_GRIP = tyres.front_grip
+	REAR_TYRE_GRIP = tyres.rear_grip
+	PEAK_SLIP_RATIO = tyres.peak_slip_ratio
+	ABS_SLIP_RATIO = tyres.abs_slip_ratio
+	DRIVE_SLIP_RATIO = tyres.drive_slip_ratio
+	FRONT_PEAK_SLIP_ANGLE = tyres.front_peak_slip_angle
+	REAR_PEAK_SLIP_ANGLE = tyres.rear_peak_slip_angle
+	TYRE_SLIDE_GRIP = tyres.slide_grip
+	REAR_TYRE_SLIDE_GRIP = tyres.rear_slide_grip
+	TYRE_SLIDE_ONSET = tyres.slide_onset
+	AXLE_INERTIA = tyres.axle_inertia
+	MIN_COMBINED_GRIP = tyres.min_combined_grip
+	LOAD_GRIP_EXPONENT = tyres.load_grip_exponent
+
+	var suspension: Dictionary = config.suspension
+	FRONT_RIDE_FREQUENCY = suspension.front_ride_frequency
+	REAR_RIDE_FREQUENCY = suspension.rear_ride_frequency
+	RIDE_DAMPING_RATIO = suspension.ride_damping_ratio
+	FRONT_ANTI_ROLL_RATE = suspension.front_anti_roll_rate
+	REAR_ANTI_ROLL_RATE = suspension.rear_anti_roll_rate
+	SUSPENSION_TRAVEL = suspension.travel
+	BUMP_STOP_RATE = suspension.get("bump_stop_rate", BUMP_STOP_RATE)
+	BUMP_STOP_PROGRESSION = suspension.get("bump_stop_progression", BUMP_STOP_PROGRESSION)
+	GROUND_CLEARANCE = suspension.ground_clearance
+
+	var steering: Dictionary = config.steering
+	MAX_STEER_LOCK = steering.max_steer_lock
+	STEERING_WHEEL_LOCK_DEG = steering.wheel_lock_deg
+	STEERING_HAND_SPEED = steering.hand_speed
+
+	var aero: Dictionary = config.aero
+	DRAG_COEFF = aero.drag_coeff
+	FRONTAL_AREA = aero.frontal_area
+	DOWNFORCE_COEFF = aero.downforce_coeff
+	AERO_BALANCE_FRONT = aero.balance_front
+	AIR_DENSITY = aero.get("air_density", AIR_DENSITY)
+
+	var handbrake: Dictionary = config.handbrake
+	HANDBRAKE_RELEASE_TORQUE = handbrake.release_torque
+	REAR_LOCK_RECOVERY_RATE = handbrake.rear_lock_recovery_rate
+
+	DRIVER_PROFILES = {}
+	for profile_name: String in config.driver_profiles:
+		DRIVER_PROFILES[profile_name] = config.driver_profiles[profile_name].duplicate()
+	# The config names the automatic's programs in words ("sport"); which
+	# GearboxMode that is, is this file's business.
+	MODE_DRIVERS = {}
+	for mode_name: String in config.mode_drivers:
+		MODE_DRIVERS[GearboxMode[mode_name.to_upper()]] = config.mode_drivers[mode_name]
+
+
+## Everything that follows from the primary numbers, worked out from what the
+## static vars hold now: the same sums their declarations are written with
+## (each documented there), run again so that none of them is left standing on
+## the numbers of the fallback defaults.
+static func _derive_from_config() -> void:
+	BASE_MASS = KERB_MASS - FUEL_TANK_CAPACITY_L * FUEL_DENSITY
+	CG_OFFSET = (REAR_WEIGHT_FRACTION - 0.5) * 2.0 * AXLE_DISTANCE
+	BRAKE_DECEL = BRAKE_DECEL_G * TYRE_MU * 9.8
+	FRONT_CORNER_MASS = KERB_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5
+	REAR_CORNER_MASS = KERB_MASS * REAR_WEIGHT_FRACTION * 0.5
+	FRONT_SPRING_RATE = FRONT_CORNER_MASS * (TAU * FRONT_RIDE_FREQUENCY) * (TAU * FRONT_RIDE_FREQUENCY)
+	REAR_SPRING_RATE = REAR_CORNER_MASS * (TAU * REAR_RIDE_FREQUENCY) * (TAU * REAR_RIDE_FREQUENCY)
+	FRONT_DAMPER_RATE = 2.0 * RIDE_DAMPING_RATIO * FRONT_CORNER_MASS * TAU * FRONT_RIDE_FREQUENCY
+	REAR_DAMPER_RATE = 2.0 * RIDE_DAMPING_RATIO * REAR_CORNER_MASS * TAU * REAR_RIDE_FREQUENCY
+	WHEEL_CONTACT_POINTS = [
+		Vector3(-HALF_TRACK, 0.0, -AXLE_DISTANCE),
+		Vector3(HALF_TRACK, 0.0, -AXLE_DISTANCE),
+		Vector3(-HALF_TRACK, 0.0, AXLE_DISTANCE),
+		Vector3(HALF_TRACK, 0.0, AXLE_DISTANCE),
+	]
+	WHEEL_ARMS_AHEAD = [
+		AXLE_DISTANCE + CG_OFFSET, AXLE_DISTANCE + CG_OFFSET, CG_OFFSET - AXLE_DISTANCE, CG_OFFSET - AXLE_DISTANCE,
+	]
+	STEERING_RATIO = STEERING_WHEEL_LOCK_DEG / (MAX_STEER_LOCK * 180.0 / PI)
+	MAX_WHEEL_VISUAL_TRAVEL = SUSPENSION_TRAVEL + 0.02
 
 
 func _physics_process(delta: float) -> void:
