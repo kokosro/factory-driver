@@ -57,6 +57,8 @@ extends SceneTree
 ## cranked and never catches.
 ## Then the wheels drawn at speed: the real step less a half turn, the
 ## wagon-wheel effect.
+## Last the odometer: the way the body went, through resets and in reverse, on
+## the HUD, and nothing of it on disk in a headless run.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -663,7 +665,27 @@ const STROBE_SPEED := 36.0
 const STROBE_RUN_UP_FRAMES := 1200
 const STROBE_FRAMES := 30
 
+# --- Odometer ------------------------------------------------------------------------
+
+## Ticks flat out (3 s), in reverse (3 s) and of the handbrake slide (1 s) the
+## odometer is compared with the way the car went over; how far off it may be
+## [m] (the same sums in a different order); and how far it may move on a car
+## standing on its springs after a reset [m].
+const ODOMETER_DRIVE_FRAMES := 180
+const ODOMETER_REVERSE_FRAMES := 180
+const ODOMETER_SLIDE_FRAMES := 60
+const ODOMETER_TOLERANCE := 0.000001
+const ODOMETER_REST_TOLERANCE := 0.001
+
+## Where the odometer store is tried out: a file of the test's own, next to the
+## telemetry phase's, never the game's user://cars.json.
+const ODOMETER_TEST_FILE := TELEMETRY_DIR + "/cars.json"
+
 var _failures := 0
+
+## What the game's odometer file looked like when the run began (its text; ""
+## = none): the run must leave it exactly so.
+var _odometer_file_before := ""
 
 
 ## Run clock: every test's start line is this far down the pad from its start
@@ -687,6 +709,7 @@ func _run() -> void:
 	if not _check(packed != null, "main scene loads"):
 		_finish()
 		return
+	_odometer_file_before = FileAccess.get_file_as_string(OdometerStore.PATH) if FileAccess.file_exists(OdometerStore.PATH) else ""
 	var main := packed.instantiate()
 	root.add_child(main)
 	await _step(60)
@@ -916,6 +939,7 @@ func _run() -> void:
 	await _check_stability_switch(main, car)
 	await _check_starter_cycle(main, car)
 	await _check_wheel_strobe(car)
+	await _check_odometer(main, car)
 
 	_finish()
 
@@ -3755,6 +3779,177 @@ func _check_wheel_strobe(car: ArcadeCar) -> void:
 	_check(backwards, "strobe: ... which is a wheel turning backwards, every tick: the wagon-wheel effect (was a cap of 100 rad/s on the drawn spin, 95 degrees a tick and a shimmer at any speed over 122 km/h)")
 	car.reset_to_spawn()
 	await _step(5)
+
+
+## The odometer: the way the car got over the ground, whichever way, through
+## resets and all; on the HUD; and nothing of it on disk in a headless run.
+func _check_odometer(main: Node, car: ArcadeCar) -> void:
+	var hud := main.get_node("HUD") as HUD
+	var label := main.get_node_or_null("HUD/OdometerLabel") as Label
+	var finite := is_finite(car.odometer_m)
+	_check(car.odometer_m > 1000.0, "odometer: it has counted the whole smoke test so far, resets and all (%.1f m)" % car.odometer_m)
+
+	# (1) Flat out and back to a stop, dead straight: the odometer's gain is the
+	# way the car went tick by tick, and the distance between the two ends.
+	car.reset_to_spawn()
+	await _step(5)
+	var start := car.global_position
+	var before := car.odometer_m
+	Input.action_press("accelerate")
+	var drive := await _odometer_watch(car, ODOMETER_DRIVE_FRAMES, false)
+	Input.action_release("accelerate")
+	Input.action_press("brake")
+	var stop := await _odometer_watch(car, CREEP_WATCH_FRAMES, true)
+	Input.action_release("brake")
+	finite = finite and drive.finite and stop.finite
+	var gained := car.odometer_m - before
+	var way: float = drive.way + stop.way
+	var as_the_crow_flies := Vector2(car.global_position.x - start.x, car.global_position.z - start.z).length()
+	_check(
+		gained > 20.0 and absf(gained - way) < ODOMETER_TOLERANCE and absf(gained - as_the_crow_flies) < 0.001 and drive.rising and stop.rising,
+		"odometer: %.0f s flat out and a stop are %.3f m on it, the way the car went tick by tick (%.3f m) and from end to end (%.3f m), never a tick backwards" % [ODOMETER_DRIVE_FRAMES / 60.0, gained, way, as_the_crow_flies],
+	)
+
+	# (2) A reset is not driven: the jump back to the start is not on it, the
+	# metres stay; nor is a jump to anywhere else.
+	before = car.odometer_m
+	car.reset_to_spawn()
+	var after_spawn_reset := car.odometer_m
+	car.reset_to(car.get_spawn_transform().translated(Vector3(30.0, 0.0, -40.0)))
+	var after_reset_to := car.odometer_m
+	await _step(60)
+	var at_rest := car.odometer_m - before
+	_check(
+		before > 0.0 and after_spawn_reset == before and after_reset_to == before and at_rest >= 0.0 and at_rest < ODOMETER_REST_TOLERANCE,
+		"odometer: a reset neither zeroes it nor drives it - %.1f m before, the same to the bit after a jump of %.0f m back to the start and one of 50 m from there, %.6f m more after a second of standing" % [before, as_the_crow_flies, at_rest],
+	)
+
+	# (3) It keeps counting from where the reset put the car, and reverse counts
+	# like forwards: a fresh press of the brake key at a standstill backs the car.
+	before = car.odometer_m
+	Input.action_press("brake")
+	var backing := await _odometer_watch(car, ODOMETER_REVERSE_FRAMES, false)
+	Input.action_release("brake")
+	finite = finite and backing.finite
+	gained = car.odometer_m - before
+	_check(
+		car.reverse_engaged and car.forward_speed < -1.0 and gained > 1.0 and absf(gained - backing.way) < ODOMETER_TOLERANCE and backing.rising,
+		"odometer: after the reset it counts on, and backing counts up like anything else (%.3f m in reverse, the odometer %.3f m further)" % [backing.way, gained],
+	)
+
+	# (4) A slide counts as the body goes, not as the wheels turn: the handbrake
+	# on, the rears stand still and the car goes sideways.
+	await _get_up_to_speed(car)
+	before = car.odometer_m
+	Input.action_press("steer_left", SLIDE_SETTLE_STEER)
+	Input.action_press("handbrake")
+	var sliding := await _odometer_watch(car, ODOMETER_SLIDE_FRAMES, false)
+	Input.action_release("handbrake")
+	Input.action_release("steer_left")
+	finite = finite and sliding.finite
+	gained = car.odometer_m - before
+	_check(
+		car.rear_omega == 0.0 and absf(car.lateral_speed) > 1.0 and gained > 5.0 and absf(gained - sliding.way) < ODOMETER_TOLERANCE,
+		"odometer: a handbrake slide is the way the body went, on locked rears and %.1f m/s sideways at the end (%.3f m, the odometer %.3f m further)" % [absf(car.lateral_speed), sliding.way, gained],
+	)
+
+	# (5) A way that is not a number is no way: the place the odometer counts
+	# from made NaN for a tick, it stands, and counts on from the tick after.
+	car.reset_to_spawn()
+	await _step(5)
+	Input.action_press("accelerate")
+	await _step(60)
+	car._odometer_from = Vector3(NAN, 0.0, NAN)
+	before = car.odometer_m
+	await _step(1)
+	var over_nan := car.odometer_m
+	var next := await _odometer_watch(car, 30, false)
+	Input.action_release("accelerate")
+	finite = finite and next.finite
+	_check(
+		over_nan == before and is_finite(over_nan) and absf(car.odometer_m - over_nan - next.way) < ODOMETER_TOLERANCE and next.way > 1.0,
+		"odometer: a way that is not finite is not counted and does no harm (%.3f m over that tick, %.3f m over the 30 after it, the car's own %.3f m)" % [over_nan - before, car.odometer_m - over_nan, next.way],
+	)
+	_check(finite and is_finite(car.odometer_m), "odometer: no NaN / inf on any tick of it")
+
+	# (6) The HUD's line: tenths of a kilometre, the ones that are full, and the
+	# text only made anew when they change.
+	if _check(label != null and label.text.begins_with("ODO ") and label.text.ends_with(" km"), "odometer: the HUD has its line ('%s')" % (label.text if label else "?")):
+		await _step(2)
+		var shown_live := label.text
+		var expected_live := "ODO %d.%d km" % [int(car.odometer_m / 100.0) / 10, int(car.odometer_m / 100.0) % 10]
+		hud.set_odometer(12345.0)
+		var shown_12 := label.text
+		hud.set_odometer(12399.9)
+		label.text = "untouched"
+		hud.set_odometer(12399.9)
+		var left_alone := label.text == "untouched" and hud._odometer_shown == 123
+		hud.set_odometer(12400.0)
+		var shown_next := label.text
+		hud.set_odometer(99.9)
+		var shown_short := label.text
+		hud.set_odometer(NAN)
+		var shown_nan := label.text
+		hud.set_odometer(-5.0)
+		_check(
+			shown_live == expected_live and shown_12 == "ODO 12.3 km" and left_alone and shown_next == "ODO 12.4 km" and shown_short == "ODO 0.0 km" and shown_nan == "ODO 0.0 km" and label.text == "ODO 0.0 km",
+			"odometer: the line reads the car's ('%s'), 12345 m as '%s', is left alone until the next tenth ('%s' at 12400 m), and NaN, less than none and 99.9 m all as '%s'" % [shown_live, shown_12, shown_next, shown_short],
+		)
+		await _step(2)
+		_check(label.text == expected_live or label.text == "ODO %d.%d km" % [int(car.odometer_m / 100.0) / 10, int(car.odometer_m / 100.0) % 10], "odometer: ... and is the car's again on the next frame ('%s')" % label.text)
+
+	# (7) Nothing on disk: the store is off in a headless run (the telemetry's own
+	# switch), the car never asked it for anything, the game's file is as it was.
+	var file_now := FileAccess.get_file_as_string(OdometerStore.PATH) if FileAccess.file_exists(OdometerStore.PATH) else ""
+	_check(
+		not OdometerStore.enabled() and OdometerStore.enabled() == TelemetryRecorder.should_record() and not car._odometer_kept and car._since_odometer_save == 0.0 and file_now == _odometer_file_before,
+		"odometer: the headless suite keeps no odometer - the store is off as the telemetry is, the car never counted towards a save, and %s is as the run found it (%s)" % [OdometerStore.PATH, "%d characters" % file_now.length() if file_now != "" else "not there"],
+	)
+
+	# (8) The store itself, on a file of the test's own: a car's metres come back
+	# to the bit, a second car gets an entry of its own, and what else the file
+	# holds is written back as it was.
+	DirAccess.make_dir_recursive_absolute(TELEMETRY_DIR)
+	if FileAccess.file_exists(ODOMETER_TEST_FILE):
+		DirAccess.remove_absolute(ODOMETER_TEST_FILE)
+	var nothing_stored := OdometerStore.load_odometer(ArcadeCar.CAR_ID, ODOMETER_TEST_FILE)
+	OdometerStore.save_odometer(ArcadeCar.CAR_ID, NAN, ODOMETER_TEST_FILE)
+	var nan_not_written := not FileAccess.file_exists(ODOMETER_TEST_FILE)
+	OdometerStore.save_odometer(ArcadeCar.CAR_ID, 1234567.891, ODOMETER_TEST_FILE)
+	OdometerStore.save_odometer("some_other_car", 42.5, ODOMETER_TEST_FILE)
+	_check(
+		nothing_stored == 0.0 and nan_not_written and OdometerStore.load_odometer(ArcadeCar.CAR_ID, ODOMETER_TEST_FILE) == 1234567.891 and OdometerStore.load_odometer("some_other_car", ODOMETER_TEST_FILE) == 42.5 and OdometerStore.load_odometer("no_such_car", ODOMETER_TEST_FILE) == 0.0,
+		"odometer: the store gives a car's metres back to the bit (%.3f m), keeps an entry per car, reads 0 for a car or a file that is not there and writes nothing for NaN" % OdometerStore.load_odometer(ArcadeCar.CAR_ID, ODOMETER_TEST_FILE),
+	)
+	var garage_file := FileAccess.open(ODOMETER_TEST_FILE, FileAccess.WRITE)
+	garage_file.store_string('{"version": 1, "garage": "4A", "cars": {"%s": {"odometer_m": 100.5, "paint": "red"}, "bad_car": {"odometer_m": -3.0}}}' % ArcadeCar.CAR_ID)
+	garage_file.close()
+	var loaded := OdometerStore.load_odometer(ArcadeCar.CAR_ID, ODOMETER_TEST_FILE)
+	var negative := OdometerStore.load_odometer("bad_car", ODOMETER_TEST_FILE)
+	OdometerStore.save_odometer(ArcadeCar.CAR_ID, 250.25, ODOMETER_TEST_FILE)
+	var stored: Variant = JSON.parse_string(FileAccess.get_file_as_string(ODOMETER_TEST_FILE))
+	var kept: bool = stored is Dictionary and stored.get("version") == 1.0 and stored.get("garage") == "4A" and stored["cars"][ArcadeCar.CAR_ID].get("paint") == "red" and stored["cars"][ArcadeCar.CAR_ID].get("odometer_m") == 250.25 and stored["cars"].has("bad_car")
+	_check(loaded == 100.5 and negative == 0.0 and kept, "odometer: a save touches its car's metres and nothing else in the file (version 1, the garage's own fields and the other cars as they were; a negative odometer reads 0)")
+	DirAccess.remove_absolute(ODOMETER_TEST_FILE)
+	car.reset_to_spawn()
+	await _step(5)
+
+
+## Steps `frames` ticks (to a standstill at the latest, if `until_rest`): the
+## way the car's body went over the ground, level, tick by tick [m], whether
+## the odometer was finite on every tick and never went down.
+func _odometer_watch(car: ArcadeCar, frames: int, until_rest: bool) -> Dictionary:
+	var seen := {"way": 0.0, "finite": true, "rising": true}
+	for frame in frames:
+		var before := car.global_position
+		var odometer_before := car.odometer_m
+		await physics_frame
+		seen.way += Vector2(car.global_position.x - before.x, car.global_position.z - before.z).length()
+		seen.finite = seen.finite and is_finite(car.odometer_m)
+		seen.rising = seen.rising and car.odometer_m >= odometer_before
+		if until_rest and car.forward_speed == 0.0:
+			break
+	return seen
 
 
 ## Resets the car and accelerates it in a straight line to ~60 km/h.

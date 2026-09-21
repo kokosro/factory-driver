@@ -1613,6 +1613,31 @@ var _corner_trim: Array[float] = [0.0, 0.0, 0.0, 0.0]
 ## Height above the road the car was last stood at [m] (reset_to's y).
 var _stand_height := 0.0
 
+## This car's name in the odometer file (see OdometerStore): one entry per car,
+## so the garage's cars can each keep their own.
+const CAR_ID := "boxster_986"
+
+## How often the odometer is written to its file while the car is driven [s of
+## physics time]; and once more when the car leaves the scene tree.
+const ODOMETER_SAVE_INTERVAL := 45.0
+
+## The odometer [m]: every metre this car has moved over the ground, whichever
+## way - forwards, backwards or sideways in a slide, it is the body's own way
+## from tick to tick, not the wheels' turning. Never reset: reset_to puts the
+## car somewhere and the jump there is not driven (_odometer_from), the metres
+## stay. Bookkeeping only, nothing in the car reads it. Kept from one session
+## to the next by OdometerStore where that is switched on (the running game;
+## not the headless test suite, which writes nothing).
+var odometer_m := 0.0
+
+## Where the car was when the odometer last counted; reset_to moves it along.
+var _odometer_from := Vector3.ZERO
+
+## Whether the odometer is kept in its file in this run (OdometerStore.enabled,
+## asked once), and the physics time since it was last written there [s].
+var _odometer_kept := false
+var _since_odometer_save := 0.0
+
 ## How many times reset_to has put the car somewhere. Bookkeeping for what
 ## watches the car from outside (the tyre marks clear when it goes up); nothing
 ## in the car reads it.
@@ -1640,6 +1665,15 @@ func _ready() -> void:
 	# it (CharacterBody3D snaps to a floor within 0.1 m by default).
 	floor_snap_length = 0.0
 	_settle_suspension(global_position.y)
+	_odometer_from = global_position
+	_odometer_kept = OdometerStore.enabled()
+	if _odometer_kept:
+		odometer_m = OdometerStore.load_odometer(CAR_ID)
+
+
+func _exit_tree() -> void:
+	if _odometer_kept:
+		OdometerStore.save_odometer(CAR_ID, odometer_m)
 
 
 func _physics_process(delta: float) -> void:
@@ -1876,7 +1910,24 @@ func _physics_process(delta: float) -> void:
 	velocity = cg_velocity - global_basis.x * (yaw_rate * CG_OFFSET)
 	move_and_slide()
 
+	_count_odometer(delta)
 	_update_visuals(delta)
+
+
+## The way the body got over the ground this tick goes on the odometer (level
+## distance, x and z; anything not finite is no way at all), and every
+## ODOMETER_SAVE_INTERVAL the odometer goes to its file, where that is on.
+func _count_odometer(delta: float) -> void:
+	var way := Vector2(global_position.x - _odometer_from.x, global_position.z - _odometer_from.z).length()
+	if is_finite(way):
+		odometer_m += way
+	_odometer_from = global_position
+	if not _odometer_kept:
+		return
+	_since_odometer_save += delta
+	if _since_odometer_save >= ODOMETER_SAVE_INTERVAL:
+		_since_odometer_save = 0.0
+		OdometerStore.save_odometer(CAR_ID, odometer_m)
 
 
 ## Puts the car back where the scene placed it, at rest, in 1st, automatic, the
@@ -1904,8 +1955,10 @@ func get_spawn_transform() -> Transform3D:
 ## again afterwards). The switches stay as the driver has them: tcs_on, abs_on,
 ## sc_on, gearbox_mode. The height of `target` counts from the road: the car is stood on its springs on the road
 ## there (_settle_suspension), 0 = at its ride height.
+## The odometer keeps its metres, and the jump to `target` is not among them.
 func reset_to(target: Transform3D) -> void:
 	global_transform = target
+	_odometer_from = target.origin
 	velocity = Vector3.ZERO
 	forward_speed = 0.0
 	lateral_speed = 0.0

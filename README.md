@@ -413,6 +413,11 @@ in the middle of a cycle ends it.
 Then the wheels at 130 km/h: drawn the real step less a half turn, never more than a
 quarter turn a tick, which is backwards.
 
+Last the odometer: flat out and a stop are on it to the micrometre, a reset neither
+zeroes it nor counts its jump, reverse and a handbrake slide count as the body goes, a
+way that is not finite is not counted, never NaN, the HUD's line; and nothing of it on
+disk: the store is off in a headless run and `user://cars.json` is as the run found it
+(the store itself is tried on a file next to the telemetry phase's).
 
 ### Handling tests
 
@@ -619,3 +624,28 @@ that `reset_to` counts up and nothing in the car reads.
 A reset **clears** the marks (`R`, a test or mission starting, anything that goes
 through `reset_to` / `reset_to_spawn`): the pad is as it was before the drive. Every
 threshold, size and time is a commented constant at the top of the script.
+
+### Odometer
+
+The car counts its metres (`odometer_m` on the car, `ODO 12.3 km` over the aid lamps on
+the HUD): every physics tick the way its body got over the ground, level, whichever way -
+forwards, backwards, sideways in a slide; the body's own way, not the wheels' turning.
+It is never reset. `R`, a test starting, anything through `reset_to` puts the car
+somewhere, and that jump is not driven: the place the odometer counts from moves along
+with the car, the metres stay. A way that is not a finite number is not counted. It is
+bookkeeping, a plain add at the end of the tick: nothing in the car reads it, and the
+HUD only makes its text anew when the shown tenth of a kilometre changes.
+
+Between sessions the metres live in `user://cars.json` (`scripts/odometer_store.gd`), an
+entry per car so the garage can add its own:
+
+```json
+{"version": 1, "cars": {"boxster_986": {"odometer_m": 123.4}}}
+```
+
+The car reads its entry when it enters the scene and continues from it (no file, no
+entry: 0), writes it every 45 s of physics time and once more when it leaves the scene
+tree; a save touches that one number and writes back whatever else the file holds. All
+of it sits behind the telemetry's own switch (`TelemetryRecorder.should_record`): on in
+the running game, off with no window - the headless test suite reads and writes nothing,
+its cars all start at 0 - unless `FD_TELEMETRY=1` asks for it.

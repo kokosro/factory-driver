@@ -4,6 +4,7 @@ extends CanvasLayer
 ## pedal bars so the driving feel can be checked, the fuel bar, and a lamp each
 ## for the three driver aids. The mission line and
 ## banner only show what they are handed (see scripts/mission_manager.gd).
+## The odometer's line sits over the aid lamps (see set_odometer).
 
 ## Tach text colour normally and from ArcadeCar.SHIFT_LIGHT_RPM up.
 const TACH_COLOR := Color(1, 1, 1, 1)
@@ -36,6 +37,11 @@ const AID_OFF_COLOR := Color(1.0, 0.7, 0.15, 1)
 @onready var _tcs_lamp: Label = $TcsLamp
 @onready var _abs_lamp: Label = $AbsLamp
 @onready var _sc_lamp: Label = $ScLamp
+@onready var _odometer_label: Label = $OdometerLabel
+
+## The odometer as last written on its label [tenths of a km]; the label's text
+## is only made anew when this changes, every 100 m.
+var _odometer_shown := -1
 
 
 func _process(_delta: float) -> void:
@@ -64,6 +70,7 @@ func _process(_delta: float) -> void:
 	set_aid_lamp(_tcs_lamp, "TCS", car.tcs_on)
 	set_aid_lamp(_abs_lamp, "ABS", car.abs_on)
 	set_aid_lamp(_sc_lamp, "SC", car.sc_on)
+	set_odometer(car.odometer_m)
 
 
 ## The pedal bars follow the pedals tick by tick (ArcadeCar.throttle_pedal /
@@ -99,6 +106,17 @@ func set_fuel_bar(value: float) -> void:
 		_fuel_bar.color = FUEL_RESERVE_COLOR
 	else:
 		_fuel_bar.color = FUEL_COLOR
+
+
+## The odometer line over the aid lamps, `metres` as "ODO 12.3 km": the tenths
+## that are full (an odometer never shows a metre it has not driven; NaN and
+## less than none read 0.0).
+func set_odometer(metres: float) -> void:
+	var tenths := 0 if is_nan(metres) else int(maxf(metres, 0.0) / 100.0)
+	if tenths == _odometer_shown:
+		return
+	_odometer_shown = tenths
+	_odometer_label.text = "ODO %d.%d km" % [tenths / 10, tenths % 10]
 
 
 ## A driver aid's lamp: its letters (`aid`), dim while it is `on`, amber and
