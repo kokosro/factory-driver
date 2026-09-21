@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Headless checks: import the project, check the car configs (seconds: a broken
 # config fails here, not somewhere in the smoke test), run the smoke test,
-# then the handling, camera and mission tests. Fails on a non-zero exit code or
-# on any engine/script error in the output.
+# then the handling, camera, mission and battery tests. Fails on a non-zero
+# exit code or on any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the five tests side by side
+#   tests/run_tests.sh --parallel   the import first, then the six tests side by side
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -119,6 +119,7 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 "$STEP" "handling tests" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/handling_test.gd
 "$STEP" "camera test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/camera_test.gd
 "$STEP" "mission test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/mission_test.gd
+"$STEP" "battery test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/battery_test.gd
 if [ "$PARALLEL" -eq 1 ]; then
 	join_steps
 fi
