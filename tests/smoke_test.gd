@@ -683,9 +683,9 @@ const ODOMETER_TEST_FILE := TELEMETRY_DIR + "/cars.json"
 
 var _failures := 0
 
-## What the game's odometer file looked like when the run began (its text; ""
-## = none): the run must leave it exactly so.
-var _odometer_file_before := ""
+## The car's odometer when the run began [m], a second after the scene was
+## loaded: 0, whatever the game's own odometer file holds.
+var _odometer_at_start := -1.0
 
 
 ## Run clock: every test's start line is this far down the pad from its start
@@ -709,12 +709,13 @@ func _run() -> void:
 	if not _check(packed != null, "main scene loads"):
 		_finish()
 		return
-	_odometer_file_before = FileAccess.get_file_as_string(OdometerStore.PATH) if FileAccess.file_exists(OdometerStore.PATH) else ""
 	var main := packed.instantiate()
 	root.add_child(main)
 	await _step(60)
 
 	var car := main.get_node_or_null("Car") as ArcadeCar
+	if car:
+		_odometer_at_start = car.odometer_m
 	var hud := main.get_node_or_null("HUD")
 	var speed_label := main.get_node_or_null("HUD/SpeedLabel") as Label
 	var camera := main.get_node_or_null("ChaseCamera") as Camera3D
@@ -3899,11 +3900,16 @@ func _check_odometer(main: Node, car: ArcadeCar) -> void:
 		_check(label.text == expected_live or label.text == "ODO %d.%d km" % [int(car.odometer_m / 100.0) / 10, int(car.odometer_m / 100.0) % 10], "odometer: ... and is the car's again on the next frame ('%s')" % label.text)
 
 	# (7) Nothing on disk: the store is off in a headless run (the telemetry's own
-	# switch), the car never asked it for anything, the game's file is as it was.
-	var file_now := FileAccess.get_file_as_string(OdometerStore.PATH) if FileAccess.file_exists(OdometerStore.PATH) else ""
+	# switch) and the car never asked it for anything - it began the run at 0,
+	# whatever the game's file holds, never counted towards a save, and its metres
+	# are not what the file has for it. (What the file holds is not the suite's
+	# to say: the game may be running next to it, and was when this was written.)
+	# was the file's text before and after the run compared -> the three above:
+	# the user drove the game while the suite ran, and the game wrote its file.
 	_check(
-		not OdometerStore.enabled() and OdometerStore.enabled() == TelemetryRecorder.should_record() and not car._odometer_kept and car._since_odometer_save == 0.0 and file_now == _odometer_file_before,
-		"odometer: the headless suite keeps no odometer - the store is off as the telemetry is, the car never counted towards a save, and %s is as the run found it (%s)" % [OdometerStore.PATH, "%d characters" % file_now.length() if file_now != "" else "not there"],
+		not OdometerStore.enabled() and OdometerStore.enabled() == TelemetryRecorder.should_record() and not car._odometer_kept and car._since_odometer_save == 0.0
+			and _odometer_at_start >= 0.0 and _odometer_at_start < ODOMETER_REST_TOLERANCE and OdometerStore.load_odometer(ArcadeCar.CAR_ID) != car.odometer_m,
+		"odometer: the headless suite keeps no odometer - the store is off as the telemetry is, the car began the run at %.3f m whatever %s holds, never counted towards a save, and its metres are not in there" % [_odometer_at_start, OdometerStore.PATH],
 	)
 
 	# (8) The store itself, on a file of the test's own: a car's metres come back

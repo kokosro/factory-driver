@@ -416,8 +416,9 @@ quarter turn a tick, which is backwards.
 Last the odometer: flat out and a stop are on it to the micrometre, a reset neither
 zeroes it nor counts its jump, reverse and a handbrake slide count as the body goes, a
 way that is not finite is not counted, never NaN, the HUD's line; and nothing of it on
-disk: the store is off in a headless run and `user://cars.json` is as the run found it
-(the store itself is tried on a file next to the telemetry phase's).
+disk: the store is off in a headless run, the car began the run at 0 whatever
+`user://cars.json` holds and its metres never get there (the store itself is tried on a
+file next to the telemetry phase's).
 
 ### Handling tests
 
