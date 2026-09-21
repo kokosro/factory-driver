@@ -53,7 +53,7 @@ const MARK_SLIP_RATIO := 0.35
 ## was 0.2, twice the peak -> 0.3: the user's verdict from the driving seat was
 ## that cornering marked too easily, full lock off the throttle from little
 ## over 22 km/h. Measured, the fronts at full lock off the throttle get to 0.21
-## rad from 26 km/h, 0.25 from 30, 0.33 from 36, 0.44 from 54 and 0.52 from 108;
+## rad from 26 km/h, 0.25 .. 0.27 from 30, 0.33 from 36, 0.44 from 54 and 0.52 from 108;
 ## at half lock to 0.28 from 108 km/h and less from anything slower. At 0.3 half
 ## lock marks nothing at any speed and full lock nothing under ~35 km/h; past
 ## that the fronts plough at three to five times their peak, which is rubber

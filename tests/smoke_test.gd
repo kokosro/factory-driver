@@ -614,7 +614,7 @@ const MARKS_LATE_FRAMES := 60
 ## ... the slow scrub is full lock off the throttle from this speed [m/s], 45
 ## km/h, for this many ticks (4 s): the fronts plough at ~0.38 rad, a little
 ## over MARK_SLIP_ANGLE; and the corner that must leave nothing is the same
-## from this speed [m/s], 30 km/h, where they get to 0.25 rad (what marked at
+## from this speed [m/s], 30 km/h, where they get to 0.27 rad (what marked at
 ## the old threshold of 0.2, the user's complaint) ...
 const MARKS_SCRUB_SPEED := 12.5
 const MARKS_SCRUB_FRAMES := 240
