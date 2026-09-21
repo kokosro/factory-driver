@@ -798,6 +798,25 @@ var _fuel_mass_at_start := -1.0
 const FUEL_STORE_HARD_LEVEL := 37.123456789012345
 const FUEL_STORE_LOW_LEVEL := 5.0
 
+## The dashboard as _ready left it, before a key could touch it: the six
+## settings the store keeps (ArcadeCar.driver_settings), the gearbox mode as
+## the enum has it, and the view the camera came up in. All of them the
+## defaults, whatever the game's own file holds for this car.
+var _driver_at_start := {}
+var _gearbox_at_start := -1
+var _camera_at_start := ""
+
+## Driver store: what a car left with the aids off, the eco program, the
+## gearbox in manual and the bonnet view has to start with again.
+const DRIVER_STORE_SETTINGS := {
+	"tcs_on": false,
+	"abs_on": false,
+	"sc_on": false,
+	"gearbox_mode": "eco",
+	"automatic": false,
+	"camera_view": 2,
+}
+
 
 ## Run clock: every test's start line is this far down the pad from its start
 ## point [m] ...
@@ -826,6 +845,11 @@ func _run() -> void:
 	if car_at_ready:
 		_fuel_at_start = car_at_ready.fuel_l
 		_fuel_mass_at_start = car_at_ready.fuel_mass
+		_driver_at_start = car_at_ready.driver_settings()
+		_gearbox_at_start = car_at_ready.gearbox_mode
+	var camera_at_ready := main.get_node_or_null("ChaseCamera") as Camera3D
+	if camera_at_ready:
+		_camera_at_start = camera_at_ready.mode_name()
 	await _step(60)
 
 	var car := main.get_node_or_null("Car") as ArcadeCar
@@ -870,6 +894,12 @@ func _run() -> void:
 	# was: reads 7.6 m -> 7.7 m, the bounds as they were. The chase camera smooths
 	# per drawn frame: under --fixed-fps that is one frame a tick, like in
 	# camera_test.gd, not as many as the wall clock had room for.
+	# was judged where the camera came up -> from the chase view, cut to here:
+	# a car that has not been driven now comes up in the cockpit, and the eye
+	# in the car is 0.3 m from it, not 7.7 (see ChaseCamera, camera_test.gd).
+	_check(camera.mode_name() == "cockpit", "camera comes up inside the car ('%s')" % camera.mode_name())
+	camera.set_mode(camera.Mode.CHASE)
+	await _step(30)
 	var camera_gap := camera.global_position.distance_to(car.global_position)
 	_check(camera_gap > 3.0 and camera_gap < 15.0, "camera follows the car (%.1f m away)" % camera_gap)
 
@@ -1062,6 +1092,7 @@ func _run() -> void:
 	await _check_odometer(main, car)
 	await _check_handbrake_release(car)
 	await _check_fuel_store(hud as HUD, car)
+	await _check_driver_store(camera, car)
 
 	_finish()
 
@@ -4378,6 +4409,143 @@ func _check_fuel_store(hud: HUD, car: ArcadeCar) -> void:
 			and car.fuel_l == capacity and FileAccess.get_file_as_string(_odometer_test_file) == file_before and not car._odometer_kept,
 		"fuel store: a car that loads %.1f L starts with %.1f L and %.3f kg of it, not a full tank - the bar red at %.3f, the engine idling on it; a reset fills the tank and the file is not told" % [FUEL_STORE_LOW_LEVEL, loaded_l, loaded_mass, loaded_l / capacity],
 	)
+	DirAccess.remove_absolute(_odometer_test_file)
+	await _step(5)
+
+
+## The dashboard kept from one session to the next, beside the odometer and the
+## fuel: the three aid switches, the gearbox program, automatic or manual and
+## the view the driver was looking through. Not in the headless suite, through
+## the store to the bit, never a setting that is none, and the car that loads
+## one is handed over exactly as it was left. Last in the run: it leaves the
+## car with the switches it loaded (and puts them back at the end).
+func _check_driver_store(camera: Camera3D, car: ArcadeCar) -> void:
+	# (1) Nothing read: the store is off (the odometer's switch, the one gate)
+	# and the car came out of _ready on the defaults - every aid on, sport,
+	# automatic - with the camera inside it, whatever the game's file holds.
+	_check(
+		not OdometerStore.enabled() and not car._odometer_kept
+			and _driver_at_start.get("tcs_on") == true and _driver_at_start.get("abs_on") == true and _driver_at_start.get("sc_on") == true
+			and _gearbox_at_start == ArcadeCar.GearboxMode.SPORT and _driver_at_start.get("gearbox_mode") == "sport"
+			and _driver_at_start.get("automatic") == true
+			and _driver_at_start.get("camera_view") == OdometerStore.CAMERA_VIEW_COCKPIT and _camera_at_start == "cockpit",
+		"driver store: the headless suite reads no dashboard - the store is off, the car came out of _ready with the aids on, the %s program, automatic, and the camera in the %s view, whatever %s holds" % [_driver_at_start.get("gearbox_mode"), _camera_at_start, OdometerStore.PATH],
+	)
+
+	# (2) The store itself, on a file of the test's own: all six settings come
+	# back as they went in, in the one entry beside the odometer and the fuel
+	# and in the one write; an entry per car; a car, a file or an entry with no
+	# dashboard in it is a car that has not been driven - the defaults, and
+	# nothing wrong with them.
+	DirAccess.make_dir_recursive_absolute(_telemetry_dir)
+	if FileAccess.file_exists(_odometer_test_file):
+		DirAccess.remove_absolute(_odometer_test_file)
+	var new_car := OdometerStore.load_driver(ArcadeCar.CAR_ID, _odometer_test_file)
+	OdometerStore.save_car(ArcadeCar.CAR_ID, 4321.5, 12.5, _odometer_test_file, DRIVER_STORE_SETTINGS)
+	OdometerStore.save_driver("some_other_car", {"tcs_on": false, "gearbox_mode": "COMFORT"}, _odometer_test_file)
+	var one_write: Variant = JSON.parse_string(FileAccess.get_file_as_string(_odometer_test_file))
+	var entry: Dictionary = one_write["cars"][ArcadeCar.CAR_ID] if one_write is Dictionary else {}
+	var back := OdometerStore.load_driver(ArcadeCar.CAR_ID, _odometer_test_file)
+	var other := OdometerStore.load_driver("some_other_car", _odometer_test_file)
+	var unknown := OdometerStore.load_driver("no_such_car", _odometer_test_file)
+	var six_back := true
+	for field: String in OdometerStore.DRIVER_DEFAULTS:
+		six_back = six_back and back[field] == DRIVER_STORE_SETTINGS[field] and entry.get("driver", {}).has(field)
+	var defaults_back := true
+	for settings: Dictionary in [new_car, unknown]:
+		for field: String in OdometerStore.DRIVER_DEFAULTS:
+			defaults_back = defaults_back and settings[field] == OdometerStore.DRIVER_DEFAULTS[field]
+		defaults_back = defaults_back and (settings.problems as Array).is_empty()
+	_check(
+		six_back and (back.problems as Array).is_empty() and defaults_back
+			and entry.get("odometer_m") == 4321.5 and entry.get("fuel_l") == 12.5
+			and OdometerStore.load_odometer(ArcadeCar.CAR_ID, _odometer_test_file) == 4321.5 and OdometerStore.load_fuel(ArcadeCar.CAR_ID, ArcadeCar.FUEL_TANK_CAPACITY_L, _odometer_test_file).fuel_l == 12.5
+			and other.tcs_on == false and other.abs_on == true and other.gearbox_mode == "comfort" and other.camera_view == OdometerStore.CAMERA_VIEW_COCKPIT
+			and typeof(back.camera_view) == TYPE_INT and typeof(back.gearbox_mode) == TYPE_STRING,
+		"driver store: all six settings come back as they went in (aids %s, %s, %s, the %s view), in the one entry beside the odometer and the fuel and in the one write, an entry per car (a name in any case, the rest of a part-written entry the defaults); a car, a file or an entry with no dashboard is every default and nothing wrong" % ["off" if not back.tcs_on else "on", back.gearbox_mode, "manual" if not back.automatic else "automatic", camera.MODE_NAMES[back.camera_view]],
+	)
+
+	# (3) A setting that is none of its own: its default and the reason, as
+	# text - the car that asks makes the error of it (push_error; not here, the
+	# suite's output has none). NaN and inf never get through a JSON file, so
+	# they go to the check itself.
+	var not_settings := {
+		"tcs_on": [0, 1, 1.0, "yes", "", null, [], {}],
+		"abs_on": [0, "true", null, 2.5],
+		"sc_on": [1, "off", null, [true]],
+		"automatic": [0, "manual", null, {"automatic": true}],
+		"gearbox_mode": ["rally", "", "sports", 1, 1.0, true, null, ["eco"]],
+		"camera_view": [-1, 5, 6, 1.5, NAN, INF, -INF, "cockpit", true, null, [1]],
+	}
+	var refused := 0
+	var tried := 0
+	for field: String in not_settings:
+		for value: Variant in not_settings[field]:
+			tried += 1
+			if OdometerStore.driver_problem(field, value) != "":
+				refused += 1
+	var settings_ok := OdometerStore.driver_problem("tcs_on", false) == "" and OdometerStore.driver_problem("automatic", true) == ""
+	for program: String in ["comfort", "sport", "eco", "Sport", "ECO"]:
+		settings_ok = settings_ok and OdometerStore.driver_problem("gearbox_mode", program) == ""
+	for view: int in [0, 1, 2, 3, 4]:
+		settings_ok = settings_ok and OdometerStore.driver_problem("camera_view", view) == "" and OdometerStore.driver_problem("camera_view", float(view)) == ""
+	var garage_file := FileAccess.open(_odometer_test_file, FileAccess.WRITE)
+	garage_file.store_string('{"version": 1, "cars": {"bad_car": {"odometer_m": 7.5, "driver": {"tcs_on": "yes", "abs_on": null, "sc_on": 1, "gearbox_mode": "rally", "automatic": 0, "camera_view": 5}}, "part_bad": {"driver": {"tcs_on": false, "gearbox_mode": "ECO", "camera_view": 9}}}}')
+	garage_file.close()
+	var bad := OdometerStore.load_driver("bad_car", _odometer_test_file)
+	var said := 0
+	for field: String in OdometerStore.DRIVER_DEFAULTS:
+		for problem: String in bad.problems:
+			if problem.contains("bad_car's " + field):
+				said += 1
+	var part_bad := OdometerStore.load_driver("part_bad", _odometer_test_file)
+	var defaults_for_bad := true
+	for field: String in OdometerStore.DRIVER_DEFAULTS:
+		defaults_for_bad = defaults_for_bad and bad[field] == OdometerStore.DRIVER_DEFAULTS[field]
+	_check(
+		refused == tried and settings_ok and said == 6 and defaults_for_bad
+			and part_bad.tcs_on == false and part_bad.gearbox_mode == "eco" and part_bad.camera_view == OdometerStore.CAMERA_VIEW_COCKPIT and (part_bad.problems as Array).size() == 1
+			and OdometerStore.load_odometer("bad_car", _odometer_test_file) == 7.5,
+		"driver store: a switch that is not true or false, a program this gearbox has not got, a view outside %d .. %d (the held rear view among them), a fraction of a view, NaN, inf, words, null and a list are no driver setting (%d of %d refused, all 6 of a bad entry read as their default with the reason, naming the car and the field); the settings beside a bad one still load, and the car's metres with them" % [OdometerStore.CAMERA_VIEW_FIRST, OdometerStore.CAMERA_VIEW_LAST, refused, tried],
+	)
+
+	# (4) The car that loads a dashboard is handed over on it: the aids off,
+	# the eco program with its own driver in the seat (as the gearbox mode key
+	# seats one), the gearbox in manual and the camera in the bonnet view. A
+	# reset puts the gearbox back in automatic - the debug verb it always was -
+	# and leaves every other setting standing, without a word to the file.
+	OdometerStore.save_car(ArcadeCar.CAR_ID, 1000.0, FUEL_STORE_LOW_LEVEL, _odometer_test_file, DRIVER_STORE_SETTINGS)
+	var file_before := FileAccess.get_file_as_string(_odometer_test_file)
+	car.reset_to_spawn()
+	car._load_stored_driver(_odometer_test_file)
+	await _step(5)
+	var loaded_view: int = car.camera_view
+	var seated: bool = car.driver_profile == ArcadeCar.DRIVER_PROFILES[ArcadeCar.MODE_DRIVERS[ArcadeCar.GearboxMode.ECO]]
+	var comes_up_in: String = camera.MODE_NAMES[camera._stored_mode()]
+	var loaded := car.driver_settings()
+	car.reset_to_spawn()
+	await _step(5)
+	var kept := true
+	for field: String in OdometerStore.DRIVER_DEFAULTS:
+		if field == "automatic":
+			continue
+		kept = kept and car.driver_settings()[field] == DRIVER_STORE_SETTINGS[field]
+	_check(
+		loaded.tcs_on == false and loaded.abs_on == false and loaded.sc_on == false
+			and car.gearbox_mode == ArcadeCar.GearboxMode.ECO and loaded.gearbox_mode == "eco" and seated
+			and loaded.automatic == false and loaded_view == DRIVER_STORE_SETTINGS.camera_view and comes_up_in == "front"
+			and kept and car.automatic and not car.tcs_on
+			and FileAccess.get_file_as_string(_odometer_test_file) == file_before and not car._odometer_kept,
+		"driver store: a car left with the aids off, the %s program (its own driver in the seat), the gearbox in manual and the %s view starts exactly that way; a reset puts the gearbox back in automatic and leaves the switches and the view as the driver had them, and the file is not told" % [loaded.gearbox_mode, comes_up_in],
+	)
+	# The dashboard back to the defaults this run began on: nothing follows
+	# this check, and nothing after it should find the aids switched off.
+	car.tcs_on = true
+	car.abs_on = true
+	car.sc_on = true
+	car.gearbox_mode = ArcadeCar.GearboxMode.SPORT
+	car.set_driver_profile(ArcadeCar.DRIVER_PROFILES["test_driver"])
+	car.camera_view = OdometerStore.CAMERA_VIEW_COCKPIT
 	DirAccess.remove_absolute(_odometer_test_file)
 	await _step(5)
 

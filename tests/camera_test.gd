@@ -5,9 +5,12 @@ extends SceneTree
 ##   godot --headless --fixed-fps 60 --path . --script res://tests/camera_test.gd
 ##
 ## Loads the main scene and cycles the camera through its views with the
-## camera_cycle action: chase -> cockpit -> front -> overhead -> wheel -> chase.
+## camera_cycle action, from the view a car that has not been driven comes up
+## in: cockpit -> front -> overhead -> wheel -> chase -> cockpit, a full round.
 ## Checks each press lands on the expected view, that the view sits where it
-## should relative to the car, and that the car still drives under it. Then
+## should relative to the car, that the car remembers the view it is driven in
+## (ArcadeCar.camera_view, what the store keeps per car) and that the car still
+## drives under it. Then
 ## holds look_back: from the chase view the rear view while held and the old
 ## view back on release; from the cockpit and the bonnet the head turns round
 ## over the shoulder instead (the eye stays where it is, the mode what it was,
@@ -20,8 +23,15 @@ extends SceneTree
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 
-## The views in the order the key cycles through them, from the default.
-const EXPECTED_CYCLE: Array[String] = ["cockpit", "front", "overhead", "wheel", "chase"]
+## The views in the order the key cycles through them, from the one a fresh car
+## comes up in: a full round of five presses, back to the cockpit.
+# was from chase, the view the camera itself started in -> from the cockpit,
+# the view a car that has not been driven is left in (ChaseCamera, the store).
+const EXPECTED_CYCLE: Array[String] = ["front", "overhead", "wheel", "chase", "cockpit"]
+
+## And the walk from there back to the chase view, where the checks after the
+## cycle start.
+const CYCLE_BACK_TO_CHASE: Array[String] = ["front", "overhead", "wheel", "chase"]
 
 ## The car's body in its own space [m]: 1.8 wide, 4.2 long, roof at ~1.35.
 const CAR_BOUNDS := AABB(Vector3(-0.9, 0.0, -2.1), Vector3(1.8, 1.4, 4.2))
@@ -76,7 +86,10 @@ func _run() -> void:
 	if not _check(car != null and camera != null, "car and camera exist"):
 		_finish()
 		return
-	_check(camera.mode_name() == "chase", "camera starts in chase view ('%s')" % camera.mode_name())
+	# was "camera starts in chase view" -> the cockpit: a car with no stored
+	# view is handed over inside it (ArcadeCar.camera_view, ChaseCamera._ready).
+	_check(camera.mode_name() == "cockpit" and car.camera_view == camera.Mode.COCKPIT, "camera starts in the cockpit on a car with no stored view ('%s', the car says %d)" % [camera.mode_name(), car.camera_view])
+	_check_stored_view(camera, car)
 	_check(main.get_node("HUD").visible, "HUD is visible")
 
 	for expected in EXPECTED_CYCLE:
@@ -88,6 +101,9 @@ func _run() -> void:
 			continue
 		_check(camera.current, "%s: the one camera stays current" % expected)
 		_check(main.get_node("HUD").visible, "%s: HUD stays visible" % expected)
+		# The car is what the store keeps a view in, and only the cycle key
+		# writes it there (ChaseCamera.cycle_mode).
+		_check(car.camera_view == camera.mode, "%s: the car remembers the view it is being driven in (%d)" % [expected, car.camera_view])
 
 		# Drive under this view, then judge where the camera sits while moving.
 		car.reset_to_spawn()
@@ -109,7 +125,11 @@ func _run() -> void:
 		Input.action_release("accelerate")
 		await _step(10)
 
-	_check(camera.mode_name() == "chase", "five presses end back in chase view ('%s')" % camera.mode_name())
+	_check(camera.mode_name() == "cockpit", "five presses come round to the cockpit view again ('%s')" % camera.mode_name())
+	# Round again to the chase view, where the checks after this one start.
+	for expected in CYCLE_BACK_TO_CHASE:
+		await _tap("camera_cycle")
+		_check(camera.mode_name() == expected and car.camera_view == camera.mode, "the cycle goes round again the same way (%s, got '%s')" % [expected, camera.mode_name()])
 	var dashboard := car.get_node_or_null("CockpitDashboard") as Node3D
 	_check(dashboard != null and not dashboard.visible, "cockpit dashboard is hidden outside the cockpit view")
 
@@ -120,6 +140,27 @@ func _run() -> void:
 	await _check_steering_wheel(camera, car)
 	_check_aim_clamp(camera, car)
 	_finish()
+
+
+## The view a camera comes up in is the one the car was left in: every view a
+## car can be left in is picked up as it stands (ChaseCamera._ready asks
+## _stored_mode for it), and anything else - the held rear view, a number no
+## view has - is the cockpit, as for a car that has not been driven. The car is
+## put back in the view it is in at the end: nothing here touches the camera.
+func _check_stored_view(camera: Camera3D, car: ArcadeCar) -> void:
+	var was: int = car.camera_view
+	var picked_up := 0
+	for view: int in [camera.Mode.CHASE, camera.Mode.COCKPIT, camera.Mode.FRONT, camera.Mode.OVERHEAD, camera.Mode.WHEEL]:
+		car.camera_view = view
+		if camera._stored_mode() == view:
+			picked_up += 1
+	var cockpit_instead := 0
+	for view: int in [camera.Mode.REAR, -1, 99]:
+		car.camera_view = view
+		if camera._stored_mode() == camera.Mode.COCKPIT:
+			cockpit_instead += 1
+	car.camera_view = was
+	_check(picked_up == 5 and cockpit_instead == 3 and camera.mode_name() == "cockpit", "stored view: a camera comes up in the view its car was left in (%d of 5), and in the cockpit for the held rear view or a view there is none of (%d of 3)" % [picked_up, cockpit_instead])
 
 
 ## Holds look_back from the chase view and from the cockpit. From chase: rear
@@ -141,6 +182,7 @@ func _check_look_back(camera: Camera3D, car: ArcadeCar) -> void:
 		Input.action_press("accelerate")
 		await _step(60)
 		_check(camera.mode_name() == "rear", "look-back from %s: holding look_back shows the rear view ('%s')" % [from, camera.mode_name()])
+		_check(car.camera_view == camera.Mode.CHASE, "look-back from %s: the held rear view is not one the car is left in - it still remembers the %s view (%d)" % [from, from, car.camera_view])
 		_check(camera.current, "look-back from %s: the one camera stays current" % from)
 		_check(car.forward_speed > 3.0, "look-back from %s: car drives under the rear view (%.1f m/s)" % [from, car.forward_speed])
 		_check_view("rear", camera, car)
