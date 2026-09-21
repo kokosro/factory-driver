@@ -1840,7 +1840,9 @@ var limiter_cutting := false
 
 ## Fuel left in the tank [L], 0 .. FUEL_TANK_CAPACITY_L (kept inside that, NaN
 ## is an empty tank). Burnt by the engine every tick (_run_engine_outputs),
-## filled by reset_to.
+## filled by reset_to. Kept from one session to the next where the odometer is
+## (_load_stored_fuel): the car starts with what it was left with, the full
+## tank below is a new car's - and every car's in the headless test suite.
 var fuel_l := FUEL_TANK_CAPACITY_L:
 	set(value):
 		fuel_l = 0.0 if is_nan(value) else clampf(value, 0.0, FUEL_TANK_CAPACITY_L)
@@ -2038,13 +2040,14 @@ var _corner_trim: Array[float] = [0.0, 0.0, 0.0, 0.0]
 var _stand_height := 0.0
 
 ## This car's name in the odometer file (see OdometerStore): one entry per car,
-## so the garage's cars can each keep their own.
+## so the garage's cars can each keep their own metres and their own fuel.
 # was a const -> read from the car's config (identity.car_id, required); the
 # certified value stays here as the fallback default.
 static var CAR_ID := "boxster_986"
 
 ## How often the odometer is written to its file while the car is driven [s of
-## physics time]; and once more when the car leaves the scene tree.
+## physics time], the fuel level with it; and once more when the car leaves the
+## scene tree.
 const ODOMETER_SAVE_INTERVAL := 45.0
 
 ## The odometer [m]: every metre this car has moved over the ground, whichever
@@ -2059,8 +2062,9 @@ var odometer_m := 0.0
 ## Where the car was when the odometer last counted; reset_to moves it along.
 var _odometer_from := Vector3.ZERO
 
-## Whether the odometer is kept in its file in this run (OdometerStore.enabled,
-## asked once), and the physics time since it was last written there [s].
+## Whether the odometer - and the fuel level with it - is kept in its file in
+## this run (OdometerStore.enabled, asked once), and the physics time since
+## they were last written there [s].
 var _odometer_kept := false
 var _since_odometer_save := 0.0
 
@@ -2087,20 +2091,40 @@ var _spawn_transform: Transform3D
 
 func _ready() -> void:
 	_read_config()
+	# was asked further down, for the odometer alone -> before the car is stood
+	# on its springs: the fuel it starts with is weight (_settle_suspension
+	# reads total_mass()). Once, here; never in reset_to, which fills the tank.
+	_odometer_kept = OdometerStore.enabled()
+	if _odometer_kept:
+		_load_stored_fuel()
 	_spawn_transform = global_transform
 	# The body floats on its springs over the floor; nothing may pull it onto
 	# it (CharacterBody3D snaps to a floor within 0.1 m by default).
 	floor_snap_length = 0.0
 	_settle_suspension(global_position.y)
 	_odometer_from = global_position
-	_odometer_kept = OdometerStore.enabled()
 	if _odometer_kept:
 		odometer_m = OdometerStore.load_odometer(CAR_ID)
 
 
 func _exit_tree() -> void:
 	if _odometer_kept:
-		OdometerStore.save_odometer(CAR_ID, odometer_m)
+		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l)
+
+
+## The tank as this car was left with it the last time (OdometerStore, from
+## `path`): fuel_l [L] and its mass with it - the setter of fuel_l keeps the
+## litres inside the tank and no more, fuel_mass [kg] is a number of its own
+## until the next tick. A car the file does not know starts on the full tank
+## the config gave it; a level in there that is none of this tank's is an error
+## and a full tank. Nothing refuels a car but reset_to: one left at 8 % starts
+## at 8 %.
+func _load_stored_fuel(path := OdometerStore.PATH) -> void:
+	var stored := OdometerStore.load_fuel(CAR_ID, FUEL_TANK_CAPACITY_L, path)
+	if stored.problem != "":
+		push_error(stored.problem)
+	fuel_l = stored.fuel_l
+	fuel_mass = fuel_l * FUEL_DENSITY
 
 
 ## Makes this car the one its config describes (CONFIG_PATH), before anything
@@ -2541,7 +2565,9 @@ func _physics_process(delta: float) -> void:
 
 ## The way the body got over the ground this tick goes on the odometer (level
 ## distance, x and z; anything not finite is no way at all), and every
-## ODOMETER_SAVE_INTERVAL the odometer goes to its file, where that is on.
+## ODOMETER_SAVE_INTERVAL the odometer goes to its file, where that is on - and
+## the fuel level as it stands with it: after a reset that is the full tank the
+## reset put in, which is what the car has.
 func _count_odometer(delta: float) -> void:
 	var way := Vector2(global_position.x - _odometer_from.x, global_position.z - _odometer_from.z).length()
 	if is_finite(way):
@@ -2552,7 +2578,8 @@ func _count_odometer(delta: float) -> void:
 	_since_odometer_save += delta
 	if _since_odometer_save >= ODOMETER_SAVE_INTERVAL:
 		_since_odometer_save = 0.0
-		OdometerStore.save_odometer(CAR_ID, odometer_m)
+		# was save_odometer -> the fuel in the tank goes with it, in the one write.
+		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l)
 
 
 ## Puts the car back where the scene placed it, at rest, in 1st, automatic, the
