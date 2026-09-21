@@ -32,7 +32,15 @@ extends SceneTree
 ## slows the car and rides level, a test's payload_kg is loaded at its start),
 ## the exhaust as data (three firings a turn, a flow that follows the throttle)
 ## and the creep (the brake let go at a standstill, automatic only, a crawl
-## under the standstill speed). Last comes the telemetry recorder: a real mission
+## under the standstill speed). Then the driver's controls: the TCS and ABS
+## switches (a launch with the clutch let in for good and the wheels spinning, a
+## stop on locked front wheels that is longer and does not steer), the clutch
+## pedal (manual only; held, the car goes nowhere, let go on a revving engine it
+## is a dump, let go on an idling one a stall), the stall and the starter (a
+## stopped engine burns and fires nothing, a stalled car does not creep, the
+## starter catches it, a dry tank never does), reverse under neutral on the
+## shift keys, the automatic's comfort and sport programs, and the telemetry's
+## two pedal fields reading the pedals. Last comes the telemetry recorder: a real mission
 ## driven with it switched on, its JSON-lines file read back and checked line
 ## by line (see _check_telemetry - it writes to a fixed tmp path, never to
 ## user://, and asserts nothing that comes off the wall clock).
@@ -514,6 +522,53 @@ const CREEP_MAX_CRAWL := 0.5
 ## ... and frames a car nobody has touched is watched standing still (5 s).
 const CREEP_UNTOUCHED_FRAMES := 300
 
+## Driver's controls. A launch is watched for 2 s: the clutch is home and the
+## wheelspin of a launch without TCS at its height well inside that.
+const CONTROLS_LAUNCH_FRAMES := 120
+
+## A launch without TCS has to spin the driven wheels at least this far past
+## what the TCS holds them at (slip ratio, no unit): real wheelspin, several
+## times DRIVE_SLIP_RATIO, not a rounding difference.
+const CONTROLS_MIN_WHEELSPIN := 1.0
+
+## Speed the two stops start from [m/s], 90 km/h.
+const CONTROLS_BRAKE_SPEED := 25.0
+
+## A stop on locked front wheels has to be at least this much longer than the
+## same stop with ABS (a share, no unit): the fronts slide on TYRE_SLIDE_GRIP
+## 0.85 where the ABS holds them near their peak; measured ~6 %.
+const CONTROLS_MIN_LOCKED_STOP_SHARE := 1.03
+
+## Frames of full brake and full left lock from CONTROLS_BRAKE_SPEED, 1 s, and
+## the most a car on locked fronts may turn in that time as a share of what the
+## same car turns with ABS.
+const CONTROLS_STEER_FRAMES := 60
+const CONTROLS_LOCKED_MAX_TURN_SHARE := 0.25
+
+## Frames the clutch pedal is given to get to the floor (it takes 12), and the
+## frames of full throttle against it, 2 s.
+const CONTROLS_CLUTCH_FRAMES := 20
+const CONTROLS_CLUTCH_HOLD_FRAMES := 120
+
+## Frames a stopped engine is watched for (nothing burnt, nothing fired), and
+## the frames the starter is held, 1 s.
+const CONTROLS_STALLED_FRAMES := 60
+
+## The starter has to have the engine caught within this [s], and the idle
+## controller has it back at idle (within CONTROLS_IDLE_TOLERANCE rpm) 2 s on.
+const CONTROLS_MAX_START_TIME := 0.5
+const CONTROLS_IDLE_FRAMES := 120
+const CONTROLS_IDLE_TOLERANCE := 20.0
+
+## Frames of full throttle the two shift programs are compared over, 10 s: the
+## sport program is in 3rd by then, comfort in 4th.
+const CONTROLS_MODE_FRAMES := 600
+
+## Frames of half throttle, then of half brake, recorded for the telemetry
+## check, 1 s each, and the file they go to (next to the telemetry phase's own).
+const CONTROLS_PEDAL_FRAMES := 60
+const CONTROLS_TELEMETRY_FILE := TELEMETRY_DIR + "/pedals.jsonl"
+
 var _failures := 0
 
 
@@ -761,6 +816,7 @@ func _run() -> void:
 	await _check_fuel_and_exhaust(car, hud as HUD)
 	await _check_mass_and_payload(main.get_node("TestPad") as TestPad, car)
 	await _check_creep(car)
+	await _check_driver_controls(main, car)
 	await _check_telemetry(main, car)
 
 	_finish()
@@ -2399,6 +2455,364 @@ func _check_creep(car: ArcadeCar) -> void:
 	_check(stopped and not car.automatic and car.gear == 1 and absf(car.forward_speed) < 0.01, "creep: none in manual mode (%.3f m/s, %.0f s after the brake was let go in 1st)" % [car.forward_speed, CREEP_UNTOUCHED_FRAMES * tick])
 	car.reset_to_spawn()
 	await _step(5)
+
+
+## The driver's controls: what the TCS, ABS and gearbox mode switches, the
+## clutch pedal, the starter and the shift keys' way into reverse do.
+func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
+	var tick := 1.0 / Engine.physics_ticks_per_second
+	var rpm_label := main.get_node("HUD/RpmLabel") as Label
+	var tcs_lamp := main.get_node_or_null("HUD/TcsLamp") as Label
+	var abs_lamp := main.get_node_or_null("HUD/AbsLamp") as Label
+	var in_range := true
+
+	# (1) The switches: on, on and sport unless somebody flips them, a key each,
+	# a lamp for each aid, and a reset leaves them alone.
+	car.reset_to_spawn()
+	await _step(5)
+	_check(car.tcs_on and car.abs_on and car.gearbox_mode == ArcadeCar.GearboxMode.SPORT and car.engine_running and car.clutch_pedal == 0.0, "controls: the car starts with TCS and ABS on, in the sport program, the engine running, the clutch pedal up")
+	_check(tcs_lamp != null and abs_lamp != null and tcs_lamp.text == "TCS" and abs_lamp.text == "ABS" and tcs_lamp.get_theme_color("font_color") == HUD.AID_ON_COLOR, "controls: the HUD's two aid lamps are quiet while the aids are on ('%s', '%s', dim)" % [tcs_lamp.text if tcs_lamp else "?", abs_lamp.text if abs_lamp else "?"])
+	await _tap("tcs_toggle")
+	await _tap("abs_toggle")
+	await _tap("gearbox_mode")
+	await _step(2)
+	_check(not car.tcs_on and not car.abs_on and car.gearbox_mode == ArcadeCar.GearboxMode.COMFORT, "controls: the TCS, ABS and gearbox mode keys flip their switches (TCS %s, ABS %s, comfort %s)" % [car.tcs_on, car.abs_on, car.gearbox_mode == ArcadeCar.GearboxMode.COMFORT])
+	_check(tcs_lamp.text == "TCS OFF" and abs_lamp.text == "ABS OFF" and abs_lamp.get_theme_color("font_color") == HUD.AID_OFF_COLOR and rpm_label.text.ends_with("G1 comfort"), "controls: the lamps light up and say OFF, the tach names the comfort program ('%s', '%s', '%s')" % [tcs_lamp.text, abs_lamp.text, rpm_label.text])
+	car.reset_to_spawn()
+	await _step(5)
+	_check(not car.tcs_on and not car.abs_on and car.gearbox_mode == ArcadeCar.GearboxMode.COMFORT and car.automatic, "controls: a reset leaves the switches as the driver has them (it puts the car back, not the dashboard)")
+	await _tap("tcs_toggle")
+	await _tap("abs_toggle")
+	await _tap("gearbox_mode")
+	await _step(2)
+	_check(car.tcs_on and car.abs_on and car.gearbox_mode == ArcadeCar.GearboxMode.SPORT and tcs_lamp.text == "TCS" and abs_lamp.text == "ABS" and rpm_label.text.ends_with("G1"), "controls: the same keys switch them back on, the HUD is quiet again ('%s')" % rpm_label.text)
+
+	# (2) TCS: the same launch with and without. With, the clutch is feathered
+	# and the driven wheels held at DRIVE_SLIP_RATIO; without, the clutch is let
+	# in for good once the revs are up and the tyres are spun past their peak.
+	var with_tcs := await _controls_launch(car)
+	car.tcs_on = false
+	var without_tcs := await _controls_launch(car)
+	car.tcs_on = true
+	_check(with_tcs.peak_slip > ArcadeCar.PEAK_SLIP_RATIO * 0.5 and with_tcs.peak_slip <= ArcadeCar.DRIVE_SLIP_RATIO + 0.001, "controls: with TCS a launch never spins the rears past the slip the clutch is feathered to (peak slip ratio %.3f, limit %.2f)" % [with_tcs.peak_slip, ArcadeCar.DRIVE_SLIP_RATIO])
+	_check(without_tcs.peak_slip > with_tcs.peak_slip + CONTROLS_MIN_WHEELSPIN and without_tcs.peak_slip > ArcadeCar.PEAK_SLIP_RATIO, "controls: without it the clutch dumps and the rears spin far past their peak (peak slip ratio %.2f against %.3f, the tyres' peak is at %.2f)" % [without_tcs.peak_slip, with_tcs.peak_slip, ArcadeCar.PEAK_SLIP_RATIO])
+	_check(without_tcs.locked_at > 0.0 and without_tcs.locked_at < with_tcs.locked_at, "controls: without TCS the clutch is home sooner, on spinning wheels (%.2f s after the key against %.2f s)" % [without_tcs.locked_at, with_tcs.locked_at])
+	_check(without_tcs.running and without_tcs.speed > with_tcs.speed * 0.8 and without_tcs.min_rpm >= ArcadeCar.IDLE_RPM - 1.0 and without_tcs.max_rpm <= ArcadeCar.REDLINE_RPM + 100.0, "controls: the car still gets away and the engine never comes near a stall (%.1f m/s after %.0f s against %.1f, %d..%d rpm)" % [without_tcs.speed, CONTROLS_LAUNCH_FRAMES * tick, with_tcs.speed, without_tcs.min_rpm, without_tcs.max_rpm])
+	_check(with_tcs.finite and without_tcs.finite, "controls: no NaN / inf through either launch")
+
+	# (3) ABS: the same full stop with and without, then the same stop with the
+	# steering wheel turned.
+	var with_abs := await _controls_stop(car, 0.0)
+	car.abs_on = false
+	var without_abs := await _controls_stop(car, 0.0)
+	car.abs_on = true
+	_check(with_abs.stopped and with_abs.locked_ticks == 0 and with_abs.min_front_omega > 0.0, "controls: with ABS a full pedal from %.0f km/h never locks a wheel (front wheels never slower than %.1f rad/s above walking pace)" % [CONTROLS_BRAKE_SPEED * 3.6, with_abs.min_front_omega])
+	_check(without_abs.stopped and without_abs.locked_ticks > without_abs.moving_ticks * 0.8 and without_abs.min_front_slip <= -0.999, "controls: without it the front wheels lock: wheel speed 0 with the car still moving, slip ratio %.2f, for %d of the stop's %d ticks" % [without_abs.min_front_slip, without_abs.locked_ticks, without_abs.moving_ticks])
+	_check(without_abs.distance > with_abs.distance * CONTROLS_MIN_LOCKED_STOP_SHARE, "controls: the locked stop is the longer one (%.1f m against %.1f m with ABS)" % [without_abs.distance, with_abs.distance])
+	_check(with_abs.finite and without_abs.finite and absf(without_abs.drift) < 0.05 and absf(with_abs.drift) < 0.05, "controls: both stops are finite and dead straight (%.3f and %.3f m off line)" % [with_abs.drift, without_abs.drift])
+	var steered_with_abs := await _controls_stop(car, 1.0)
+	car.abs_on = false
+	var steered_without_abs := await _controls_stop(car, 1.0)
+	car.abs_on = true
+	_check(steered_with_abs.turned > 0.1 and absf(steered_without_abs.turned) < steered_with_abs.turned * CONTROLS_LOCKED_MAX_TURN_SHARE, "controls: locked front wheels do not steer (full lock on the brakes for %.0f s turns the car %.1f degrees, %.1f with ABS)" % [CONTROLS_STEER_FRAMES * tick, rad_to_deg(steered_without_abs.turned), rad_to_deg(steered_with_abs.turned)])
+	_check(steered_without_abs.rolling_again, "controls: the pedal let go, the front wheels roll again (%.1f rad/s a second later, the road passes at %.1f)" % [steered_without_abs.front_omega_after, steered_without_abs.road_omega_after])
+
+	# (4) The clutch pedal: manual mode, the left foot. Held, the clutch is open
+	# whatever the throttle does; let go on a revving engine it is a dump.
+	car.reset_to_spawn()
+	car.automatic = false
+	await _step(5)
+	Input.action_press("clutch_pedal")
+	var pedal_ticks := 0
+	for frame in CONTROLS_CLUTCH_FRAMES:
+		await physics_frame
+		in_range = in_range and car.clutch_pedal >= 0.0 and car.clutch_pedal <= 1.0
+		if car.clutch_pedal < 1.0:
+			pedal_ticks = frame + 2
+	_check(car.clutch_pedal == 1.0 and pedal_ticks == roundi(60.0 / ArcadeCar.CLUTCH_PEDAL_SPEED), "controls: the clutch key is a foot going down, on the floor after %d ticks (%.2f s)" % [pedal_ticks, pedal_ticks * tick])
+	Input.action_press("accelerate")
+	var stood := true
+	for frame in CONTROLS_CLUTCH_HOLD_FRAMES:
+		await physics_frame
+		stood = stood and car.forward_speed == 0.0 and car.clutch_torque == 0.0 and car.clutch_engagement == 0.0
+	_check(stood and car.engine_rpm > ArcadeCar.LIMITER_RESUME_RPM - 100.0, "controls: clutch pedal down, full throttle for %.0f s revs the engine to the limiter and moves the car nowhere (%.3f m/s, %d rpm)" % [CONTROLS_CLUTCH_HOLD_FRAMES * tick, car.forward_speed, car.engine_rpm])
+	Input.action_release("clutch_pedal")
+	var dump_slip := 0.0
+	var dump_finite := true
+	for frame in CONTROLS_LAUNCH_FRAMES:
+		await physics_frame
+		dump_slip = maxf(dump_slip, car.rear_slip_ratio)
+		dump_finite = dump_finite and is_finite(car.forward_speed) and is_finite(car.engine_rpm) and is_finite(car.clutch_torque) and is_finite(car.rear_slip_ratio)
+		in_range = in_range and car.clutch_pedal >= 0.0 and car.clutch_pedal <= 1.0
+	Input.action_release("accelerate")
+	_check(car.tcs_on and dump_slip > without_tcs.peak_slip and car.forward_speed > 5.0 and car.engine_running and dump_finite, "controls: let go at the limiter it is a clutch dump, TCS or not: the driver's foot wins over the car's feathering (peak slip ratio %.1f, %.1f m/s after %.0f s)" % [dump_slip, car.forward_speed, CONTROLS_LAUNCH_FRAMES * tick])
+	car.reset_to_spawn()
+	await _step(5)
+	Input.action_press("clutch_pedal")
+	await _step(CONTROLS_CLUTCH_FRAMES)
+	var pedal_in_automatic := car.clutch_pedal
+	Input.action_press("accelerate")
+	await _step(CONTROLS_LAUNCH_FRAMES)
+	Input.action_release("accelerate")
+	Input.action_release("clutch_pedal")
+	# (To the millimetre a second, not to the bit: the car idled a third of a
+	# second longer before this launch, and is that much fuel lighter.)
+	_check(car.automatic and pedal_in_automatic == 0.0 and car.clutch_locked and absf(car.forward_speed - with_tcs.speed) < 0.001, "controls: in automatic there is no clutch pedal: the key held, the launch is the launch (%.3f m/s after %.0f s, %.3f without the key)" % [car.forward_speed, CONTROLS_LAUNCH_FRAMES * tick, with_tcs.speed])
+
+	# (5) The stall: the pedal let go on an idling engine with the throttle only
+	# just going down. The clutch is in before the revs are up and drags the
+	# engine under STALL_RPM. Nothing burns, nothing fires, the tach falls to 0.
+	car.reset_to_spawn()
+	car.automatic = false
+	await _step(5)
+	Input.action_press("clutch_pedal")
+	await _step(CONTROLS_CLUTCH_FRAMES)
+	Input.action_release("clutch_pedal")
+	Input.action_press("accelerate")
+	var stalled_at := -1.0
+	for frame in CONTROLS_LAUNCH_FRAMES:
+		await physics_frame
+		if not car.engine_running:
+			stalled_at = (frame + 1) * tick
+			break
+	await _step(2)
+	_check(stalled_at > 0.0 and not car.engine_running, "controls: the clutch pedal let go on an idling engine as the throttle goes down stalls it (%.2f s after the release, the car lurched to %.2f m/s)" % [stalled_at, car.forward_speed])
+	_check(car.throttle_pedal == 1.0 and car.clutch_engagement == 0.0 and car.clutch_torque == 0.0, "controls: the throttle does nothing for a stalled engine, and the car lets its clutch go (throttle pedal %.2f, clutch %.1f Nm)" % [car.throttle_pedal, absf(car.clutch_torque)])
+	Input.action_release("accelerate")
+
+	# A stalled automatic does not creep. The lurch of the stall still has the
+	# car rolling: stopped on the brake, the brake held and let go (what starts
+	# the creep of a running car, see _check_creep), it stands.
+	await _tap("toggle_gearbox")
+	var lurch_speed := car.forward_speed
+	Input.action_press("brake")
+	await _step(CREEP_HOLD_FRAMES)
+	var held_at_rest := car.forward_speed == 0.0
+	Input.action_release("brake")
+	await _step(CREEP_UNTOUCHED_FRAMES)
+	_check(lurch_speed > ArcadeCar.STANDSTILL_SPEED and held_at_rest and car.automatic and car.gear == 1 and not car.reverse_engaged and not car.engine_running and car.forward_speed == 0.0, "controls: a stalled car does not creep (automatic, 1st, stopped from %.2f m/s and held on the brake, %.3f m/s %.0f s after the brake was let go)" % [lurch_speed, car.forward_speed, CREEP_UNTOUCHED_FRAMES * tick])
+	var fuel_stalled := car.fuel_l
+	var events_stalled := car.exhaust_events
+	await _step(CONTROLS_STALLED_FRAMES)
+	_check(car.engine_rpm == 0.0 and rpm_label.text.begins_with("0 rpm") and rpm_label.text.ends_with("STALL"), "controls: the tach has fallen to 0 and says so ('%s')" % rpm_label.text)
+	_check(car.fuel_l == fuel_stalled and car.exhaust_events == events_stalled and car.exhaust_flow < 0.001, "controls: a stalled engine burns nothing and fires nothing (%.6f L and %.1f events, unchanged over %.0f s; exhaust flow %.4f)" % [car.fuel_l, car.exhaust_events, CONTROLS_STALLED_FRAMES * tick, car.exhaust_flow])
+
+	# (6) The starter: held, it turns the engine until it catches, and the idle
+	# controller takes it from there.
+	var fuel_before_start := car.fuel_l
+	Input.action_press("starter")
+	var caught_at := -1.0
+	var fuel_at_catch := 0.0
+	for frame in CONTROLS_STALLED_FRAMES:
+		await physics_frame
+		if caught_at < 0.0 and car.engine_running:
+			caught_at = (frame + 1) * tick
+			fuel_at_catch = car.fuel_l
+	Input.action_release("starter")
+	_check(caught_at > 0.0 and caught_at < CONTROLS_MAX_START_TIME and fuel_at_catch == fuel_before_start, "controls: the starter key turns the engine until it catches, and cranking burns no fuel (caught after %.2f s)" % caught_at)
+	await _step(CONTROLS_IDLE_FRAMES)
+	_check(car.engine_running and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < CONTROLS_IDLE_TOLERANCE and car.fuel_l < fuel_before_start and car.exhaust_events > events_stalled and not rpm_label.text.contains("STALL"), "controls: caught, the idle controller has it and it burns and fires again (%d rpm, '%s')" % [car.engine_rpm, rpm_label.text])
+	Input.action_press("starter")
+	var idle_stats := _new_stats()
+	await _drive(car, CONTROLS_STALLED_FRAMES, idle_stats)
+	Input.action_release("starter")
+	_check(idle_stats.max_rpm - idle_stats.min_rpm < CONTROLS_IDLE_TOLERANCE and idle_stats.finite, "controls: the starter leaves a running engine alone (%d..%d rpm with the key held)" % [idle_stats.min_rpm, idle_stats.max_rpm])
+
+	# A dry tank: the engine runs down and stops running, the starter spins it
+	# and it never catches; fuel in the tank, it does.
+	car.fuel_l = 0.0
+	await _step(FUEL_DRY_RUN_DOWN_FRAMES)
+	var ran_down := not car.engine_running and car.engine_rpm == 0.0
+	Input.action_press("starter")
+	await _step(CONTROLS_IDLE_FRAMES)
+	_check(ran_down and not car.engine_running and car.engine_rpm > ArcadeCar.STALL_RPM and car.engine_rpm < ArcadeCar.STARTER_FREE_RPM and car.fuel_l == 0.0, "controls: on a dry tank the engine stops and the starter only spins it (%d rpm after %.0f s of cranking, not running)" % [car.engine_rpm, CONTROLS_IDLE_FRAMES * tick])
+	car.fuel_l = ArcadeCar.FUEL_TANK_CAPACITY_L
+	await _step(CONTROLS_STALLED_FRAMES)
+	Input.action_release("starter")
+	_check(car.engine_running, "controls: fuel in the tank, the same cranking engine catches (%d rpm)" % car.engine_rpm)
+	car.fuel_l = 0.0
+	await _step(FUEL_DRY_RUN_DOWN_FRAMES)
+	var dead := not car.engine_running
+	car.reset_to_spawn()
+	await _step(CONTROLS_STALLED_FRAMES)
+	_check(dead and car.engine_running and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < CONTROLS_IDLE_TOLERANCE, "controls: a reset starts a stopped engine: the car is put there ready to drive (%d rpm)" % car.engine_rpm)
+
+	# (7) Reverse on the shift keys: under neutral, at a standstill.
+	await _tap("shift_down")
+	await _step(roundi(ArcadeCar.SHIFT_TIME * 60.0) + 3)
+	var in_neutral := car.gear == 0 and not car.reverse_engaged
+	await _tap("shift_down")
+	await _step(roundi(ArcadeCar.SHIFT_TIME * 60.0) + 3)
+	_check(in_neutral and car.reverse_engaged and not car.automatic and rpm_label.text.ends_with("R M"), "controls: shift-down from 1st is neutral as ever, one more from neutral is reverse ('%s')" % rpm_label.text)
+	_check(not car.shift_down() and car.reverse_engaged, "controls: there is nothing under reverse")
+	Input.action_press("brake")
+	await _step(CONTROLS_LAUNCH_FRAMES)
+	Input.action_release("brake")
+	var backing_speed := car.forward_speed
+	_check(backing_speed < -3.0 and car.reverse_engaged, "controls: in reverse the brake key is the throttle, as it is when the brake key selected it (%.1f m/s)" % backing_speed)
+	await _tap("shift_up")
+	await _step(roundi(ArcadeCar.SHIFT_TIME * 60.0) + 3)
+	_check(car.gear == 0 and not car.reverse_engaged and rpm_label.text.ends_with("N M"), "controls: shift-up out of reverse is neutral ('%s', still rolling back at %.1f m/s)" % [rpm_label.text, car.forward_speed])
+	car.reset_to_spawn()
+	await _step(5)
+	Input.action_press("accelerate")
+	await _step(CREEP_RUN_UP_FRAMES)
+	Input.action_release("accelerate")
+	await _tap("shift_down")
+	await _step(roundi(ArcadeCar.SHIFT_TIME * 60.0) + 3)
+	var rolling_speed := car.forward_speed
+	var rolling_in_neutral := car.gear == 0
+	await _tap("shift_down")
+	await _step(roundi(ArcadeCar.SHIFT_TIME * 60.0) + 3)
+	_check(rolling_in_neutral and rolling_speed > ArcadeCar.STANDSTILL_SPEED and not car.reverse_engaged and car.gear == 0 and car.forward_speed > 0.0, "controls: rolling forwards the box refuses reverse and stays in neutral (%.1f m/s)" % rolling_speed)
+	await _tap("shift_up")
+	await _step(roundi(ArcadeCar.SHIFT_TIME * 60.0) + 3)
+	_check(car.gear == 1 and not car.reverse_engaged, "controls: shift-up from neutral is 1st again (G%d)" % car.gear)
+	await _tap("toggle_gearbox")
+	var never_reversed := true
+	for frame in CREEP_WATCH_FRAMES:
+		await physics_frame
+		never_reversed = never_reversed and not car.reverse_engaged and car.gear >= 1
+	_check(car.automatic and never_reversed, "controls: the automatic never takes reverse by itself, coasting down to a crawl it is in G%d" % car.gear)
+
+	# (8) Comfort and sport: the same 8 s flat out from rest.
+	var sport := await _controls_shift_program(car, ArcadeCar.GearboxMode.SPORT, true)
+	var comfort := await _controls_shift_program(car, ArcadeCar.GearboxMode.COMFORT, true)
+	_check(sport.first_shift_rpm >= ArcadeCar.UPSHIFT_RPM and comfort.first_shift_rpm >= ArcadeCar.COMFORT_UPSHIFT_RPM and comfort.first_shift_rpm < sport.first_shift_rpm - 2000.0, "controls: flat out, comfort leaves 1st at %d rpm where sport holds it to %d" % [comfort.first_shift_rpm, sport.first_shift_rpm])
+	_check(comfort.gear > sport.gear and comfort.speed < sport.speed and comfort.peak_rpm < sport.peak_rpm, "controls: %.0f s on comfort end a gear further up the box and slower (G%d at %.1f m/s, never over %d rpm; sport G%d at %.1f m/s)" % [CONTROLS_MODE_FRAMES * tick, comfort.gear, comfort.speed, comfort.peak_rpm, sport.gear, sport.speed])
+	var manual_comfort := await _controls_shift_program(car, ArcadeCar.GearboxMode.COMFORT, false)
+	_check(manual_comfort.gear == 1 and manual_comfort.peak_rpm > ArcadeCar.UPSHIFT_RPM and manual_comfort.first_shift_rpm == 0.0, "controls: manual mode knows neither program: 1st is held to the limiter (G%d, %d rpm)" % [manual_comfort.gear, manual_comfort.peak_rpm])
+	_check(sport.finite and comfort.finite and manual_comfort.finite and car.gearbox_mode == ArcadeCar.GearboxMode.SPORT, "controls: no NaN / inf through the three runs, and the car is back on sport")
+
+	# (9) Telemetry: the throttle and brake fields are the pedals. Half a pedal
+	# asked for through set_driver_input, no key down, reads half in the file.
+	var manager := main.get_node_or_null("MissionManager") as MissionManager
+	var recorder: TelemetryRecorder = manager.telemetry if manager else null
+	if _check(recorder != null and not recorder.recording, "controls: the telemetry recorder is there and idle"):
+		if FileAccess.file_exists(CONTROLS_TELEMETRY_FILE):
+			DirAccess.remove_absolute(CONTROLS_TELEMETRY_FILE)
+		car.reset_to_spawn()
+		await _step(5)
+		recorder.record_to_file(CONTROLS_TELEMETRY_FILE)
+		car.set_driver_input(0.5, 0.0, 0.0)
+		await _step(CONTROLS_PEDAL_FRAMES)
+		var throttle_was := car.throttle_pedal
+		car.set_driver_input(0.0, 0.5, 0.0)
+		await _step(CONTROLS_PEDAL_FRAMES)
+		var brake_was := car.brake_pedal
+		await _step(2)
+		recorder.stop()
+		car.clear_driver_input()
+		var peak_throttle := 0.0
+		var peak_brake := 0.0
+		var samples := 0
+		for raw in FileAccess.get_file_as_string(CONTROLS_TELEMETRY_FILE).split("\n"):
+			var value: Variant = JSON.parse_string(raw) if not raw.strip_edges().is_empty() else null
+			if value is Dictionary and (value as Dictionary).has("throttle"):
+				samples += 1
+				peak_throttle = maxf(peak_throttle, float(value.throttle))
+				peak_brake = maxf(peak_brake, float(value.brake))
+		_check(samples >= 3 and throttle_was == 0.5 and absf(brake_was - 0.5) < 0.001 and absf(peak_throttle - 0.5) < 0.001 and absf(peak_brake - 0.5) < 0.001 and not Input.is_action_pressed("accelerate"), "controls: the telemetry's throttle and brake are the pedals: half a pedal with no key down reads %.3f and %.3f (%d samples)" % [peak_throttle, peak_brake, samples])
+
+	_check(in_range and car.clutch_pedal == 0.0 and car.tcs_on and car.abs_on, "controls: the clutch pedal stayed inside 0..1 throughout, and the aids are back on")
+	car.reset_to_spawn()
+	await _step(5)
+
+
+## Full throttle from rest for CONTROLS_LAUNCH_FRAMES: the peak slip ratio of
+## the driven rears, the speed at the end, when the clutch locked [s], the rev
+## range, whether the engine was still running and everything stayed finite.
+func _controls_launch(car: ArcadeCar) -> Dictionary:
+	car.reset_to_spawn()
+	await _step(10)
+	var seen := {"peak_slip": 0.0, "speed": 0.0, "locked_at": -1.0, "min_rpm": INF, "max_rpm": 0.0, "running": true, "finite": true}
+	Input.action_press("accelerate")
+	for frame in CONTROLS_LAUNCH_FRAMES:
+		await physics_frame
+		seen.peak_slip = maxf(seen.peak_slip, car.rear_slip_ratio)
+		seen.min_rpm = minf(seen.min_rpm, car.engine_rpm)
+		seen.max_rpm = maxf(seen.max_rpm, car.engine_rpm)
+		if seen.locked_at < 0.0 and car.clutch_locked:
+			seen.locked_at = (frame + 1) / float(Engine.physics_ticks_per_second)
+		seen.finite = seen.finite and is_finite(car.forward_speed) and is_finite(car.engine_rpm) and is_finite(car.rear_slip_ratio) and is_finite(car.clutch_torque) and car.global_position.is_finite()
+	Input.action_release("accelerate")
+	seen.speed = car.forward_speed
+	seen.running = car.engine_running
+	return seen
+
+
+## A full stop from CONTROLS_BRAKE_SPEED, the steering asked for `steer_left`
+## of its lock (0 = straight) for the first CONTROLS_STEER_FRAMES of it: the
+## stopping distance [m], the ticks the car was still moving above walking pace
+## and those of them the front wheels stood still, their lowest speed and slip
+## ratio meanwhile, how far off its line the car ended [m], how far it turned
+## in the steered part [rad], and, the pedal let go after that part of a
+## steered stop, whether the front wheels picked the road's speed up again.
+func _controls_stop(car: ArcadeCar, steer_left: float) -> Dictionary:
+	await _reach_speed(car, CONTROLS_BRAKE_SPEED)
+	var seen := {
+		"stopped": false, "distance": 0.0, "moving_ticks": 0, "locked_ticks": 0, "min_front_omega": INF,
+		"min_front_slip": 0.0, "drift": 0.0, "turned": 0.0, "finite": true,
+		"rolling_again": false, "front_omega_after": 0.0, "road_omega_after": 0.0,
+	}
+	var start := car.global_position
+	var yaw_before := car.global_rotation.y
+	Input.action_press("brake")
+	if steer_left > 0.0:
+		Input.action_press("steer_left", steer_left)
+	for frame in CREEP_WATCH_FRAMES:
+		await physics_frame
+		if car.forward_speed > CRAWL_SPEED:
+			seen.moving_ticks += 1
+			seen.min_front_omega = minf(seen.min_front_omega, car.front_omega)
+			seen.min_front_slip = minf(seen.min_front_slip, car.front_slip_ratio)
+			if car.front_omega == 0.0:
+				seen.locked_ticks += 1
+		seen.finite = seen.finite and is_finite(car.forward_speed) and is_finite(car.front_omega) and is_finite(car.rear_omega) and is_finite(car.front_slip_ratio) and is_finite(car.yaw_rate) and car.global_position.is_finite()
+		if steer_left > 0.0 and frame + 1 == CONTROLS_STEER_FRAMES:
+			break
+		if car.forward_speed == 0.0:
+			seen.stopped = true
+			break
+	Input.action_release("brake")
+	Input.action_release("steer_left")
+	seen.distance = car.global_position.distance_to(start)
+	seen.drift = car.global_position.x - start.x
+	seen.turned = angle_difference(yaw_before, car.global_rotation.y)
+	if steer_left > 0.0:
+		await _step(60)
+		seen.front_omega_after = car.front_omega
+		seen.road_omega_after = car.forward_speed / ArcadeCar.WHEEL_RADIUS
+		seen.rolling_again = car.forward_speed > CRAWL_SPEED and absf(car.front_slip_ratio) < 0.05
+	return seen
+
+
+## CONTROLS_MODE_FRAMES flat out from rest on the automatic's `mode` program (or
+## in manual mode, `automatic` false, with that program selected): the engine
+## speed the road was turning 1st at on the tick the box left it [rpm] (0 if it
+## never did), the gear and speed at the end, the highest engine speed seen.
+## Leaves the car on the sport program.
+func _controls_shift_program(car: ArcadeCar, mode: ArcadeCar.GearboxMode, automatic: bool) -> Dictionary:
+	car.reset_to_spawn()
+	car.gearbox_mode = mode
+	car.automatic = automatic
+	await _step(10)
+	var seen := {"first_shift_rpm": 0.0, "gear": 0, "speed": 0.0, "peak_rpm": 0.0, "finite": true}
+	var rpm_in_first := 0.0
+	Input.action_press("accelerate")
+	for frame in CONTROLS_MODE_FRAMES:
+		await physics_frame
+		if car.gear == 1:
+			rpm_in_first = car.wheel_rpm(1)
+		elif seen.first_shift_rpm == 0.0:
+			seen.first_shift_rpm = rpm_in_first
+		seen.peak_rpm = maxf(seen.peak_rpm, car.engine_rpm)
+		seen.finite = seen.finite and is_finite(car.forward_speed) and is_finite(car.engine_rpm)
+	Input.action_release("accelerate")
+	seen.gear = car.gear
+	seen.speed = car.forward_speed
+	car.gearbox_mode = ArcadeCar.GearboxMode.SPORT
+	return seen
 
 
 ## CREEP_RUN_UP_FRAMES of throttle, then onto the brake until the car stands:
