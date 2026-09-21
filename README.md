@@ -453,14 +453,16 @@ its steering held off and one 180 left parked where it stopped, which both have 
 out FAILED, and an abort).
 
 The smoke test's last phase is the telemetry recorder (below): it switches the recorder
-on in process, points it at `/tmp/fd-3E-telemetry/smoke.jsonl`, starts a real mission
+on in process, points it at `smoke.jsonl` in a tmp dir of the run's own
+(`/tmp/fd-3R-smoke-<pid>/`, made by the test, removed when it finishes, so that two
+suites can run side by side), starts a real mission
 through the mission manager, drives it for 2.5 s, aborts, and reads the file back line
 by line - every line one JSON object, the first the `session_start`, every sample
 carrying the car's state and every mission sample the run with it, the mission samples
 exactly 5 physics ticks apart and the free ones 30, the last line `{"event":"aborted"}`.
 Nothing that comes off the wall clock is asserted, and nothing is written under
 `user://` (a headless run records nothing by itself, and the phase's own recording goes
-to that fixed tmp path), so the suite reads the same on every run.
+to that tmp dir, whose name is never printed), so the suite reads the same on every run.
 
 After the telemetry come the tyre marks (below): none while the tyres grip (flat
 out with TCS, a full pedal with ABS), trails under a handbrake slide, every mark a tyre

@@ -44,7 +44,7 @@ extends SceneTree
 ## mode key seats, eco's throttle ceiling, fuel and drive cycle), and the telemetry's
 ## two pedal fields reading the pedals. Then the telemetry recorder: a real mission
 ## driven with it switched on, its JSON-lines file read back and checked line
-## by line (see _check_telemetry - it writes to a fixed tmp path, never to
+## by line (see _check_telemetry - it writes to a tmp dir of its own, never to
 ## user://, and asserts nothing that comes off the wall clock). Last come the
 ## tyre marks: none while the tyres grip, trails under a handbrake slide, a
 ## launch without TCS and a stop on locked wheels, lying on the ground along the
@@ -436,11 +436,14 @@ const SHIFT_CAUGHT_RPM_TOLERANCE := 0.12
 const VISUAL_MIN_SPIN_LEAD := 1.03
 
 # --- Telemetry ------------------------------------------------------------------
-# Where the telemetry phase writes. A fixed tmp path, outside user://, deleted
-# before the phase so the same file is written every run.
+# Where the telemetry phase writes. A tmp dir of this run's own, outside
+# user://, named by the process so that two suites can run side by side; the
+# test makes it and removes it when it finishes (_remove_tmp_dir). The name is
+# never printed: the output is the same on every run.
 
-const TELEMETRY_DIR := "/tmp/fd-3E-telemetry"
-const TELEMETRY_FILE := TELEMETRY_DIR + "/smoke.jsonl"
+const TMP_DIR_PREFIX := "/tmp/fd-3R-smoke-"
+var _telemetry_dir := TMP_DIR_PREFIX + str(OS.get_process_id())
+var _telemetry_file := _telemetry_dir + "/smoke.jsonl"
 
 ## Physics frames of free driving before the mission starts, 1 s: two samples
 ## at FREE_SAMPLE_STRIDE_TICKS ...
@@ -651,7 +654,7 @@ const CONTROLS_HUNT_FRAMES := 120
 ## Frames of half throttle, then of half brake, recorded for the telemetry
 ## check, 1 s each, and the file they go to (next to the telemetry phase's own).
 const CONTROLS_PEDAL_FRAMES := 60
-const CONTROLS_TELEMETRY_FILE := TELEMETRY_DIR + "/pedals.jsonl"
+var _controls_telemetry_file := _telemetry_dir + "/pedals.jsonl"
 
 ## Tyre marks: the grip run is flat out for this many ticks (3 s, through the
 ## change into 2nd) and then a full pedal to a stop ...
@@ -748,7 +751,7 @@ const ODOMETER_REST_TOLERANCE := 0.001
 
 ## Where the odometer store is tried out: a file of the test's own, next to the
 ## telemetry phase's, never the game's user://cars.json.
-const ODOMETER_TEST_FILE := TELEMETRY_DIR + "/cars.json"
+var _odometer_test_file := _telemetry_dir + "/cars.json"
 
 # --- Handbrake release ------------------------------------------------------------
 
@@ -3074,11 +3077,11 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 	var manager := main.get_node_or_null("MissionManager") as MissionManager
 	var recorder: TelemetryRecorder = manager.telemetry if manager else null
 	if _check(recorder != null and not recorder.recording, "controls: the telemetry recorder is there and idle"):
-		if FileAccess.file_exists(CONTROLS_TELEMETRY_FILE):
-			DirAccess.remove_absolute(CONTROLS_TELEMETRY_FILE)
+		if FileAccess.file_exists(_controls_telemetry_file):
+			DirAccess.remove_absolute(_controls_telemetry_file)
 		car.reset_to_spawn()
 		await _step(5)
-		recorder.record_to_file(CONTROLS_TELEMETRY_FILE)
+		recorder.record_to_file(_controls_telemetry_file)
 		car.set_driver_input(0.5, 0.0, 0.0)
 		await _step(CONTROLS_PEDAL_FRAMES)
 		var throttle_was := car.throttle_pedal
@@ -3091,7 +3094,7 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 		var peak_throttle := 0.0
 		var peak_brake := 0.0
 		var samples := 0
-		for raw in FileAccess.get_file_as_string(CONTROLS_TELEMETRY_FILE).split("\n"):
+		for raw in FileAccess.get_file_as_string(_controls_telemetry_file).split("\n"):
 			var value: Variant = JSON.parse_string(raw) if not raw.strip_edges().is_empty() else null
 			if value is Dictionary and (value as Dictionary).has("throttle"):
 				samples += 1
@@ -3350,7 +3353,7 @@ func _press_and_watch(car: ArcadeCar, action: String, hold_frames: int, release_
 ## Telemetry: the recorder writes a drive down and we read it back.
 ##
 ## The recorder is off in a headless run, so the phase switches it on in
-## process and points it at a fixed tmp file (TELEMETRY_FILE, deleted first):
+## process and points it at a tmp file of its own (_telemetry_file, deleted first):
 ## the suite writes nothing under user:// at all, and the last check here says
 ## so. Then a real mission through the MissionManager - its signals do the work
 ## - driven with the same simulated keys as the rest of this test, and aborted.
@@ -3370,13 +3373,16 @@ func _check_telemetry(main: Node, car: ArcadeCar) -> void:
 	# really been driven it is, and it must come out unchanged either way.
 	var user_dir_before := DirAccess.dir_exists_absolute(TelemetryRecorder.ROOT_DIR)
 
-	DirAccess.make_dir_recursive_absolute(TELEMETRY_DIR)
-	if FileAccess.file_exists(TELEMETRY_FILE):
-		DirAccess.remove_absolute(TELEMETRY_FILE)
+	DirAccess.make_dir_recursive_absolute(_telemetry_dir)
+	if FileAccess.file_exists(_telemetry_file):
+		DirAccess.remove_absolute(_telemetry_file)
 	car.reset_to_spawn()
 	await _step(10)
-	recorder.record_to_file(TELEMETRY_FILE)
-	_check(recorder.recording and FileAccess.file_exists(TELEMETRY_FILE), "switched on in process it records to the fixed tmp file (%s)" % TELEMETRY_FILE)
+	recorder.record_to_file(_telemetry_file)
+	# was: "... records to the fixed tmp file (/tmp/fd-3E-telemetry/smoke.jsonl)" ->
+	# the file's name only. The dir is this run's own and must not reach the
+	# output; what is asserted is still the file at its full path.
+	_check(recorder.recording and FileAccess.file_exists(_telemetry_file), "switched on in process it records to the run's own tmp file (%s)" % _telemetry_file.get_file())
 	await _step(TELEMETRY_FREE_FRAMES)
 
 	_check(manager.start_mission(0), "a real mission starts through the manager with the recorder listening")
@@ -3399,7 +3405,7 @@ func _check_telemetry(main: Node, car: ArcadeCar) -> void:
 
 	# Read it back.
 	var lines := PackedStringArray()
-	for raw in FileAccess.get_file_as_string(TELEMETRY_FILE).split("\n"):
+	for raw in FileAccess.get_file_as_string(_telemetry_file).split("\n"):
 		if not raw.strip_edges().is_empty():
 			lines.append(raw)
 	if not _check(lines.size() > 10, "the file is written, one line per sample (%d lines)" % lines.size()):
@@ -4263,28 +4269,28 @@ func _check_odometer(main: Node, car: ArcadeCar) -> void:
 	# (8) The store itself, on a file of the test's own: a car's metres come back
 	# to the bit, a second car gets an entry of its own, and what else the file
 	# holds is written back as it was.
-	DirAccess.make_dir_recursive_absolute(TELEMETRY_DIR)
-	if FileAccess.file_exists(ODOMETER_TEST_FILE):
-		DirAccess.remove_absolute(ODOMETER_TEST_FILE)
-	var nothing_stored := OdometerStore.load_odometer(ArcadeCar.CAR_ID, ODOMETER_TEST_FILE)
-	OdometerStore.save_odometer(ArcadeCar.CAR_ID, NAN, ODOMETER_TEST_FILE)
-	var nan_not_written := not FileAccess.file_exists(ODOMETER_TEST_FILE)
-	OdometerStore.save_odometer(ArcadeCar.CAR_ID, 1234567.891, ODOMETER_TEST_FILE)
-	OdometerStore.save_odometer("some_other_car", 42.5, ODOMETER_TEST_FILE)
+	DirAccess.make_dir_recursive_absolute(_telemetry_dir)
+	if FileAccess.file_exists(_odometer_test_file):
+		DirAccess.remove_absolute(_odometer_test_file)
+	var nothing_stored := OdometerStore.load_odometer(ArcadeCar.CAR_ID, _odometer_test_file)
+	OdometerStore.save_odometer(ArcadeCar.CAR_ID, NAN, _odometer_test_file)
+	var nan_not_written := not FileAccess.file_exists(_odometer_test_file)
+	OdometerStore.save_odometer(ArcadeCar.CAR_ID, 1234567.891, _odometer_test_file)
+	OdometerStore.save_odometer("some_other_car", 42.5, _odometer_test_file)
 	_check(
-		nothing_stored == 0.0 and nan_not_written and OdometerStore.load_odometer(ArcadeCar.CAR_ID, ODOMETER_TEST_FILE) == 1234567.891 and OdometerStore.load_odometer("some_other_car", ODOMETER_TEST_FILE) == 42.5 and OdometerStore.load_odometer("no_such_car", ODOMETER_TEST_FILE) == 0.0,
-		"odometer: the store gives a car's metres back to the bit (%.3f m), keeps an entry per car, reads 0 for a car or a file that is not there and writes nothing for NaN" % OdometerStore.load_odometer(ArcadeCar.CAR_ID, ODOMETER_TEST_FILE),
+		nothing_stored == 0.0 and nan_not_written and OdometerStore.load_odometer(ArcadeCar.CAR_ID, _odometer_test_file) == 1234567.891 and OdometerStore.load_odometer("some_other_car", _odometer_test_file) == 42.5 and OdometerStore.load_odometer("no_such_car", _odometer_test_file) == 0.0,
+		"odometer: the store gives a car's metres back to the bit (%.3f m), keeps an entry per car, reads 0 for a car or a file that is not there and writes nothing for NaN" % OdometerStore.load_odometer(ArcadeCar.CAR_ID, _odometer_test_file),
 	)
-	var garage_file := FileAccess.open(ODOMETER_TEST_FILE, FileAccess.WRITE)
+	var garage_file := FileAccess.open(_odometer_test_file, FileAccess.WRITE)
 	garage_file.store_string('{"version": 1, "garage": "4A", "cars": {"%s": {"odometer_m": 100.5, "paint": "red"}, "bad_car": {"odometer_m": -3.0}}}' % ArcadeCar.CAR_ID)
 	garage_file.close()
-	var loaded := OdometerStore.load_odometer(ArcadeCar.CAR_ID, ODOMETER_TEST_FILE)
-	var negative := OdometerStore.load_odometer("bad_car", ODOMETER_TEST_FILE)
-	OdometerStore.save_odometer(ArcadeCar.CAR_ID, 250.25, ODOMETER_TEST_FILE)
-	var stored: Variant = JSON.parse_string(FileAccess.get_file_as_string(ODOMETER_TEST_FILE))
+	var loaded := OdometerStore.load_odometer(ArcadeCar.CAR_ID, _odometer_test_file)
+	var negative := OdometerStore.load_odometer("bad_car", _odometer_test_file)
+	OdometerStore.save_odometer(ArcadeCar.CAR_ID, 250.25, _odometer_test_file)
+	var stored: Variant = JSON.parse_string(FileAccess.get_file_as_string(_odometer_test_file))
 	var kept: bool = stored is Dictionary and stored.get("version") == 1.0 and stored.get("garage") == "4A" and stored["cars"][ArcadeCar.CAR_ID].get("paint") == "red" and stored["cars"][ArcadeCar.CAR_ID].get("odometer_m") == 250.25 and stored["cars"].has("bad_car")
 	_check(loaded == 100.5 and negative == 0.0 and kept, "odometer: a save touches its car's metres and nothing else in the file (version 1, the garage's own fields and the other cars as they were; a negative odometer reads 0)")
-	DirAccess.remove_absolute(ODOMETER_TEST_FILE)
+	DirAccess.remove_absolute(_odometer_test_file)
 	car.reset_to_spawn()
 	await _step(5)
 
@@ -4307,24 +4313,24 @@ func _check_fuel_store(hud: HUD, car: ArcadeCar) -> void:
 	# (2) The store itself, on a file of the test's own: a level comes back the
 	# float it was, beside the odometer and in the one entry; a car the file
 	# does not know has a full tank and nothing wrong with it; NaN is not written.
-	DirAccess.make_dir_recursive_absolute(TELEMETRY_DIR)
-	if FileAccess.file_exists(ODOMETER_TEST_FILE):
-		DirAccess.remove_absolute(ODOMETER_TEST_FILE)
-	var new_car := OdometerStore.load_fuel(ArcadeCar.CAR_ID, capacity, ODOMETER_TEST_FILE)
-	OdometerStore.save_car(ArcadeCar.CAR_ID, NAN, NAN, ODOMETER_TEST_FILE)
-	var nan_not_written := not FileAccess.file_exists(ODOMETER_TEST_FILE)
-	OdometerStore.save_car(ArcadeCar.CAR_ID, 1234567.891, FUEL_STORE_HARD_LEVEL, ODOMETER_TEST_FILE)
-	OdometerStore.save_car("some_other_car", 42.5, 0.1 + 0.2, ODOMETER_TEST_FILE)
-	OdometerStore.save_car(ArcadeCar.CAR_ID, 1234600.0, NAN, ODOMETER_TEST_FILE)
-	OdometerStore.save_odometer("some_other_car", 43.5, ODOMETER_TEST_FILE)
-	var back := OdometerStore.load_fuel(ArcadeCar.CAR_ID, capacity, ODOMETER_TEST_FILE)
-	var other := OdometerStore.load_fuel("some_other_car", capacity, ODOMETER_TEST_FILE)
-	var unknown := OdometerStore.load_fuel("no_such_car", capacity, ODOMETER_TEST_FILE)
+	DirAccess.make_dir_recursive_absolute(_telemetry_dir)
+	if FileAccess.file_exists(_odometer_test_file):
+		DirAccess.remove_absolute(_odometer_test_file)
+	var new_car := OdometerStore.load_fuel(ArcadeCar.CAR_ID, capacity, _odometer_test_file)
+	OdometerStore.save_car(ArcadeCar.CAR_ID, NAN, NAN, _odometer_test_file)
+	var nan_not_written := not FileAccess.file_exists(_odometer_test_file)
+	OdometerStore.save_car(ArcadeCar.CAR_ID, 1234567.891, FUEL_STORE_HARD_LEVEL, _odometer_test_file)
+	OdometerStore.save_car("some_other_car", 42.5, 0.1 + 0.2, _odometer_test_file)
+	OdometerStore.save_car(ArcadeCar.CAR_ID, 1234600.0, NAN, _odometer_test_file)
+	OdometerStore.save_odometer("some_other_car", 43.5, _odometer_test_file)
+	var back := OdometerStore.load_fuel(ArcadeCar.CAR_ID, capacity, _odometer_test_file)
+	var other := OdometerStore.load_fuel("some_other_car", capacity, _odometer_test_file)
+	var unknown := OdometerStore.load_fuel("no_such_car", capacity, _odometer_test_file)
 	_check(
 		new_car.fuel_l == capacity and new_car.problem == "" and nan_not_written
 			and back.fuel_l == FUEL_STORE_HARD_LEVEL and back.problem == "" and other.fuel_l == 0.1 + 0.2 and other.problem == ""
 			and unknown.fuel_l == capacity and unknown.problem == ""
-			and OdometerStore.load_odometer(ArcadeCar.CAR_ID, ODOMETER_TEST_FILE) == 1234600.0 and OdometerStore.load_odometer("some_other_car", ODOMETER_TEST_FILE) == 43.5,
+			and OdometerStore.load_odometer(ArcadeCar.CAR_ID, _odometer_test_file) == 1234600.0 and OdometerStore.load_odometer("some_other_car", _odometer_test_file) == 43.5,
 		"fuel store: a level comes back to the bit (%.15f L), an entry per car beside its odometer, a save of the metres alone or with a NaN level leaves the level as it was, and a car or a file that is not there is a full tank" % back.fuel_l,
 	)
 
@@ -4338,15 +4344,15 @@ func _check_fuel_store(hud: HUD, car: ArcadeCar) -> void:
 		if OdometerStore.fuel_problem(stored, capacity) != "":
 			refused += 1
 	var levels_ok := OdometerStore.fuel_problem(0.0, capacity) == "" and OdometerStore.fuel_problem(capacity, capacity) == "" and OdometerStore.fuel_problem(32, capacity) == ""
-	var garage_file := FileAccess.open(ODOMETER_TEST_FILE, FileAccess.WRITE)
+	var garage_file := FileAccess.open(_odometer_test_file, FileAccess.WRITE)
 	garage_file.store_string('{"version": 1, "cars": {"words": {"fuel_l": "half"}, "negative": {"fuel_l": -1.0}, "over": {"fuel_l": 64.5}, "null": {"fuel_l": null}, "bool": {"fuel_l": true}, "whole": {"odometer_m": 7.5, "fuel_l": 32}}}')
 	garage_file.close()
 	var full_and_said := 0
 	for bad_car: String in ["words", "negative", "over", "null", "bool"]:
-		var bad := OdometerStore.load_fuel(bad_car, capacity, ODOMETER_TEST_FILE)
+		var bad := OdometerStore.load_fuel(bad_car, capacity, _odometer_test_file)
 		if bad.fuel_l == capacity and (bad.problem as String).contains(bad_car + "'s fuel_l"):
 			full_and_said += 1
-	var whole := OdometerStore.load_fuel("whole", capacity, ODOMETER_TEST_FILE)
+	var whole := OdometerStore.load_fuel("whole", capacity, _odometer_test_file)
 	_check(
 		refused == not_levels.size() and levels_ok and full_and_said == 5 and whole.fuel_l == 32.0 and whole.problem == "" and typeof(whole.fuel_l) == TYPE_FLOAT,
 		"fuel store: NaN, inf, under 0, over the tank, words, null, a bool and a list are no fuel level (%d of %d refused, %d of 5 in a file read as a full tank with the reason); 0, a whole 32 and the full %.0f L are" % [refused, not_levels.size(), full_and_said, capacity],
@@ -4355,10 +4361,10 @@ func _check_fuel_store(hud: HUD, car: ArcadeCar) -> void:
 	# (4) The car that loads a level starts with it, not with a full tank: the
 	# litres, their mass, the red bar. And a reset fills the tank - the debug
 	# verb it always was - without a word to the file.
-	OdometerStore.save_car(ArcadeCar.CAR_ID, 1000.0, FUEL_STORE_LOW_LEVEL, ODOMETER_TEST_FILE)
-	var file_before := FileAccess.get_file_as_string(ODOMETER_TEST_FILE)
+	OdometerStore.save_car(ArcadeCar.CAR_ID, 1000.0, FUEL_STORE_LOW_LEVEL, _odometer_test_file)
+	var file_before := FileAccess.get_file_as_string(_odometer_test_file)
 	car.reset_to_spawn()
-	car._load_stored_fuel(ODOMETER_TEST_FILE)
+	car._load_stored_fuel(_odometer_test_file)
 	var loaded_l := car.fuel_l
 	var loaded_mass := car.fuel_mass
 	await _step(5)
@@ -4369,10 +4375,10 @@ func _check_fuel_store(hud: HUD, car: ArcadeCar) -> void:
 	car.reset_to_spawn()
 	_check(
 		loaded_l == FUEL_STORE_LOW_LEVEL and loaded_mass == FUEL_STORE_LOW_LEVEL * ArcadeCar.FUEL_DENSITY and red and burning and weighs
-			and car.fuel_l == capacity and FileAccess.get_file_as_string(ODOMETER_TEST_FILE) == file_before and not car._odometer_kept,
+			and car.fuel_l == capacity and FileAccess.get_file_as_string(_odometer_test_file) == file_before and not car._odometer_kept,
 		"fuel store: a car that loads %.1f L starts with %.1f L and %.3f kg of it, not a full tank - the bar red at %.3f, the engine idling on it; a reset fills the tank and the file is not told" % [FUEL_STORE_LOW_LEVEL, loaded_l, loaded_mass, loaded_l / capacity],
 	)
-	DirAccess.remove_absolute(ODOMETER_TEST_FILE)
+	DirAccess.remove_absolute(_odometer_test_file)
 	await _step(5)
 
 
@@ -4815,7 +4821,21 @@ func _check(condition: bool, description: String) -> bool:
 	return condition
 
 
+## Removes the run's tmp dir: its three files by name, then the dir itself,
+## which only goes if nothing else is in it. Nothing outside TMP_DIR_PREFIX is
+## ever touched.
+func _remove_tmp_dir() -> void:
+	if not _telemetry_dir.begins_with(TMP_DIR_PREFIX):
+		return
+	for path: String in [_telemetry_file, _controls_telemetry_file, _odometer_test_file]:
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(path)
+	if DirAccess.dir_exists_absolute(_telemetry_dir):
+		DirAccess.remove_absolute(_telemetry_dir)
+
+
 func _finish() -> void:
+	_remove_tmp_dir()
 	if _failures == 0:
 		print("SMOKE TEST PASSED")
 	else:
