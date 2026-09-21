@@ -1,10 +1,19 @@
 extends Camera3D
-## The game's one camera. Starts as a third-person chase camera that swings in
-## behind the car's heading and trails its position with a little lag, so the
-## car visibly moves against the frame when it accelerates, brakes or turns.
-## The camera_cycle action steps through the other views: cockpit, front
-## (bonnet), overhead and wheel (down by the front-left tyre), then back to
-## chase. Holding look_back looks behind for as long as it is held: from the
+## The game's one camera. Starts in the view the car was last driven in, which
+## on a car that has not been driven yet is the cockpit: the driver gets in
+## where the last one got out (ArcadeCar.camera_view, kept per car by
+## OdometerStore). The camera_cycle action steps round the views from there:
+## cockpit, front (bonnet), overhead, wheel (down by the front-left tyre),
+## chase - the third-person view that swings in behind the car's heading and
+## trails its position with a little lag, so the car visibly moves against the
+## frame when it accelerates, brakes or turns - and round to the cockpit again.
+##
+## The camera knows nothing of where a view is kept: the car holds camera_view
+## and the store keeps it. The camera reads it once here and hands back every
+## view the cycle key lands on (cycle_mode) - and only those: the held rear
+## view is not a view a car is left in.
+##
+## Holding look_back looks behind for as long as it is held: from the
 ## inside views (cockpit, front) the head turns round over the shoulder, the eye
 ## where it was and mode_name() what it was; from the outside views (chase,
 ## overhead, wheel) the camera cuts to the rear view, ahead of the nose.
@@ -189,7 +198,8 @@ const REAR_FOV_AT_MAX_SPEED := 80.0
 
 @export var target: ArcadeCar
 
-## The active view. Change it with set_mode() or cycle_mode().
+## The active view. Change it with set_mode() or cycle_mode(). What is here is
+## only what the camera is created with: _ready puts it in the car's own view.
 var mode := Mode.CHASE
 
 ## The outside view look_back interrupted, restored when the key is released.
@@ -220,7 +230,9 @@ func _ready() -> void:
 	_default_near = near
 	if target:
 		_build_dashboard()
-		set_mode(Mode.CHASE)
+		# The car's _ready has run by now (it is this camera's sibling in
+		# main.tscn and children come first), so its stored view is in place.
+		set_mode(_stored_mode())
 
 
 func _physics_process(_delta: float) -> void:
@@ -272,13 +284,30 @@ func _is_inside_view() -> bool:
 	return mode == Mode.COCKPIT or mode == Mode.FRONT
 
 
-## Steps to the next view, wrapping back to chase after the last. The held-only
-## rear view is not a stop on the way.
+## Steps to the next view, wrapping round after the last (wheel -> chase ->
+## cockpit). The held-only rear view is not a stop on the way, and where the
+## cycle lands is what the car is left in.
 func cycle_mode() -> void:
 	var next := (mode + 1) % Mode.size()
 	if next == Mode.REAR:
 		next = (next + 1) % Mode.size()
 	set_mode(next as Mode)
+	# The car remembers the view it is driven in, and its store keeps it for
+	# the next session. Here and nowhere else: the rear view look_back cuts to
+	# is held, not chosen, and set_mode from anywhere else is not the driver
+	# cycling the view either.
+	if target:
+		target.camera_view = mode
+
+
+## The view to come up in: the one the car was left in (ArcadeCar.camera_view),
+## or the cockpit for a car that has none to say - or one that is somehow no
+## view to be left in, the held rear view among them.
+func _stored_mode() -> Mode:
+	var stored: int = target.camera_view
+	if stored < 0 or stored >= Mode.REAR:
+		return Mode.COCKPIT
+	return stored as Mode
 
 
 ## Cuts straight to a view, placing the camera where that view wants it now.
