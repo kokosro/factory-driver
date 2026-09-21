@@ -99,7 +99,12 @@ away.
   capped by its own grip with ABS holding the wheels at `ABS_SLIP_RATIO`. A full stop has
   the fronts at their limit and the rears under theirs: about 0.9 g, ~36 m from 90 km/h,
   the nose pushing wide if you brake and steer at once. The handbrake locks the rear
-  wheels outright.
+  wheels outright while it is held; let go, the lever is out on that tick and what is
+  left is `HANDBRAKE_RELEASE_TORQUE` (4500 Nm) on the rear brakes, dying away over
+  `REAR_LOCK_RECOVERY_RATE` (0.33 s) along with the slide grip of a tyre that was
+  locked. With nothing asked for that is what carries a flick; with the throttle down
+  the engine pulls the rears out of it (1st gear breaks it at once, 2nd further down
+  the decay, 3rd not at all), and the car lets its clutch back in for exactly that.
 - **Suspension and weight** - the body is a rigid mass on four real springs, with heave
   (the car's own height, gravity pulling it down), pitch and roll as states. Each corner
   has a spring (`FRONT_` / `REAR_RIDE_FREQUENCY` 1.5 / 1.7 Hz on its corner mass:
@@ -135,7 +140,8 @@ where you put them: a key held into a slide keeps feeding it, and you catch the 
 with opposite lock, which is there all the way to full lock at once, handbrake or not
 (`SLIDE_CATCH_ANGLE` survives only inside the assist, as where it starts to leave a slide
 that is coming back alone). The assist fades once the tail is more
-than ~25 degrees out (`SPIN_COMMIT_ANGLE`) and is off while the handbrake is held, so a
+than ~25 degrees out (`SPIN_COMMIT_ANGLE`) and is off while the handbrake is held and
+while what it leaves on the rear brakes dies away, so a
 committed flick goes all the way round. `K` switches the whole assist off (`sc_on`, the
 `SC` lamp; see the driver's controls below): the car then rotates on its tyres alone. A
 slide nobody is driving settles by itself:
@@ -166,7 +172,11 @@ nothing. What the drivetrain is given is where the pedals are (`throttle_pedal`,
 `brake_pedal`), and the two thin bars at the right edge of the HUD show exactly that:
 green for the throttle, red for the brake, the lift of a gear change included. One
 foot works both pedals: asking for the brake alone takes the foot off the throttle at
-once. The handbrake is a lever and still bites instantly. Which way the car goes is
+once. The handbrake is a lever and still bites instantly - and is out the tick the key
+is. Asked for, the throttle beats the clutch the handbrake would hold open: gas during
+or just after a pull and the clutch comes back in (0.1 s through the bite point) and the
+engine drags the rears out of what is left of the lock - a clutch kick to catch a slide,
+where before the throttle did nothing for the 0.4 s the lever took to let go. Which way the car goes is
 decided by what is asked for, not by where the feet are, so reverse is what it was: a
 fresh brake at a standstill, never a held one.
 
@@ -366,7 +376,11 @@ is a dump, does nothing in automatic, and let go on an idling engine stalls it, 
 stalled engine burns and fires nothing and its car does not creep, the starter catches
 it, never on a dry tank, and a reset starts it, reverse sits under neutral on the shift
 keys and is refused rolling forwards, comfort leaves 1st at 4500 rpm where sport holds
-it to 6800, and the telemetry's throttle and brake read the pedals), then the
+it to 6800, and the telemetry's throttle and brake read the pedals; and the handbrake let go: the
+lever reads out on the release tick with its hold still on the rear wheels, the gas
+after a tap pulls them past the road within 14 ticks while nothing asked for leaves them
+locked and the clutch open with the engine idling on, the clutch pedal dumped with the
+handbrake held is no dump at all, and the hold is gone inside 0.37 s), then the
 handling tests below, then
 `tests/camera_test.gd` (cycles the camera through its five views and drives under each, holds the look-back,
 toggles the X-ray, holds look left / right from the chase view and the cockpit, turns the

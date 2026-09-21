@@ -644,8 +644,8 @@ const TYRE_SLIDE_ONSET := 3.0
 ## the curve than the front, x0.98), and the more the sliding rear holds over
 ## the sliding front, the harder the tail is pulled back into line. A grip
 ## figure like the rest: it knows nothing of the steering or the heading. A
-## locked wheel stays on TYRE_SLIDE_GRIP (eased over by the handbrake, see
-## HANDBRAKE_RECOVERY_RATE), so the handbrake kicks the tail out and carries a
+## locked wheel stays on TYRE_SLIDE_GRIP (eased over as the lock leaves the
+## tyres, see REAR_LOCK_RECOVERY_RATE), so the handbrake kicks the tail out and carries a
 ## spin as before. Lower = slides hang on longer, equal to TYRE_SLIDE_GRIP = a
 ## slide with the keys released carries on as a drift; 1.0 = no limit to go
 ## over at all, a plateau.
@@ -1163,10 +1163,63 @@ const LOW_SPEED_ALIGN_RATE := 10.0
 # Replaces HANDBRAKE_REAR_GRIP_FACTOR 0.15 and HANDBRAKE_DECEL 5.0, which set
 # the same two things by hand.
 
-## How fast the rear wheels pick up rolling again after releasing the
-## handbrake [1/s]. 2.5 means full grip again after 0.4 s, so the tail catches
-## smoothly instead of snapping straight. The handbrake itself bites instantly.
-const HANDBRAKE_RECOVERY_RATE := 2.5
+# The lever is a lever: it bites the tick it is pulled and it is out the tick
+# it is let go (_handbrake_amount). What outlasts it is the shoes still on the
+# rear brakes as they come off - HANDBRAKE_RELEASE_TORQUE, dying away at
+# REAR_LOCK_RECOVERY_RATE - and the rear tyres, which were sliding on
+# TYRE_SLIDE_GRIP and take that same moment to find their rolling hold again.
+# The driver can end it early: a brake torque is something the engine can pull
+# against, so throttle into the release spins the rears up out of the lock (see
+# _clutch_target, which lets the clutch in for exactly that).
+
+## What the handbrake still presses the rear brakes with while it lets go [Nm],
+## at _rear_lock_recovery of it. Well over the ~2550 Nm the road puts through a
+## locked rear tyre on dry asphalt, so with nothing asked for the rears stay
+## locked under it and the flick of a tap carries as it always has; 1st gear
+## wide open is ~3700 Nm at the axle and pulls them out of it once it has
+## decayed a little (measured: the rears outrun the road 11 ticks after the
+## release), 2nd ~1900 Nm further down the decay, 3rd not at all. Held, it is
+## applied under a lock that is already absolute (see _handbrake_amount) and
+## changes nothing.
+# 4500 and not 3000, which was the first figure tried: the number is what the
+# tap's slide is worth, and 3000 let a little too much of it go. Over the smoke
+# test's 0.2 s flick at 60 km/h, nose off the travel and rotation: 0.16 rad /
+# 0.79 rad before this change, 0.14 / 0.54 at 4500, 0.13 / 0.42 at 3000 - and
+# at 3000 the flick with the stability assist off came to exactly 2.00 times
+# the one with it, where the smoke test wants more than twice (0.38 against
+# 0.14 at 4500, 0.46 against 0.16 before). The 0.67 s pull is 1.90 rad and at
+# rest 5.03 s after the release, against 1.90 and 5.07 before. Firmer still
+# only holds the rears on past their use: see REAR_LOCK_RECOVERY_RATE for what
+# a longer hold costs the same pull.
+const HANDBRAKE_RELEASE_TORQUE := 4500.0
+
+## How fast that hold dies away once the key is up [1/s], and with it the slide
+## grip of a tyre that was locked: 3.0 = gone 0.33 s after the release, so the
+## tail catches smoothly instead of snapping straight. The lever itself bites
+## instantly, and is out instantly.
+# was HANDBRAKE_RECOVERY_RATE 2.5 (0.4 s), and it did a different job: it eased
+# _handbrake_amount out, and _handbrake_amount lerped the rear wheel speed to 0
+# and held the clutch open. Nothing the driver did could get through it - for
+# 0.4 s after the key was up the rears were dragged back towards standstill
+# whatever the engine did, and the clutch was open, so the engine was not
+# trying. The user, from the driving seat (2026-09-21): "when i handbrake, just
+# for a moment - only touching space for a fraction of a second - i feel like
+# the handbrake still stays on... if there's a delay between when i released
+# and hit the gas, i can't stabilise the car." Now the lever is out on the tick
+# the key is, what is left is a brake torque like any other, and the throttle
+# is let through to pull against it: the rears outrun the road 11 ticks
+# (0.18 s) after a release with the gas down, where before they could not do it
+# at any point. The window itself is only shortened, not removed, because it is
+# what carries the flick: with the lock gone on the release tick a 0.2 s tap at
+# 60 km/h swings the nose 0.05 rad off the travel instead of 0.16 and turns the
+# car 0.19 rad instead of 0.79 - a tap would have stopped sliding the car at
+# all. 0.33 s keeps 0.14 / 0.54 of that. The two neighbours were tried and
+# dropped: 0.25 s leaves the tap 0.11 / 0.29 and the stability assist's flick
+# comparison under the twice-as-deep the smoke test asks of it (1.45 times);
+# the old 0.4 s holds the rears too long at either torque for the smoke test's
+# 0.67 s pull to be at rest inside its 6 s (6.18 s at 3000 Nm, 6.62 at 4500,
+# against 5.07 s before this change).
+const REAR_LOCK_RECOVERY_RATE := 3.0
 
 # --- Driver: feet and hands ----------------------------------------------------
 
@@ -1187,7 +1240,8 @@ const HANDBRAKE_RECOVERY_RATE := 2.5
 # throttle before they do.
 #
 # The handbrake is not part of this: a lever pulled with the hand, it bites
-# instantly as it always has (see HANDBRAKE_RECOVERY_RATE for the release). The
+# instantly as it always has, and lets go as instantly (what stays behind is on
+# the rear brakes, see HANDBRAKE_RELEASE_TORQUE, not on the lever). The
 # flick of a handbrake turn lives on that bite.
 
 ## Driver profiles: how fast a driver's feet and hands move, as plain data.
@@ -1548,9 +1602,17 @@ var _driver_brake := 0.0
 var _driver_steer := 0.0
 var _driver_handbrake := false
 
-## How far the handbrake is on, 0..1. Jumps to 1 when pulled, eases back to 0
-## at HANDBRAKE_RECOVERY_RATE when released.
+## How far the handbrake lever is on, 0..1: 1 the tick it is pulled, 0 the tick
+## it is let go. It locks the rear wheels and nothing rides on it afterwards.
 var _handbrake_amount := 0.0
+
+## How much of its hold on the rear wheels the handbrake still has, 0..1: 1
+## while the lever is held, easing to 0 at REAR_LOCK_RECOVERY_RATE once it is
+## let go. It is HANDBRAKE_RELEASE_TORQUE's share on the rear brakes, the slide
+## grip of a tyre that was locked, and what the car's own clutch keeps out of
+## the way of - all of them the tyres' business, not the lever's: the lever is
+## out with the key.
+var _rear_lock_recovery := 0.0
 
 ## Whether the accelerate / brake keys were down on the previous tick, to tell
 ## a fresh press from a held key.
@@ -1746,8 +1808,13 @@ func _physics_process(delta: float) -> void:
 	var drive_input := (_brake_foot - _throttle_foot) if reverse_engaged else (_throttle_foot - _brake_foot)
 	if handbrake_held:
 		_handbrake_amount = 1.0
+		_rear_lock_recovery = 1.0
 	else:
-		_handbrake_amount = move_toward(_handbrake_amount, 0.0, HANDBRAKE_RECOVERY_RATE * delta)
+		# The lever comes out with the key - the clutch is the driver's again
+		# on that tick - and what is left on the rear brakes dies away after
+		# it, the throttle able to pull against it.
+		_handbrake_amount = 0.0
+		_rear_lock_recovery = move_toward(_rear_lock_recovery, 0.0, REAR_LOCK_RECOVERY_RATE * delta)
 
 	# 2. Wheel loads: what the four corners of the suspension push the body up
 	#    with right now, from where the body is on its springs and what the
@@ -1807,12 +1874,17 @@ func _physics_process(delta: float) -> void:
 	throttle_pedal = pedals.throttle
 	brake_pedal = pedals.brake / (BRAKE_DECEL * total_mass())
 	_update_creep(forward_speed, delta)
-	# Rolling rears slide on REAR_TYRE_SLIDE_GRIP, locked ones on TYRE_SLIDE_GRIP.
-	var rear_slide_grip := lerpf(REAR_TYRE_SLIDE_GRIP, TYRE_SLIDE_GRIP, _handbrake_amount)
+	# Rolling rears slide on REAR_TYRE_SLIDE_GRIP, locked ones on TYRE_SLIDE_GRIP,
+	# and eased back from one to the other as the lock leaves them.
+	var rear_slide_grip := lerpf(REAR_TYRE_SLIDE_GRIP, TYRE_SLIDE_GRIP, _rear_lock_recovery)
 	var front_contact := {"along": front_along, "grip": front_grip, "slip_angle": front_slip_angle, "peak_slip_angle": FRONT_PEAK_SLIP_ANGLE, "slide_grip": TYRE_SLIDE_GRIP}
 	var rear_contact := {"along": forward_speed, "grip": rear_grip, "slip_angle": rear_slip_angle, "peak_slip_angle": REAR_PEAK_SLIP_ANGLE, "slide_grip": rear_slide_grip}
 	_advance_drivetrain(pedals.throttle, pedals.coasting, pedals.brake, front_contact, rear_contact, delta)
-	rear_omega = lerpf(rear_omega, 0.0, _handbrake_amount)
+	if _handbrake_amount > 0.0:
+		# Held, the lever stops the rear wheels outright. Let go, what holds
+		# them is a brake torque like any other (HANDBRAKE_RELEASE_TORQUE, in
+		# _advance_drivetrain), which the engine can pull against.
+		rear_omega = 0.0
 	front_slip_ratio = _slip_ratio(front_omega, front_along)
 	rear_slip_ratio = _slip_ratio(rear_omega, forward_speed)
 	front_traction_use = _traction_use(front_slip_ratio)
@@ -1967,6 +2039,7 @@ func reset_to(target: Transform3D) -> void:
 	steering_wheel_deg = 0.0
 	steer = 0.0
 	_handbrake_amount = 0.0
+	_rear_lock_recovery = 0.0
 	_throttle_foot = 0.0
 	_brake_foot = 0.0
 	throttle_pedal = 0.0
@@ -2409,8 +2482,7 @@ func _drive_ratio() -> float:
 
 
 ## How far in the car wants its clutch (0..1). Open in neutral, for the
-## SHIFT_TIME of a gear change, while the handbrake locks driven rear wheels
-## (or it would stall the engine), on an engine that is not running (a stalled
+## SHIFT_TIME of a gear change, on an engine that is not running (a stalled
 ## car rolls free, and the starter has the engine alone to turn: there is no
 ## bump start), and, throttle closed, once the gearbox
 ## would turn the engine under CLUTCH_DISENGAGE_RPM: that is the stop in gear,
@@ -2420,18 +2492,29 @@ func _drive_ratio() -> float:
 ## the car back, never to shove it on: while the engine still turns faster
 ## than the gearbox (the revs left over from before a handbrake turn) it stays
 ## open and waits for the revs to fall. A gear change is seen through either
-## way: that catch is part of the change. Rolling
+## way: that catch is part of the change.
+##   The handbrake opens it too, driven rear wheels locked (or the locked axle
+## would stall the engine), and so does the moment after it in which the lock
+## is still leaving the rear tyres - unless the driver asks for throttle, and
+## then the driver wins, as with the clutch pedal: the clutch comes back in
+## and drives the rears. That is the kick that catches a slide, and it is why
+## the throttle is read before the handbrake here. Rolling
 ## against the gear it drags at CLUTCH_DRAG_ENGAGEMENT, and creeping
 ## (_update_creep) it is in by CREEP_CLUTCH_ENGAGEMENT, less with every bit of
 ## forward speed, out at CREEP_FREE_SPEED.
 func _clutch_target(speed: float, gearbox_omega: float, throttle: float, coasting: bool) -> float:
 	var rear_driven := driven_wheels != DrivenWheels.FWD
-	if (gear == 0 and not reverse_engaged) or is_shifting or (_handbrake_amount > 0.0 and rear_driven):
+	if (gear == 0 and not reverse_engaged) or is_shifting:
 		return 0.0
 	if not engine_running:
 		return 0.0
+	# Asked for, the throttle wins over the handbrake's stall protection below:
+	# the clutch comes in (at CLUTCH_ENGAGE_TIME / CLUTCH_SHIFT_ENGAGE_TIME, and
+	# feathered against the revs falling) and the rears are driven again.
 	if throttle > 0.0:
 		return 1.0
+	if _rear_lock_recovery > 0.0 and rear_driven:
+		return 0.0
 	if _creeping:
 		return CREEP_CLUTCH_ENGAGEMENT * clampf(1.0 - speed / CREEP_FREE_SPEED, 0.0, 1.0)
 	if gearbox_omega < 0.0:
@@ -2498,7 +2581,12 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 	var rear_share := 1.0 - front_share
 	var front_brake := _brake_torque(BRAKE_BIAS_FRONT, brake, AXLE_INERTIA)
 	var rear_brake := _brake_torque(1.0 - BRAKE_BIAS_FRONT, brake, AXLE_INERTIA)
+	# The handbrake is on the rear brakes, not on the ABS's circuit: what it
+	# still holds them with goes on top, and the ABS does not let it go.
+	var rear_hold := HANDBRAKE_RELEASE_TORQUE * _rear_lock_recovery
+	rear_brake += rear_hold
 	var abs_active := abs_on and brake > 0.0
+	var rear_abs := abs_active and rear_hold <= 0.0
 	var gearbox_omega := _gearbox_omega()
 
 	# The car's own idea of the clutch, and over it the driver's pedal: the
@@ -2536,7 +2624,7 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 		front_brake += _brake_torque(0.0, brake, reflected * front_share)
 		rear_brake += _brake_torque(0.0, brake, reflected * rear_share)
 		var next_front := _advance_axle(front_omega, at_axle * front_share, front_brake, AXLE_INERTIA + reflected * front_share, front, abs_active, delta)
-		var next_rear := _advance_axle(rear_omega, at_axle * rear_share, rear_brake, AXLE_INERTIA + reflected * rear_share, rear, abs_active, delta)
+		var next_rear := _advance_axle(rear_omega, at_axle * rear_share, rear_brake, AXLE_INERTIA + reflected * rear_share, rear, rear_abs, delta)
 		var next_engine := (next_front * front_share + next_rear * rear_share) * ratio
 		var held := net - ENGINE_INERTIA * (next_engine - engine_omega) / delta
 		if absf(held) <= capacity and next_engine >= lock_floor:
@@ -2568,7 +2656,7 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 	var front_torque := to_axle * front_share
 	var rear_torque := to_axle * rear_share
 	var next_front := _advance_axle(front_omega, front_torque, front_brake, AXLE_INERTIA, front, abs_active, delta)
-	var next_rear := _advance_axle(rear_omega, rear_torque, rear_brake, AXLE_INERTIA, rear, abs_active, delta)
+	var next_rear := _advance_axle(rear_omega, rear_torque, rear_brake, AXLE_INERTIA, rear, rear_abs, delta)
 	if clutch_torque > 0.0 and tcs_on and not _driver_has_clutch:
 		# The same foot feathers the clutch against wheelspin: a driven axle is
 		# let spin up to DRIVE_SLIP_RATIO and given no more torque than holds
@@ -2583,7 +2671,7 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 			var eased := _ease_for_wheelspin(rear_omega, next_rear, rear_torque, rear, delta)
 			if eased.x != rear_torque:
 				rear_torque = eased.x
-				next_rear = eased.y if eased.x != 0.0 else _advance_axle(rear_omega, 0.0, rear_brake, AXLE_INERTIA, rear, abs_active, delta)
+				next_rear = eased.y if eased.x != 0.0 else _advance_axle(rear_omega, 0.0, rear_brake, AXLE_INERTIA, rear, rear_abs, delta)
 		clutch_torque = (front_torque + rear_torque) / (ratio * DRIVETRAIN_EFFICIENCY)
 	front_omega = next_front
 	rear_omega = next_rear
@@ -2660,8 +2748,11 @@ func _brake_torque(share: float, brake: float, inertia: float) -> float:
 ## state with a real inertia; it holds at any tick length.
 ##   Under the foot brake the ABS (`abs_active`) holds the wheel at
 ## ABS_SLIP_RATIO instead of letting it lock (it lets go of as much brake torque
-## as that takes); with it the handbrake alone locks wheels, the rear ones, by
-## _handbrake_amount. Without it a brake torque the tyre cannot answer stops the
+## as that takes); with it the handbrake alone locks wheels, the rear ones -
+## outright while the lever is held (_handbrake_amount) and on
+## HANDBRAKE_RELEASE_TORQUE as it lets go, which is a brake torque like any
+## other and is passed with the ABS switched off for that axle. Without it a
+## brake torque the tyre cannot answer stops the
 ## wheel, and holds it stopped for as long as it is more than the road's pull
 ## on the locked tyre.
 func _advance_axle(omega: float, torque: float, brake_torque: float, inertia: float, contact: Dictionary, abs_active: bool, delta: float) -> float:
@@ -2908,8 +2999,9 @@ func _limit_to_stick(force: float, slip_speed: float, arm: float, yaw_inertia: f
 ## Stability assist strength right now [1/s]: SLIDE_YAW_DAMPING while the car
 ## points roughly where it is going, fading to SPIN_YAW_DAMPING as the slip
 ## angle (nose vs direction of travel, 0..PI) grows past SPIN_COMMIT_ANGLE.
-## Off while the handbrake is held (that slide is deliberate) and, like a real
-## stability system, with reverse engaged: a flick at speed in reverse swings
+## Off while the handbrake is held and while the rears it locked are picking
+## their grip up again (that slide is deliberate, see REAR_LOCK_RECOVERY_RATE)
+## and, like a real stability system, with reverse engaged: a flick at speed in reverse swings
 ## the nose round (J-turn). None at all with the assist switched off (sc_on),
 ## not even the SPIN_YAW_DAMPING those two leave.
 func _slide_yaw_damping(along: float, across: float) -> float:
@@ -2920,7 +3012,7 @@ func _slide_yaw_damping(along: float, across: float) -> float:
 	if Vector2(along, across).length() < SPIN_MIN_SPEED:
 		return SLIDE_YAW_DAMPING
 	var slip_angle := absf(atan2(across, along))
-	var spin := maxf(smoothstep(SPIN_COMMIT_ANGLE, SPIN_FREE_ANGLE, slip_angle), _handbrake_amount)
+	var spin := maxf(smoothstep(SPIN_COMMIT_ANGLE, SPIN_FREE_ANGLE, slip_angle), _rear_lock_recovery)
 	return lerpf(SLIDE_YAW_DAMPING, SPIN_YAW_DAMPING, spin)
 
 

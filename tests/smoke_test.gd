@@ -681,6 +681,35 @@ const ODOMETER_REST_TOLERANCE := 0.001
 ## telemetry phase's, never the game's user://cars.json.
 const ODOMETER_TEST_FILE := TELEMETRY_DIR + "/cars.json"
 
+# --- Handbrake release ------------------------------------------------------------
+
+## Speed the handbrake-release checks go in at [m/s], ~32 km/h: 1st gear with
+## revs to spare, where the engine can genuinely pull the rear wheels out of
+## what the handbrake still holds them with ...
+const RELEASE_ENTRY_SPEED := 9.0
+
+## ... the ticks the handbrake is held for first (0.2 s: the tap the user
+## reported on) ...
+const RELEASE_HOLD_FRAMES := 12
+
+## ... the ticks the rear wheels are watched for after the release: the
+## handbrake's hold on them is gone within this (measured 20 ticks, 0.33 s, at
+## REAR_LOCK_RECOVERY_RATE 3.0) ...
+const RELEASE_RECOVERY_FRAMES := 22
+
+## ... the ticks the throttle is given to pull them out of it: the clutch is in
+## from the first tick and the engine outpulls what is left on the rear brakes
+## (measured 11) ...
+const RELEASE_KICK_FRAMES := 14
+
+## ... and the slip ratio that counts as spun up, a third of PEAK_SLIP_RATIO:
+## the rears turning 3 % faster than the road, which the same tap without the
+## throttle never comes near (measured peak 0.084 with it, 0.000 without).
+const RELEASE_KICK_SLIP := 0.03
+
+## The dump with the handbrake held is watched for this many ticks (1 s).
+const RELEASE_DUMP_FRAMES := 60
+
 var _failures := 0
 
 ## The car's odometer when the run began [m], a second after the scene was
@@ -941,6 +970,7 @@ func _run() -> void:
 	await _check_starter_cycle(main, car)
 	await _check_wheel_strobe(car)
 	await _check_odometer(main, car)
+	await _check_handbrake_release(car)
 
 	_finish()
 
@@ -3971,6 +4001,130 @@ func _get_up_to_speed(car: ArcadeCar) -> void:
 	Input.action_press("accelerate")
 	for frame in 600:
 		if car.forward_speed >= GET_UP_TO_SPEED:
+			break
+		await physics_frame
+	Input.action_release("accelerate")
+
+
+## Letting the handbrake go: the lever is out on the tick the key is, and what
+## outlasts it is HANDBRAKE_RELEASE_TORQUE on the rear brakes dying away
+## (REAR_LOCK_RECOVERY_RATE), which the throttle can pull against. The user,
+## from the driving seat (2026-09-21): "when i handbrake, just for a moment -
+## only touching space for a fraction of a second - i feel like the handbrake
+## still stays on... if there's a delay between when i released and hit the
+## gas, i can't stabilise the car." Asked
+## for, the throttle now wins over the clutch the handbrake holds open, so the
+## gas after the release drives the rears out of what is left of the lock: the
+## kick that catches a slide.
+func _check_handbrake_release(car: ArcadeCar) -> void:
+	# (1) and (2): the tap, and full throttle from the release tick on.
+	await _handbrake_entry(car)
+	Input.action_press("handbrake")
+	await _step(RELEASE_HOLD_FRAMES)
+	var held_lever := car._handbrake_amount
+	var held_omega := car.rear_omega
+	var held_clutch := car.clutch_engagement
+	Input.action_release("handbrake")
+	Input.action_press("accelerate")
+	await physics_frame
+	_check(
+		held_lever == 1.0 and held_omega == 0.0 and held_clutch == 0.0
+		and car._handbrake_amount == 0.0 and car._rear_lock_recovery > 0.0,
+		"handbrake release: the lever is out the tick the key is (%.2f -> %.2f, no ramp), with %.2f of the lock still in the rear tyres" % [held_lever, car._handbrake_amount, car._rear_lock_recovery]
+	)
+	var kick_tick := 0
+	var clutch_tick := 0
+	var peak_slip := -2.0
+	var in_range := true
+	var finite := true
+	for frame in RELEASE_RECOVERY_FRAMES:
+		await physics_frame
+		peak_slip = maxf(peak_slip, car.rear_slip_ratio)
+		if kick_tick == 0 and car.rear_slip_ratio > RELEASE_KICK_SLIP:
+			kick_tick = frame + 1
+		if clutch_tick == 0 and car.clutch_engagement > 0.0:
+			clutch_tick = frame + 1
+		in_range = in_range and car._handbrake_amount == 0.0 and car._rear_lock_recovery >= 0.0 and car._rear_lock_recovery <= 1.0
+		finite = finite and is_finite(car.rear_omega) and is_finite(car.rear_slip_ratio) and is_finite(car.engine_rpm) and is_finite(car.clutch_torque)
+	var road_omega := car.forward_speed / ArcadeCar.WHEEL_RADIUS
+	_check(
+		clutch_tick > 0 and clutch_tick <= RELEASE_KICK_FRAMES and kick_tick > 0 and kick_tick <= RELEASE_KICK_FRAMES
+		and car.rear_omega > road_omega and car.engine_running and in_range and finite,
+		"handbrake release: the gas pulls the rears out of the handbrake's hold - the clutch is passing torque after %d ticks and the rears outrun the road after %d, the hold still on them (peak slip ratio %.3f, %.1f rad/s against the road's %.1f)" % [clutch_tick, kick_tick, peak_slip, car.rear_omega, road_omega]
+	)
+	Input.action_release("accelerate")
+
+	# (3) and (5): the same tap with nothing asked for after it. Nobody pulls
+	# against the hold that is left, so the rears stay locked under it - which
+	# is what carries the flick - the car keeps its own clutch open against the
+	# stall they would be, and it is all gone within RELEASE_RECOVERY_FRAMES.
+	await _handbrake_entry(car)
+	Input.action_press("handbrake")
+	await _step(RELEASE_HOLD_FRAMES)
+	Input.action_release("handbrake")
+	var clutch_out := true
+	var running := true
+	var recovered_at := 0
+	var coasting_peak_slip := -2.0
+	for frame in RELEASE_RECOVERY_FRAMES:
+		await physics_frame
+		if recovered_at == 0 and car._rear_lock_recovery <= 0.0:
+			recovered_at = frame + 1
+		if car._rear_lock_recovery > 0.0:
+			clutch_out = clutch_out and car.clutch_engagement == 0.0
+		coasting_peak_slip = maxf(coasting_peak_slip, car.rear_slip_ratio)
+		running = running and car.engine_running
+	_check(
+		clutch_out and running and coasting_peak_slip < RELEASE_KICK_SLIP,
+		"handbrake release: nothing asked for and the car keeps its clutch open until the rears are back (engine running throughout, %d rpm, the rears never outrun the road by more than %.3f)" % [car.engine_rpm, maxf(coasting_peak_slip, 0.0)]
+	)
+	_check(
+		recovered_at > 0 and recovered_at <= RELEASE_RECOVERY_FRAMES and car._rear_lock_recovery == 0.0,
+		"handbrake release: the handbrake is off the rear brakes and the tyres have their rolling grip back %d ticks (%.3f s) after the release, inside the %.2f s it is given" % [recovered_at, recovered_at / 60.0, RELEASE_RECOVERY_FRAMES / 60.0]
+	)
+
+	# (4) The stall rule, unchanged: with the handbrake fully held and nothing
+	# asked for, the car's clutch is open whatever the driver's left foot does,
+	# so the pedal let go is not a dump and the engine idles on. (The clutch
+	# pedal can still stall the engine where the car would have its clutch in -
+	# see the launch and stall checks in _check_driver_controls.)
+	for action: String in ["accelerate", "brake", "steer_left", "steer_right", "handbrake", "clutch_pedal"]:
+		Input.action_release(action)
+	car.reset_to_spawn()
+	car.automatic = false
+	await _step(10)
+	Input.action_press("handbrake")
+	Input.action_press("clutch_pedal")
+	await _step(roundi(60.0 / ArcadeCar.CLUTCH_PEDAL_SPEED) + 5)
+	var pedal_down := car.clutch_pedal
+	Input.action_release("clutch_pedal")
+	var dump_clutch := 0.0
+	var dump_running := true
+	var dump_finite := true
+	for frame in RELEASE_DUMP_FRAMES:
+		await physics_frame
+		dump_clutch = maxf(dump_clutch, car.clutch_engagement)
+		dump_running = dump_running and car.engine_running
+		dump_finite = dump_finite and is_finite(car.engine_rpm) and is_finite(car.clutch_torque) and is_finite(car.forward_speed)
+	_check(
+		pedal_down == 1.0 and dump_clutch == 0.0 and dump_running and dump_finite and car.clutch_torque == 0.0 and absf(car.forward_speed) < 0.001,
+		"handbrake release: the clutch pedal let go with the handbrake held and no throttle is no dump - the car holds its own clutch open, so the engine idles on (%d rpm, %.1f Nm through the clutch, the car still at %.3f m/s)" % [car.engine_rpm, absf(car.clutch_torque), car.forward_speed]
+	)
+	Input.action_release("handbrake")
+	car.automatic = true
+	car.reset_to_spawn()
+	await _step(10)
+
+
+## Up to RELEASE_ENTRY_SPEED from the spawn point, every key let go of.
+func _handbrake_entry(car: ArcadeCar) -> void:
+	for action: String in ["accelerate", "brake", "steer_left", "steer_right", "handbrake", "clutch_pedal"]:
+		Input.action_release(action)
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("accelerate")
+	for frame in 600:
+		if car.forward_speed >= RELEASE_ENTRY_SPEED:
 			break
 		await physics_frame
 	Input.action_release("accelerate")
