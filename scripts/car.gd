@@ -1790,6 +1790,15 @@ var gearbox_mode := GearboxMode.SPORT
 var tcs_on := true
 var abs_on := true
 
+## The view the driver is looking through, by its index in ChaseCamera.Mode
+## (0 chase, 1 cockpit, 2 front, 3 overhead, 4 wheel; the held-only rear view is
+## never left in). A dashboard setting like the switches above - kept with them
+## from one session to the next and left alone by a reset - and it lives on the
+## car because the car is what the store knows: the camera reads it when it
+## comes up and writes the cycle key's new view back here (ChaseCamera). A car
+## that has not been driven starts in the cockpit, inside the car.
+var camera_view := OdometerStore.CAMERA_VIEW_COCKPIT
+
 ## The stability assist (see SLIDE_YAW_DAMPING), on unless switched off (the SC
 ## key): a dashboard switch like the two above, and like them left alone by a
 ## reset. Off, _slide_yaw_damping is 0 on every branch and the assist's yaw
@@ -2097,6 +2106,11 @@ func _ready() -> void:
 	_odometer_kept = OdometerStore.enabled()
 	if _odometer_kept:
 		_load_stored_fuel()
+		# After _read_config, which seats the test driver: the stored program
+		# seats its own driver over it. Before anything reads a switch, and
+		# before the camera comes up (it is this car's sibling in main.tscn and
+		# its _ready runs after ours) to pick up camera_view.
+		_load_stored_driver()
 	_spawn_transform = global_transform
 	# The body floats on its springs over the floor; nothing may pull it onto
 	# it (CharacterBody3D snaps to a floor within 0.1 m by default).
@@ -2109,7 +2123,7 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	if _odometer_kept:
-		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l)
+		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l, OdometerStore.PATH, driver_settings())
 
 
 ## The tank as this car was left with it the last time (OdometerStore, from
@@ -2125,6 +2139,41 @@ func _load_stored_fuel(path := OdometerStore.PATH) -> void:
 		push_error(stored.problem)
 	fuel_l = stored.fuel_l
 	fuel_mass = fuel_l * FUEL_DENSITY
+
+
+## The dashboard as this car was left with it (OdometerStore, from `path`): the
+## three aid switches, the gearbox program, automatic or manual, and the view
+## the driver was looking through. The switches belong to the car, not to
+## whoever drove it last, so the next driver gets in to what the last one left.
+## A car the file does not know keeps the defaults it was created with (every
+## aid on, sport, automatic, the cockpit view); a setting in there that is none
+## of its own is an error and that one default, the others still load. The
+## program seats its own driver, as the gearbox mode key does (MODE_DRIVERS).
+func _load_stored_driver(path := OdometerStore.PATH) -> void:
+	var stored := OdometerStore.load_driver(CAR_ID, path)
+	for problem: String in stored.problems:
+		push_error(problem)
+	tcs_on = stored.tcs_on
+	abs_on = stored.abs_on
+	sc_on = stored.sc_on
+	automatic = stored.automatic
+	gearbox_mode = OdometerStore.GEARBOX_MODES.find(stored.gearbox_mode) as GearboxMode
+	set_driver_profile(DRIVER_PROFILES[MODE_DRIVERS[gearbox_mode]])
+	camera_view = stored.camera_view
+
+
+## The dashboard as it stands, for the store: a car's whole "driver" object
+## (OdometerStore.DRIVER_DEFAULTS has the same six fields). The program goes by
+## name, the view by its index.
+func driver_settings() -> Dictionary:
+	return {
+		"tcs_on": tcs_on,
+		"abs_on": abs_on,
+		"sc_on": sc_on,
+		"gearbox_mode": OdometerStore.GEARBOX_MODES[gearbox_mode],
+		"automatic": automatic,
+		"camera_view": camera_view,
+	}
 
 
 ## Makes this car the one its config describes (CONFIG_PATH), before anything
@@ -2578,8 +2627,9 @@ func _count_odometer(delta: float) -> void:
 	_since_odometer_save += delta
 	if _since_odometer_save >= ODOMETER_SAVE_INTERVAL:
 		_since_odometer_save = 0.0
-		# was save_odometer -> the fuel in the tank goes with it, in the one write.
-		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l)
+		# was save_odometer -> the fuel in the tank goes with it, and the
+		# dashboard the driver has set, all in the one write.
+		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l, OdometerStore.PATH, driver_settings())
 
 
 ## Puts the car back where the scene placed it, at rest, in 1st, automatic, the
@@ -2605,7 +2655,10 @@ func get_spawn_transform() -> Transform3D:
 ## (a stalled one is started: the car is put there ready to drive), the tank
 ## full and nothing loaded (payload_mass is for whoever resets the car to load
 ## again afterwards). The switches stay as the driver has them: tcs_on, abs_on,
-## sc_on, gearbox_mode. The height of `target` counts from the road: the car is stood on its springs on the road
+## sc_on, gearbox_mode - and so does the view being looked through,
+## camera_view. Of what the store keeps, only the gearbox is put back
+## (automatic); nothing a reset does reaches the file, which goes on writing
+## these as they then stand. The height of `target` counts from the road: the car is stood on its springs on the road
 ## there (_settle_suspension), 0 = at its ride height.
 ## The odometer keeps its metres, and the jump to `target` is not among them.
 func reset_to(target: Transform3D) -> void:
