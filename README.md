@@ -361,6 +361,15 @@ Nothing that comes off the wall clock is asserted, and nothing is written under
 `user://` (a headless run records nothing by itself, and the phase's own recording goes
 to that fixed tmp path), so the suite reads the same on every run.
 
+The smoke test's last phase is the tyre marks (below): none while the tyres grip (flat
+out with TCS, a full pedal with ABS), trails under a handbrake slide, every mark a tyre
+wide and lying on the ground the pad shows, one every half metre and not one a tick; a
+launch with TCS off marks the rears' two tracks for as far as they spun, a stop with ABS
+off marks the way the car slid on front wheels standing still; the fade tick by tick and
+the place it frees after 30 s; the pool bounded, the oldest mark laid anew; the same
+slide from a reset leaving the same marks to the bit; a reset clearing them; no NaN;
+and the slide ending in the same place, to the bit, with the marks switched off.
+
 ### Handling tests
 
 The third step of `tests/run_tests.sh` runs `tests/handling_test.gd`: a scripted driver
@@ -523,3 +532,35 @@ ladder chassis, the engine ahead of the rear axle, the gearbox on the rear axle 
 driving the rear wheels, the axles and a brake disc at every wheel. It works in any view
 and is purely visual: the body materials are restored exactly when it goes off, and the
 camera test checks a launch comes out the same with and without it.
+
+### Tyre marks
+
+A tyre working beyond its grip leaves its rubber on the tarmac (`scripts/tyre_marks.gd`,
+the `TyreMarks` node in `scenes/main.tscn`). Every physics tick the marks read the car's
+slip state, per axle, and a wheel past a slip ratio of 0.35 or a slip angle of 0.2 rad
+(11.5 degrees, twice the tyres' peak) trails marks. That is over everything the car's aids
+hold a tyre at (TCS 0.25, ABS 0.15), so a launch with TCS and a full pedal with ABS leave
+nothing; pull the handbrake at speed and all four wheels draw the slide, switch TCS off
+(`T`) and launch and the rears lay two black lines for as long as they spin, switch ABS
+off (`G`) and stand on the brake and the locked fronts draw the stop. Throwing the car
+about at full lock marks too: fronts scrubbing at 20 degrees of slip are sliding.
+
+A mark is a quad a tyre wide (0.22 m) lying on the ground from where the wheel's contact
+patch was to where it is now, laid every 0.5 m of the patch's way over the ground - the
+way it went, not the way the wheel points, and as long as it went, whatever the wheel's
+own speed is (0 locked, three times the car's spinning). The contact point is the one the
+suspension looks the road up at; the height is the ground the pad shows (the road's
+elevation: the micro-bumps the wheels ride are not in the ground mesh, and a mark laid on
+them would dip under it), just over the paint.
+
+The marks fade to nothing over 30 s of physics time and live in a pool of 1024 (512 m of
+one wheel's trail); when it is full the oldest mark is laid anew. One `MultiMesh` of
+quads draws them, colour and alpha per mark, no node per mark. All of it is plain data
+worked out from the car's state on physics ticks, no wall clock and no random numbers:
+the same drive leaves the same marks, to the bit. Purely visual - the marks read the car
+and nothing reads the marks; the only thing the car got for them is a `reset_counter`
+that `reset_to` counts up and nothing in the car reads.
+
+A reset **clears** the marks (`R`, a test or mission starting, anything that goes
+through `reset_to` / `reset_to_spawn`): the pad is as it was before the drive. Every
+threshold, size and time is a commented constant at the top of the script.
