@@ -1573,6 +1573,11 @@ var _corner_trim: Array[float] = [0.0, 0.0, 0.0, 0.0]
 ## Height above the road the car was last stood at [m] (reset_to's y).
 var _stand_height := 0.0
 
+## How many times reset_to has put the car somewhere. Bookkeeping for what
+## watches the car from outside (the tyre marks clear when it goes up); nothing
+## in the car reads it.
+var reset_counter := 0
+
 var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _spawn_transform: Transform3D
 
@@ -1905,6 +1910,7 @@ func reset_to(target: Transform3D) -> void:
 	_settle_suspension(target.origin.y)
 	_update_visuals(0.0)
 	reset_physics_interpolation()
+	reset_counter += 1
 
 
 ## What the car weighs right now [kg]: the base car, the fuel in its tank and
