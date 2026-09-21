@@ -215,7 +215,8 @@ engine's losses, times the throttle it really has, the idle controller's share i
 times the engine speed is a power, and the fuel that takes is that power over an
 indicated efficiency of 0.30 and petrol's 44 MJ/kg: ~0.6 L/h idling, ~67 L/h flat out
 at the limiter, nothing on the overrun with the throttle shut. The tank holds the 986's
-64 L (`fuel_l`, `fuel_fraction()`), every reset fills it, and the thin bar lying under
+64 L (`fuel_l`, `fuel_fraction()`), every reset fills it, the running game keeps the
+level from one session to the next (see Odometer below), and the thin bar lying under
 the pedal bars shows it: amber under 15 %, red under 8 %. With the tank dry nothing
 burns: the engine runs down, stops running, and stays down until there is fuel again
 (a reset fills the tank and starts the engine; see the starter below).
@@ -494,6 +495,13 @@ disk: the store is off in a headless run, the car began the run at 0 whatever
 `user://cars.json` holds and its metres never get there (the store itself is tried on a
 file next to the telemetry phase's).
 
+And the fuel kept beside it: the car came out of `_ready` with the full tank to the bit,
+the store off, whatever `user://cars.json` holds; a level goes through the store and
+comes back the float it was, beside the odometer; NaN, inf, under 0, over the tank, words,
+null and a bool are no fuel level (a full tank and the reason, as text); and a car that
+loads 5 L starts with 5 L, their 3.7 kg and a red bar - a reset fills it, the file is not
+told.
+
 And the car's config, ahead of the mass checks: the file passes its validation, the car
 that read it runs the certified torque curve to the bit, a config without any of its
 optional keys is still a car, and a required key left out or a torque anchor that is NaN
@@ -730,3 +738,21 @@ tree; a save touches that one number and writes back whatever else the file hold
 of it sits behind the telemetry's own switch (`TelemetryRecorder.should_record`): on in
 the running game, off with no window - the headless test suite reads and writes nothing,
 its cars all start at 0 - unless `FD_TELEMETRY=1` asks for it.
+
+The fuel in the tank lives in the same entry (`fuel_l`, litres, full precision), read and
+written with the odometer, behind the same switch:
+
+```json
+{"version": 1, "cars": {"boxster_986": {"odometer_m": 123.4, "fuel_l": 31.5}}}
+```
+
+It is the user's car: driven half empty one day, it is half empty the next - a car left
+at 8 % starts at 8 %, the bar red. The level is read once, when the car enters the scene,
+before it is stood on its springs (the fuel is weight); no entry is a new car, a full
+tank; a `fuel_l` that is no level of this tank (not a number, not finite, under 0, over
+the tank) is an error in the log and a full tank. Nothing refuels the car but `reset_to`
+(`R`, a test starting): that fills the tank as it always did and tells the file nothing -
+the next save on the 45 s cadence writes the tank as it then stands, which after a reset
+is the full one the car has. The headless suite and the certified handling runs read
+nothing: every car there starts on the config's full tank (and every handling run begins
+with a `reset_to` anyway).
