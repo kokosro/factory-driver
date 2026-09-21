@@ -51,7 +51,9 @@ func _process(_delta: float) -> void:
 	elif car.gearbox_mode == ArcadeCar.GearboxMode.COMFORT:
 		# SPORT is the program the car starts in and goes unmentioned.
 		gear_name += " comfort"
-	if not car.engine_running:
+	if car.cranking():
+		gear_name += " | CRANKING"
+	elif not car.engine_running:
 		gear_name += " | STALL"
 	# The engine's own speed (ArcadeCar.engine_omega, as rpm): it free-revs,
 	# flares on a slipping clutch and bounces off the limiter, whatever the road

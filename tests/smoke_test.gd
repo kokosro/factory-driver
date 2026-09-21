@@ -53,6 +53,8 @@ extends SceneTree
 ## scrub a shade, the handbrake black, the same shades every time.
 ## Then the stability switch: a key, a lamp, the assist gone and a flick of the
 ## handbrake showing it, the low-speed blend not its to take.
+## Then the starter's crank cycle: a tap starts a stalled engine, a dry tank is
+## cranked and never catches.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -638,6 +640,16 @@ const SC_MIN_TURN_GAIN := 0.5
 const SC_CREEP_FRAMES := 300
 const SC_ROLLING_TOLERANCE := 0.05
 
+# --- Starter cycle ---------------------------------------------------------------
+
+## A tap of the starter key is watched for this many ticks (2 s); the crank
+## cycle it starts may be this many ticks off STARTER_CYCLE_TIME (the tick of
+## the tap and the float's last one), and a held key is held for this many
+## ticks, 1.5 s, nearly twice the cycle.
+const STARTER_WATCH_FRAMES := 120
+const STARTER_CYCLE_TOLERANCE_TICKS := 2
+const STARTER_HOLD_FRAMES := 90
+
 var _failures := 0
 
 
@@ -889,6 +901,7 @@ func _run() -> void:
 	await _check_telemetry(main, car)
 	await _check_tyre_marks(main, car)
 	await _check_stability_switch(main, car)
+	await _check_starter_cycle(main, car)
 
 	_finish()
 
@@ -3594,6 +3607,101 @@ func _check_stability_switch(main: Node, car: ArcadeCar) -> void:
 	car.reset_to_spawn()
 	await _step(5)
 	_check(car.sc_on and sc_lamp.text == "SC", "stability: switched back on, the lamp is quiet again ('%s')" % sc_lamp.text)
+
+
+## The starter's crank cycle: a tap of the key cranks for STARTER_CYCLE_TIME,
+## which starts a stalled engine; a dry tank is cranked for as long and never
+## catches; held, the key cranks for as long as it is held.
+func _check_starter_cycle(main: Node, car: ArcadeCar) -> void:
+	var tick := 1.0 / Engine.physics_ticks_per_second
+	var rpm_label := main.get_node("HUD/RpmLabel") as Label
+	var cycle_ticks := roundi(ArcadeCar.STARTER_CYCLE_TIME / tick)
+	_check(ArcadeCar.STARTER_CYCLE_TIME >= 0.5 and ArcadeCar.STARTER_CYCLE_TIME <= 1.5, "starter: a press cranks for 0.5..1.5 s (%.1f s)" % ArcadeCar.STARTER_CYCLE_TIME)
+
+	# (1) Stalled as the controls phase stalls it (the clutch pedal let go on an
+	# idling engine), fuel in the tank: one tap, a tick long, and hands off.
+	car.reset_to_spawn()
+	car.automatic = false
+	await _step(5)
+	Input.action_press("clutch_pedal")
+	await _step(CONTROLS_CLUTCH_FRAMES)
+	Input.action_release("clutch_pedal")
+	Input.action_press("accelerate")
+	for frame in CONTROLS_LAUNCH_FRAMES:
+		await physics_frame
+		if not car.engine_running:
+			break
+	Input.action_release("accelerate")
+	await _brake_to_a_stop(car)
+	Input.action_release("brake")
+	await _step(CONTROLS_STALLED_FRAMES)
+	var stalled := not car.engine_running and car.engine_rpm == 0.0 and not car.cranking() and rpm_label.text.ends_with("STALL")
+	var fuel_before := car.fuel_l
+	await _tap("starter")
+	var key_up := not Input.is_action_pressed("starter")
+	var said_cranking := rpm_label.text.ends_with("CRANKING") and not rpm_label.text.contains("STALL")
+	var cranked_hands_off := car.cranking()
+	var caught_at := -1.0
+	var fuel_at_catch := 0.0
+	for frame in STARTER_WATCH_FRAMES:
+		await physics_frame
+		said_cranking = said_cranking or (rpm_label.text.ends_with("CRANKING") and not car.engine_running)
+		if caught_at < 0.0 and car.engine_running:
+			caught_at = (frame + 2) * tick
+			fuel_at_catch = car.fuel_l
+	_check(stalled and key_up and cranked_hands_off, "starter: a tap of the key, one tick long, on a stalled engine and the starter cranks on with the key up")
+	_check(caught_at > 0.0 and caught_at < 1.0 and fuel_at_catch == fuel_before, "starter: the tap starts the engine, and cranking burns no fuel (caught %.2f s after the press; a tick of cranking used to leave it at ~96 rpm)" % caught_at)
+	_check(said_cranking and not rpm_label.text.contains("CRANKING") and not rpm_label.text.contains("STALL"), "starter: the tach says CRANKING while it does, and nothing of it once the engine runs ('%s')" % rpm_label.text)
+	_check(car.engine_running and not car.cranking() and car._crank_timer == 0.0 and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < CONTROLS_IDLE_TOLERANCE and car.fuel_l < fuel_before, "starter: the catch ends the cycle, the idle controller has the engine and it burns again (%d rpm)" % car.engine_rpm)
+
+	# (2) A tap on a running engine is nothing: no cycle waits for the next stall.
+	var idle_stats := _new_stats()
+	await _tap("starter")
+	var armed := car.cranking() or car._crank_timer > 0.0
+	await _drive(car, CONTROLS_STALLED_FRAMES, idle_stats)
+	_check(not armed and idle_stats.max_rpm - idle_stats.min_rpm < CONTROLS_IDLE_TOLERANCE and idle_stats.finite, "starter: a tap on a running engine starts no cycle and leaves it alone (%d..%d rpm)" % [idle_stats.min_rpm, idle_stats.max_rpm])
+
+	# (3) A dry tank: the tap cranks its cycle, the engine spins and never
+	# catches, and at the end of the cycle the starter lets go.
+	car.fuel_l = 0.0
+	await _step(FUEL_DRY_RUN_DOWN_FRAMES)
+	var ran_down := not car.engine_running and car.engine_rpm == 0.0
+	await _tap("starter")
+	var cranking_ticks := 1
+	var peak_rpm := 0.0
+	var ever_ran := false
+	while car.cranking() and cranking_ticks < STARTER_WATCH_FRAMES:
+		await physics_frame
+		cranking_ticks += 1
+		peak_rpm = maxf(peak_rpm, car.engine_rpm)
+		ever_ran = ever_ran or car.engine_running
+	for frame in STARTER_WATCH_FRAMES:
+		await physics_frame
+		ever_ran = ever_ran or car.engine_running
+	_check(
+		ran_down and not ever_ran and absi(cranking_ticks - cycle_ticks) <= STARTER_CYCLE_TOLERANCE_TICKS and peak_rpm > ArcadeCar.STALL_RPM and peak_rpm < ArcadeCar.STARTER_FREE_RPM,
+		"starter: on a dry tank the tap cranks for its cycle and the engine never catches (%d ticks of cranking, %.2f s; spun to %d rpm)" % [cranking_ticks, cranking_ticks * tick, peak_rpm],
+	)
+	_check(not car.cranking() and not car.engine_running and car.engine_rpm == 0.0 and car.fuel_l == 0.0 and rpm_label.text.ends_with("STALL"), "starter: the cycle over, the starter lets go and the engine stands (%d rpm, '%s')" % [car.engine_rpm, rpm_label.text])
+
+	# (4) Held, the key cranks for as long as it is held, past the cycle; let go
+	# after that, the starter stops with it.
+	Input.action_press("starter")
+	await _step(STARTER_HOLD_FRAMES)
+	var held_cranking := car.cranking() and car.engine_rpm > ArcadeCar.STALL_RPM and not car.engine_running
+	var held_rpm := car.engine_rpm
+	Input.action_release("starter")
+	await _step(2)
+	_check(STARTER_HOLD_FRAMES > cycle_ticks and held_cranking and not car.cranking(), "starter: held, the key cranks for as long as it is held (still spinning at %d rpm after %.1f s, the cycle is %.1f s), and the starter stops when it is let go" % [held_rpm, STARTER_HOLD_FRAMES * tick, ArcadeCar.STARTER_CYCLE_TIME])
+
+	# (5) A reset in the middle of a cycle: the engine runs, as after any reset,
+	# and the cycle is over.
+	await _step(CONTROLS_STALLED_FRAMES)
+	await _tap("starter")
+	var mid_cycle := car.cranking()
+	car.reset_to_spawn()
+	await _step(CONTROLS_STALLED_FRAMES)
+	_check(mid_cycle and car.engine_running and not car.cranking() and car._crank_timer == 0.0 and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < CONTROLS_IDLE_TOLERANCE, "starter: a reset in the middle of a cycle starts the engine as ever and ends the cycle (%d rpm)" % car.engine_rpm)
 
 
 ## Resets the car and accelerates it in a straight line to ~60 km/h.

@@ -175,15 +175,24 @@ const IDLE_RPM := 900.0
 ## engine can move, or a dry tank.
 const STALL_RPM := 450.0
 
-## The starter motor (the starter key, held): torque on the crankshaft with the
+## The starter motor (the starter key): torque on the crankshaft with the
 ## engine standing [Nm], easing off in a line to none at STARTER_FREE_RPM [rpm],
 ## as an electric motor's does. Only while the engine is not running. Against
 ## ENGINE_INERTIA and the engine's friction that turns a stopped engine past
 ## ENGINE_CATCH_RPM in ~0.2 s, and with a dry tank spins it at ~620 rpm for as
-## long as the key is held. Cranking burns no fuel: nothing burns until the
+## long as it cranks. Cranking burns no fuel: nothing burns until the
 ## engine has caught (the few drops a real start takes are not modelled).
 const CRANKING_TORQUE := 150.0
 const STARTER_FREE_RPM := 700.0
+
+## A fresh press of the starter key on an engine that is not running cranks for
+## this long [s of physics time] whether the key is held or not, as a modern
+## car's starter does on one push of the button; held longer, it cranks for as
+## long as it is held. Four times what a catch takes (~0.2 s).
+## was the key held and nothing else -> the cycle: a tap of one tick wound the
+## engine to ~96 rpm, so tapping the key never restarted a stalled engine (the
+## user's report from the driving seat).
+const STARTER_CYCLE_TIME := 0.8
 
 ## Turning at least this fast [rpm] with fuel in the tank, an engine that is not
 ## running catches (engine_running = true) and the idle controller takes it up
@@ -1556,8 +1565,11 @@ var _driver_has_clutch := false
 ## DRIVE_SLIP_RATIO).
 var _clutch_dumped := false
 
-## True while the starter key is held.
+## True while the starter key is held, and what is left of the crank cycle a
+## fresh press of it started [s] (see STARTER_CYCLE_TIME; 0 = none running,
+## and none ever on a running engine: a catch or a reset ends it).
 var _starter_held := false
+var _crank_timer := 0.0
 
 ## True while the car creeps (see CREEP_CLUTCH_ENGAGEMENT); on the way there,
 ## whether the brake has held the car at a standstill (what arms the creep) and
@@ -1631,6 +1643,12 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("sc_toggle"):
 		sc_on = not sc_on
 	_starter_held = Input.is_action_pressed("starter")
+	if engine_running:
+		_crank_timer = 0.0
+	elif Input.is_action_just_pressed("starter"):
+		_crank_timer = STARTER_CYCLE_TIME
+	else:
+		_crank_timer = maxf(_crank_timer - delta, 0.0)
 
 	# What is asked of the driver: the two pedal keys 0..1, the steering +1 =
 	# left, -1 = right (matches the sign of yaw). From the keys, or from whoever
@@ -1931,6 +1949,12 @@ func reset_to(target: Transform3D) -> void:
 ## brakes or carries the car reads this.
 func total_mass() -> float:
 	return BASE_MASS + fuel_mass + payload_mass
+
+
+## True while the starter motor turns the engine: the key held or a press's
+## cycle still running (STARTER_CYCLE_TIME), on an engine that is not running.
+func cranking() -> bool:
+	return (_starter_held or _crank_timer > 0.0) and not engine_running
 
 
 ## How full the tank is, 0 (dry) .. 1 (full). What the HUD's fuel bar shows.
@@ -2756,13 +2780,13 @@ func _run_engine_outputs(throttle: float, load: float, delta: float) -> void:
 ## crankshaft added up: d(omega) = torque / ENGINE_INERTIA * delta. The limiter
 ## cuts the fuel the moment the revs get to REDLINE_RPM, so the engine never
 ## runs past it under its own power: the step stops there. The starter motor's
-## torque comes on top while its key is held on an engine that is not running
-## (CRANKING_TORQUE), and where the step leaves the revs decides whether the
+## torque comes on top while it cranks an engine that is not running
+## (CRANKING_TORQUE, see cranking), and where the step leaves the revs decides whether the
 ## engine runs: under STALL_RPM it has stopped, turned past ENGINE_CATCH_RPM
 ## with fuel in the tank it has caught.
 func _advance_engine(torque: float, delta: float) -> void:
 	var limit := REDLINE_RPM * TAU / 60.0
-	if _starter_held and not engine_running:
+	if cranking():
 		torque += CRANKING_TORQUE * maxf(1.0 - engine_rpm / STARTER_FREE_RPM, 0.0)
 	var next := engine_omega + torque / ENGINE_INERTIA * delta
 	if engine_omega <= limit:

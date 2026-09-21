@@ -28,7 +28,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | ABS on / off                            | `G`             |
 | Stability control on / off              | `K`             |
 | Clutch pedal (hold; manual mode only)   | `Left Shift`    |
-| Starter (hold, for a stalled engine)    | `I`             |
+| Starter (press to crank; hold to keep cranking) | `I`     |
 | Reset the car to the start line         | `R`             |
 | Cycle camera: chase, cockpit, front, overhead, wheel | `C` |
 | Look back (hold)                        | `B`             |
@@ -308,10 +308,16 @@ tank: no combustion, so no fuel burnt and no exhaust events, the tach runs down 
 and says `STALL`, the throttle does nothing, the car lets its clutch go and rolls free,
 and a stalled automatic does not creep. The car's own clutch never lets it come to
 that (it opens above idle coming to a stop and feathers every launch over a floor), so
-the automatic cannot be stalled and no certified run comes near it. `I` held is the
+the automatic cannot be stalled and no certified run comes near it. `I` is the
 starter: 150 Nm on a standing crankshaft, easing off to none at 700 rpm; the engine
 catches at 500 rpm with fuel in the tank (after ~0.2 s) and the idle controller takes
-it up to 900. Cranking burns no fuel, a dry tank only ever spins at ~620 rpm, and there
+it up to 900. One press is enough: a fresh press on an engine that is not running cranks
+for 0.8 s (`STARTER_CYCLE_TIME`, physics time) whether the key is held or not, as a
+modern car's button does, and the tach says `CRANKING` meanwhile; held, the key cranks
+for as long as it is held. (It used to crank only while held, and a tap of a tick wound
+the engine to ~96 rpm: tapping never restarted a stalled engine.) Cranking burns no
+fuel, a dry tank only ever spins at ~620 rpm, for its cycle or for as long as the key is
+held, and there
 is no bump start (the clutch stays open on an engine that is not running). A reset
 starts a stopped engine: it puts a car there that is ready to drive.
 
@@ -390,6 +396,11 @@ The stability switch comes next: on at the start, `K` flips it and nothing else,
 has no strength on any branch, the same flick of the handbrake slides far deeper and
 hangs on longer without it, and the low-speed blend still has a creeping car on its
 rolling circle.
+
+Then the starter's cycle: a tap of one tick starts a stalled engine (caught after
+0.17 s, no fuel burnt cranking, the tach says `CRANKING`), does nothing to a running
+one, cranks a dry tank for its 0.8 s and never catches; held, the key cranks on; a reset
+in the middle of a cycle ends it.
 
 
 ### Handling tests
