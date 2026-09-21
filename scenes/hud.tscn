@@ -219,7 +219,7 @@ theme_override_font_sizes/font_size = 18
 text = "Up / W  accelerate      Down / S  brake (press again at a stop: reverse)
 Left / A, Right / D  steer      Space  handbrake      R  reset car
 Q / E  shift down / up (manual; under neutral: reverse)      M  automatic / manual
-N  comfort / sport      T  TCS      G  ABS      K  SC      Left Shift  clutch (manual)      I  starter"
+N  sport / comfort / eco      T  TCS      G  ABS      K  SC      Left Shift  clutch (manual)      I  starter"
 
 [node name="MissionLabel" type="Label" parent="."]
 offset_left = 24.0

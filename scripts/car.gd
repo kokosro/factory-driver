@@ -352,6 +352,8 @@ const CLUTCH_TORQUE_MAX := 500.0
 # the rears are worked past their peak before the clutch is home (slip ratio
 # 0.100 at 26 km/h, use 1.000), which is what "traction-limited" is meant to
 # say; 9.6 m/s after 2 s against 9.5, the clutch home after 1.83 s against 1.63.
+# The automatic's comfort and eco programs shift up under this, and their
+# launch is held no higher than they shift at (see _advance_drivetrain).
 const LAUNCH_RPM := 4000.0
 
 ## While the revs are still under that floor the clutch takes this share of
@@ -790,41 +792,130 @@ const FORWARD_ENGAGE_GRACE := 0.2
 ## after a downshift, the car paying for them.
 const SHIFT_TIME := 0.2
 
-## The automatic's two shift programs (gearbox_mode, the gearbox mode key).
-## Manual mode knows neither.
+## The automatic's three shift programs (gearbox_mode, the gearbox mode key
+## goes round them: sport, comfort, eco, sport). Manual mode knows none of them.
 ##   SPORT    holds every gear to UPSHIFT_RPM and keeps the engine above
 ##            DOWNSHIFT_RPM: the program the car was certified with, and the one
 ##            it starts in.
-##   COMFORT  shifts up at COMFORT_UPSHIFT_RPM and lets the revs fall to
-##            COMFORT_DOWNSHIFT_RPM: short-shifted, quiet, easy on the fuel, and
-##            slower.
-enum GearboxMode { COMFORT, SPORT }
+##   COMFORT  shifts up at COMFORT_UPSHIFT_RPM, where sport would shift down,
+##            and lets the revs fall to COMFORT_DOWNSHIFT_RPM: short-shifted,
+##            quiet, easy on the fuel, and slower.
+##   ECO      shifts up at ECO_UPSHIFT_RPM, as early as the engine's efficiency
+##            allows, lets the revs fall to ECO_DOWNSHIFT_RPM, and gives the
+##            engine no more than ECO_MAX_THROTTLE whatever the foot does.
+## Every engine has its own sweet spots for every program: none of the figures
+## below is picked by hand, each is what derived_shift_points makes of
+## TORQUE_CURVE and the engine's friction, rounded to the 100 rpm, and the smoke
+## test holds the two together. Another engine: run the helper on its curve.
+# was enum GearboxMode { COMFORT, SPORT } -> ECO appended, never reordered: the
+# user's report (2026-09-21), "we should have an eco mode as well, so the
+# gearbox changes around perfect consumption not perfect torque".
+enum GearboxMode { COMFORT, SPORT, ECO }
 
-## Automatic mode, SPORT, shifts up at this engine speed under throttle [rpm].
+## SPORT changes up where the engine's full-throttle power (torque x speed) has
+## fallen to this share of its peak, past the peak (0..1): every gear is used to
+## the end of the power. 149.5 kW at 6000 rpm on this curve, 95 % of it at
+## 6791 rpm.
+const SPORT_POWER_SHARE := 0.95
+
+## What each program keeps the engine above: the lowest engine speed at which it
+## makes this share of its peak torque (0..1), and the program changes down
+## under it. Sport stays in the fat of the curve, 90 % of 245 Nm from 2820 rpm
+## up; comfort lets it down to 75 % (1594 rpm), eco to 70 % (1288 rpm), still
+## clear of CLUTCH_DISENGAGE_RPM and the idle. COMFORT changes UP at sport's
+## figure as well: it leaves a gear where the fat of the curve begins, at the
+## speed sport would not let the engine fall to, and the two programs share no
+## revs at all.
+const SPORT_TORQUE_SHARE := 0.9
+const COMFORT_TORQUE_SHARE := 0.75
+const ECO_TORQUE_SHARE := 0.7
+
+## ECO changes up at the highest engine speed at which the engine still turns
+## fuel into work within this share of its best (0..1). What it goes by is the
+## brake efficiency at full throttle, torque at the flywheel over the torque the
+## burning fuel makes: TORQUE_CURVE / (TORQUE_CURVE + the engine's friction),
+## the friction being what the fuel pays for and the car never sees (see Fuel
+## and exhaust). On this engine 0.894 at 1000 rpm, 0.889 at 1500, 0.885 at 2000,
+## 0.872 at 3000, 0.849 at 4500, 0.815 at 6000: best at the bottom of the curve
+## and worse with every rpm of friction, within 1 % of the best up to 2002 rpm.
+const ECO_EFFICIENCY_SHARE := 0.99
+
+## The share of a program's upshift speed that a lower gear has to land under
+## it for the box to change down into it (0..1): sport's certified
+## DOWNSHIFT_MARGIN_RPM over its UPSHIFT_RPM, 1000 / 6800.
+const DOWNSHIFT_MARGIN_SHARE := 0.147
+
+## Automatic mode, SPORT, shifts up at this engine speed under throttle [rpm]:
+## SPORT_POWER_SHARE of the peak power, 6791 rpm by derived_shift_points. The
+## certified figure, and older than its derivation.
 const UPSHIFT_RPM := 6800.0
 
-## Automatic mode, SPORT, shifts down when the engine drops below this [rpm].
-## Every upshift from UPSHIFT_RPM lands well above it (lowest: ~3900 rpm into
-## 2nd), so the box never hunts between two gears.
+## Automatic mode, SPORT, shifts down when the engine drops below this [rpm]:
+## SPORT_TORQUE_SHARE of the peak torque, 2820 rpm by derived_shift_points, the
+## certified figure likewise. Every upshift from UPSHIFT_RPM lands well above it
+## (lowest: ~3900 rpm into 2nd), so the box never hunts between two gears.
 const DOWNSHIFT_RPM := 2800.0
 
 ## Automatic mode, COMFORT, shifts up at this engine speed under throttle [rpm]:
-## the torque peak. Every gear is left where the engine pulls hardest and the
-## next one picks up at 2600 - 3600 rpm, in the fat of the curve; the top third
-## of the rev range, where the power is, is never used. Whatever the throttle:
-## there is no kickdown, flat out in COMFORT is still COMFORT.
-const COMFORT_UPSHIFT_RPM := 4500.0
+## where the engine first makes SPORT_TORQUE_SHARE of its peak torque, 2820 rpm
+## by derived_shift_points. Every gear is left as the engine comes into the fat
+## of its curve and the next one picks up at 1600 - 2250 rpm; the upper half of
+## the rev range is never used. Whatever the throttle: there is no kickdown,
+## flat out in COMFORT is still COMFORT.
+# was 4500.0, the torque peak ("every gear is left where the engine pulls
+# hardest") -> 2800.0 - the user's report (2026-09-21): "in comfort mode it goes
+# to 4000 to change, that is still sporty... nobody is racing in comfort/eco".
+# Flat out from rest the box left 1st at 4526 rpm, now at 2829.
+const COMFORT_UPSHIFT_RPM := 2800.0
 
-## Automatic mode, COMFORT, shifts down when the engine drops below this [rpm].
-## Every upshift from COMFORT_UPSHIFT_RPM lands well above it (lowest: ~2600 rpm
-## into 2nd), and the lower gear always lands under COMFORT_UPSHIFT_RPM less
-## DOWNSHIFT_MARGIN_RPM (highest: ~3470 rpm, 2nd into 1st, of 3500).
-const COMFORT_DOWNSHIFT_RPM := 2000.0
+## Automatic mode, COMFORT, shifts down when the engine drops below this [rpm]:
+## COMFORT_TORQUE_SHARE of the peak torque, 1594 rpm by derived_shift_points.
+## The upshift into 2nd lands right on it (1613 rpm from exactly
+## COMFORT_UPSHIFT_RPM, less what the car loses during the change; the others
+## at 1930 rpm and up): the margin below is what keeps the box from going
+## straight back, the lower gear would land at the upshift speed again.
+# was 2000.0 -> 1600.0 - it goes with the upshift speed above.
+const COMFORT_DOWNSHIFT_RPM := 1600.0
+
+## Automatic mode, ECO, shifts up at this engine speed under throttle [rpm]: the
+## last of ECO_EFFICIENCY_SHARE of the engine's best brake efficiency, 2002 rpm
+## by derived_shift_points. The next gear picks up at 1150 - 1600 rpm, the
+## clutch locked and the engine pulling from there: the car's own clutch never
+## lets a locked engine under IDLE_RPM, so low is not a stall.
+const ECO_UPSHIFT_RPM := 2000.0
+
+## Automatic mode, ECO, shifts down when the engine drops below this [rpm]:
+## ECO_TORQUE_SHARE of the peak torque, 1288 rpm by derived_shift_points. The
+## upshift into 2nd lands under it (~1150 rpm; the others at 1380 rpm and up),
+## and the margin below holds the gear, as in COMFORT.
+const ECO_DOWNSHIFT_RPM := 1300.0
+
+## Automatic mode, ECO: the most throttle the engine is given, however far down
+## the pedal is (0..1). What an eco program does on the road: the pedal's map is
+## flattened, the floor is no longer all the engine has. Only the automatic's
+## ECO; every other program, and manual mode, passes the pedal on untouched.
+## Measured both ways, 400 m from rest with the key held: 0.082 L and 25.9 s
+## with it (25 m/s at the end), 0.119 L and 21.7 s without (32 m/s), the same
+## shift points either way. A third of the fuel for four seconds, and no check
+## minds: it stays. Under it the pedal is what it is (half a pedal burns
+## 0.061 L over the same 400 m with and without).
+const ECO_MAX_THROTTLE := 0.7
 
 ## Automatic mode only shifts down if the lower gear lands at least this far
 ## below the program's upshift speed [rpm], so a downshift never triggers an
-## instant upshift.
+## instant upshift, and an upshift that lands under the program's downshift
+## speed is not taken back: the lower gear would be at the upshift speed again.
+## Sport's is the certified figure; comfort's and eco's are the same share of
+## their own upshift speeds (DOWNSHIFT_MARGIN_SHARE: 415 and 294 rpm by
+## derived_shift_points).
+# was DOWNSHIFT_MARGIN_RPM for every program -> one each - 1000 rpm under eco's
+# 2000 asks a lower gear to land under 1000 rpm, which is under where the car's
+# clutch lets go (CLUTCH_DISENGAGE_RPM): eco would never have changed down on a
+# turning engine at all, and comfort's changes down would all have been the
+# margin's (at 1040 - 1450 rpm) and none COMFORT_DOWNSHIFT_RPM's.
 const DOWNSHIFT_MARGIN_RPM := 1000.0
+const COMFORT_DOWNSHIFT_MARGIN_RPM := 400.0
+const ECO_DOWNSHIFT_MARGIN_RPM := 300.0
 
 ## Automatic mode waits at least this long between two shifts [s].
 const AUTO_SHIFT_HOLD := 0.5
@@ -1261,7 +1352,24 @@ const REAR_LOCK_RECOVERY_RATE := 3.0
 ## as fast as the throttle is pressed, and a lift is a lift: the foot is off the
 ## throttle in two ticks. "chauffeur" is the same car driven with a passenger's
 ## coffee in mind: feet several times slower, let go a little slower than they
-## are pressed, hands half as fast.
+## are pressed, hands half as fast. "comfort_driver" and "eco_driver" are who
+## the gearbox mode key seats with those two programs (MODE_DRIVERS), and
+## "test_driver" with sport: nobody is racing in comfort or eco, and the feet
+## are part of the program. A key is on / off, so how far down the pedal gets
+## is how long the key was held times the attack: at the test driver's 10 a
+## 6-tick tap is the floor, and the only throttle between none and all is a
+## flutter of taps between none and all (6 ticks on, 6 off: 0 .. 1.00 of the
+## pedal). At the comfort driver's 4.5 the same tap is 0.45 of the pedal, at the
+## eco driver's 3.5 it is 0.35, and the pedal comes back up at the pace it went
+## down: an even beat of taps keeps it where it is (from nothing, around a
+## quarter), a longer press takes it further down and the beat holds it there,
+## a longer gap lets it up. The brake is a little quicker than the throttle in
+## both, as it has to be (see above), the hands between the chauffeur's and the
+## test driver's.
+# was one driver whatever the program -> one each - the user's report
+# (2026-09-21): "in comfort the pedals should be less snappy, so i can keep
+# acceleration 50% or 25% - currently i'm tapping, but it's impossible to keep
+# the same RPMs".
 # The test driver's figures are as slow as the certified car allows, measured
 # against the checks that pin it:
 # throttle_attack was 7.5 (0.13 s) -> 10.0 - the camera test's one-second
@@ -1298,6 +1406,30 @@ const DRIVER_PROFILES := {
 		"brake_release": 3.0,
 		"steering_hand_speed": 650.0,
 	},
+	"comfort_driver": {
+		"throttle_attack": 4.5,
+		"throttle_release": 4.5,
+		"brake_attack": 5.0,
+		"brake_release": 4.0,
+		"steering_hand_speed": 850.0,
+	},
+	"eco_driver": {
+		"throttle_attack": 3.5,
+		"throttle_release": 3.5,
+		"brake_attack": 4.5,
+		"brake_release": 3.5,
+		"steering_hand_speed": 850.0,
+	},
+}
+
+## Who the gearbox mode key puts in the seat with each of the automatic's
+## programs: GearboxMode -> a name in DRIVER_PROFILES. Only the key does it (see
+## _physics_process); whoever calls set_driver_profile after that has the seat
+## until the key is pressed again.
+const MODE_DRIVERS := {
+	GearboxMode.SPORT: "test_driver",
+	GearboxMode.COMFORT: "comfort_driver",
+	GearboxMode.ECO: "eco_driver",
 }
 
 # --- Visual only (no effect on handling) -------------------------------------
@@ -1416,8 +1548,10 @@ var reverse_engaged := false
 ## True = the gearbox shifts by itself. The shift keys switch to manual.
 var automatic := true
 
-## Which of its two programs the automatic shifts by (see GearboxMode). A switch
-## on the dashboard like tcs_on, and like it left alone by a reset.
+## Which of its three programs the automatic shifts by (see GearboxMode). A
+## switch on the dashboard like tcs_on, and like it left alone by a reset. The
+## gearbox mode key seats a driver along with it (MODE_DRIVERS); setting this
+## does not.
 var gearbox_mode := GearboxMode.SPORT
 
 ## The driver aids, on unless switched off (the TCS and ABS keys): traction
@@ -1748,7 +1882,19 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("toggle_gearbox"):
 		automatic = not automatic
 	if Input.is_action_just_pressed("gearbox_mode"):
-		gearbox_mode = GearboxMode.COMFORT if gearbox_mode == GearboxMode.SPORT else GearboxMode.SPORT
+		# was sport <-> comfort -> sport, comfort, eco and round again, and the
+		# key seats the program's own driver with it (MODE_DRIVERS). Here and
+		# nowhere else: gearbox_mode set from code, and a reset, leave whoever
+		# is in the seat, and a driver seated by hand (set_driver_profile)
+		# stays until the next press of this key.
+		match gearbox_mode:
+			GearboxMode.SPORT:
+				gearbox_mode = GearboxMode.COMFORT
+			GearboxMode.COMFORT:
+				gearbox_mode = GearboxMode.ECO
+			_:
+				gearbox_mode = GearboxMode.SPORT
+		set_driver_profile(DRIVER_PROFILES[MODE_DRIVERS[gearbox_mode]])
 	if Input.is_action_just_pressed("tcs_toggle"):
 		tcs_on = not tcs_on
 	if Input.is_action_just_pressed("abs_toggle"):
@@ -2350,6 +2496,60 @@ static func engine_torque(rpm: float) -> float:
 	return TORQUE_CURVE[-1].y
 
 
+## Where `mode`'s shift points are on THIS engine, as { upshift_rpm,
+## downshift_rpm, margin_rpm } [rpm]: read off TORQUE_CURVE and the engine's
+## friction, rpm by rpm from the curve's first point (below it the curve is
+## only held flat, nothing is known there) to the limiter.
+##   SPORT    up at the highest speed with SPORT_POWER_SHARE of the peak power
+##            (torque x speed), down under the lowest speed with
+##            SPORT_TORQUE_SHARE of the peak torque
+##   COMFORT  up at that same lowest speed with SPORT_TORQUE_SHARE of the peak
+##            torque, down under the lowest with COMFORT_TORQUE_SHARE of it
+##   ECO      up at the highest speed with ECO_EFFICIENCY_SHARE of the best
+##            brake efficiency (torque / (torque + friction), see
+##            ECO_EFFICIENCY_SHARE), down under the lowest with ECO_TORQUE_SHARE
+##            of the peak torque
+## and the margin DOWNSHIFT_MARGIN_SHARE of the upshift speed in all three. The
+## gearbox does not call this: it shifts by the constants (UPSHIFT_RPM and the
+## rest), which are these figures rounded to the 100 rpm, sport's the certified
+## ones. It is where they come from, and the smoke test holds each constant to
+## within 50 rpm of it; a car with another curve gets its constants from here.
+static func derived_shift_points(mode: GearboxMode) -> Dictionary:
+	var first_rpm := int(TORQUE_CURVE[0].x)
+	var peak_torque := 0.0
+	var peak_power := 0.0
+	var best_efficiency := 0.0
+	for rpm in range(first_rpm, int(REDLINE_RPM)):
+		var torque := engine_torque(rpm)
+		peak_torque = maxf(peak_torque, torque)
+		peak_power = maxf(peak_power, torque * rpm)
+		best_efficiency = maxf(best_efficiency, torque / (torque + _engine_friction(rpm)))
+	var torque_share := SPORT_TORQUE_SHARE
+	match mode:
+		GearboxMode.COMFORT:
+			torque_share = COMFORT_TORQUE_SHARE
+		GearboxMode.ECO:
+			torque_share = ECO_TORQUE_SHARE
+	var upshift_rpm := 0.0
+	var downshift_rpm := 0.0
+	var fat_from_rpm := 0.0
+	for rpm in range(int(REDLINE_RPM) - 1, first_rpm - 1, -1):
+		var torque := engine_torque(rpm)
+		if torque >= torque_share * peak_torque:
+			downshift_rpm = rpm
+		if torque >= SPORT_TORQUE_SHARE * peak_torque:
+			fat_from_rpm = rpm
+		if upshift_rpm > 0.0:
+			continue
+		if mode == GearboxMode.SPORT and torque * rpm >= SPORT_POWER_SHARE * peak_power:
+			upshift_rpm = rpm
+		elif mode == GearboxMode.ECO and torque / (torque + _engine_friction(rpm)) >= ECO_EFFICIENCY_SHARE * best_efficiency:
+			upshift_rpm = rpm
+	if mode == GearboxMode.COMFORT:
+		upshift_rpm = fat_from_rpm
+	return {"upshift_rpm": upshift_rpm, "downshift_rpm": downshift_rpm, "margin_rpm": upshift_rpm * DOWNSHIFT_MARGIN_SHARE}
+
+
 ## Forward / reverse selection. A fresh key press changes direction; a brake
 ## key held through a stop just holds the car (see STANDSTILL_SPEED). The one
 ## exception is deliberate: forward is the home direction, so an accelerate key
@@ -2434,6 +2634,11 @@ func _pedals(speed: float, drive: float, delta: float) -> Dictionary:
 		# off into MAX_REVERSE_SPEED (the old limiter, now on the throttle): wide
 		# open until REVERSE_ACCEL / REVERSE_LIMITER_RATE short of it, shut at it.
 		throttle = -drive * clampf((speed + MAX_REVERSE_SPEED) * REVERSE_LIMITER_RATE / REVERSE_ACCEL, 0.0, 1.0)
+
+	if automatic and gearbox_mode == GearboxMode.ECO:
+		# The eco program's flattened pedal: the engine gets no more than this,
+		# either way the car is driven. Nothing here for the other programs.
+		throttle = minf(throttle, ECO_MAX_THROTTLE)
 
 	var coasting := throttle <= 0.0
 	_update_gearbox(speed, throttle, reversing, delta)
@@ -2639,7 +2844,15 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 
 	var slip := engine_omega - gearbox_omega
 	clutch_torque = capacity * clampf(slip / CLUTCH_SLIP_BAND, -1.0, 1.0)
-	var floor_omega := lerpf(IDLE_RPM, LAUNCH_RPM, throttle) * TAU / 60.0
+	# was LAUNCH_RPM whatever the program -> no higher than the program shifts up
+	# at - flat out from rest comfort held the revs at LAUNCH_RPM's 4000 on the
+	# slipping clutch until the road had 1st at COMFORT_UPSHIFT_RPM, and changed
+	# up with 3954 rpm on the tach: the user's "it goes to 4000 to change, that
+	# is still sporty" (2026-09-21) over again, whatever the shift point. Sport's
+	# 6800 is over LAUNCH_RPM and manual mode knows no program: LAUNCH_RPM as
+	# ever for both.
+	var launch_rpm := minf(LAUNCH_RPM, _upshift_rpm()) if automatic else LAUNCH_RPM
+	var floor_omega := lerpf(IDLE_RPM, launch_rpm, throttle) * TAU / 60.0
 	if not tcs_on and throttle > 0.0 and gearbox_omega < floor_omega and engine_omega >= floor_omega - LAUNCH_BITE_BAND:
 		# TCS off: the revs are up to where the clutch bites, and it is let in
 		# for good.
@@ -2868,17 +3081,34 @@ func _update_gearbox(speed: float, throttle: float, reversing: bool, delta: floa
 				_since_shift = 0.0
 		elif _since_shift >= AUTO_SHIFT_HOLD:
 			var lower := gear - 1
-			var comfort := gearbox_mode == GearboxMode.COMFORT
-			var upshift_rpm := COMFORT_UPSHIFT_RPM if comfort else UPSHIFT_RPM
-			var downshift_rpm := COMFORT_DOWNSHIFT_RPM if comfort else DOWNSHIFT_RPM
+			var upshift_rpm := _upshift_rpm()
+			var downshift_rpm := DOWNSHIFT_RPM
+			var margin_rpm := DOWNSHIFT_MARGIN_RPM
+			match gearbox_mode:
+				GearboxMode.COMFORT:
+					downshift_rpm = COMFORT_DOWNSHIFT_RPM
+					margin_rpm = COMFORT_DOWNSHIFT_MARGIN_RPM
+				GearboxMode.ECO:
+					downshift_rpm = ECO_DOWNSHIFT_RPM
+					margin_rpm = ECO_DOWNSHIFT_MARGIN_RPM
 			if throttle > 0.0 and gear < GEAR_RATIOS.size() - 1 and wheel_rpm(gear) >= upshift_rpm:
 				shift_to(gear + 1)
 			elif (
 				lower >= 1
 				and wheel_rpm(gear) < downshift_rpm
-				and wheel_rpm(lower) < upshift_rpm - DOWNSHIFT_MARGIN_RPM
+				and wheel_rpm(lower) < upshift_rpm - margin_rpm
 			):
 				shift_to(lower)
+
+
+## The engine speed the automatic's program shifts up at [rpm] (see GearboxMode).
+func _upshift_rpm() -> float:
+	match gearbox_mode:
+		GearboxMode.COMFORT:
+			return COMFORT_UPSHIFT_RPM
+		GearboxMode.ECO:
+			return ECO_UPSHIFT_RPM
+	return UPSHIFT_RPM
 
 
 ## Net torque on the crankshaft from the engine itself [Nm] at `rpm` with the
@@ -2898,7 +3128,7 @@ func _engine_net_torque(rpm: float, throttle: float, load: float) -> float:
 
 ## Friction and pumping losses of the engine at `rpm` [Nm] (see
 ## ENGINE_FRICTION_TORQUE).
-func _engine_friction(rpm: float) -> float:
+static func _engine_friction(rpm: float) -> float:
 	return ENGINE_FRICTION_TORQUE + ENGINE_FRICTION_TORQUE_PER_RPM * rpm
 
 
