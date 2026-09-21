@@ -42,6 +42,14 @@ fallback default, given in brackets.
 - `idle` *(optional, all of it)*: `control_gain` [2.5], `control_max_throttle` [0.3].
 - `fuel`: `tank_capacity_l`, `burn_efficiency`, `lhv`, `density`.
 - `exhaust` *(optional, all of it)*: `flow_at_rest` [0.3], `flow_rate` [10].
+- `battery` *(optional, all of it)*: `capacity_ah` [50], `starter_power` [1500],
+  `key_on_load` [30], `running_load` [150], `alternator_power` [1500],
+  `alternator_cut_in_rpm` [500], `alternator_rated_rpm` [2500], `charge_efficiency` [0.85],
+  `taper_charge` [0.8], `deep_discharge_charge` [0.1], `deep_discharge_wear` [0.03],
+  `flat_wear_rate` [2.78e-6]. The rpm are the engine's (the belt ratio is inside them),
+  the loads and powers watts, the rate per second; the 12 V that turn the amp hours
+  into joules are the system's, not a car's. The battery's ~20 kg are inside
+  `kerb_mass`, as they are in a kerb weight.
 - `gearbox`: `ratios` (neutral's 0 first, then the forward gears, each above zero),
   `final_drive`, `reverse_ratio`, `drivetrain_efficiency`, `clutch_torque_max`,
   `clutch_engage_time`, `clutch_shift_engage_time`.

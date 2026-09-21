@@ -35,8 +35,11 @@ extends CharacterBody3D
 ## brakes and the road (_advance_drivetrain). Nothing in the chain follows road
 ## speed by decree: the tach reads what the engine does. The work costs fuel
 ## (see Fuel and exhaust), the fuel in the tank is mass the car carries, and
-## the exhaust is there as data. In automatic the clutch also creeps the car
-## off a released brake (see Creep, by the clutch).
+## the exhaust is there as data. The STARTER that turns a stopped engine draws
+## on the BATTERY, the alternator puts back what the running engine's belt
+## drives, and a battery run flat is one that cranks weakly, or not at all, and
+## has lost some of what it held for good (see Electrical). In automatic the
+## clutch also creeps the car off a released brake (see Creep, by the clutch).
 ## The driven wheels are where the layouts get their character, nobody scripts it: a
 ## rear-driven car spends rear grip on drive and pushes from behind, so power
 ## in a corner loosens the tail (power oversteer); a front-driven car asks its
@@ -210,6 +213,9 @@ static var STALL_RPM := 450.0
 ## ENGINE_CATCH_RPM in ~0.2 s, and with a dry tank spins it at ~620 rpm for as
 ## long as it cranks. Cranking burns no fuel: nothing burns until the
 ## engine has caught (the few drops a real start takes are not modelled).
+## With a full battery: what the starter really makes is this times the
+## battery's cranking strength (battery_cranking_strength, 1 on a full one),
+## and every Nm of it is current drawn from the battery (STARTER_POWER).
 # was a const -> read from the car's config (engine.cranking_torque,
 # optional); the certified value here is the fallback default a config without
 # it gets.
@@ -377,6 +383,151 @@ static var EXHAUST_FLOW_AT_REST := 0.3
 # was a const -> read from the car's config (exhaust.flow_rate, optional); the
 # certified value here is the fallback default a config without it gets.
 static var EXHAUST_FLOW_RATE := 10.0
+
+# --- Electrical ------------------------------------------------------------------
+
+# A 12 V lead-acid starter battery and a belt-driven alternator, kept in energy
+# [J] and power [W]: the one thing in the car that runs on electricity by name
+# is the starter, and what the model keeps is how much the battery has in it
+# (battery_charge, 0..1 of what it held when new) and how much of that it has
+# lost for good (battery_wear). Every tick (_advance_battery):
+#   engine off:      the key-on load drains it (BATTERY_KEY_ON_LOAD);
+#   cranking:        the starter draws on it, current with the torque it makes
+#                    (_advance_engine, STARTER_POWER);
+#   engine running:  the alternator charges it with what is left after the
+#                    ignition's own loads (alternator_power less
+#                    BATTERY_RUNNING_LOAD), at the battery's charge efficiency,
+#                    tapering off as it fills (BATTERY_TAPER_CHARGE).
+# What a flat battery does: the starter's torque follows its cranking strength
+# (the square root of the charge, see battery_cranking_strength), so a weak
+# battery winds the engine up more slowly against ENGINE_INERTIA and takes
+# longer to ENGINE_CATCH_RPM, one under ~13 % never gets there and an empty one
+# turns nothing. Nothing of that is scripted: it falls out of the starter's
+# torque line against the engine's friction. A RUNNING engine never fails for
+# want of the battery (the alternator and the battery run the ignition between
+# them): no electrical stalling. And a battery run down to
+# BATTERY_DEEP_DISCHARGE_CHARGE is aged by it, once per such discharge and for
+# every second it is left there (BATTERY_DEEP_DISCHARGE_WEAR,
+# BATTERY_FLAT_WEAR_RATE): its capacity shrinks from the top, it fills to less
+# and, fuller than it can get, cranks weaker than a new one.
+# What is NOT counted twice: the alternator's drag on the belt and the fuel
+# pump, injection and ignition the running engine feeds are inside the engine's
+# own figures already - ENGINE_FRICTION_TORQUE is the installed engine's losses,
+# accessories on the belt included, and the burn pays for it (see Fuel and
+# exhaust) - so nothing here adds a torque to the crankshaft or a drop of fuel;
+# the electrical side alone is kept. That is also what keeps every certified
+# run to the bit: a running engine's physics never reads the battery, only the
+# starter does, and the certified runs never crank. And the battery's ~20 kg
+# are in KERB_MASS as they are in the real car's kerb weight: the car's mass
+# does not change with it.
+# Kept from one session to the next where the odometer is (_load_stored_battery):
+# a car left with a flat battery starts with one, and what a deep discharge has
+# taken stays taken. A reset (R) is a fresh car: full and healthy, as it fills
+# the tank, without a word to the file.
+
+## Nominal voltage of the electrical system [V]: what turns a battery's amp
+## hours into joules. Every car here is a 12 V car; not a car's number.
+const BATTERY_NOMINAL_VOLTAGE := 12.0
+
+## What the battery held when new [Ah]: a 986's ~50 Ah starter battery; times
+## 3600 s and BATTERY_NOMINAL_VOLTAGE that is BATTERY_CAPACITY_J.
+# read from the car's config (battery.capacity_ah, optional); the certified
+# value here is the fallback default a config without it gets.
+static var BATTERY_CAPACITY_AH := 50.0
+
+## The electrical power the starter draws on a standing crankshaft with a full
+## battery [W]: ~1.5 kW, ~125 A off a 12 V battery. It is a DC motor: the
+## current, and the power with it, goes with the torque it makes, so the draw
+## eases off along the same line as CRANKING_TORQUE, to none at
+## STARTER_FREE_RPM. A catch takes ~0.2 s of it, ~170 J (measured 166 J in
+## tests/battery_test.gd): a full battery of BATTERY_CAPACITY_J is ~13 000
+## starts.
+# read from the car's config (battery.starter_power, optional); the certified
+# value here is the fallback default a config without it gets.
+static var STARTER_POWER := 1500.0
+
+## What the car draws with the key on and the engine off [W]: the ECU awake,
+## the cluster lit, the dash's lamps - ~2.5 A. A car in the game always has its
+## key on; the 20 .. 50 mA a locked, parked car sleeps on is not what this is.
+## 2.16 MJ over 30 W is ~20 hours from full to flat.
+# read from the car's config (battery.key_on_load, optional); the certified
+# value here is the fallback default a config without it gets.
+static var BATTERY_KEY_ON_LOAD := 30.0
+
+## What the ignition takes off the alternator while the engine runs [W]: the
+## fuel pump, the coils and injectors, the ECU - ~10 A at 14 V. The
+## alternator's output less this is what reaches the battery; under this (the
+## alternator barely turning) the battery makes up the difference. The fuel
+## these loads cost is in the engine's burn already (see Electrical).
+# read from the car's config (battery.running_load, optional); the certified
+# value here is the fallback default a config without it gets.
+static var BATTERY_RUNNING_LOAD := 150.0
+
+## The most the alternator makes [W]: the 986's ~120 A unit at its 14.4 V
+## regulator would be ~1.7 kW, rated hot and on the bench ~1.5 kW.
+# read from the car's config (battery.alternator_power, optional); the
+# certified value here is the fallback default a config without it gets.
+static var ALTERNATOR_POWER := 1500.0
+
+## The alternator's output against engine speed [rpm, the engine's: the belt
+## ratio is inside these two]: none under ALTERNATOR_CUT_IN_RPM, rising in a
+## line to ALTERNATOR_POWER at ALTERNATOR_RATED_RPM and flat from there. Real
+## alternators make little at idle and their rated output from ~2000 engine
+## rpm up: at the 900 rpm idle this one makes a fifth of its rating, 300 W, of
+## which 150 W are left for the battery; at 2500 rpm and above 1350 W.
+# read from the car's config (battery.alternator_cut_in_rpm /
+# alternator_rated_rpm, optional); the certified values here are the fallback
+# defaults a config without them gets.
+static var ALTERNATOR_CUT_IN_RPM := 500.0
+static var ALTERNATOR_RATED_RPM := 2500.0
+
+## Share of what goes into the battery that is kept as charge (no unit): a
+## lead-acid's ~0.85, the rest is heat and gassing.
+# read from the car's config (battery.charge_efficiency, optional); the
+# certified value here is the fallback default a config without it gets.
+static var BATTERY_CHARGE_EFFICIENCY := 0.85
+
+## From this share of a full charge up (0..1, of what the battery can hold as
+## worn as it is) the battery takes less and less, in a line to nothing at
+## full: the absorption stage, where the regulator's voltage holds and the
+## current falls away. Under it the battery takes all the alternator has left.
+# read from the car's config (battery.taper_charge, optional); the certified
+# value here is the fallback default a config without it gets.
+static var BATTERY_TAPER_CHARGE := 0.8
+
+## Under this charge (0..1) a battery is deeply discharged, and it costs it:
+## a tenth. Plates sulphate below there, and a lead-acid does not come all the
+## way back from it. Where the starter gives up (~13 %) is just over it.
+# read from the car's config (battery.deep_discharge_charge, optional); the
+# certified value here is the fallback default a config without it gets.
+static var BATTERY_DEEP_DISCHARGE_CHARGE := 0.1
+
+## Share of the new battery's capacity a deep discharge takes for good (0..1),
+## once, the tick the charge goes under BATTERY_DEEP_DISCHARGE_CHARGE, and
+## again the next time it goes under from above: 3 % each.
+# read from the car's config (battery.deep_discharge_wear, optional); the
+# certified value here is the fallback default a config without it gets.
+static var BATTERY_DEEP_DISCHARGE_WEAR := 0.03
+
+## What a battery LEFT deeply discharged loses on top [share of the new
+## capacity per second]: 1 % an hour (2.78e-6 / s), a battery left flat for a
+## few days is one to throw away. Physics time: nothing ages a car between
+## sessions.
+# read from the car's config (battery.flat_wear_rate, optional); the certified
+# value here is the fallback default a config without it gets.
+static var BATTERY_FLAT_WEAR_RATE := 2.78e-6
+
+## The most a battery can lose (0..1 of the new capacity): 0.9. A tenth is
+## always left, so there is a capacity to hold a charge against; a battery
+## that far gone fills to a tenth and its starter turns nothing (a full tenth
+## is under the ~13 % a catch takes). Replacing a battery is not modelled:
+## a reset is a new car, battery and all.
+const BATTERY_WEAR_LIMIT := 0.9
+
+## What the battery held when new [J]: BATTERY_CAPACITY_AH x 3600 x
+## BATTERY_NOMINAL_VOLTAGE, 2.16 MJ. Derived, never read: worked out again from
+## the config's number when a car reads it (_derive_from_config).
+static var BATTERY_CAPACITY_J := BATTERY_CAPACITY_AH * 3600.0 * BATTERY_NOMINAL_VOLTAGE
 
 # --- Gearbox -----------------------------------------------------------------
 
@@ -1856,6 +2007,27 @@ var fuel_l := FUEL_TANK_CAPACITY_L:
 	set(value):
 		fuel_l = 0.0 if is_nan(value) else clampf(value, 0.0, FUEL_TANK_CAPACITY_L)
 
+## Share of the new battery's capacity it has lost for good, 0 ..
+## BATTERY_WEAR_LIMIT (kept inside that, NaN is none). Grown by deep
+## discharges (_advance_battery), put back to 0 by reset_to. Kept from one
+## session to the next with the charge (_load_stored_battery). Set it before
+## the charge: the charge is held under what the wear leaves.
+var battery_wear := 0.0:
+	set(value):
+		battery_wear = 0.0 if is_nan(value) else clampf(value, 0.0, BATTERY_WEAR_LIMIT)
+		battery_charge = battery_charge
+
+## The energy in the battery as a share of what it held when new, 0 .. 1 less
+## battery_wear (kept inside that, NaN is flat): times BATTERY_CAPACITY_J it is
+## joules. Drawn on by the starter and the key-on load, charged by the
+## alternator (_advance_battery), full again on reset_to. Kept from one session
+## to the next where the odometer is: the car starts with what it was left
+## with, the full one below is a new car's - and every car's in the headless
+## test suite. What the HUD's battery bar shows: a worn battery never fills it.
+var battery_charge := 1.0:
+	set(value):
+		battery_charge = 0.0 if is_nan(value) else clampf(value, 0.0, 1.0 - battery_wear)
+
 ## Mass of that fuel [kg]: fuel_l x FUEL_DENSITY, brought up to date at the
 ## start of every tick, so one tick works with one mass throughout.
 var fuel_mass := FUEL_TANK_CAPACITY_L * FUEL_DENSITY
@@ -2023,6 +2195,12 @@ var _clutch_dumped := false
 var _starter_held := false
 var _crank_timer := 0.0
 
+## True from the tick the battery's charge went under
+## BATTERY_DEEP_DISCHARGE_CHARGE until it is back over it: the discharge has
+## been paid for (BATTERY_DEEP_DISCHARGE_WEAR), the next one is the next time
+## it goes under. Not kept in the file: set from the charge that is loaded.
+var _battery_deep := false
+
 ## True while the car creeps (see CREEP_CLUTCH_ENGAGEMENT); on the way there,
 ## whether the brake has held the car at a standstill (what arms the creep) and
 ## how long it has stood with nothing asked of it since [s] (CREEP_DWELL).
@@ -2111,6 +2289,7 @@ func _ready() -> void:
 		# before the camera comes up (it is this car's sibling in main.tscn and
 		# its _ready runs after ours) to pick up camera_view.
 		_load_stored_driver()
+		_load_stored_battery()
 	_spawn_transform = global_transform
 	# The body floats on its springs over the floor; nothing may pull it onto
 	# it (CharacterBody3D snaps to a floor within 0.1 m by default).
@@ -2123,7 +2302,7 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	if _odometer_kept:
-		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l, OdometerStore.PATH, driver_settings())
+		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l, OdometerStore.PATH, driver_settings(), battery_settings())
 
 
 ## The tank as this car was left with it the last time (OdometerStore, from
@@ -2176,6 +2355,31 @@ func driver_settings() -> Dictionary:
 	}
 
 
+## The battery as this car was left with it (OdometerStore, from `path`): how
+## full (battery_charge) and how worn (battery_wear), the wear first so the
+## charge is held under what it leaves. A car the file does not know starts on
+## the full, healthy battery it was created with; a number in there that is no
+## share of a battery is an error and that one default, the other still loads.
+## Nothing charges a car's battery but the alternator and reset_to: one left
+## flat starts flat, and its starter turns nothing.
+func _load_stored_battery(path := OdometerStore.PATH) -> void:
+	var stored := OdometerStore.load_battery(CAR_ID, path)
+	for problem: String in stored.problems:
+		push_error(problem)
+	battery_wear = stored.capacity_wear
+	battery_charge = stored.charge
+	_battery_deep = battery_charge < BATTERY_DEEP_DISCHARGE_CHARGE
+
+
+## The battery as it stands, for the store: a car's whole "battery" object
+## (OdometerStore.BATTERY_DEFAULTS has the same two fields).
+func battery_settings() -> Dictionary:
+	return {
+		"charge": battery_charge,
+		"capacity_wear": battery_wear,
+	}
+
+
 ## Makes this car the one its config describes (CONFIG_PATH), before anything
 ## else in _ready looks at a number: the file is read and checked
 ## (CarConfigValidation), its primary numbers go into the static vars of the
@@ -2196,6 +2400,8 @@ func _read_config() -> void:
 	engine_omega = IDLE_RPM * TAU / 60.0
 	fuel_l = FUEL_TANK_CAPACITY_L
 	fuel_mass = FUEL_TANK_CAPACITY_L * FUEL_DENSITY
+	battery_wear = 0.0
+	battery_charge = 1.0
 	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
 	rear_load_fraction = REAR_WEIGHT_FRACTION
 	driver_profile = DRIVER_PROFILES["test_driver"]
@@ -2244,6 +2450,20 @@ static func _apply_config(config: Dictionary) -> void:
 	var exhaust: Dictionary = config.get("exhaust", {})
 	EXHAUST_FLOW_AT_REST = exhaust.get("flow_at_rest", EXHAUST_FLOW_AT_REST)
 	EXHAUST_FLOW_RATE = exhaust.get("flow_rate", EXHAUST_FLOW_RATE)
+
+	var battery: Dictionary = config.get("battery", {})
+	BATTERY_CAPACITY_AH = battery.get("capacity_ah", BATTERY_CAPACITY_AH)
+	STARTER_POWER = battery.get("starter_power", STARTER_POWER)
+	BATTERY_KEY_ON_LOAD = battery.get("key_on_load", BATTERY_KEY_ON_LOAD)
+	BATTERY_RUNNING_LOAD = battery.get("running_load", BATTERY_RUNNING_LOAD)
+	ALTERNATOR_POWER = battery.get("alternator_power", ALTERNATOR_POWER)
+	ALTERNATOR_CUT_IN_RPM = battery.get("alternator_cut_in_rpm", ALTERNATOR_CUT_IN_RPM)
+	ALTERNATOR_RATED_RPM = battery.get("alternator_rated_rpm", ALTERNATOR_RATED_RPM)
+	BATTERY_CHARGE_EFFICIENCY = battery.get("charge_efficiency", BATTERY_CHARGE_EFFICIENCY)
+	BATTERY_TAPER_CHARGE = battery.get("taper_charge", BATTERY_TAPER_CHARGE)
+	BATTERY_DEEP_DISCHARGE_CHARGE = battery.get("deep_discharge_charge", BATTERY_DEEP_DISCHARGE_CHARGE)
+	BATTERY_DEEP_DISCHARGE_WEAR = battery.get("deep_discharge_wear", BATTERY_DEEP_DISCHARGE_WEAR)
+	BATTERY_FLAT_WEAR_RATE = battery.get("flat_wear_rate", BATTERY_FLAT_WEAR_RATE)
 
 	var gearbox: Dictionary = config.gearbox
 	GEAR_RATIOS = []
@@ -2331,6 +2551,7 @@ static func _apply_config(config: Dictionary) -> void:
 ## the numbers of the fallback defaults.
 static func _derive_from_config() -> void:
 	BASE_MASS = KERB_MASS - FUEL_TANK_CAPACITY_L * FUEL_DENSITY
+	BATTERY_CAPACITY_J = BATTERY_CAPACITY_AH * 3600.0 * BATTERY_NOMINAL_VOLTAGE
 	CG_OFFSET = (REAR_WEIGHT_FRACTION - 0.5) * 2.0 * AXLE_DISTANCE
 	BRAKE_DECEL = BRAKE_DECEL_G * TYRE_MU * 9.8
 	FRONT_CORNER_MASS = KERB_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5
@@ -2506,6 +2727,9 @@ func _physics_process(delta: float) -> void:
 	var front_contact := {"along": front_along, "grip": front_grip, "slip_angle": front_slip_angle, "peak_slip_angle": FRONT_PEAK_SLIP_ANGLE, "slide_grip": TYRE_SLIDE_GRIP}
 	var rear_contact := {"along": forward_speed, "grip": rear_grip, "slip_angle": rear_slip_angle, "peak_slip_angle": REAR_PEAK_SLIP_ANGLE, "slide_grip": rear_slide_grip}
 	_advance_drivetrain(pedals.throttle, pedals.coasting, pedals.brake, front_contact, rear_contact, delta)
+	# After the drivetrain: the engine's speed and whether it runs are this
+	# tick's, and the starter's draw of this tick is in the charge already.
+	_advance_battery(delta)
 	if _handbrake_amount > 0.0:
 		# Held, the lever stops the rear wheels outright. Let go, what holds
 		# them is a brake torque like any other (HANDBRAKE_RELEASE_TORQUE, in
@@ -2615,8 +2839,9 @@ func _physics_process(delta: float) -> void:
 ## The way the body got over the ground this tick goes on the odometer (level
 ## distance, x and z; anything not finite is no way at all), and every
 ## ODOMETER_SAVE_INTERVAL the odometer goes to its file, where that is on - and
-## the fuel level as it stands with it: after a reset that is the full tank the
-## reset put in, which is what the car has.
+## the fuel level and the battery as they stand with it: after a reset that is
+## the full tank and the new battery the reset put in, which is what the car
+## has.
 func _count_odometer(delta: float) -> void:
 	var way := Vector2(global_position.x - _odometer_from.x, global_position.z - _odometer_from.z).length()
 	if is_finite(way):
@@ -2628,8 +2853,8 @@ func _count_odometer(delta: float) -> void:
 	if _since_odometer_save >= ODOMETER_SAVE_INTERVAL:
 		_since_odometer_save = 0.0
 		# was save_odometer -> the fuel in the tank goes with it, and the
-		# dashboard the driver has set, all in the one write.
-		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l, OdometerStore.PATH, driver_settings())
+		# dashboard the driver has set, and the battery, all in the one write.
+		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l, OdometerStore.PATH, driver_settings(), battery_settings())
 
 
 ## Puts the car back where the scene placed it, at rest, in 1st, automatic, the
@@ -2653,12 +2878,14 @@ func get_spawn_transform() -> Transform3D:
 
 ## Puts the car at `target`, at rest, in 1st, automatic, the engine running
 ## (a stalled one is started: the car is put there ready to drive), the tank
-## full and nothing loaded (payload_mass is for whoever resets the car to load
-## again afterwards). The switches stay as the driver has them: tcs_on, abs_on,
-## sc_on, gearbox_mode - and so does the view being looked through,
-## camera_view. Of what the store keeps, only the gearbox is put back
-## (automatic); nothing a reset does reaches the file, which goes on writing
-## these as they then stand. The height of `target` counts from the road: the car is stood on its springs on the road
+## full, the battery full and healthy (the test pad never strands anyone: a
+## reset is a fresh car, its battery new) and nothing loaded (payload_mass is
+## for whoever resets the car to load again afterwards). The switches stay as
+## the driver has them: tcs_on, abs_on, sc_on, gearbox_mode - and so does the
+## view being looked through, camera_view. Of what the store keeps, the gearbox
+## is put back (automatic), the tank and the battery are filled; nothing a
+## reset does reaches the file, which goes on writing these as they then
+## stand. The height of `target` counts from the road: the car is stood on its springs on the road
 ## there (_settle_suspension), 0 = at its ride height.
 ## The odometer keeps its metres, and the jump to `target` is not among them.
 func reset_to(target: Transform3D) -> void:
@@ -2698,6 +2925,9 @@ func reset_to(target: Transform3D) -> void:
 	_creep_rest_time = 0.0
 	fuel_l = FUEL_TANK_CAPACITY_L
 	fuel_mass = fuel_l * FUEL_DENSITY
+	battery_wear = 0.0
+	battery_charge = 1.0
+	_battery_deep = false
 	payload_mass = 0.0
 	exhaust_events = 0.0
 	exhaust_flow = 0.0
@@ -2736,6 +2966,35 @@ func cranking() -> bool:
 ## How full the tank is, 0 (dry) .. 1 (full). What the HUD's fuel bar shows.
 func fuel_fraction() -> float:
 	return clampf(fuel_l / FUEL_TANK_CAPACITY_L, 0.0, 1.0)
+
+
+## The share of its rated torque (CRANKING_TORQUE) the starter makes on the
+## battery as it is, 0..1: the square root of battery_charge. The one empirical
+## line in the electrical model, the shape of a lead-acid's cranking against
+## its state of charge: nearly full strength down to half (0.71 at 0.5), away
+## steeply under a fifth (0.45 at 0.2), nothing at empty. What follows is the
+## model's own: against the engine's friction (15.5 Nm at ENGINE_CATCH_RPM) the
+## 150 Nm, 700 rpm starter gets a stopped engine to the catch only over a
+## strength of 0.36, a charge of ~13 %, and takes measurably longer from half.
+## The draw goes with the square of this (STARTER_POWER: current with the
+## torque, voltage with the strength), so with the charge.
+func battery_cranking_strength() -> float:
+	return sqrt(clampf(battery_charge, 0.0, 1.0))
+
+
+## What the alternator makes at `rpm` [W]: none under ALTERNATOR_CUT_IN_RPM, a
+## line up to ALTERNATOR_POWER at ALTERNATOR_RATED_RPM, flat from there.
+static func alternator_power(rpm: float) -> float:
+	if ALTERNATOR_RATED_RPM <= ALTERNATOR_CUT_IN_RPM:
+		return ALTERNATOR_POWER if rpm >= ALTERNATOR_RATED_RPM else 0.0
+	return ALTERNATOR_POWER * clampf((rpm - ALTERNATOR_CUT_IN_RPM) / (ALTERNATOR_RATED_RPM - ALTERNATOR_CUT_IN_RPM), 0.0, 1.0)
+
+
+## What the battery holds when full, as worn as it is [J]: BATTERY_CAPACITY_J
+## less what battery_wear has taken. What battery_charge x BATTERY_CAPACITY_J
+## can get up to.
+func battery_capacity_j() -> float:
+	return BATTERY_CAPACITY_J * (1.0 - battery_wear)
 
 
 ## Drives the car without the keys: from the next tick on the driver is asked
@@ -3659,13 +3918,21 @@ func _run_engine_outputs(throttle: float, load: float, delta: float) -> void:
 ## cuts the fuel the moment the revs get to REDLINE_RPM, so the engine never
 ## runs past it under its own power: the step stops there. The starter motor's
 ## torque comes on top while it cranks an engine that is not running
-## (CRANKING_TORQUE, see cranking), and where the step leaves the revs decides whether the
+## (CRANKING_TORQUE at the battery's cranking strength, see cranking), drawn
+## off the battery as it is made (STARTER_POWER), and where the step leaves the revs decides whether the
 ## engine runs: under STALL_RPM it has stopped, turned past ENGINE_CATCH_RPM
 ## with fuel in the tank it has caught.
 func _advance_engine(torque: float, delta: float) -> void:
 	var limit := REDLINE_RPM * TAU / 60.0
 	if cranking():
-		torque += CRANKING_TORQUE * maxf(1.0 - engine_rpm / STARTER_FREE_RPM, 0.0)
+		# was CRANKING_TORQUE x the line -> x the battery's strength as well:
+		# 1.0 on a full battery, the same torque to the bit.
+		var strength := battery_cranking_strength()
+		var starter_line := maxf(1.0 - engine_rpm / STARTER_FREE_RPM, 0.0)
+		torque += CRANKING_TORQUE * strength * starter_line
+		# The draw: a DC motor's current goes with its torque, and the power
+		# with the current and the voltage - the strength twice, so the charge.
+		battery_charge -= STARTER_POWER * strength * strength * starter_line * delta / BATTERY_CAPACITY_J
 	var next := engine_omega + torque / ENGINE_INERTIA * delta
 	if engine_omega <= limit:
 		next = minf(next, limit)
@@ -3675,6 +3942,36 @@ func _advance_engine(torque: float, delta: float) -> void:
 	else:
 		engine_running = engine_rpm >= ENGINE_CATCH_RPM and fuel_l > 0.0
 	_update_limiter()
+
+
+## One tick of the battery under everything but the starter (that draw is in
+## _advance_engine, with the torque it buys): the key-on load with the engine
+## off, the alternator's output less the ignition's load with it running -
+## charging at BATTERY_CHARGE_EFFICIENCY and tapering off from
+## BATTERY_TAPER_CHARGE of full, discharging in full when the alternator has
+## less than the ignition takes. Then the wear: the tick the charge goes under
+## BATTERY_DEEP_DISCHARGE_CHARGE costs BATTERY_DEEP_DISCHARGE_WEAR, and every
+## tick down there BATTERY_FLAT_WEAR_RATE more; the setters hold the wear under
+## BATTERY_WEAR_LIMIT and the charge under what the wear leaves. On a full,
+## healthy battery with the engine running - every certified run - the flow in
+## is tapered to exactly 0 and nothing here changes anything.
+func _advance_battery(delta: float) -> void:
+	var flow := -BATTERY_KEY_ON_LOAD
+	if engine_running:
+		flow = alternator_power(engine_rpm) - BATTERY_RUNNING_LOAD
+	if flow > 0.0:
+		var full := 1.0 - battery_wear
+		var taper_band := (1.0 - BATTERY_TAPER_CHARGE) * full
+		var acceptance := 1.0 if taper_band <= 0.0 else clampf((full - battery_charge) / taper_band, 0.0, 1.0)
+		flow *= BATTERY_CHARGE_EFFICIENCY * acceptance
+	battery_charge += flow * delta / BATTERY_CAPACITY_J
+	if battery_charge < BATTERY_DEEP_DISCHARGE_CHARGE:
+		if not _battery_deep:
+			_battery_deep = true
+			battery_wear += BATTERY_DEEP_DISCHARGE_WEAR
+		battery_wear += BATTERY_FLAT_WEAR_RATE * delta
+	else:
+		_battery_deep = false
 
 
 ## The rev limiter's fuel cut: on at REDLINE_RPM, off again under

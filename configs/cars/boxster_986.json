@@ -47,6 +47,20 @@
 		"flow_at_rest": 0.3,
 		"flow_rate": 10.0
 	},
+	"battery": {
+		"capacity_ah": 50.0,
+		"starter_power": 1500.0,
+		"key_on_load": 30.0,
+		"running_load": 150.0,
+		"alternator_power": 1500.0,
+		"alternator_cut_in_rpm": 500.0,
+		"alternator_rated_rpm": 2500.0,
+		"charge_efficiency": 0.85,
+		"taper_charge": 0.8,
+		"deep_discharge_charge": 0.1,
+		"deep_discharge_wear": 0.03,
+		"flat_wear_rate": 2.78e-6
+	},
 	"gearbox": {
 		"ratios": [0.0, 3.82, 2.20, 1.52, 1.22, 0.97],
 		"final_drive": 3.89,
