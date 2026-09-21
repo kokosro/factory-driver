@@ -69,11 +69,8 @@ extends SceneTree
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 
-## The car's config and what checks it. The validation is preloaded: a --script
-## SceneTree is compiled before the autoloads are there, its autoload name
-## (ConfigValidation) does not resolve in here.
+## The car's config, as the car reads it.
 const CAR_CONFIG := "res://configs/cars/boxster_986.json"
-const CarConfigValidation := preload("res://configs/validation.gd")
 
 ## The engine the five runs were certified with: the config's torque curve has
 ## to arrive in the car as exactly these anchors (rpm, Nm).

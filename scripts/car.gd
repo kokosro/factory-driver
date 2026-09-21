@@ -103,18 +103,15 @@ extends CharacterBody3D
 #   The numbers that moved are static vars now, each under its old name and
 # with its certified value still written here: the fallback default. For a key
 # the schema marks optional that is what a config without it gets; for a
-# required one a config without it is refused out loud (ConfigValidation), and
+# required one a config without it is refused out loud (CarConfigValidation), and
 # the default is only what the class holds until a car has read its config.
 # Static, not per car: engine_torque, derived_shift_points and _engine_friction
 # are static functions, and the tests read the numbers off the class.
 # -----------------------------------------------------------------------------
 
-## The car's config, and the checks it has to pass before a number of it is
-## used. Preloaded and not reached by its autoload name (ConfigValidation): this
-## script is compiled before the autoloads are there whenever a headless test
-## names ArcadeCar, and the name does not resolve then.
+## The car's config: read, and checked by CarConfigValidation, before a number
+## of it is used (see _read_config).
 const CONFIG_PATH := "res://configs/cars/boxster_986.json"
-const CarConfigValidation := preload("res://configs/validation.gd")
 
 # --- Mass and weight distribution --------------------------------------------
 

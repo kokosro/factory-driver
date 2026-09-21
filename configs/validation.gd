@@ -1,4 +1,5 @@
-extends Node
+class_name CarConfigValidation
+extends RefCounted
 ## Checks a car's config (configs/cars/*.json, see configs/README.md) before a
 ## car is built from it. A config is a car's primary numbers and nothing else;
 ## what is wrong with one has to be said out loud before the first tick, because
@@ -12,10 +13,10 @@ extends Node
 ## stops the game on one: push_error and assert, see ArcadeCar._read_config).
 ## Generic: nothing in here knows a Boxster from a 911, a new car is a new file.
 ##
-## Registered as the ConfigValidation autoload. Scripts that are compiled before
-## the autoloads are there - car.gd is, by way of the headless tests, which run
-## as --script SceneTrees and name ArcadeCar - reach the same functions by
-## preloading this file, which is why they are static.
+## A class of static functions, as OdometerStore is, and no autoload: a global
+## class name resolves wherever a script is compiled, the headless tests' --script
+## SceneTrees included, where an autoload's name does not (they are compiled, and
+## car.gd with them, before the autoloads are there).
 
 ## The schema this code checks: a config says which one it was written for
 ## ("config_version"), and any other is refused rather than guessed at.

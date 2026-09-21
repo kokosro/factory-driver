@@ -16,13 +16,13 @@ holds within 50 rpm of what `ArcadeCar.derived_shift_points` makes of the loaded
 curve.
 
 **Loading.** `ArcadeCar._read_config` runs first in `_ready`: it reads the JSON, hands
-it to `configs/validation.gd` (the `ConfigValidation` autoload; static functions, no
-state), and on any fault calls `push_error` with every fault listed and asserts. None of
-a refused config is used: a bad config never silently becomes wrong physics. The
-certified values stay in `car.gd` as the fallback defaults of its static vars: what an
-OPTIONAL key left out falls back to, and what the class holds before a car has loaded.
-A REQUIRED key left out is a fault, and so is any key the schema does not know (a
-misspelt optional key would otherwise quietly drive on the default).
+it to `CarConfigValidation` (`configs/validation.gd`: a class of static functions, no
+state, no node), and on any fault calls `push_error` with every fault listed and
+asserts. None of a refused config is used: a bad config never silently becomes wrong
+physics. The certified values stay in `car.gd` as the fallback defaults of its static
+vars: what an OPTIONAL key left out falls back to, and what the class holds before a car
+has loaded. A REQUIRED key left out is a fault, and so is any key the schema does not
+know (a misspelt optional key would otherwise quietly drive on the default).
 
 ## Schema, `config_version` 1
 
