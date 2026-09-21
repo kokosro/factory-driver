@@ -25,7 +25,14 @@ extends SceneTree
 ## to the right, and the driver: elastic pedals (a tap is a partial press, a
 ## held key gets to the floor, a lift comes back to nothing), driver profiles,
 ## the car driven through set_driver_input with no key down, and the HUD's
-## pedal bars. Last comes the telemetry recorder: a real mission
+## pedal bars. Then what the engine takes and gives and what the car weighs:
+## the tank (burnt by the work done, a little idling, a lot flat out, nothing on
+## the overrun; a dry tank stops the engine, a reset fills it), the fuel bar,
+## the one mass of the car (total_mass(): fuel and payload in it, a payload
+## slows the car and rides level, a test's payload_kg is loaded at its start),
+## the exhaust as data (three firings a turn, a flow that follows the throttle)
+## and the creep (the brake let go at a standstill, automatic only, a crawl
+## under the standstill speed). Last comes the telemetry recorder: a real mission
 ## driven with it switched on, its JSON-lines file read back and checked line
 ## by line (see _check_telemetry - it writes to a fixed tmp path, never to
 ## user://, and asserts nothing that comes off the wall clock).
@@ -448,6 +455,65 @@ const DRIVER_INPUT_LAUNCH_FRAMES := 120
 ## to arrive (the test driver's hands need 11 ticks for 225 degrees).
 const DRIVER_INPUT_SETTLE_FRAMES := 30
 
+## Fuel: frames the engine idles for the idle burn and the firing count (2 s) ...
+const FUEL_IDLE_FRAMES := 120
+
+## ... the band the idle burn has to land in [L/h] (~18 Nm at 900 rpm through
+## the burn formula: 0.63) ...
+const FUEL_IDLE_MIN_L_H := 0.4
+const FUEL_IDLE_MAX_L_H := 1.0
+
+## ... frames of full throttle from rest for the burn under load (5 s, through
+## 1st and 2nd into 3rd), the least it has to burn in them as a mean rate [L/h]
+## and the most (flat out at the limiter is ~67; measured 44.1) ...
+const FUEL_LOAD_FRAMES := 300
+const FUEL_LOAD_MIN_L_H := 30.0
+const FUEL_LOAD_MAX_L_H := 70.0
+
+## ... and on the overrun after it: frames for the foot to come off (the test
+## driver's throttle is shut in 2 ticks) and frames watched with it shut.
+const FUEL_OVERRUN_LIFT_FRAMES := 5
+const FUEL_OVERRUN_FRAMES := 30
+
+## Exhaust: how far the firings counted idling may be off three per turn of the
+## crankshaft (share; the engine sits on its idle speed, measured 0.0000) ...
+const EXHAUST_EVENTS_TOLERANCE := 0.01
+
+## ... the most the flow may read idling and the least flat out (0..1; measured
+## 0.04 and 0.97).
+const EXHAUST_IDLE_MAX_FLOW := 0.1
+const EXHAUST_LOAD_MIN_FLOW := 0.6
+
+## Dry tank: frames the engine is given to run down on its friction (4 s; it
+## takes ~1.7) and frames of full throttle it then gets nowhere on.
+const FUEL_DRY_RUN_DOWN_FRAMES := 240
+const FUEL_DRY_THROTTLE_FRAMES := 60
+
+## Payload: what is loaded [kg], and the most of the empty car's speed the
+## loaded one may have after FUEL_LOAD_FRAMES of full throttle (share). 1600 kg
+## against 1300 is 0.81 of the acceleration where the engine sets it (2nd gear
+## on); the launch in 1st is the tyres' and costs a loaded car nothing.
+## Measured 0.88.
+const PAYLOAD_KG := 300.0
+const PAYLOAD_MAX_SPEED_SHARE := 0.93
+
+## Creep: frames of throttle before the stop (1 s), frames the brake is held at
+## the standstill (1 s), frames the creep is given after the brake is let go
+## (10 s), the speed from which the car counts as on the move [m/s] and by when
+## it has to be [s] (the dwell is 0.4 of it; measured 1.15), and the band the
+## crawl has to have settled in by the end [m/s] (1.1 .. 1.8 km/h; measured
+## 0.42 m/s, 1.5 km/h).
+const CREEP_RUN_UP_FRAMES := 60
+const CREEP_HOLD_FRAMES := 60
+const CREEP_WATCH_FRAMES := 600
+const CREEP_MOVING_SPEED := 0.1
+const CREEP_MAX_PICK_UP_TIME := 2.0
+const CREEP_MIN_CRAWL := 0.3
+const CREEP_MAX_CRAWL := 0.5
+
+## ... and frames a car nobody has touched is watched standing still (5 s).
+const CREEP_UNTOUCHED_FRAMES := 300
+
 var _failures := 0
 
 
@@ -692,6 +758,9 @@ func _run() -> void:
 	_check_run_clock(main.get_node("TestPad") as TestPad, car)
 	await _check_mirrored_spin(main.get_node("TestPad") as TestPad, car)
 	await _check_pedals(car, hud as HUD)
+	await _check_fuel_and_exhaust(car, hud as HUD)
+	await _check_mass_and_payload(main.get_node("TestPad") as TestPad, car)
+	await _check_creep(car)
 	await _check_telemetry(main, car)
 
 	_finish()
@@ -2099,6 +2168,251 @@ func _check_pedals(car: ArcadeCar, hud: HUD) -> void:
 	_check(not throttle_bar.visible and not brake_bar.visible, "HUD: the bars are the car's pedals again the next tick (both empty, no key down)")
 	car.reset_to_spawn()
 	await _step(5)
+
+
+## The tank, the fuel bar and the exhaust: what the engine takes and gives.
+func _check_fuel_and_exhaust(car: ArcadeCar, hud: HUD) -> void:
+	var tick := 1.0 / Engine.physics_ticks_per_second
+	var capacity := ArcadeCar.FUEL_TANK_CAPACITY_L
+	car.reset_to_spawn()
+	_check(car.fuel_l == capacity and car.fuel_fraction() == 1.0, "fuel: a reset car has a full tank (%.1f L of %.0f)" % [car.fuel_l, capacity])
+
+	# Idling: a little fuel, three firings for every turn of the crankshaft.
+	var turns := 0.0
+	var finite := true
+	for frame in FUEL_IDLE_FRAMES:
+		turns += car.engine_omega / TAU * tick
+		await physics_frame
+		finite = finite and is_finite(car.fuel_l) and is_finite(car.exhaust_events) and is_finite(car.exhaust_flow)
+	var idle_l_h := (capacity - car.fuel_l) / (FUEL_IDLE_FRAMES * tick) * 3600.0
+	_check(idle_l_h > FUEL_IDLE_MIN_L_H and idle_l_h < FUEL_IDLE_MAX_L_H, "fuel: idling burns a little (%.2f L/h at %.0f rpm)" % [idle_l_h, car.engine_rpm])
+	var firings_per_turn := car.exhaust_events / turns
+	_check(absf(firings_per_turn - 3.0) < 3.0 * EXHAUST_EVENTS_TOLERANCE, "exhaust: the flat six fires three times a turn (%.0f events over %.1f turns idling: %.4f a turn)" % [car.exhaust_events, turns, firings_per_turn])
+	var idle_flow := car.exhaust_flow
+	var idle_event_rate := car.exhaust_events / (FUEL_IDLE_FRAMES * tick)
+	_check(idle_flow > 0.0 and idle_flow < EXHAUST_IDLE_MAX_FLOW, "exhaust: idling it barely blows (flow %.3f)" % idle_flow)
+
+	# Flat out from rest: the work costs fuel, the exhaust blows.
+	var fuel_before := car.fuel_l
+	var events_before := car.exhaust_events
+	var peak_flow := 0.0
+	var flow_in_range := true
+	Input.action_press("accelerate")
+	for frame in FUEL_LOAD_FRAMES:
+		await physics_frame
+		peak_flow = maxf(peak_flow, car.exhaust_flow)
+		flow_in_range = flow_in_range and car.exhaust_flow >= 0.0 and car.exhaust_flow <= 1.0
+		finite = finite and is_finite(car.fuel_l) and is_finite(car.exhaust_events) and is_finite(car.exhaust_flow)
+	var load_l_h := (fuel_before - car.fuel_l) / (FUEL_LOAD_FRAMES * tick) * 3600.0
+	var load_event_rate := (car.exhaust_events - events_before) / (FUEL_LOAD_FRAMES * tick)
+	_check(load_l_h > FUEL_LOAD_MIN_L_H and load_l_h < FUEL_LOAD_MAX_L_H, "fuel: flat out burns what the work costs (%.1f L/h over %.0f s from rest, %.0f times the idle burn)" % [load_l_h, FUEL_LOAD_FRAMES * tick, load_l_h / idle_l_h])
+	_check(load_event_rate > 2.0 * idle_event_rate, "exhaust: the firings come with the revs (%.0f a second flat out, %.0f idling)" % [load_event_rate, idle_event_rate])
+	_check(peak_flow > EXHAUST_LOAD_MIN_FLOW and flow_in_range, "exhaust: the flow follows the throttle and the revs, inside 0..1 (peak %.2f flat out, %.3f idling)" % [peak_flow, idle_flow])
+
+	# The overrun: throttle shut at speed, the engine turned by the car. Nothing
+	# burns and nothing fires.
+	Input.action_release("accelerate")
+	await _step(FUEL_OVERRUN_LIFT_FRAMES)
+	var overrun_fuel := car.fuel_l
+	var overrun_events := car.exhaust_events
+	await _step(FUEL_OVERRUN_FRAMES)
+	_check(car.fuel_l == overrun_fuel and car.exhaust_events == overrun_events and car.engine_rpm > 2.0 * ArcadeCar.IDLE_RPM, "fuel: on the overrun nothing burns and nothing fires (throttle shut at %.0f rpm, %.0f km/h)" % [car.engine_rpm, car.speed_kmh])
+	_check(car.exhaust_flow < idle_flow, "exhaust: ... and the flow dies away (%.4f)" % car.exhaust_flow)
+
+	# The fuel bar reads the tank.
+	var fuel_bar := hud.get_node_or_null("FuelBarBack/FuelBar") as ColorRect
+	if not _check(fuel_bar != null and hud.has_method("set_fuel_bar"), "HUD: the fuel bar and its setter exist"):
+		return
+	car.fuel_l = 0.5 * capacity
+	await _step(2)
+	_check(fuel_bar.visible and is_equal_approx(fuel_bar.scale.x, car.fuel_fraction()) and absf(fuel_bar.scale.x - 0.5) < 0.001 and fuel_bar.color == HUD.FUEL_COLOR, "HUD: the fuel bar reads the tank (half a tank: bar at %.3f, fuel_fraction %.3f)" % [fuel_bar.scale.x, car.fuel_fraction()])
+	car.fuel_l = 0.12 * capacity
+	await _step(2)
+	var amber := fuel_bar.color == HUD.FUEL_RESERVE_COLOR and is_equal_approx(fuel_bar.scale.x, car.fuel_fraction())
+	car.fuel_l = 0.05 * capacity
+	await _step(2)
+	_check(amber and fuel_bar.color == HUD.FUEL_LOW_COLOR and is_equal_approx(fuel_bar.scale.x, car.fuel_fraction()), "HUD: the fuel bar turns amber under %.0f %% of the tank and red under %.0f %% (bar at %.3f)" % [HUD.FUEL_RESERVE_FRACTION * 100.0, HUD.FUEL_LOW_FRACTION * 100.0, fuel_bar.scale.x])
+	hud.set_fuel_bar(3.0)
+	var clamped_full := fuel_bar.visible and fuel_bar.scale.x == 1.0
+	hud.set_fuel_bar(-2.0)
+	var clamped_empty := not fuel_bar.visible
+	hud.set_fuel_bar(0.25)
+	hud.set_fuel_bar(NAN)
+	_check(clamped_full and clamped_empty and not fuel_bar.visible and is_finite(fuel_bar.scale.x), "HUD: the fuel bar's setter takes 0..1, clamped, NaN is an empty bar")
+
+	# The tank itself never holds less than nothing or more than it can.
+	car.fuel_l = -5.0
+	var never_negative := car.fuel_l == 0.0 and car.fuel_fraction() == 0.0
+	car.fuel_l = NAN
+	var nan_empty := car.fuel_l == 0.0
+	car.fuel_l = 1000.0
+	_check(never_negative and nan_empty and car.fuel_l == capacity and car.fuel_fraction() == 1.0, "fuel: the tank holds 0 .. %.0f L whatever it is handed (-5 and NaN are dry, 1000 is full)" % capacity)
+
+	# Dry: the engine runs down and stays down, throttle or not; nothing goes
+	# negative or NaN; a reset fills the tank and the engine idles again.
+	car.reset_to_spawn()
+	car.fuel_l = 0.0
+	await _step(FUEL_DRY_RUN_DOWN_FRAMES)
+	var ran_down := car.engine_rpm
+	var dry_events := car.exhaust_events
+	Input.action_press("accelerate")
+	var stats := _new_stats()
+	await _drive(car, FUEL_DRY_THROTTLE_FRAMES, stats)
+	Input.action_release("accelerate")
+	_check(ran_down == 0.0 and car.engine_rpm == 0.0 and absf(car.forward_speed) < 0.01 and car.exhaust_events == dry_events, "fuel: with the tank dry the engine runs down and the throttle gets the car nowhere (%.0f rpm, %.3f m/s)" % [car.engine_rpm, car.forward_speed])
+	_check(stats.finite and finite and car.fuel_l == 0.0 and car.fuel_fraction() == 0.0 and is_finite(car.exhaust_flow) and car.exhaust_flow >= 0.0, "fuel: never negative, no NaN, tank dry or not (%.1f L, flow %.4f)" % [car.fuel_l, car.exhaust_flow])
+	await _step(2)
+	_check(not fuel_bar.visible, "HUD: the fuel bar is empty with the tank")
+	var spawn := car.get_spawn_transform()
+	car.reset_to(spawn)
+	var refilled := car.fuel_l == capacity and car.exhaust_events == 0.0
+	car.fuel_l = 1.0
+	car.reset_to_spawn()
+	await _step(5)
+	_check(refilled and car.fuel_fraction() > 0.9999 and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < 1.0 and car.exhaust_events > 0.0, "fuel: reset_to and reset_to_spawn fill the tank, and the engine idles again (%.4f of a tank, %.0f rpm)" % [car.fuel_fraction(), car.engine_rpm])
+
+
+## The one mass of the car: fuel and payload are in it.
+func _check_mass_and_payload(pad: TestPad, car: ArcadeCar) -> void:
+	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+	car.reset_to_spawn()
+	var full_tank := ArcadeCar.FUEL_TANK_CAPACITY_L * ArcadeCar.FUEL_DENSITY
+	_check(is_equal_approx(car.total_mass(), ArcadeCar.KERB_MASS) and is_equal_approx(car.fuel_mass, full_tank) and car.payload_mass == 0.0, "mass: on a full tank, nothing loaded, the car weighs its kerb mass (%.2f kg, %.2f of it fuel)" % [car.total_mass(), car.fuel_mass])
+
+	# The empty car's 5 s of full throttle, and what they burn off it.
+	await _step(20)
+	Input.action_press("accelerate")
+	await _step(FUEL_LOAD_FRAMES)
+	Input.action_release("accelerate")
+	var empty_speed := car.forward_speed
+	var burnt := full_tank - car.fuel_mass
+	_check(burnt > 0.0 and is_equal_approx(car.fuel_mass, car.fuel_l * ArcadeCar.FUEL_DENSITY) and is_equal_approx(car.total_mass(), ArcadeCar.BASE_MASS + car.fuel_mass), "mass: the fuel in the tank is in total_mass(), and burns off it (%.1f g lighter after %.0f s flat out: %.3f kg)" % [burnt * 1000.0, FUEL_LOAD_FRAMES / 60.0, car.total_mass()])
+	car.fuel_l = 0.0
+	await _step(1)
+	_check(is_equal_approx(car.total_mass(), ArcadeCar.BASE_MASS) and car.total_mass() < ArcadeCar.KERB_MASS - 40.0, "mass: with the tank dry the car is down to its base mass (%.2f kg)" % car.total_mass())
+
+	# Loaded: heavier, level on its springs, every wheel carrying its share, and
+	# slower over the same 5 s.
+	car.reset_to_spawn()
+	car.payload_mass = PAYLOAD_KG
+	await _step(20)
+	var weight := car.total_mass() * gravity
+	var level := true
+	for i in 4:
+		var share := (1.0 - ArcadeCar.REAR_WEIGHT_FRACTION) if i < 2 else ArcadeCar.REAR_WEIGHT_FRACTION
+		level = level and absf(car.wheel_loads[i] - weight * share * 0.5) < 0.01 and absf(car.wheel_travel[i]) < REST_TRAVEL_TOLERANCE
+	_check(is_equal_approx(car.total_mass(), ArcadeCar.KERB_MASS + PAYLOAD_KG) and level, "payload: %.0f kg on board are in total_mass() and on the wheels, the car level on its springs (%.0f kg, front wheels %.1f N, rear %.1f N)" % [PAYLOAD_KG, car.total_mass(), car.wheel_loads[0], car.wheel_loads[2]])
+	Input.action_press("accelerate")
+	var stats := _new_stats()
+	await _drive(car, FUEL_LOAD_FRAMES, stats)
+	Input.action_release("accelerate")
+	var loaded_speed := car.forward_speed
+	_check(loaded_speed < PAYLOAD_MAX_SPEED_SHARE * empty_speed and loaded_speed > 0.5 * empty_speed and stats.finite, "payload: the loaded car is slower over the same %.0f s of full throttle (%.1f m/s against %.1f, %.2f of it)" % [FUEL_LOAD_FRAMES / 60.0, loaded_speed, empty_speed, loaded_speed / empty_speed])
+	car.payload_mass = -50.0
+	var never_negative := car.payload_mass == 0.0
+	car.payload_mass = NAN
+	_check(never_negative and car.payload_mass == 0.0 and is_finite(car.total_mass()), "payload: never negative, NaN is nothing loaded")
+	car.payload_mass = PAYLOAD_KG
+	car.reset_to_spawn()
+	_check(car.payload_mass == 0.0 and is_equal_approx(car.total_mass(), ArcadeCar.KERB_MASS), "payload: a reset unloads the car (%.2f kg)" % car.total_mass())
+
+	# A test's payload_kg is loaded at its start; a test without one runs empty.
+	var certified_empty := true
+	for definition in HandlingTests.all_tests():
+		certified_empty = certified_empty and not definition.has("payload_kg")
+	var loaded_test := HandlingTests.stop_box_test()
+	loaded_test["payload_kg"] = 40.0
+	var loaded_run := HandlingTests.begin(loaded_test, car, pad, false)
+	var loaded := car.payload_mass
+	loaded_run.abort()
+	var empty_run := HandlingTests.begin(HandlingTests.stop_box_test(), car, pad, false)
+	_check(loaded == 40.0 and car.payload_mass == 0.0 and certified_empty, "payload: a test's payload_kg is on board from its start (%.0f kg), the next test starts empty, no certified test carries any" % loaded)
+	empty_run.abort()
+	car.reset_to_spawn()
+	await _step(5)
+
+
+## The creep: the brake let go at a standstill, automatic, and the car crawls.
+func _check_creep(car: ArcadeCar) -> void:
+	var tick := 1.0 / Engine.physics_ticks_per_second
+	# A car nobody has touched stands where it was put.
+	car.reset_to_spawn()
+	var start := car.global_position
+	await _step(CREEP_UNTOUCHED_FRAMES)
+	_check(absf(car.forward_speed) < 0.01 and car.global_position.distance_to(start) < 0.01, "creep: a car nobody has touched stands still (%.3f m/s after %.0f s)" % [car.forward_speed, CREEP_UNTOUCHED_FRAMES * tick])
+
+	# Drive off, brake to a stop and stay on the brake: held, the car stands.
+	var stopped := await _brake_to_a_stop(car)
+	var held_still := stopped
+	for frame in CREEP_HOLD_FRAMES:
+		await physics_frame
+		held_still = held_still and car.forward_speed == 0.0
+	_check(held_still and not car.reverse_engaged, "creep: on a held brake the car stands (%.3f m/s, %.0f s on the brake at the standstill)" % [car.forward_speed, CREEP_HOLD_FRAMES * tick])
+
+	# The brake let go: the car picks itself up and crawls, the feet on nothing.
+	Input.action_release("brake")
+	var moving_at := -1.0
+	var feet_off := true
+	var finite := true
+	var top_speed := 0.0
+	for frame in CREEP_WATCH_FRAMES:
+		await physics_frame
+		if moving_at < 0.0 and car.forward_speed >= CREEP_MOVING_SPEED:
+			moving_at = (frame + 1) * tick
+		# The brake foot takes its 6 ticks to come off; from then on, nothing.
+		if frame >= PEDAL_RELEASE_FRAMES:
+			feet_off = feet_off and car.throttle_pedal == 0.0 and car.brake_pedal == 0.0
+		finite = finite and is_finite(car.forward_speed) and is_finite(car.clutch_torque) and is_finite(car.engine_rpm)
+		top_speed = maxf(top_speed, car.forward_speed)
+	_check(moving_at >= 0.0 and moving_at < CREEP_MAX_PICK_UP_TIME, "creep: the brake let go, the automatic picks the car up (%.1f m/s %.2f s after the release)" % [CREEP_MOVING_SPEED, moving_at])
+	_check(car.forward_speed > CREEP_MIN_CRAWL and top_speed < CREEP_MAX_CRAWL and top_speed < ArcadeCar.STANDSTILL_SPEED, "creep: it settles at a crawl, under the standstill speed (%.2f m/s, %.1f km/h %.0f s after the release, never above %.2f)" % [car.forward_speed, car.speed_kmh, CREEP_WATCH_FRAMES * tick, top_speed])
+	_check(feet_off and finite and car.clutch_torque > 0.0 and not car.clutch_locked and car.gear == 1 and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < 50.0, "creep: through the slipping clutch on the idling engine, both pedals at nothing (clutch %.1f Nm, %.0f rpm)" % [car.clutch_torque, car.engine_rpm])
+
+	# Off on the throttle, stopped on the brake again: the throttle ends the
+	# creep, the held brake holds the car, and let go it arms the creep anew.
+	stopped = await _brake_to_a_stop(car)
+	held_still = stopped
+	for frame in CREEP_HOLD_FRAMES:
+		await physics_frame
+		held_still = held_still and car.forward_speed == 0.0
+	Input.action_release("brake")
+	moving_at = -1.0
+	for frame in CREEP_WATCH_FRAMES:
+		await physics_frame
+		if moving_at < 0.0 and car.forward_speed >= CREEP_MOVING_SPEED:
+			moving_at = (frame + 1) * tick
+	_check(held_still and moving_at >= 0.0 and moving_at < CREEP_MAX_PICK_UP_TIME and car.forward_speed > CREEP_MIN_CRAWL and car.forward_speed < CREEP_MAX_CRAWL, "creep: stopped on the brake again the car stands, let go it creeps again (moving after %.2f s, %.2f m/s at the end)" % [moving_at, car.forward_speed])
+
+	# The brake pressed anew at a crawl is the brake pressed anew at a
+	# standstill: reverse. The creep is over, the car backs up.
+	Input.action_press("brake")
+	await _step(CREEP_HOLD_FRAMES)
+	Input.action_release("brake")
+	_check(car.reverse_engaged and car.forward_speed < 0.0, "creep: the brake pressed anew selects reverse from the crawl as from rest (%.1f m/s)" % car.forward_speed)
+
+	# Manual: the same stop, the same release, and the car stands.
+	car.reset_to_spawn()
+	car.automatic = false
+	stopped = await _brake_to_a_stop(car)
+	Input.action_release("brake")
+	await _step(CREEP_UNTOUCHED_FRAMES)
+	_check(stopped and not car.automatic and car.gear == 1 and absf(car.forward_speed) < 0.01, "creep: none in manual mode (%.3f m/s, %.0f s after the brake was let go in 1st)" % [car.forward_speed, CREEP_UNTOUCHED_FRAMES * tick])
+	car.reset_to_spawn()
+	await _step(5)
+
+
+## CREEP_RUN_UP_FRAMES of throttle, then onto the brake until the car stands:
+## returns true once it does, the brake key still held.
+func _brake_to_a_stop(car: ArcadeCar) -> bool:
+	Input.action_press("accelerate")
+	await _step(CREEP_RUN_UP_FRAMES)
+	Input.action_release("accelerate")
+	Input.action_press("brake")
+	for frame in CREEP_WATCH_FRAMES:
+		await physics_frame
+		if car.forward_speed == 0.0:
+			return true
+	return false
 
 
 ## Holds `action` for `hold_frames` and lets go for `release_frames`, and says
