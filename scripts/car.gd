@@ -160,8 +160,37 @@ const TORQUE_CURVE: Array[Vector2] = [
 ## Engine speed with no load [rpm]. The tach never reads lower while running:
 ## the idle controller (see _engine_net_torque) opens the throttle by itself as
 ## the revs come down to this, and holds them there. The engine idles from
-## _ready on; a cold start is out of scope, there is no starter and no stall.
+## _ready on, and after every reset; a cold start is out of scope.
+# was "there is no starter and no stall" -> there are both: see STALL_RPM.
 const IDLE_RPM := 900.0
+
+## Under this the engine stops running [rpm]: it cannot fire slowly enough to
+## keep itself turning, whatever brought it down here (engine_running = false:
+## no combustion, no burn, no exhaust, the tach runs down to 0 on the engine's
+## friction). Half of idle, a road engine's order. The car's own clutch never
+## lets it come to that: it opens at CLUTCH_DISENGAGE_RPM and feathers the
+## launch over a floor that starts at IDLE_RPM, and the idle controller holds
+## the creep's sliver. What gets an engine down here is the driver's own clutch
+## foot (see CLUTCH_PEDAL_SPEED) letting the clutch in on more car than the
+## engine can move, or a dry tank.
+const STALL_RPM := 450.0
+
+## The starter motor (the starter key, held): torque on the crankshaft with the
+## engine standing [Nm], easing off in a line to none at STARTER_FREE_RPM [rpm],
+## as an electric motor's does. Only while the engine is not running. Against
+## ENGINE_INERTIA and the engine's friction that turns a stopped engine past
+## ENGINE_CATCH_RPM in ~0.2 s, and with a dry tank spins it at ~620 rpm for as
+## long as the key is held. Cranking burns no fuel: nothing burns until the
+## engine has caught (the few drops a real start takes are not modelled).
+const CRANKING_TORQUE := 150.0
+const STARTER_FREE_RPM := 700.0
+
+## Turning at least this fast [rpm] with fuel in the tank, an engine that is not
+## running catches (engine_running = true) and the idle controller takes it up
+## to IDLE_RPM. Above STALL_RPM, so a caught engine is not stalled again on the
+## spot. Only the starter ever turns it: the car keeps its clutch open on an
+## engine that is not running (see _clutch_target), there is no bump start.
+const ENGINE_CATCH_RPM := 500.0
 
 ## Rev limiter [rpm]: a fuel cut. At this speed the engine stops firing and
 ## falls back on its own friction until LIMITER_RESUME_RPM, then fires again:
@@ -219,8 +248,11 @@ const IDLE_CONTROL_MAX_THROTTLE := 0.3
 # Idling (~18 Nm at 900 rpm) that is ~0.6 L/h, flat out at 7000 rpm (~250 Nm)
 # ~67 L/h; a certified handling run burns a few hundredths of a litre. The fuel
 # in the tank is mass the car carries (fuel_mass, in total_mass()). With the
-# tank dry nothing burns: the engine runs down on its friction and stays down
-# (there is no starter) until a reset fills the tank.
+# tank dry nothing burns: the engine runs down on its friction, stops running
+# under STALL_RPM and stays down until there is fuel again (a reset fills the
+# tank and starts the engine; fuel put in any other way takes the starter).
+# was "stays down (there is no starter) until a reset fills the tank" -> the
+# starter, see CRANKING_TORQUE.
 
 ## What the tank holds [L]: the 1997 Boxster 986's tank. A reset fills it.
 const FUEL_TANK_CAPACITY_L := 64.0
@@ -275,11 +307,15 @@ const WHEEL_RADIUS := 0.34
 
 # --- Clutch --------------------------------------------------------------------
 
-# A dry plate between the engine and the gearbox, worked by the car (there is
-# no clutch pedal): see _clutch_target for when it opens and closes. Slipping,
+# A dry plate between the engine and the gearbox, worked by the car: see
+# _clutch_target for when it opens and closes. In manual mode the driver has a
+# clutch pedal on top of that (see CLUTCH_PEDAL_SPEED). Slipping,
 # it passes a friction torque from the faster side to the slower one, the same
 # torque on both; once the two sides turn together it locks and they are one
 # shaft (see _advance_drivetrain).
+
+# was "worked by the car (there is no clutch pedal)" -> there is one, in manual
+# mode; the car still works the clutch whenever the driver's foot is off it.
 
 ## Most torque the clutch passes fully engaged [Nm]. Road car clutches are sized
 ## at 1.5 - 2.5 times the engine's peak torque so they never slip once home;
@@ -322,6 +358,24 @@ const LAUNCH_BITE_BAND := 50.0
 ## torque it can pass ramps up over this, the engine flares against it and the
 ## car moves off on the slip torque.
 const CLUTCH_ENGAGE_TIME := 0.5
+
+## The clutch pedal (the clutch key, the driver's LEFT foot; the two pedal keys
+## are the right one's): how fast the foot moves it, down and up [1/s], travel
+## per second, 1 = the whole pedal: 0.2 s from up to the floor, and as long back
+## up through the bite point. A key is on / off, so this is a quick, even foot,
+## as the right one is. Held, the clutch can come in no further than the pedal
+## lets it (1 - clutch_pedal): on the floor it is open, whatever the car would
+## do. And the driver's foot wins: from the moment the pedal is touched until
+## the clutch is home again (or open for the car's own reasons) the car's
+## feathering stays out of it - no launch floor holding the revs up, no easing
+## for wheelspin, no CLUTCH_ENGAGE_TIME: the clutch comes in as the foot comes
+## up and passes what it passes. Revs up and the pedal let go is a clutch dump
+## (wheelspin, with no slip limit); the pedal let go on an idling engine with
+## more car to move than it can is a stall (STALL_RPM).
+##   Manual mode only. In automatic the key does nothing: the car that shifts
+## for itself is a two-pedal car, there is no left pedal to press (and no way to
+## stall it by mistake).
+const CLUTCH_PEDAL_SPEED := 5.0
 
 ## The same on the move, after a gear change [s]: the revs the engine has too
 ## many (upshift) or too few (downshift) are dragged to the new gear's speed
@@ -469,7 +523,12 @@ const PEAK_SLIP_RATIO := 0.1
 ## the tyre has (no unit). A little past the peak, as real systems run: in a
 ## straight line that costs ~3 % of the stop, and braking and steering at once
 ## it gives the stop the bigger share of the front tyres' grip rather than the
-## other way round.
+## other way round. With the ABS switched off (abs_on) nothing holds the wheel:
+## a full pedal asks the front axle for more than its tyres have, the front
+## wheels lock (wheel speed 0, slip ratio -1) and slide on TYRE_SLIDE_GRIP with
+## next to no sideways hold (see _tyre_force: a locked wheel drags against the
+## way it travels, and MIN_COMBINED_GRIP has faded out by then) - a longer stop,
+## and no steering until the pedal comes up.
 const ABS_SLIP_RATIO := 0.15
 
 ## Slip ratio the driver's feet hold a spinning driven wheel at while the
@@ -480,6 +539,17 @@ const ABS_SLIP_RATIO := 0.15
 ## little left for holding the car sideways (MIN_COMBINED_GRIP is what it
 ## keeps, fading out from here to a slip ratio of 1). Higher = wilder
 ## wheelspin off the line, less drive.
+## This, with the launch floor's hold on the revs (LAUNCH_RPM), is the car's
+## traction control: switched off (tcs_on) the clutch is let in the way a driver
+## without one does it - the revs flare to the floor as before, and once they
+## are there the clutch comes in for good and passes all it can (up to
+## CLUTCH_TORQUE_MAX, twice what the engine makes: the flywheel's revs go into
+## the driveline), with no slip limit. In 1st that is far more than the rear
+## tyres hold: they spin up to the engine's speed, the clutch locks on spinning
+## wheels, and past its peak the tyre pushes back with less (TYRE_SLIDE_GRIP),
+## so the engine keeps them spinning until the driver lifts or the car has
+## caught them up. Nothing about the tyres changes; the wheelspin is what the
+## tyre curve makes of the torque.
 # was a clamp on the slip ratio itself, whatever wound it up -> the clutch
 # foot's limit while the clutch slips. With the clutch locked nothing holds the
 # wheels back but the engine's own inertia and the limiter: what the throttle
@@ -652,7 +722,8 @@ const BRAKE_DECEL_G := 1.0
 ## see _brake_torque), and each axle delivers what its grip allows (ABS holds a
 ## wheel at ABS_SLIP_RATIO, it never locks):
 ## with the fronts at their limit and the rears under theirs, a real stop
-## comes out at ~0.9 of this, ~8.4 m/s^2 plus drag.
+## comes out at ~0.9 of this, ~8.4 m/s^2 plus drag. (With the ABS switched off
+## the fronts do lock under a full pedal, see ABS_SLIP_RATIO.)
 const BRAKE_DECEL := BRAKE_DECEL_G * TYRE_MU * 9.8
 
 ## Density of air [kg/m^3], for the drag force.
@@ -710,16 +781,40 @@ const FORWARD_ENGAGE_GRACE := 0.2
 ## after a downshift, the car paying for them.
 const SHIFT_TIME := 0.2
 
-## Automatic mode shifts up at this engine speed under throttle [rpm].
+## The automatic's two shift programs (gearbox_mode, the gearbox mode key).
+## Manual mode knows neither.
+##   SPORT    holds every gear to UPSHIFT_RPM and keeps the engine above
+##            DOWNSHIFT_RPM: the program the car was certified with, and the one
+##            it starts in.
+##   COMFORT  shifts up at COMFORT_UPSHIFT_RPM and lets the revs fall to
+##            COMFORT_DOWNSHIFT_RPM: short-shifted, quiet, easy on the fuel, and
+##            slower.
+enum GearboxMode { COMFORT, SPORT }
+
+## Automatic mode, SPORT, shifts up at this engine speed under throttle [rpm].
 const UPSHIFT_RPM := 6800.0
 
-## Automatic mode shifts down when the engine drops below this [rpm]. Every
-## upshift from UPSHIFT_RPM lands well above it (lowest: ~3900 rpm into 2nd),
-## so the box never hunts between two gears.
+## Automatic mode, SPORT, shifts down when the engine drops below this [rpm].
+## Every upshift from UPSHIFT_RPM lands well above it (lowest: ~3900 rpm into
+## 2nd), so the box never hunts between two gears.
 const DOWNSHIFT_RPM := 2800.0
 
+## Automatic mode, COMFORT, shifts up at this engine speed under throttle [rpm]:
+## the torque peak. Every gear is left where the engine pulls hardest and the
+## next one picks up at 2600 - 3600 rpm, in the fat of the curve; the top third
+## of the rev range, where the power is, is never used. Whatever the throttle:
+## there is no kickdown, flat out in COMFORT is still COMFORT.
+const COMFORT_UPSHIFT_RPM := 4500.0
+
+## Automatic mode, COMFORT, shifts down when the engine drops below this [rpm].
+## Every upshift from COMFORT_UPSHIFT_RPM lands well above it (lowest: ~2600 rpm
+## into 2nd), and the lower gear always lands under COMFORT_UPSHIFT_RPM less
+## DOWNSHIFT_MARGIN_RPM (highest: ~3470 rpm, 2nd into 1st, of 3500).
+const COMFORT_DOWNSHIFT_RPM := 2000.0
+
 ## Automatic mode only shifts down if the lower gear lands at least this far
-## below UPSHIFT_RPM [rpm], so a downshift never triggers an instant upshift.
+## below the program's upshift speed [rpm], so a downshift never triggers an
+## instant upshift.
 const DOWNSHIFT_MARGIN_RPM := 1000.0
 
 ## Automatic mode waits at least this long between two shifts [s].
@@ -1231,11 +1326,31 @@ var gear := 1
 ## nose-first (the way out of a J-turn: selecting drive while already rolling
 ## forwards is harmless, selecting reverse on the move is what a gearbox locks
 ## out), or by the accelerate key held through the stop for
-## FORWARD_ENGAGE_GRACE.
+## FORWARD_ENGAGE_GRACE. In manual mode the shift keys reach it as well, as the
+## position under neutral (see shift_down): reverse selected with the lever, the
+## keys swapped as above.
 var reverse_engaged := false
 
 ## True = the gearbox shifts by itself. The shift keys switch to manual.
 var automatic := true
+
+## Which of its two programs the automatic shifts by (see GearboxMode). A switch
+## on the dashboard like tcs_on, and like it left alone by a reset.
+var gearbox_mode := GearboxMode.SPORT
+
+## The driver aids, on unless switched off (the TCS and ABS keys): traction
+## control (see DRIVE_SLIP_RATIO for what the car does without) and anti-lock
+## brakes (ABS_SLIP_RATIO). Switches on the dashboard, not the car's state: a
+## reset puts the car back, it does not reach over and flip them, so whoever
+## switched an aid off keeps driving without it.
+var tcs_on := true
+var abs_on := true
+
+## True while the engine runs. False once it has been dragged or has run down
+## under STALL_RPM: nothing burns, the tach falls to 0, the throttle does
+## nothing, until something turns it past ENGINE_CATCH_RPM again (the starter
+## key). A reset starts it: reset_to puts a car there that is ready to drive.
+var engine_running := true
 
 ## Engine speed [rad/s]: a state of its own, integrated from the torques on
 ## the crankshaft (see _engine_net_torque) against ENGINE_INERTIA.
@@ -1376,6 +1491,11 @@ var driver_profile: Dictionary = DRIVER_PROFILES["test_driver"]
 var throttle_pedal := 0.0
 var brake_pedal := 0.0
 
+## Where the driver's left foot has the clutch pedal, 0 (up) .. 1 (on the
+## floor): moved at CLUTCH_PEDAL_SPEED while the clutch key is held, and back.
+## Stays up in automatic mode.
+var clutch_pedal := 0.0
+
 ## Where the driver's feet have the two pedals, 0..1: wound towards what is
 ## asked for at the driver_profile's rates. Pedals, not keys: in reverse the
 ## brake key works the throttle pedal and the accelerate key the brake.
@@ -1414,6 +1534,19 @@ var _shift_catching := false
 
 ## Time since the last gear change [s]; the automatic waits AUTO_SHIFT_HOLD.
 var _since_shift := AUTO_SHIFT_HOLD
+
+## True from the clutch pedal being touched until the clutch is home or open
+## again with the foot off it: the clutch is the driver's, the car's feathering
+## stays out of it (see CLUTCH_PEDAL_SPEED).
+var _driver_has_clutch := false
+
+## TCS off: true once the revs of a launch have flared to the floor and the
+## clutch has been let in for good, until it is home or open again (see
+## DRIVE_SLIP_RATIO).
+var _clutch_dumped := false
+
+## True while the starter key is held.
+var _starter_held := false
 
 ## True while the car creeps (see CREEP_CLUTCH_ENGAGEMENT); on the way there,
 ## whether the brake has held the car at a standstill (what arms the creep) and
@@ -1468,13 +1601,18 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("reset_car"):
 		reset_to_spawn()
 	if Input.is_action_just_pressed("shift_up"):
-		automatic = false
-		shift_to(gear + 1)
+		shift_up()
 	if Input.is_action_just_pressed("shift_down"):
-		automatic = false
-		shift_to(gear - 1)
+		shift_down()
 	if Input.is_action_just_pressed("toggle_gearbox"):
 		automatic = not automatic
+	if Input.is_action_just_pressed("gearbox_mode"):
+		gearbox_mode = GearboxMode.COMFORT if gearbox_mode == GearboxMode.SPORT else GearboxMode.SPORT
+	if Input.is_action_just_pressed("tcs_toggle"):
+		tcs_on = not tcs_on
+	if Input.is_action_just_pressed("abs_toggle"):
+		abs_on = not abs_on
+	_starter_held = Input.is_action_pressed("starter")
 
 	# What is asked of the driver: the two pedal keys 0..1, the steering +1 =
 	# left, -1 = right (matches the sign of yaw). From the keys, or from whoever
@@ -1517,6 +1655,7 @@ func _physics_process(delta: float) -> void:
 	# which is what the drivetrain works with.
 	_update_direction(forward_speed, accelerate_asked - brake_asked, accelerate_pressed, brake_pressed, delta)
 	_move_feet(accelerate_asked, brake_asked, delta)
+	_move_clutch_foot(Input.is_action_pressed("clutch_pedal"), delta)
 	var drive_input := (_brake_foot - _throttle_foot) if reverse_engaged else (_throttle_foot - _brake_foot)
 	if handbrake_held:
 		_handbrake_amount = 1.0
@@ -1688,7 +1827,7 @@ func _physics_process(delta: float) -> void:
 
 
 ## Puts the car back where the scene placed it, at rest, in 1st, automatic, the
-## tank full and nothing loaded.
+## engine running, the tank full and nothing loaded.
 func reset_to_spawn() -> void:
 	reset_to(_spawn_transform)
 
@@ -1706,9 +1845,11 @@ func get_spawn_transform() -> Transform3D:
 	return _spawn_transform
 
 
-## Puts the car at `target`, at rest, in 1st, automatic, the tank full and
-## nothing loaded (payload_mass is for whoever resets the car to load again
-## afterwards). The height of `target` counts from the road: the car is stood on its springs on the road
+## Puts the car at `target`, at rest, in 1st, automatic, the engine running
+## (a stalled one is started: the car is put there ready to drive), the tank
+## full and nothing loaded (payload_mass is for whoever resets the car to load
+## again afterwards). The switches stay as the driver has them: tcs_on, abs_on,
+## gearbox_mode. The height of `target` counts from the road: the car is stood on its springs on the road
 ## there (_settle_suspension), 0 = at its ride height.
 func reset_to(target: Transform3D) -> void:
 	global_transform = target
@@ -1724,11 +1865,15 @@ func reset_to(target: Transform3D) -> void:
 	_brake_foot = 0.0
 	throttle_pedal = 0.0
 	brake_pedal = 0.0
+	clutch_pedal = 0.0
+	_driver_has_clutch = false
+	_clutch_dumped = false
 	reverse_engaged = false
 	_forward_engage_timer = 0.0
 	gear = 1
 	automatic = true
 	engine_omega = IDLE_RPM * TAU / 60.0
+	engine_running = true
 	limiter_cutting = false
 	clutch_engagement = 0.0
 	clutch_locked = false
@@ -1948,6 +2093,51 @@ func shift_to(new_gear: int) -> bool:
 	return true
 
 
+## What the shift-up key does: manual mode, and one position up the box. Out of
+## reverse that is neutral (at any speed: taking a box out of gear never hurt
+## one), from there 1st and on up (shift_to). Returns true if the box moved.
+func shift_up() -> bool:
+	automatic = false
+	if reverse_engaged:
+		return _select_reverse(false)
+	return shift_to(gear + 1)
+
+
+## What the shift-down key does: manual mode, and one position down the box
+## (shift_to), to neutral under 1st and to reverse under neutral. Reverse is
+## refused while the car rolls forwards (what a gearbox locks out, and what the
+## brake key's way into reverse waits for a standstill for as well) and, rolling
+## backwards, where the road would turn the engine past the rev limiter through
+## REVERSE_RATIO, as shift_to refuses a downshift. Under reverse there is
+## nothing. Returns true if the box moved.
+# was shift_to(gear - 1), which left reverse out of the shift keys' reach:
+# neutral was the bottom of the box -> one more position under it. 1st to
+# neutral is shift_to(0) as it always was.
+func shift_down() -> bool:
+	automatic = false
+	if reverse_engaged:
+		return false
+	if gear > 0:
+		return shift_to(gear - 1)
+	var reverse_rpm := absf(forward_speed) / WHEEL_RADIUS * REVERSE_RATIO * FINAL_DRIVE * 60.0 / TAU
+	if forward_speed > STANDSTILL_SPEED or reverse_rpm > REDLINE_RPM:
+		return false
+	return _select_reverse(true)
+
+
+## Moves the lever between reverse and neutral, a gear change like the others
+## (the clutch open for SHIFT_TIME). `gear` is neutral either way: in reverse
+## reverse_engaged is what counts, and out of it the box is in neutral.
+func _select_reverse(engage: bool) -> bool:
+	reverse_engaged = engage
+	_forward_engage_timer = 0.0
+	gear = 0
+	_shift_timer = SHIFT_TIME
+	_shift_catching = true
+	_since_shift = 0.0
+	return true
+
+
 ## Engine speed [rpm] the road would turn the engine at in `in_gear`
 ## at the current speed (0 in neutral).
 func wheel_rpm(in_gear: int) -> float:
@@ -2013,6 +2203,16 @@ func _move_feet(accelerate_asked: float, brake_asked: float, delta: float) -> vo
 	_brake_foot = _move_pedal(_brake_foot, brake_pedal_asked, throttle_asked, driver_profile.brake_attack, driver_profile.brake_release, delta)
 
 
+## The driver's left foot: the clutch pedal goes down while the clutch key is
+## `held` and comes back up when it is let go, at CLUTCH_PEDAL_SPEED. Touched,
+## the clutch is the driver's (_driver_has_clutch). Not in automatic mode: there
+## is no pedal there, and one that was down when the mode changed comes up.
+func _move_clutch_foot(held: bool, delta: float) -> void:
+	clutch_pedal = move_toward(clutch_pedal, 1.0 if held and not automatic else 0.0, CLUTCH_PEDAL_SPEED * delta)
+	if clutch_pedal > 0.0:
+		_driver_has_clutch = true
+
+
 ## Where a pedal at `pedal` is a tick later, asked for `asked` (0..1): down at
 ## `attack`, up at `release` [1/s]. With nothing asked of it and the other pedal
 ## asked for, the foot has left it for that one and it is up at once.
@@ -2063,7 +2263,7 @@ func _pedals(speed: float, drive: float, delta: float) -> Dictionary:
 
 ## Whether the car creeps this tick (_creeping; what it does with it is
 ## _clutch_target's). The car has to be in the mood: automatic, 1st, not in
-## reverse, no gear change on, the engine firing, handbrake off, no throttle,
+## reverse, no gear change on, the engine running on fuel, handbrake off, no throttle,
 ## rolling no faster than CREEP_MAX_SPEED; anything else ends the creep and
 ## disarms it. The brake holding the car at a standstill arms it (and a brake
 ## on the moving car disarms it: that one is slowing it, not holding it); the
@@ -2074,7 +2274,7 @@ func _update_creep(speed: float, delta: float) -> void:
 	var standing := absf(speed) < CREEP_ENGAGE_SPEED
 	var in_the_mood := (
 		automatic and gear == 1 and not reverse_engaged and not is_shifting
-		and fuel_l > 0.0 and _handbrake_amount <= 0.0
+		and engine_running and fuel_l > 0.0 and _handbrake_amount <= 0.0
 		and throttle_pedal <= 0.0 and absf(speed) <= CREEP_MAX_SPEED
 	)
 	if not in_the_mood or brake_pedal > 0.0:
@@ -2097,7 +2297,9 @@ func _drive_ratio() -> float:
 
 ## How far in the car wants its clutch (0..1). Open in neutral, for the
 ## SHIFT_TIME of a gear change, while the handbrake locks driven rear wheels
-## (or it would stall the engine), and, throttle closed, once the gearbox
+## (or it would stall the engine), on an engine that is not running (a stalled
+## car rolls free, and the starter has the engine alone to turn: there is no
+## bump start), and, throttle closed, once the gearbox
 ## would turn the engine under CLUTCH_DISENGAGE_RPM: that is the stop in gear,
 ## and the standstill. Home otherwise: under throttle from any speed (from a
 ## standstill that is the launch, slipping), and throttle closed at speed
@@ -2112,6 +2314,8 @@ func _drive_ratio() -> float:
 func _clutch_target(speed: float, gearbox_omega: float, throttle: float, coasting: bool) -> float:
 	var rear_driven := driven_wheels != DrivenWheels.FWD
 	if (gear == 0 and not reverse_engaged) or is_shifting or (_handbrake_amount > 0.0 and rear_driven):
+		return 0.0
+	if not engine_running:
 		return 0.0
 	if throttle > 0.0:
 		return 1.0
@@ -2166,6 +2370,11 @@ func _gearbox_omega() -> float:
 ## engine's side (its net torque less what its own speeding up took) and the
 ## lock holds while that stays inside what the clutch can pass and the engine
 ## above idle.
+##   All of that feathering is the car's. With the TCS switched off the launch
+## floor only sees the revs up, then the clutch is let in for good, with no
+## slip limit (see DRIVE_SLIP_RATIO); and a clutch the driver's own foot is
+## bringing in (clutch_pedal) is not feathered at all, may lock under idle, and
+## can drag the engine down to where it stalls (see CLUTCH_PEDAL_SPEED).
 ##   Open differentials, axle by axle: the two wheels of an axle share one
 ## speed and one tyre force (the bicycle model), so an unloaded inside wheel
 ## spinning its torque away is not modelled.
@@ -2176,12 +2385,24 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 	var rear_share := 1.0 - front_share
 	var front_brake := _brake_torque(BRAKE_BIAS_FRONT, brake, AXLE_INERTIA)
 	var rear_brake := _brake_torque(1.0 - BRAKE_BIAS_FRONT, brake, AXLE_INERTIA)
-	var abs_active := brake > 0.0
+	var abs_active := abs_on and brake > 0.0
 	var gearbox_omega := _gearbox_omega()
 
-	var target := _clutch_target(forward_speed, gearbox_omega, throttle, coasting)
-	if target <= clutch_engagement:
-		# Opening is a stab at the pedal: at once.
+	# The car's own idea of the clutch, and over it the driver's pedal: the
+	# clutch is in no further than the pedal lets it. Once the clutch is home,
+	# or open with the foot off the pedal, it is the car's again.
+	var own_target := _clutch_target(forward_speed, gearbox_omega, throttle, coasting)
+	var target := minf(own_target, 1.0 - clutch_pedal)
+	if own_target <= 0.0 or clutch_locked:
+		_clutch_dumped = false
+	if clutch_pedal <= 0.0 and (own_target <= 0.0 or (clutch_locked and engine_omega >= idle_omega)):
+		_driver_has_clutch = false
+	# The car never lets its clutch lock under idle. The driver's foot can: the
+	# engine is then lugged along with the car, down to where it stalls.
+	var lock_floor := STALL_RPM * TAU / 60.0 if _driver_has_clutch else idle_omega
+	if target <= clutch_engagement or _driver_has_clutch:
+		# Opening is a stab at the pedal: at once. And under the driver's foot
+		# the clutch is where the pedal has it.
 		clutch_engagement = target
 	else:
 		var engage_time := CLUTCH_ENGAGE_TIME if gearbox_omega < idle_omega else CLUTCH_SHIFT_ENGAGE_TIME
@@ -2205,7 +2426,7 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 		var next_rear := _advance_axle(rear_omega, at_axle * rear_share, rear_brake, AXLE_INERTIA + reflected * rear_share, rear, abs_active, delta)
 		var next_engine := (next_front * front_share + next_rear * rear_share) * ratio
 		var held := net - ENGINE_INERTIA * (next_engine - engine_omega) / delta
-		if absf(held) <= capacity and next_engine >= idle_omega:
+		if absf(held) <= capacity and next_engine >= lock_floor:
 			_run_engine_outputs(throttle, 0.0, delta)
 			front_omega = next_front
 			rear_omega = next_rear
@@ -2218,7 +2439,11 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 	var slip := engine_omega - gearbox_omega
 	clutch_torque = capacity * clampf(slip / CLUTCH_SLIP_BAND, -1.0, 1.0)
 	var floor_omega := lerpf(IDLE_RPM, LAUNCH_RPM, throttle) * TAU / 60.0
-	if gearbox_omega < floor_omega and clutch_torque > 0.0:
+	if not tcs_on and throttle > 0.0 and gearbox_omega < floor_omega and engine_omega >= floor_omega - LAUNCH_BITE_BAND:
+		# TCS off: the revs are up to where the clutch bites, and it is let in
+		# for good.
+		_clutch_dumped = true
+	if gearbox_omega < floor_omega and clutch_torque > 0.0 and not _clutch_dumped and not _driver_has_clutch:
 		# Feathering: under the floor the clutch takes LAUNCH_CLUTCH_SHARE of
 		# what the engine makes (the idle controller leaning in against the
 		# load), at the floor all of it, plus whatever speed the engine has
@@ -2231,11 +2456,11 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 	var rear_torque := to_axle * rear_share
 	var next_front := _advance_axle(front_omega, front_torque, front_brake, AXLE_INERTIA, front, abs_active, delta)
 	var next_rear := _advance_axle(rear_omega, rear_torque, rear_brake, AXLE_INERTIA, rear, abs_active, delta)
-	if clutch_torque > 0.0:
+	if clutch_torque > 0.0 and tcs_on and not _driver_has_clutch:
 		# The same foot feathers the clutch against wheelspin: a driven axle is
 		# let spin up to DRIVE_SLIP_RATIO and given no more torque than holds
 		# it there. Only while the clutch slips; locked, the wheels are the
-		# engine's.
+		# engine's. Not with the TCS off, and not under the driver's own foot.
 		if front_share > 0.0:
 			var eased := _ease_for_wheelspin(front_omega, next_front, front_torque, front, delta)
 			if eased.x != front_torque:
@@ -2254,7 +2479,7 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 	if clutch_engagement <= 0.0:
 		return
 	var slip_after := engine_omega - _gearbox_omega()
-	if (slip * slip_after <= 0.0 or absf(slip_after) < CLUTCH_SLIP_BAND) and _gearbox_omega() >= idle_omega:
+	if (slip * slip_after <= 0.0 or absf(slip_after) < CLUTCH_SLIP_BAND) and _gearbox_omega() >= lock_floor:
 		# The two sides have met: one shaft from here, at the speed their
 		# angular momentum comes to (the axles' inertia seen from the engine).
 		var axle_inertia := AXLE_INERTIA * (signf(front_share) + signf(rear_share)) / (ratio * ratio)
@@ -2320,9 +2545,12 @@ func _brake_torque(share: float, brake: float, inertia: float) -> float:
 ## between the old speed and the overshoot. This is what the old slip-ratio
 ## relaxation did with its slope division and its homing-in, now on a real
 ## state with a real inertia; it holds at any tick length.
-##   Under the foot brake the ABS holds the wheel at ABS_SLIP_RATIO instead of
-## letting it lock (it lets go of as much brake torque as that takes); only the
-## handbrake locks wheels, the rear ones, by _handbrake_amount.
+##   Under the foot brake the ABS (`abs_active`) holds the wheel at
+## ABS_SLIP_RATIO instead of letting it lock (it lets go of as much brake torque
+## as that takes); with it the handbrake alone locks wheels, the rear ones, by
+## _handbrake_amount. Without it a brake torque the tyre cannot answer stops the
+## wheel, and holds it stopped for as long as it is more than the road's pull
+## on the locked tyre.
 func _advance_axle(omega: float, torque: float, brake_torque: float, inertia: float, contact: Dictionary, abs_active: bool, delta: float) -> float:
 	var along: float = contact.along
 	var road_torque: float = contact.grip * WHEEL_RADIUS
@@ -2436,12 +2664,15 @@ func _update_gearbox(speed: float, throttle: float, reversing: bool, delta: floa
 				_since_shift = 0.0
 		elif _since_shift >= AUTO_SHIFT_HOLD:
 			var lower := gear - 1
-			if throttle > 0.0 and gear < GEAR_RATIOS.size() - 1 and wheel_rpm(gear) >= UPSHIFT_RPM:
+			var comfort := gearbox_mode == GearboxMode.COMFORT
+			var upshift_rpm := COMFORT_UPSHIFT_RPM if comfort else UPSHIFT_RPM
+			var downshift_rpm := COMFORT_DOWNSHIFT_RPM if comfort else DOWNSHIFT_RPM
+			if throttle > 0.0 and gear < GEAR_RATIOS.size() - 1 and wheel_rpm(gear) >= upshift_rpm:
 				shift_to(gear + 1)
 			elif (
 				lower >= 1
-				and wheel_rpm(gear) < DOWNSHIFT_RPM
-				and wheel_rpm(lower) < UPSHIFT_RPM - DOWNSHIFT_MARGIN_RPM
+				and wheel_rpm(gear) < downshift_rpm
+				and wheel_rpm(lower) < upshift_rpm - DOWNSHIFT_MARGIN_RPM
 			):
 				shift_to(lower)
 
@@ -2455,7 +2686,8 @@ func _update_gearbox(speed: float, throttle: float, reversing: bool, delta: floa
 ## down to IDLE_RPM (enough to carry the friction and the `load` [Nm] the
 ## clutch takes off the crankshaft there, plus IDLE_CONTROL_GAIN for every
 ## rad/s below), and the rev limiter shuts the fuel off (limiter_cutting).
-## A dry tank is a fuel cut that stays.
+## A dry tank is a fuel cut that stays, and an engine that is not running
+## (engine_running) makes nothing at all: its friction is what is left.
 func _engine_net_torque(rpm: float, throttle: float, load: float) -> float:
 	return _combustion_torque(rpm, throttle, load) - _engine_friction(rpm)
 
@@ -2469,10 +2701,10 @@ func _engine_friction(rpm: float) -> float:
 ## What the burning fuel makes on the crankshaft [Nm] at `rpm` with the pedal
 ## at `throttle` and the clutch taking `load` [Nm] (see _engine_net_torque):
 ## full combustion times the throttle the engine really has, the driver's plus
-## the idle controller's. None while the fuel is cut. What the fuel burn and the
-## exhaust go by.
+## the idle controller's. None while the fuel is cut or the engine is not
+## running. What the fuel burn and the exhaust go by.
 func _combustion_torque(rpm: float, throttle: float, load: float) -> float:
-	if limiter_cutting or fuel_l <= 0.0:
+	if not engine_running or limiter_cutting or fuel_l <= 0.0:
 		return 0.0
 	return (engine_torque(rpm) + _engine_friction(rpm)) * _engine_throttle(rpm, throttle, load)
 
@@ -2504,13 +2736,23 @@ func _run_engine_outputs(throttle: float, load: float, delta: float) -> void:
 ## One tick of the engine speed under `torque` [Nm], everything on the
 ## crankshaft added up: d(omega) = torque / ENGINE_INERTIA * delta. The limiter
 ## cuts the fuel the moment the revs get to REDLINE_RPM, so the engine never
-## runs past it under its own power: the step stops there.
+## runs past it under its own power: the step stops there. The starter motor's
+## torque comes on top while its key is held on an engine that is not running
+## (CRANKING_TORQUE), and where the step leaves the revs decides whether the
+## engine runs: under STALL_RPM it has stopped, turned past ENGINE_CATCH_RPM
+## with fuel in the tank it has caught.
 func _advance_engine(torque: float, delta: float) -> void:
 	var limit := REDLINE_RPM * TAU / 60.0
+	if _starter_held and not engine_running:
+		torque += CRANKING_TORQUE * maxf(1.0 - engine_rpm / STARTER_FREE_RPM, 0.0)
 	var next := engine_omega + torque / ENGINE_INERTIA * delta
 	if engine_omega <= limit:
 		next = minf(next, limit)
 	engine_omega = maxf(next, 0.0)
+	if engine_running:
+		engine_running = engine_rpm >= STALL_RPM
+	else:
+		engine_running = engine_rpm >= ENGINE_CATCH_RPM and fuel_l > 0.0
 	_update_limiter()
 
 
