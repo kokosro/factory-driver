@@ -49,7 +49,8 @@ extends SceneTree
 ## way the car went; the pool bounded and the oldest laid anew, the fade and
 ## the places it frees, the same slide leaving the same marks to the bit, a
 ## reset clearing them, and the car driving the same with the marks switched
-## off.
+## off; and their severity: cornering on tyres that grip lays nothing, a slow
+## scrub a shade, the handbrake black, the same shades every time.
 ## Exits 0 on success, 1 on any failed check. Later phases extend this file.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -601,6 +602,23 @@ const MARKS_FADE_FRAMES := 60
 ## ... and the late mark of the expiry check is laid this many ticks after the
 ## early ones (1 s).
 const MARKS_LATE_FRAMES := 60
+
+## ... the slow scrub is full lock off the throttle from this speed [m/s], 45
+## km/h, for this many ticks (4 s): the fronts plough at ~0.38 rad, a little
+## over MARK_SLIP_ANGLE; and the corner that must leave nothing is the same
+## from this speed [m/s], 30 km/h, where they get to 0.25 rad (what marked at
+## the old threshold of 0.2, the user's complaint) ...
+const MARKS_SCRUB_SPEED := 12.5
+const MARKS_SCRUB_FRAMES := 240
+const MARKS_CLEAN_CORNER_SPEED := 8.2
+
+## ... a scrub's marks are all fainter than this (fresh alpha; measured 0.23 at
+## most), and the handbrake slide's marks have on average at least this many
+## times the alpha of the scrub's darkest, at least this share of them as dark
+## as a mark gets (measured 77 of 108: the locked rears').
+const MARKS_SCRUB_MAX_ALPHA := 0.3
+const MARKS_SLIDE_MIN_DARKER := 2.0
+const MARKS_SLIDE_MIN_FULL_SHARE := 0.5
 
 var _failures := 0
 
@@ -3099,6 +3117,25 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 			and TyreMarks.tyre_marks(0.0, -1.0) and TyreMarks.tyre_marks(0.0, 1.0) and TyreMarks.tyre_marks(-0.5, 0.0),
 		"marks: a tyre held by TCS (%.2f) or ABS (%.2f) or at its peak slip angle (%.2f rad) marks nothing, a locked, a spinning and a sideways one do (past %.2f / %.2f rad)" % [ArcadeCar.DRIVE_SLIP_RATIO, ArcadeCar.ABS_SLIP_RATIO, ArcadeCar.FRONT_PEAK_SLIP_ANGLE, TyreMarks.MARK_SLIP_RATIO, TyreMarks.MARK_SLIP_ANGLE],
 	)
+	# The user's verdict on the first marks: cornering marked too easily (the
+	# slip angle threshold was 0.2, twice the peak) and every mark was as dark as
+	# every other. The threshold is past 2.5 peaks now, and a mark has a severity.
+	_check(
+		not TyreMarks.tyre_marks(ArcadeCar.FRONT_PEAK_SLIP_ANGLE * 2.5, 0.0) and not TyreMarks.tyre_marks(-ArcadeCar.FRONT_PEAK_SLIP_ANGLE * 2.5, 0.0) and TyreMarks.tyre_marks(ArcadeCar.FRONT_PEAK_SLIP_ANGLE * 4.0, 0.0),
+		"marks: a front at two and a half times its peak slip angle (%.3f rad, what full lock gets it to from 30 km/h) marks nothing, at four times it does" % (ArcadeCar.FRONT_PEAK_SLIP_ANGLE * 2.5),
+	)
+	var severity_rises := true
+	for i in 100:
+		severity_rises = severity_rises and TyreMarks.mark_severity(0.0, i * 0.03) <= TyreMarks.mark_severity(0.0, (i + 1) * 0.03) and TyreMarks.mark_severity(i * 0.015, 0.0) <= TyreMarks.mark_severity((i + 1) * 0.015, 0.0)
+	_check(
+		TyreMarks.mark_severity(TyreMarks.MARK_SLIP_ANGLE, TyreMarks.MARK_SLIP_RATIO) == 0.0 and TyreMarks.mark_severity(0.0, 0.0) == 0.0 and TyreMarks.mark_severity(0.0, -1.0) == 1.0 and TyreMarks.mark_severity(0.0, 2.8) == 1.0
+			and TyreMarks.mark_severity(-PI * 0.5, 0.0) == 1.0 and TyreMarks.mark_severity(0.4, 0.0) == TyreMarks.mark_severity(-0.4, 0.0) and TyreMarks.mark_severity(0.4, 0.0) > 0.0 and TyreMarks.mark_severity(0.4, 0.0) < 0.5 and severity_rises,
+		"marks: a mark's severity is 0 at the thresholds, 1 for a locked wheel (-1), a spinning one (2.8) and a tyre going sideways, rises all the way in between and knows no left or right (%.3f at 0.4 rad)" % TyreMarks.mark_severity(0.4, 0.0),
+	)
+	_check(
+		TyreMarks.mark_fresh_alpha(0.0) == TyreMarks.MARK_FAINT_ALPHA and TyreMarks.mark_fresh_alpha(1.0) == TyreMarks.MARK_COLOR.a and TyreMarks.MARK_FAINT_ALPHA >= 0.1 and TyreMarks.MARK_FAINT_ALPHA <= 0.2 and TyreMarks.MARK_COLOR.a == 0.75,
+		"marks: a fresh mark's alpha goes from a faint %.2f at no severity to %.2f at full" % [TyreMarks.MARK_FAINT_ALPHA, TyreMarks.MARK_COLOR.a],
+	)
 
 	# (2) Gripping: flat out from rest with TCS, through a gear change, and a
 	# full pedal to a stop with ABS, dead straight. Not a mark.
@@ -3149,6 +3186,22 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 		shortest >= TyreMarks.MARK_MIN_LENGTH and longest < TyreMarks.MARK_SPACING + slide.max_step + 0.1 and slide.count < slide.wheel_ticks,
 		"marks: a trail is a mark every %.1f m, not one a tick (%.2f .. %.2f m long; %d marks from %d ticks of a wheel marking)" % [TyreMarks.MARK_SPACING, shortest, longest, slide.count, slide.wheel_ticks],
 	)
+	var slide_full := 0
+	var slide_alpha_sum := 0.0
+	var slide_darkest := 0.0
+	var severities_in_range := true
+	for slot in marks.mark_count:
+		var severity := marks.mark_severities[slot]
+		severities_in_range = severities_in_range and severity >= 0.0 and severity <= 1.0
+		slide_alpha_sum += TyreMarks.mark_fresh_alpha(severity)
+		slide_darkest = maxf(slide_darkest, TyreMarks.mark_fresh_alpha(severity))
+		if severity == 1.0:
+			slide_full += 1
+	var slide_mean_alpha := slide_alpha_sum / maxi(marks.mark_count, 1)
+	_check(
+		severities_in_range and slide_darkest == TyreMarks.MARK_COLOR.a and slide_full >= slide.count * MARKS_SLIDE_MIN_FULL_SHARE,
+		"marks: the handbrake slide marks dark and heavy - %d of its %d marks as dark as a mark gets (alpha %.2f, the locked rears'), %.2f on average" % [slide_full, slide.count, slide_darkest, slide_mean_alpha],
+	)
 	_check(in_order and marks.mark_ages[0] > marks.mark_ages[marks.mark_count - 1], "marks: the pool fills in order, the first mark the oldest (%.2f s, the last %.2f s)" % [marks.mark_ages[0], marks.mark_ages[marks.mark_count - 1]])
 
 	# (4) The fade, tick by tick, with nothing driving: alpha down every tick,
@@ -3165,8 +3218,13 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 		alpha_before = alpha
 	var age_gained := marks.mark_ages[slot_watched] - age_start
 	var alpha_lost := alpha_start - alpha_before
+	# was alpha lost = MARK_COLOR.a x the share of the lifetime, every mark as
+	# dark as every other -> the mark's own fresh alpha x that share (the user's
+	# verdict: no severity in the marks; see mark_severity). The same fade, from
+	# wherever the mark started.
+	var fresh_alpha := TyreMarks.mark_fresh_alpha(marks.mark_severities[slot_watched])
 	_check(
-		fading and absf(age_gained - MARKS_FADE_FRAMES * tick) < 0.000001 and absf(alpha_lost - TyreMarks.MARK_COLOR.a * age_gained / TyreMarks.MARK_LIFETIME) < 0.000001,
+		fading and absf(age_gained - MARKS_FADE_FRAMES * tick) < 0.000001 and absf(alpha_lost - fresh_alpha * age_gained / TyreMarks.MARK_LIFETIME) < 0.000001,
 		"marks: a mark fades every physics tick (alpha %.4f -> %.4f over %.0f s, %.4f s older)" % [alpha_start, alpha_before, MARKS_FADE_FRAMES * tick, age_gained],
 	)
 	finite = finite and _marks_finite(marks)
@@ -3176,8 +3234,8 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 	var again := await _marks_slide(car, marks)
 	finite = finite and again.finite
 	_check(
-		again.count == slide.count and again.transforms == slide.transforms and again.ages == slide.ages and again.next == slide.next,
-		"marks: the same slide from a reset leaves the same marks, transforms and ages to the bit (%d and %d marks)" % [slide.count, again.count],
+		again.count == slide.count and again.transforms == slide.transforms and again.ages == slide.ages and again.severities == slide.severities and again.next == slide.next,
+		"marks: the same slide from a reset leaves the same marks, transforms, ages and severities to the bit (%d and %d marks)" % [slide.count, again.count],
 	)
 	marks.process_mode = Node.PROCESS_MODE_DISABLED
 	var unmarked := await _marks_slide(car, marks)
@@ -3287,7 +3345,36 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 	await _step(MARKS_LATE_FRAMES)
 	_check(marks.mark_count == 0 and _marks_empty_places(marks) == TyreMarks.MAX_MARKS, "marks: %.0f s later the late one has gone too, the pool is empty (%d marks)" % [MARKS_LATE_FRAMES * tick, marks.mark_count])
 
-	_check(finite and _marks_finite(marks), "marks: no NaN / inf in any mark's transform or age throughout")
+	# (11) Cornering on tyres that grip lays nothing: full lock off the throttle
+	# from 30 km/h, the user's complaint about the first marks (they began at a
+	# slip angle of 0.2 rad, and this corner gets the fronts to 0.25).
+	var clean := await _marks_corner(car, marks, MARKS_CLEAN_CORNER_SPEED)
+	finite = finite and clean.finite
+	_check(
+		clean.count == 0 and clean.peak_front_angle > 0.2 and clean.peak_front_angle < TyreMarks.MARK_SLIP_ANGLE,
+		"marks: full lock off the throttle from %.0f km/h lays nothing (the fronts to %.3f rad, the marks begin at %.2f; they began at 0.20)" % [clean.entry_speed * 3.6, clean.peak_front_angle, TyreMarks.MARK_SLIP_ANGLE],
+	)
+
+	# (12) Severity: the same from 45 km/h has the fronts ploughing just past the
+	# threshold, and what they leave is a shade; the handbrake slide's marks are
+	# black against it. And a shade is the same shade every time.
+	var scrub := await _marks_corner(car, marks, MARKS_SCRUB_SPEED)
+	var scrub_again := await _marks_corner(car, marks, MARKS_SCRUB_SPEED)
+	finite = finite and scrub.finite and scrub_again.finite
+	_check(
+		scrub.count > 0 and scrub.darkest < MARKS_SCRUB_MAX_ALPHA and scrub.faintest >= TyreMarks.MARK_FAINT_ALPHA and scrub.peak_rear_angle < TyreMarks.MARK_SLIP_ANGLE,
+		"marks: the same from %.0f km/h, the fronts ploughing at %.2f rad, leaves faint marks (%d of them, fresh alpha %.3f .. %.3f; the rears none)" % [scrub.entry_speed * 3.6, scrub.peak_front_angle, scrub.count, scrub.faintest, scrub.darkest],
+	)
+	_check(
+		slide_darkest > scrub.darkest * MARKS_SLIDE_MIN_DARKER and slide_mean_alpha > scrub.darkest * MARKS_SLIDE_MIN_DARKER,
+		"marks: a handbrake mark is darker than a slow scrub's - alpha %.2f at its darkest and %.2f on average against the scrub's darkest %.3f" % [slide_darkest, slide_mean_alpha, scrub.darkest],
+	)
+	_check(
+		scrub_again.count == scrub.count and scrub_again.severities == scrub.severities and scrub_again.transforms == scrub.transforms,
+		"marks: the same scrub again leaves the same shades, severities and transforms to the bit (%d and %d marks)" % [scrub.count, scrub_again.count],
+	)
+
+	_check(finite and _marks_finite(marks), "marks: no NaN / inf in any mark's transform, age or severity throughout")
 	car.reset_to_spawn()
 	await _step(2)
 
@@ -3295,14 +3382,14 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 ## The marks' scripted slide: from a reset to ~60 km/h, SLIDE_SETTLE_STEER of
 ## left steering and the handbrake for MARKS_SLIDE_FRAMES, everything let go
 ## for MARKS_SLIDE_WATCH_FRAMES. Returns what the pool holds at the end (count,
-## copies of the transforms and ages, the next place), how the rears slid, the
+## copies of the transforms, ages and severities, the next place), how the rears slid, the
 ## ticks of a wheel marking (two an axle), the longest step of a tick [m], where and how
 ## the car ended and whether the pool was finite on every tick.
 func _marks_slide(car: ArcadeCar, marks: TyreMarks) -> Dictionary:
 	await _get_up_to_speed(car)
 	var slide := {
 		"entry_speed": car.forward_speed, "peak_rear_slip": 0.0, "peak_rear_angle": 0.0, "wheel_ticks": 0,
-		"max_step": 0.0, "finite": true, "count": 0, "transforms": [], "ages": PackedFloat64Array(), "next": 0,
+		"max_step": 0.0, "finite": true, "count": 0, "transforms": [], "ages": PackedFloat64Array(), "severities": PackedFloat32Array(), "next": 0,
 		"end": Transform3D.IDENTITY, "end_speed": 0.0, "end_yaw_rate": 0.0, "end_rpm": 0.0,
 	}
 	Input.action_press("steer_left", SLIDE_SETTLE_STEER)
@@ -3324,12 +3411,42 @@ func _marks_slide(car: ArcadeCar, marks: TyreMarks) -> Dictionary:
 	slide.count = marks.mark_count
 	slide.transforms = marks.mark_transforms.duplicate()
 	slide.ages = marks.mark_ages.duplicate()
+	slide.severities = marks.mark_severities.duplicate()
 	slide.next = marks.oldest_mark() + marks.mark_count
 	slide.end = car.global_transform
 	slide.end_speed = car.forward_speed
 	slide.end_yaw_rate = car.yaw_rate
 	slide.end_rpm = car.engine_rpm
 	return slide
+
+
+## The marks' scripted corner: from a reset to `speed`, off the throttle, full
+## left lock for MARKS_SCRUB_FRAMES, the wheel let go and two ticks for the last
+## of a trail. Returns the speed going in, the axles' peak slip angles, what the
+## pool holds at the end (count, copies of the transforms and severities, the
+## faintest and the darkest fresh alpha) and whether it was finite on every tick.
+func _marks_corner(car: ArcadeCar, marks: TyreMarks, speed: float) -> Dictionary:
+	await _reach_speed(car, speed)
+	var corner := {
+		"entry_speed": car.forward_speed, "peak_front_angle": 0.0, "peak_rear_angle": 0.0, "finite": true,
+		"count": 0, "transforms": [], "severities": PackedFloat32Array(), "faintest": INF, "darkest": 0.0,
+	}
+	Input.action_press("steer_left")
+	for frame in MARKS_SCRUB_FRAMES:
+		await physics_frame
+		corner.peak_front_angle = maxf(corner.peak_front_angle, absf(car.front_slip_angle))
+		corner.peak_rear_angle = maxf(corner.peak_rear_angle, absf(car.rear_slip_angle))
+		corner.finite = corner.finite and _marks_finite(marks)
+	Input.action_release("steer_left")
+	await _step(2)
+	corner.count = marks.mark_count
+	corner.transforms = marks.mark_transforms.duplicate()
+	corner.severities = marks.mark_severities.duplicate()
+	for slot in marks.mark_count:
+		var alpha := TyreMarks.mark_fresh_alpha(marks.mark_severities[slot])
+		corner.faintest = minf(corner.faintest, alpha)
+		corner.darkest = maxf(corner.darkest, alpha)
+	return corner
 
 
 ## Steps `frames` ticks of a straight run (to a standstill at the latest, if
@@ -3368,7 +3485,7 @@ func _marks_trail_length(marks: TyreMarks) -> float:
 ## True if every place of the marks' pool holds finite numbers.
 func _marks_finite(marks: TyreMarks) -> bool:
 	for slot in TyreMarks.MAX_MARKS:
-		if not marks.mark_transforms[slot].is_finite() or not is_finite(marks.mark_ages[slot]):
+		if not marks.mark_transforms[slot].is_finite() or not is_finite(marks.mark_ages[slot]) or not is_finite(marks.mark_severities[slot]):
 			return false
 	return true
 
@@ -3377,7 +3494,7 @@ func _marks_finite(marks: TyreMarks) -> bool:
 func _marks_empty_places(marks: TyreMarks) -> int:
 	var empty := 0
 	for slot in TyreMarks.MAX_MARKS:
-		if marks.mark_transforms[slot] == TyreMarks.NO_MARK and marks.mark_ages[slot] == 0.0 and marks.mark_alpha(slot) == 0.0:
+		if marks.mark_transforms[slot] == TyreMarks.NO_MARK and marks.mark_ages[slot] == 0.0 and marks.mark_severities[slot] == 0.0 and marks.mark_alpha(slot) == 0.0:
 			empty += 1
 	return empty
 

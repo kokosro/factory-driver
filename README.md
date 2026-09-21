@@ -361,14 +361,18 @@ Nothing that comes off the wall clock is asserted, and nothing is written under
 `user://` (a headless run records nothing by itself, and the phase's own recording goes
 to that fixed tmp path), so the suite reads the same on every run.
 
-The smoke test's last phase is the tyre marks (below): none while the tyres grip (flat
+After the telemetry come the tyre marks (below): none while the tyres grip (flat
 out with TCS, a full pedal with ABS), trails under a handbrake slide, every mark a tyre
 wide and lying on the ground the pad shows, one every half metre and not one a tick; a
 launch with TCS off marks the rears' two tracks for as far as they spun, a stop with ABS
 off marks the way the car slid on front wheels standing still; the fade tick by tick and
 the place it frees after 30 s; the pool bounded, the oldest mark laid anew; the same
 slide from a reset leaving the same marks to the bit; a reset clearing them; no NaN;
-and the slide ending in the same place, to the bit, with the marks switched off.
+and the slide ending in the same place, to the bit, with the marks switched off. Then
+their severity: full lock off the throttle from 30 km/h lays nothing, from 45 km/h faint
+marks (fresh alpha under 0.3), the handbrake slide's are black against them (most of them
+at the full 0.75), and the same scrub leaves the same shades to the bit.
+
 
 ### Handling tests
 
@@ -537,13 +541,23 @@ camera test checks a launch comes out the same with and without it.
 
 A tyre working beyond its grip leaves its rubber on the tarmac (`scripts/tyre_marks.gd`,
 the `TyreMarks` node in `scenes/main.tscn`). Every physics tick the marks read the car's
-slip state, per axle, and a wheel past a slip ratio of 0.35 or a slip angle of 0.2 rad
-(11.5 degrees, twice the tyres' peak) trails marks. That is over everything the car's aids
-hold a tyre at (TCS 0.25, ABS 0.15), so a launch with TCS and a full pedal with ABS leave
-nothing; pull the handbrake at speed and all four wheels draw the slide, switch TCS off
-(`T`) and launch and the rears lay two black lines for as long as they spin, switch ABS
-off (`G`) and stand on the brake and the locked fronts draw the stop. Throwing the car
-about at full lock marks too: fronts scrubbing at 20 degrees of slip are sliding.
+slip state, per axle, and a wheel past a slip ratio of 0.35 or a slip angle of 0.3 rad
+(17 degrees, three times the tyres' peak) trails marks. That is over everything the car's
+aids hold a tyre at (TCS 0.25, ABS 0.15), so a launch with TCS and a full pedal with ABS
+leave nothing; pull the handbrake at speed and all four wheels draw the slide, switch TCS
+off (`T`) and launch and the rears lay two black lines for as long as they spin, switch
+ABS off (`G`) and stand on the brake and the locked fronts draw the stop. Cornering on
+tyres that grip leaves nothing: half lock at any speed, full lock off the throttle up to
+~35 km/h. (The slip angle threshold was 0.2 rad, and full lock from 26 km/h marked: too
+easily, was the verdict from the driving seat.)
+
+How dark a mark is goes by how far past its grip the tyre was (`mark_severity`, from the
+slip state alone): 0 at the thresholds, 1 at a slip ratio of 1 either way (a locked wheel
+is at -1, the rears of a launch without TCS at 2.8) or a slip angle of 1 rad, in a line
+in between, the worse of the two; a mark takes the worst tick of the half metre it
+covers. A fresh mark's alpha runs from 0.15 to 0.75 with it. So fronts ploughing round a
+tight corner at 45 km/h leave a shade (alpha ~0.2), full lock at motorway speed a grey
+(~0.35), and a locked or spinning tyre a black line.
 
 A mark is a quad a tyre wide (0.22 m) lying on the ground from where the wheel's contact
 patch was to where it is now, laid every 0.5 m of the patch's way over the ground - the
@@ -553,11 +567,12 @@ suspension looks the road up at; the height is the ground the pad shows (the roa
 elevation: the micro-bumps the wheels ride are not in the ground mesh, and a mark laid on
 them would dip under it), just over the paint.
 
-The marks fade to nothing over 30 s of physics time and live in a pool of 1024 (512 m of
+The marks fade to nothing over 30 s of physics time, each from its own shade, and live in a pool of 1024 (512 m of
 one wheel's trail); when it is full the oldest mark is laid anew. One `MultiMesh` of
-quads draws them, colour and alpha per mark, no node per mark. All of it is plain data
+quads draws them, colour and alpha per mark, no node per mark; the severities are one
+more plain array beside the ages. All of it is plain data
 worked out from the car's state on physics ticks, no wall clock and no random numbers:
-the same drive leaves the same marks, to the bit. Purely visual - the marks read the car
+the same drive leaves the same marks and the same shades, to the bit. Purely visual - the marks read the car
 and nothing reads the marks; the only thing the car got for them is a `reset_counter`
 that `reset_to` counts up and nothing in the car reads.
 
