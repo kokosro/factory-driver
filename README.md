@@ -39,7 +39,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 
 Look left / right are on `,` and `.` (the `<` / `>` pair, under the right hand's reach from the arrows and next to `B`'s row): `Q` / `E` are the gearbox, `B` is look back. Hold to glance to that side, let go and the view comes back: the chase camera swings ~65 degrees round the car, in the cockpit and the bonnet view the head turns ~60 degrees; the overhead and wheel views have no side to look to. It is a glance, not a view of its own (`C` still cycles the same five), both keys at once look straight ahead, and look back wins over either.
 
-The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged), with two thin pedal bars beside it (green throttle, red brake: how far the driver's feet really have the pedals, see The driver below) and a thin fuel bar under them. Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual, `comfort` or `eco` on the automatic's comfort and eco programs and `STALL` once the engine has stopped) and turns red near the redline; over it sit the two driver aids' lamps, `TCS` and `ABS`, dim unless an aid is switched off (see The driver's controls below). The gearbox starts in whatever the car was last left in - automatic on a car that has not been driven - and goes back to automatic when you reset the car (the switches and the camera view stay as the driver has them; see The car's own file below).
+The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged), with two thin pedal bars beside it (green throttle, red brake: how far the driver's feet really have the pedals, see The driver below) and a thin fuel bar under them, with a thinner battery bar under that. Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual, `comfort` or `eco` on the automatic's comfort and eco programs and `STALL` once the engine has stopped) and turns red near the redline; over it sit the two driver aids' lamps, `TCS` and `ABS`, dim unless an aid is switched off (see The driver's controls below). The gearbox starts in whatever the car was last left in - automatic on a car that has not been driven - and goes back to automatic when you reset the car (the switches and the camera view stay as the driver has them; see The car's own file below).
 
 ### Driving feel
 
@@ -387,6 +387,36 @@ held, and there
 is no bump start (the clutch stays open on an engine that is not running). A reset
 starts a stopped engine: it puts a car there that is ready to drive.
 
+**Battery and alternator.** The starter draws on a 12 V, 50 Ah lead-acid battery
+(`battery_charge`, 0..1 of what it held new, 2.16 MJ; `battery_wear`, the share of that
+lost for good), kept in joules and watts, and the electrical side alone: the alternator's
+drag on the belt and the fuel pump, injection and ignition the running engine feeds are
+inside the engine's friction figure and its burn already, so nothing electrical adds a
+torque to the crankshaft or a drop of fuel, and the battery's ~20 kg are inside the kerb
+weight. What the starter really makes is its 150 Nm times the battery's cranking
+strength, the square root of the charge - the one empirical line in it, the shape of a
+lead-acid's cranking against its state of charge: nearly full to half, away steeply under
+a fifth, nothing at empty. Everything else falls out of the torque line against the
+engine's friction: from a third of a charge the engine is at 190 rpm where a full battery
+has it at 330 and catches after 0.45 s instead of 0.18; under ~13 % it turns and never
+catches; empty, nothing turns. The draw is a DC motor's, current with the torque, 1.5 kW
+on a standing crankshaft with a full battery and less along the same line: a start costs
+~170 J, a ten-thousandth of the battery. With the engine off the key-on load (ECU,
+cluster, 30 W) drains it, ~20 h from full to flat. Running, the alternator charges it with
+what is left after the ignition's own 150 W: little at idle (300 W at 900 rpm, so 150 W
+net), its 1.5 kW from 2500 engine rpm up, at a charge efficiency of 0.85 and tapering off
+from 80 % of full; a running engine never fails for want of the battery. A battery run
+under 10 % is aged by it: 3 % of its capacity gone for good each time it goes under, and
+1 % an hour for as long as it is left there, bounded at 90 % - it fills to less (the bar
+never reaches the top), and full, cranks weaker than a new one; a battery that far gone
+fills to a tenth and its starter turns nothing. All twelve numbers are the config's
+(`battery`, optional: see `configs/README.md`). The bar under the fuel bar shows the
+charge tick by tick, unsmoothed, amber under 40 %, red under 20 %; through a crank it
+sags by what the crank takes, which on a 50 Ah battery is a ten-thousandth - the honest
+figure, and not one you will see move. A reset (`R`, a test starting) is a fresh car,
+battery and all: full and healthy, so the test pad never strands anyone; the running game
+keeps the charge and the wear from one session to the next (see The car's own file).
+
 ### Tests
 
 ```sh
@@ -450,7 +480,28 @@ aim point, which used to trip a colinear look-at warning)
 and `tests/mission_test.gd` (plays every mission through the mission manager with the
 scripted driver pressing the keys and checks the medal on every banner, plus one run with
 its steering held off and one 180 left parked where it stopped, which both have to come
-out FAILED, and an abort).
+out FAILED, and an abort), and `tests/battery_test.gd` (the electrical system: the
+model's own numbers - 2.16 MJ, the alternator's curve at its anchors, the ~13 % a catch
+needs worked out from the starter's line against the engine's friction, over the 10 %
+deep-discharge line; the suite starts on a full, healthy battery with the store off; the
+alternator charges at idle at the curve's 150 W net and at the limiter in neutral at its
+1350 W, nine times as fast, and a full battery stays at exactly 1; the key-on drain is
+30 W over a tick; a crank starts the engine in 11 ticks for ~170 J, thirty-odd times the
+drain over the same ticks, and the HUD's bar sags through it tick by tick, each tick the
+car's own charge; from 30 % the crank rpm is lower at the same tick and the catch comes
+after 27 ticks instead of 11, from 5 % the engine turns to ~320 rpm and never catches,
+empty nothing turns and the charge stays 0, and a battery half worn fills to half and
+cranks slower than a new one; the key-on drain taking a battery under the line costs 3 %
+once, 10 s down there 1 % an hour on top, back over and under again 3 % more, the
+capacity read follows the wear, full is 1 less the wear, and the wear stops at 90 %; the
+bar follows the charge at three levels with its colours, hides at 0 and for NaN, clamps at
+1, and leaves the fuel bar alone; the store gives both numbers back to the bit in the one
+entry beside the odometer, the fuel and the dashboard in the one write, a car, a file or
+an entry without them is full and healthy, 26 values that are no share of a battery are
+refused with the reason naming the car and the field, the number beside a bad one still
+loads, a car that loads 15 % with 25 % worn starts so with a red bar, one saved fuller
+than its wear leaves is trimmed, a reset is a new battery and the file is not told; and
+NaN, inf and -inf charge and wear read flat, full, flat and none).
 
 The smoke test's last phase is the telemetry recorder (below): it switches the recorder
 on in process, points it at `smoke.jsonl` in a tmp dir of the run's own
@@ -798,3 +849,24 @@ an error in the log and that one default; the rest still load. A reset (`R`) sti
 the gearbox back in automatic, as it always did, and leaves the switches and the view
 alone - it is the driver who has them. Nothing of this reaches the headless suite or the
 certified runs: the store is off there and every car starts on the defaults.
+
+The battery lives in the same entry too, under `battery`: how full (`charge`, 0..1 of
+what it held new) and how worn (`capacity_wear`, the share of that lost for good), read
+once when the car enters the scene, written with the rest in the same save:
+
+```json
+{"version": 1, "cars": {"boxster_986": {"odometer_m": 123.4, "fuel_l": 31.5,
+  "driver": {"tcs_on": true, "abs_on": true, "sc_on": true,
+    "gearbox_mode": "sport", "automatic": true, "camera_view": 1},
+  "battery": {"charge": 0.93, "capacity_wear": 0.0}}}}
+```
+
+A battery left flat is flat the next day, and its starter turns nothing until a reset;
+what a deep discharge took off its capacity stays taken. No entry is a new car, full and
+healthy; a number that is no share of a battery (not a number, not finite, under 0, over
+1) is an error in the log and that one default, the other still loads; a charge saved
+fuller than its wear leaves is trimmed to what the battery can hold. A reset (`R`, a test
+starting) is a fresh battery - full and healthy, as it fills the tank - and tells the
+file nothing: the next save on the 45 s cadence writes the battery as it then stands.
+The headless suite and the certified runs read nothing: every car there starts full and
+healthy.
