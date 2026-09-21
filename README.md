@@ -33,7 +33,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 
 Look left / right are on `,` and `.` (the `<` / `>` pair, under the right hand's reach from the arrows and next to `B`'s row): `Q` / `E` are the gearbox, `B` is look back. Hold to glance to that side, let go and the view comes back: the chase camera swings ~65 degrees round the car, in the cockpit and the bonnet view the head turns ~60 degrees; the overhead and wheel views have no side to look to. It is a glance, not a view of its own (`C` still cycles the same five), both keys at once look straight ahead, and look back wins over either.
 
-The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged), with two thin pedal bars beside it (green throttle, red brake: how far the driver's feet really have the pedals, see The driver below). Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual) and turns red near the redline. The gearbox starts in automatic and goes back to automatic when you reset the car.
+The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged), with two thin pedal bars beside it (green throttle, red brake: how far the driver's feet really have the pedals, see The driver below) and a thin fuel bar under them. Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual) and turns red near the redline. The gearbox starts in automatic and goes back to automatic when you reset the car.
 
 ### Driving feel
 
@@ -173,6 +173,41 @@ misses the goal), all measured in the comments by the constants. `chauffeur` is 
 car with feet several times slower. An AI driver later is one more caller of
 `set_driver_input` with a profile of its own.
 
+#### Fuel, mass, exhaust and creep
+
+The engine burns what its work costs: the combustion torque (the torque curve plus the
+engine's losses, times the throttle it really has, the idle controller's share included)
+times the engine speed is a power, and the fuel that takes is that power over an
+indicated efficiency of 0.30 and petrol's 44 MJ/kg: ~0.6 L/h idling, ~67 L/h flat out
+at the limiter, nothing on the overrun with the throttle shut. The tank holds the 986's
+64 L (`fuel_l`, `fuel_fraction()`), every reset fills it, and the thin bar lying under
+the pedal bars shows it: amber under 15 %, red under 8 %. With the tank dry nothing
+burns: the engine runs down and stays down until a reset.
+
+The car has one mass, `car.total_mass()`: `BASE_MASS` (the car with a dry tank, 1252 kg)
+plus the fuel in the tank (`fuel_mass`, 48 kg full) plus `payload_mass`, a plain variable
+for whatever the car carries. On a full tank with nothing loaded that is the 1300 kg
+(`KERB_MASS`) everything was tuned and certified with; it gets lighter as it burns.
+Every force, inertia and weight reads that one figure: drive, brakes, grip, weight
+transfer, yaw inertia. The springs and dampers alone stay those chosen for the 1300 kg
+car, so a loaded car rides a little softer, but level: the spring seats carry what the
+car weighs now. A handling test may carry `"payload_kg"` in its data; it is loaded at
+the start and gone with the next reset (none of the five certified tests carries any).
+
+The exhaust is data, no particles yet: `exhaust_events` counts the combustion events
+(the flat six fires three times a turn, none while the fuel is cut) and `exhaust_flow`
+(0..1) is how hard it blows, by throttle and revs, a tenth of a second behind the engine.
+
+Creep: in automatic, held on the brake at a standstill in 1st, the car pulls away gently
+when the brake is let go, 0.4 s after the foot is off: the clutch comes in by a sliver
+(the torque converter's stall push, as a plate clutch gives it), the idling engine
+carries it, and the push eases out with speed, so the crawl settles at ~1.5 km/h, under
+the standstill speed (the brake pressed anew still selects reverse). The pedals are
+never touched, the pedal bars stay empty. Throttle, brake, handbrake, reverse or manual
+mode end it, and it takes the brake let go at a standstill to start it again: a car
+that came to rest by itself (a reset, a coast-down, a mission's start point) stands
+until its driver does something. No creep in reverse or in manual mode.
+
 #### The living road
 
 The pad is not flat any more. One seeded height field (`scripts/road_profile.gd`, a
@@ -227,7 +262,13 @@ key is a partial press, a held one reaches exactly 1.0 and a lift decays to 0, t
 chauffeur's foot is measurably slower than the test driver's, `set_driver_input`
 launches the car with no key down exactly as the key does, holds half a pedal, clamps
 what is out of range and keeps the reverse rule, and the HUD's pedal bars follow the
-pedals and take 0..1), then the
+pedals and take 0..1; and fuel, mass, exhaust and creep: idling burns ~0.6 L/h and flat
+out some 70 times that, nothing burns on the overrun, a dry tank stops the engine and a
+reset fills it, the fuel bar reads the tank and changes colour, `total_mass()` has the
+fuel and the payload in it, 300 kg on board ride level and are slower over the same 5 s,
+a test's `payload_kg` is loaded at its start, the exhaust fires three times a turn and
+its flow follows the throttle, and the car creeps when the brake is let go at a
+standstill, stands on a held brake, untouched and in manual), then the
 handling tests below, then
 `tests/camera_test.gd` (cycles the camera through its five views and drives under each, holds the look-back,
 toggles the X-ray, holds look left / right from the chase view and the cockpit, turns the
