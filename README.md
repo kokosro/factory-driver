@@ -44,8 +44,13 @@ The brake always brakes: it slows the car to a stop whichever way it rolls and h
 ### Driving feel
 
 The car uses a custom arcade controller in plain GDScript (`scripts/car.gd`), not Godot's
-vehicle physics. Every handling parameter lives in the commented `DRIVING FEEL TUNING`
-block at the top of that file.
+vehicle physics. Every handling parameter is documented in the commented `DRIVING FEEL
+TUNING` block at the top of that file. The car's own numbers (mass, engine, gearbox,
+tyres, springs, the drivers' feet) are read from its config, `configs/cars/boxster_986.json`,
+as the first thing a car does, and checked before any of them is used; the values in
+`car.gd` are the certified fallback defaults, and everything derived from the numbers is
+computed there. The same `car.gd` with a different config is a different car: see
+`configs/README.md` for the schema and the split.
 
 #### Under the hood
 
@@ -387,7 +392,10 @@ starts a stopped engine: it puts a car there that is ready to drive.
 tests/run_tests.sh
 ```
 
-Runs a headless import, then `tests/smoke_test.gd`, which loads the main scene and
+Runs a headless import, then `tests/config_test.gd`: every car config under
+`configs/cars/` read the way the car reads it and put through the validation, in
+seconds, so a broken config fails the suite there and not 25 minutes in. Then
+`tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the
 RWD / FWD / AWD signatures, brake bias, downforce and the low-speed blend; and round
@@ -486,9 +494,15 @@ disk: the store is off in a headless run, the car began the run at 0 whatever
 `user://cars.json` holds and its metres never get there (the store itself is tried on a
 file next to the telemetry phase's).
 
+And the car's config, ahead of the mass checks: the file passes its validation, the car
+that read it runs the certified torque curve to the bit, a config without any of its
+optional keys is still a car, and a required key left out or a torque anchor that is NaN
+is refused by name - by the validation's functions alone, never read into the running
+car.
+
 ### Handling tests
 
-The third step of `tests/run_tests.sh` runs `tests/handling_test.gd`: a scripted driver
+The fourth step of `tests/run_tests.sh` runs `tests/handling_test.gd`: a scripted driver
 takes the real car through five tests on the pad, one after the other from a fresh
 start, and prints `PASS name` / `FAIL name` plus a metrics line for each. If a test
 cannot be passed, either the driver or the car is not set up properly.
