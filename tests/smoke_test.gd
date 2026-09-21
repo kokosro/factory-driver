@@ -2,7 +2,7 @@ extends SceneTree
 ## Headless smoke test for the main scene. Run via tests/run_tests.sh, or:
 ##
 ##   godot --headless --path . --import
-##   godot --headless --path . --script res://tests/smoke_test.gd
+##   godot --headless --fixed-fps 60 --path . --script res://tests/smoke_test.gd
 ##
 ## Loads the main scene, checks the key nodes exist, then drives the car with
 ## simulated input and checks it accelerates, steers, brakes, holds, reverses,
@@ -864,6 +864,9 @@ func _run() -> void:
 	_check(car.global_position.z < -7.0, "travels along -Z (z = %.1f)" % car.global_position.z)
 	_check(absf(car.global_position.x) < 0.01, "tracks straight without steering (x = %.3f)" % car.global_position.x)
 	_check(speed_label.text == "%d km/h" % roundi(car.speed_kmh), "HUD shows current speed ('%s')" % speed_label.text)
+	# was: reads 7.6 m -> 7.7 m, the bounds as they were. The chase camera smooths
+	# per drawn frame: under --fixed-fps that is one frame a tick, like in
+	# camera_test.gd, not as many as the wall clock had room for.
 	var camera_gap := camera.global_position.distance_to(car.global_position)
 	_check(camera_gap > 3.0 and camera_gap < 15.0, "camera follows the car (%.1f m away)" % camera_gap)
 

@@ -395,7 +395,7 @@ tests/run_tests.sh
 
 Runs a headless import, then `tests/config_test.gd`: every car config under
 `configs/cars/` read the way the car reads it and put through the validation, in
-seconds, so a broken config fails the suite there and not 25 minutes in. Then
+seconds, so a broken config fails the suite there and not somewhere in the smoke test. Then
 `tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the
