@@ -23,7 +23,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Handbrake (hold mid-corner to slide)    | `Space`         |
 | Shift down / up (switches to manual; under neutral: reverse) | `Q` / `E` |
 | Toggle automatic / manual gearbox       | `M`             |
-| Automatic: comfort / sport shift program | `N`            |
+| Automatic: sport / comfort / eco program (and its driver) | `N` |
 | Traction control on / off               | `T`             |
 | ABS on / off                            | `G`             |
 | Stability control on / off              | `K`             |
@@ -39,7 +39,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 
 Look left / right are on `,` and `.` (the `<` / `>` pair, under the right hand's reach from the arrows and next to `B`'s row): `Q` / `E` are the gearbox, `B` is look back. Hold to glance to that side, let go and the view comes back: the chase camera swings ~65 degrees round the car, in the cockpit and the bonnet view the head turns ~60 degrees; the overhead and wheel views have no side to look to. It is a glance, not a view of its own (`C` still cycles the same five), both keys at once look straight ahead, and look back wins over either.
 
-The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged), with two thin pedal bars beside it (green throttle, red brake: how far the driver's feet really have the pedals, see The driver below) and a thin fuel bar under them. Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual, `comfort` on the automatic's comfort program and `STALL` once the engine has stopped) and turns red near the redline; over it sit the two driver aids' lamps, `TCS` and `ABS`, dim unless an aid is switched off (see The driver's controls below). The gearbox starts in automatic and goes back to automatic when you reset the car.
+The brake always brakes: it slows the car to a stop whichever way it rolls and holds it there, and never turns into reverse by itself. Reverse engages only on a fresh press of `Down` / `S` while the car is stopped; in reverse, `Down` / `S` is the throttle and `Up` / `W` the brake, and a fresh press of `Up` / `W` while stopped (or once the car rolls nose-first, as out of a J-turn) engages forward again. Holding `Up` / `W` through the stop also engages forward after a moment and drives away in one motion (the J-turn exit); reverse still needs a fresh press. The handbrake loosens the rear tyres, so steering while holding it swings the tail out. The HUD shows speed in km/h (prefixed with `R` while reverse is engaged), with two thin pedal bars beside it (green throttle, red brake: how far the driver's feet really have the pedals, see The driver below) and a thin fuel bar under them. Above it, the tach line shows engine RPM and the gear (e.g. `3000 rpm | G4`, with `M` in manual, `comfort` or `eco` on the automatic's comfort and eco programs and `STALL` once the engine has stopped) and turns red near the redline; over it sit the two driver aids' lamps, `TCS` and `ABS`, dim unless an aid is switched off (see The driver's controls below). The gearbox starts in automatic and goes back to automatic when you reset the car.
 
 ### Driving feel
 
@@ -188,8 +188,20 @@ puts another driver in the seat, missing keys are the test driver's. The default
 allow: throttle down in 0.1 s, brake in 0.05 s, off the throttle in two ticks (the
 J-turn's lift has to open the clutch, a lazier one locks it and the scripted driver
 misses the goal), all measured in the comments by the constants. `chauffeur` is the same
-car with feet several times slower. An AI driver later is one more caller of
-`set_driver_input` with a profile of its own.
+car with feet several times slower. `comfort_driver` and `eco_driver` are who the `N`
+key seats together with those two shift programs (see The driver's controls), and
+`test_driver` with sport: nobody is racing in comfort or eco, and on keys that are on /
+off the feet decide how much of a pedal a tap is. The test driver's 6-tick tap is the
+floor, so the only throttle between none and all is a flutter of taps the revs cannot
+settle under; the comfort driver's is 0.45 of the pedal (throttle 4.5 / s down and up,
+brake 5 / s), the eco driver's 0.35 (3.5 / s, brake 4.5 / s), and because the pedal comes
+up at the pace it goes down, an even beat of taps holds it where it is - around a
+quarter from nothing, around a half after one longer press - a longer press takes it
+further down, a longer gap lets it up. Held, the key still gets to the floor, in 0.22
+and 0.29 s. Only the key seats them: `gearbox_mode` set from code and a reset leave
+whoever is in the seat, and a driver seated by hand (`set_driver_profile`) stays until
+the next press of `N`. An AI driver later is one more caller of `set_driver_input` with
+a profile of its own.
 
 #### Fuel, mass, exhaust and creep
 
@@ -300,10 +312,40 @@ state: a reset puts the car back and leaves them as the driver has them.
   come back into line for 1. The low-speed blend is not part of it and has no switch: it
   is numerics, what keeps the tyre model meaningful near a standstill, not a driver aid.
 
-The automatic has two shift programs, `N` switches between them: **sport** (up at
-6800 rpm, down under 2800; what the car starts in, and what it was certified with) and
-**comfort** (up at the torque peak, 4500 rpm, down under 2000, no kickdown; the tach
-line says `comfort`). Manual mode knows neither. In manual the shift keys now reach
+The automatic has three shift programs, `N` goes round them (sport, comfort, eco, sport)
+and seats each program's driver with it (see The driver): **sport** (up at 6800 rpm,
+down under 2800; what the car starts in, and what it was certified with, untouched),
+**comfort** (up at 2800 rpm, down under 1600, no kickdown; the tach line says `comfort`)
+and **eco** (up at 2000 rpm, down under 1300, and the engine given no more than 0.7 of
+its throttle however far down the pedal is; the tach line says `eco`). Manual mode knows
+none of them.
+
+Every engine has its own sweet spots for every program, so none of those figures is
+picked by hand: `ArcadeCar.derived_shift_points(mode)` reads them off `TORQUE_CURVE` and
+the engine's friction, the constants the box shifts by are its results rounded to the
+100 rpm, and the smoke test holds the two within 50 rpm of each other - a car with
+another curve re-runs the helper. Sport changes up where the full-throttle power has
+fallen to 95 % of its peak past the peak (6791 rpm here) and down under the lowest speed
+at which the engine makes 90 % of its peak torque (2820 rpm): it lives in the fat of the
+curve. Comfort changes up at that same 2820 rpm, where sport would change down - the two
+share no revs at all - and down under 75 % of the peak torque (1594 rpm). It was the
+torque peak, 4500 rpm, which from the driving seat was "still sporty". Eco changes up at
+the highest speed at which the engine still turns fuel into work within 1 % of its best:
+the brake efficiency at full throttle, torque / (torque + friction), is 0.894 at
+1000 rpm, 0.885 at 2000, 0.872 at 3000, 0.849 at 4500 - best at the bottom and worse with
+every rpm of friction, within 1 % up to 2002 rpm - and down under 70 % of the peak torque
+(1288 rpm). A lower gear is only taken if it lands a margin under the program's upshift
+speed, the same share of it in every program (sport's certified 1000 of 6800 rpm: 400
+for comfort, 300 for eco), which is also what keeps comfort and eco from taking back an
+upshift into 2nd that lands under their downshift speed. The launch holds the revs no
+higher than the program shifts up at (flat out, comfort changed out of 1st with 3950 rpm
+on the tach off the launch's 4000 rpm slipping clutch, whatever its shift point), and
+the car's own clutch never lets a locked engine under idle, so eco's 1150 rpm into 2nd
+is a pull and not a stall. Eco's throttle ceiling was measured both ways, 400 m from
+rest with the key held: 0.082 L in 25.9 s with it, 0.119 L in 21.7 s without. Over 300 m
+at half a pedal eco burns about 40 % of what sport does.
+
+In manual the shift keys now reach
 reverse as well: it is the position under neutral, so `Q` from 1st is neutral as it
 always was and `Q` again is reverse (refused while the car rolls forwards, or backwards
 fast enough to over-rev the engine through the reverse gear); `E` out of reverse is
@@ -375,8 +417,18 @@ and does not steer, the clutch pedal held keeps a car at the limiter standing an
 is a dump, does nothing in automatic, and let go on an idling engine stalls it, a
 stalled engine burns and fires nothing and its car does not creep, the starter catches
 it, never on a dry tank, and a reset starts it, reverse sits under neutral on the shift
-keys and is refused rolling forwards, comfort leaves 1st at 4500 rpm where sport holds
-it to 6800, and the telemetry's throttle and brake read the pedals; and the handbrake let go: the
+keys and is refused rolling forwards, comfort leaves 1st at 2800 rpm where sport holds
+it to 6800 and eco at 2000, sport to the digit what it was before there were three
+programs, each program's constants within 50 rpm of what `derived_shift_points` makes of
+the engine, the `N` key goes round sport, comfort and eco, names comfort and eco on the
+tach and seats each program's driver, who stays through a reset as eco does, while a
+driver seated by hand stays through a reset and a program set from code until the next
+press, a 6-tick tap is the floor for the test driver and under half the pedal for the
+comfort and eco drivers, eco gives the engine 0.7 with the pedal on the floor or out of
+range and nothing for NaN while comfort, sport and manual mode get all of it, 300 m at
+half a pedal burn well under 0.6 of sport's fuel on eco with the engine running
+throughout, eco's drive cycle up and down the box never changes down within 2 s of a
+change up and never brings the engine under idle, and the telemetry's throttle and brake read the pedals; and the handbrake let go: the
 lever reads out on the release tick with its hold still on the rear wheels, the gas
 after a tap pulls them past the road within 14 ticks while nothing asked for leaves them
 locked and the clutch open with the engine idling on, the clutch pedal dumped with the
