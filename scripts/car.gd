@@ -2572,16 +2572,32 @@ const WHEEL_DRAW_PERIOD := PI
 # 0.0030 in pitch, the old figures as it happens, but with the bounce, the
 # overshoot and the road in them.
 
-## Furthest a wheel is drawn from its static place under the body [m]: the
-## suspension's travel plus the 2 cm of bump stop it takes to lift a wheel off
-## the road. Inside that the wheel is drawn ON the road, whatever the body does
-## above it; past it (droop) it hangs from the body, visibly in the air.
+## Furthest a wheel gets from its static place under the body, either way [m]:
+## the suspension's travel plus the 2 cm of stop it takes to lift a wheel off
+## the road - the mechanical end of the travel, and the wheel's reach. On the
+## road (the road no further below the wheel's seat than this) the wheel is
+## drawn ON the road, whatever the body does above it. Further than that the
+## road is out of the wheel's reach: the wheel has no support (wheel_supported,
+## _corner_forces: load exactly 0, nothing of it in the pushing), it hangs at
+## full droop, here, and is drawn here - never past it, never on the road.
+## (The name is the drawing's, the older use; configs/README.md lists it among
+## the derived constants.)
 # was 0.04, a clamp on how far the wheel was drawn off a body that did not move
 # -> 0.09 = SUSPENSION_TRAVEL + 0.02: the travel is real now and the clamp is
 # its mechanical end.
+# was the drawing's clamp alone, a wheel in the air still in the wheel loads
+# (see _corner_forces) -> the reach of the wheel, physics and drawing alike
+# (the user's catch on the ramp jump, 2026-09-22: "the jump started fine, but
+# then the wheels and body fell apart... somehow the joints stretched").
 # was a const -> derived, never read: worked out again from the config's
 # numbers when a car reads them (_derive_from_config, the same sum as here).
 static var MAX_WHEEL_VISUAL_TRAVEL := SUSPENSION_TRAVEL + 0.02
+
+## Under this much on every wheel the car is in the air [N]: a wheel out of
+## reach of the road carries exactly 0, a wheel touching it with nothing on it
+## as good as. A standing car carries thousands of newtons a wheel; the floor
+## only tells a grazed road from a carried one.
+const AIRBORNE_LOAD_FLOOR := 1.0
 
 ## Engine speed from which the HUD tach turns to its warning colour [rpm].
 const SHIFT_LIGHT_RPM := 6500.0
@@ -2914,8 +2930,24 @@ var wheel_loads: Array[float] = [0.0, 0.0, 0.0, 0.0]
 
 ## How far each wheel is pushed up into the body from where it sits at rest
 ## [m], the order of wheel_loads: positive = bump (spring compressed), negative
-## = droop. The stops start at +/- SUSPENSION_TRAVEL.
+## = droop. The stops start at +/- SUSPENSION_TRAVEL; a wheel the road is out
+## of reach of hangs at -MAX_WHEEL_VISUAL_TRAVEL, full droop.
 var wheel_travel: Array[float] = [0.0, 0.0, 0.0, 0.0]
+
+## Whether each wheel has the road within its reach (the order of wheel_loads):
+## false = the road is further below the wheel's seat than the suspension
+## extends (MAX_WHEEL_VISUAL_TRAVEL), the wheel hangs in the air at full droop
+## with load 0 (see _corner_forces). Read-only: set by the tick, and by
+## reset_to (all four on the road).
+var wheel_supported: Array[bool] = [true, true, true, true]
+
+## Whether the car is in the air: no wheel carries more than
+## AIRBORNE_LOAD_FLOOR. Ballistic then - gravity, the air's drag and downforce
+## and nothing else: no drive, no tyre force, no rolling resistance, no hill
+## (see the tick). And how many physics ticks in a row it has been, 0 on the
+## ground (the touchdown tick counts as ground). Read-only, the tick's.
+var is_airborne := false
+var airborne_frames := 0
 
 ## Pitch of the body on its springs [rad], positive = nose up, and its rate
 ## [rad/s]. A small angle about the centre of mass; on a slope it includes the
@@ -3800,7 +3832,13 @@ func _physics_process(delta: float) -> void:
 	# brake torque are exactly this tick's for as long as the tyres stay in
 	# their window and the brakes under their line (see Thermal: tyres and
 	# brakes).
-	var rolling_w := COAST_DECEL * total_mass() * absf(forward_speed)
+	# Rolling resistance is the road's: none while the road carries nothing
+	# (the four wheel loads, `carried`: 0 in the air). The same product, the
+	# same number, with a wheel on the road.
+	# was COAST_DECEL x the mass, on the road or off it -> nothing in the air
+	# (the user's catch on the ramp jump, 2026-09-22; see _corner_forces).
+	var rolling_drag := COAST_DECEL * total_mass() if carried > 0.0 else 0.0
+	var rolling_w := rolling_drag * absf(forward_speed)
 	var front_slip_w := absf(front_drive * (front_omega * WHEEL_RADIUS - front_along)) + absf(front_force * front_across)
 	var rear_slip_w := absf(rear_drive * (rear_omega * WHEEL_RADIUS - forward_speed)) + absf(rear_force * rear_lateral)
 	_advance_tyres(rolling_w * front_load_fraction + TYRE_SLIP_HEAT_SHARE * front_slip_w, rolling_w * rear_load_fraction + TYRE_SLIP_HEAT_SHARE * rear_slip_w, absf(forward_speed), delta)
@@ -3818,7 +3856,6 @@ func _physics_process(delta: float) -> void:
 	var front_forward := front_drive * cos(wheel_angle) + front_force * sin(wheel_angle)
 	var front_right := front_force * cos(wheel_angle) - front_drive * sin(wheel_angle)
 	var air_drag := 0.5 * AIR_DENSITY * DRAG_COEFF * FRONTAL_AREA * forward_speed * forward_speed
-	var rolling_drag := COAST_DECEL * total_mass()
 	var right_force := front_right + rear_force
 	var yaw_moment := rear_force * rear_arm - front_right * front_arm
 	# Forces that push the car along, and forces that only ever slow it down
@@ -3838,8 +3875,13 @@ func _physics_process(delta: float) -> void:
 	# pushes the car down it, m g x rise per metre, along the car and across
 	# it, at the centre of mass (no moment). A push, not a slowing: it moves a
 	# car that is standing. Off the ramp the gradient is exactly zero and
-	# nothing is added (see the road notes at the top).
-	var grade := _ramp_gradient()
+	# nothing is added (see the road notes at the top). It is the road's push
+	# along its slope: in the air, with no wheel on the road, there is none
+	# and gravity pulls straight down (_advance_body) - the car flies
+	# ballistic over the ramp's tail, it does not roll down it.
+	# was the pull wherever the gradient was, wheels on the road or not (the
+	# user's catch on the ramp jump, 2026-09-22; see _corner_forces).
+	var grade := _ramp_gradient() if carried > 0.0 else Vector2.ZERO
 	if grade != Vector2.ZERO:
 		var pull := -total_mass() * _gravity
 		pushing += pull * (grade.x * forward_dir.x + grade.y * forward_dir.z)
@@ -4312,7 +4354,10 @@ func _settle_suspension(height := _stand_height) -> void:
 		_tyre_height_rates[i] = 0.0
 		_corner_trim[i] = heights[i] - _corner_height(i) + height
 		wheel_travel[i] = -height
+		wheel_supported[i] = true
 		wheel_loads[i] = weight * ((1.0 - REAR_WEIGHT_FRACTION) if i < 2 else REAR_WEIGHT_FRACTION) * 0.5
+	is_airborne = false
+	airborne_frames = 0
 	front_axle_load = wheel_loads[0] + wheel_loads[1]
 	rear_axle_load = wheel_loads[2] + wheel_loads[3]
 	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
@@ -4350,28 +4395,47 @@ func _corner_height(i: int) -> float:
 	return global_position.y + body_pitch * WHEEL_ARMS_AHEAD[i] + body_roll * WHEEL_ARMS_RIGHT[i]
 
 
-## One tick of the four corners: works out wheel_travel and wheel_loads from
-## where the body is on its springs now. Per corner, with the travel x [m] the
-## wheel is pushed up into the body from its static place (the road's height as
-## the tyre passes it on, less the corner's height) and its rate v [m/s] (how
-## fast the road comes up under the moving wheel, less how fast the corner of
-## the body moves: heave, pitch and roll rates):
+## One tick of the four corners: works out wheel_supported, wheel_travel and
+## wheel_loads from where the body is on its springs now. Per corner, with the
+## travel x [m] the wheel is pushed up into the body from its static place (the
+## road's height as the tyre passes it on, less the corner's height) and its
+## rate v [m/s] (how fast the road comes up under the moving wheel, less how
+## fast the corner of the body moves: heave, pitch and roll rates):
 ##   load = static share + spring rate * x + damper rate * v
 ##          + anti-roll rate * (x - x of the wheel across) + bump stop(x)
 ## never below 0: a tyre pushes on the road, it cannot pull on it. Past the
-## droop stop the wheel hangs in the air. `vertical_speed` is the body's.
+## droop stop the wheel hangs in the air: a wheel whose road (as it lies, not
+## as the tyre passes it on: reach is where the road is) is further below its
+## seat than the suspension extends (MAX_WHEEL_VISUAL_TRAVEL) has no support -
+## it hangs at full droop, its load is exactly 0 and nothing of it is in the
+## pushing, not its static share, its spring, its damper or its bar. With no
+## wheel carrying more than AIRBORNE_LOAD_FLOOR the car is in the air
+## (is_airborne, airborne_frames). `vertical_speed` is the body's.
+# was every wheel in the sum whatever the road did under it: a wheel a metre
+# above the road kept its static share, its spring and its damper in the load,
+# and a body falling towards the road felt the damper of a wheel that was not
+# on it (the user's catch on the ramp jump, 2026-09-22: "the wheels and body
+# fell apart... somehow the joints stretched") -> a wheel out of reach of the
+# road is out of the sum. The same number to the bit for a wheel in reach.
 func _corner_forces(vertical_speed: float, delta: float) -> void:
 	var envelope := 1.0 - exp(-TYRE_ENVELOPE_RATE * delta)
 	for i in wheel_loads.size():
+		var road := _road_height_under_wheel(i)
+		var corner := _corner_height(i)
 		var tyre_before := _tyre_heights[i]
-		_tyre_heights[i] = lerpf(tyre_before, _road_height_under_wheel(i), envelope)
+		_tyre_heights[i] = lerpf(tyre_before, road, envelope)
 		_tyre_height_rates[i] = (_tyre_heights[i] - tyre_before) / delta
-		wheel_travel[i] = _tyre_heights[i] - _corner_height(i) - _corner_trim[i]
+		wheel_supported[i] = road - corner - _corner_trim[i] >= -MAX_WHEEL_VISUAL_TRAVEL
+		wheel_travel[i] = (_tyre_heights[i] - corner - _corner_trim[i]) if wheel_supported[i] else -MAX_WHEEL_VISUAL_TRAVEL
 	# The static share is that of the car as it weighs now, fuel and payload in:
 	# the spring seats carry the load, the rates stay those of the car on its
 	# kerb weight (see FRONT / REAR_CORNER_MASS).
 	var weight := total_mass() * _gravity
+	var airborne := true
 	for i in wheel_loads.size():
+		if not wheel_supported[i]:
+			wheel_loads[i] = 0.0
+			continue
 		var front := i < 2
 		var spring_rate := FRONT_SPRING_RATE if front else REAR_SPRING_RATE
 		var corner_speed := vertical_speed + pitch_rate * WHEEL_ARMS_AHEAD[i] + roll_rate * WHEEL_ARMS_RIGHT[i]
@@ -4386,6 +4450,10 @@ func _corner_forces(vertical_speed: float, delta: float) -> void:
 				+ (FRONT_ANTI_ROLL_RATE if front else REAR_ANTI_ROLL_RATE) * (travel - across) \
 				+ stop
 		wheel_loads[i] = maxf(pushing, 0.0)
+		if wheel_loads[i] > AIRBORNE_LOAD_FLOOR:
+			airborne = false
+	is_airborne = airborne
+	airborne_frames = airborne_frames + 1 if airborne else 0
 
 
 ## One tick of the body on its springs; returns its new vertical speed [m/s]
