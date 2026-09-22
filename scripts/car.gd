@@ -2110,7 +2110,14 @@ static var SUSPENSION_TRAVEL := 0.07
 ## the body's collision box meets the floor, GROUND_CLEARANCE) the corner's
 ## stiffness is 19 spring rates, w x delta = 0.78 at 60 ticks a second, where
 ## semi-implicit Euler holds to 2; on the springs alone it is 0.16 / 0.18, in
-## roll with the bars 0.25.
+## roll with the bars 0.25. And that is as deep as the rubber goes: a wheel
+## pushed further up than GROUND_CLEARANCE into a body that is not level (its
+## shell is on the road there, SHELL_RATE) has its spring, bar and stop
+## counted at GROUND_CLEARANCE, the stop crushed solid, the shell carrying
+## the rest - the stiffness stays 19 spring rates, the force bounded (~35
+## kN a rear wheel plus its damper), whatever the tumble.
+# was the stop's progression open-ended: 266 kN on one wheel 17 cm past the
+# travel (the user's 20:35 retest) -> counted to GROUND_CLEARANCE.
 # was a const -> read from the car's config (suspension.bump_stop_rate,
 # optional); the certified value here is the fallback default a config without
 # it gets.
@@ -2139,6 +2146,79 @@ const ROLL_INERTIA := 600.0
 # was a const -> read from the car's config (suspension.ground_clearance,
 # required); the certified value stays here as the fallback default.
 static var GROUND_CLEARANCE := 0.12
+
+## The body's shell: the collision box of car.tscn (SHELL_HALF_SIZE about a
+## centre SHELL_CENTRE_HEIGHT over the origin - must match the CollisionShape3D
+## there) taken as its eight corners, each carried round the centre of mass by
+## the body's pitch and roll and each meeting the road under itself. A corner
+## the road has pushed into is a stiff damped stop:
+##   force = SHELL_RATE x depth - SHELL_DAMPING x the corner's rate of rise
+## never below 0 (it pushes, it does not pull), applied at the corner: heave,
+## pitch and roll all get it (_advance_body), and while it carries, sliding on
+## it costs SHELL_FRICTION x that force against the way the car moves, at the
+## corner too (a car sliding on a sill turns). That is what a car comes down on
+## when its wheels are not under it: a tail- or nose-first landing off a big
+## jump, a roll onto a sill or the roof - the shell catches it, gravity's
+## moment about the corner it stands on topples it, wheels-down or on to the
+## roof as the numbers fall, and it slides out on the shell (see _shell_forces
+## and is_overturned). With the wheels under the car the shell never touches:
+## at rest the bottom corners are GROUND_CLEARANCE over the road and they stay
+## clear through every certified run and the reference jump's landings (the
+## airborne test measures the nearest they come); the level ground plane the
+## collision box meets 5 cm into all four stops is the same backstop for a
+## level body and is as it was.
+## Rates [N/m, N s/m] per corner: honest for what they are, a shell that
+## yields like a spring and comes back out (a 10 m/s corner-first landing
+## goes ~0.2 m in, the damping eating half of it; the airborne test measures
+## it). Stability (semi-implicit Euler, see the bump stops): with the four
+## corners of a face down, in pitch k dt^2 / I = 0.47 and c dt / I = 0.84
+## against bounds of 4 - 2 c dt / I and 2; in roll 0.30 and 0.54; in heave
+## 0.17 and 0.31.
+# was nothing: the body had no shell. The collision box met a level plane
+# under the car's centre, and the wheels' seats followed the small-angle
+# formula wherever the body pointed - a rear seat 1.2 m under a body that
+# came down tail-first at 10 m/s off the ramp's flank, 266 kN on one wheel,
+# the car flung into a tumbling second and third flight and pulled flat on
+# all four by its springs (the user's 20:35 retest: "every jump ends up on all
+# 4 wheels, like a cat... now there is definitely a bug in the physics
+# simulation").
+const SHELL_HALF_SIZE := Vector3(0.9, 0.54, 2.1)
+const SHELL_CENTRE_HEIGHT := 0.66
+const SHELL_RATE := 200000.0
+const SHELL_DAMPING := 6000.0
+const SHELL_FRICTION := 0.5
+
+## Where the body's geometry leaves the small angles [rad]. Under
+## ATTITUDE_BLEND_START the seats' heights, their rates and their lever arms
+## are the first-order formulas the car was certified on (pitch x arm + roll x
+## half track: within 2.4 mm at 0.1 rad, the centre of mass CG_HEIGHT over the
+## seats being the largest of what they leave out); from ATTITUDE_BLEND_END on
+## they are the rigid body's own, the seat carried round the centre of mass by
+## the body's basis (_body_offset); between the two the difference is blended
+## in (smoothstep, exactly 0 under the start). Every certified run stays under
+## 0.06 rad: the same arithmetic to the bit. A tumble is what the exact
+## geometry is for. The road under a seat is looked up where the wheel stands
+## with the body level, at every angle: carried round, a seat moves a few cm
+## across the road, at angles where the shell is what touches it.
+# (the user's 20:35 retest; see the shell above)
+const ATTITUDE_BLEND_START := 0.1
+const ATTITUDE_BLEND_END := 0.3
+
+## Overturned: the body's up is under OVERTURN_COS of the world's (cos(pitch)
+## x cos(roll)), 60 degrees over - the car's own tipping angle in roll,
+## atan(HALF_TRACK / CG_HEIGHT) = 60.8 degrees, past which its weight is
+## outside its wheels and it goes on over - while it rests on its shell
+## (shell_load > 0: not mid-tumble in the air).
+const OVERTURN_COS := 0.5
+
+## A tyre carries in full leaned up to 50 degrees (cos 50 = 0.6428) and
+## nothing past OVERTURN_COS (60 degrees): between the two it is going over
+## on to its sidewall, its load faded out (smoothstep) and its grip with it.
+## Past that it is the shell that carries - a car on its side or its roof
+## has no wheel on the road, drives nowhere and is is_airborne to the drive,
+## the grip and the steering. Exactly 1 under 50 degrees: the load as it is.
+# (the user's 20:35 retest; see the shell)
+const WHEEL_LEAN_FULL_COS := 0.6428
 
 ## How quickly the tyre lets the road through to the suspension [1/s], ~6 Hz:
 ## carcass and contact patch swallow what is shorter than themselves, and at
@@ -3033,9 +3113,10 @@ var wheel_travel: Array[float] = [0.0, 0.0, 0.0, 0.0]
 
 ## Whether each wheel has the road within its reach (the order of wheel_loads):
 ## false = the road is further below the wheel's seat than the suspension
-## extends (MAX_WHEEL_VISUAL_TRAVEL), the wheel hangs in the air at full droop
-## with load 0 (see _corner_forces). Read-only: set by the tick, and by
-## reset_to (all four on the road).
+## extends (MAX_WHEEL_VISUAL_TRAVEL), or the body is over on its side or roof
+## past OVERTURN_COS (the user's 20:35 retest): the wheel hangs in the air at
+## full droop with load 0 (see _corner_forces). Read-only: set by the tick,
+## and by reset_to (all four on the road).
 var wheel_supported: Array[bool] = [true, true, true, true]
 
 ## Whether the car is in the air: no wheel carries more than
@@ -3045,6 +3126,21 @@ var wheel_supported: Array[bool] = [true, true, true, true]
 ## ground (the touchdown tick counts as ground). Read-only, the tick's.
 var is_airborne := false
 var airborne_frames := 0
+
+## What the body's shell carries this tick [N], its eight corners' pushes
+## summed (see SHELL_RATE): exactly 0 with every corner clear of the road,
+## which is every tick the wheels are under the car. Read-only, the tick's.
+var shell_load := 0.0
+## Each corner's push [N] and where it pushes: the corner's offset from the
+## centre of mass in the car's frame, carried round by pitch and roll [m].
+var _shell_loads: Array[float] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+var _shell_offsets: Array[Vector3] = [Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO, Vector3.ZERO]
+## What sliding on the shell does to the body this tick: the moment about
+## the car's x (pitch), y (yaw) and z (roll) [N m], and the pull across the
+## car [N, only ever slowing] - the friction at each carrying corner (see
+## SHELL_FRICTION), worked out in the tick before the integration.
+var _shell_friction_moment := Vector3.ZERO
+var _shell_lateral_slowing := 0.0
 
 ## Pitch of the body on its springs [rad], positive = nose up, and its rate
 ## [rad/s]. A small angle about the centre of mass; on a slope it includes the
@@ -3267,7 +3363,6 @@ var _gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 var _spawn_transform: Transform3D
 
 @onready var _body: Node3D = $Body
-@onready var _front_wheels: Array[Node3D] = [$Wheels/FrontLeft, $Wheels/FrontRight]
 @onready var _wheels: Array[Node3D] = [$Wheels/FrontLeft, $Wheels/FrontRight, $Wheels/RearLeft, $Wheels/RearRight]
 @onready var _wheel_rest_height: float = _wheels[0].position.y
 @onready var _body_rest_height: float = _body.position.y
@@ -4015,6 +4110,31 @@ func _physics_process(delta: float) -> void:
 		var pull := -total_mass() * _gravity
 		pushing += pull * (grade.x * forward_dir.x + grade.y * forward_dir.z)
 		right_force += pull * (grade.x * right_dir.x + grade.y * right_dir.z)
+	# The shell: a car on it slides, and sliding costs SHELL_FRICTION x what
+	# the shell carries against the way it moves - along the car a slowing
+	# (never a push back), across it the same, and at each carrying corner a
+	# moment about the centre of mass (the corner is under or beside it, and
+	# a corner dragged behind the car turns it). Never more than what brings
+	# the sliding to rest this tick: static friction holds, it does not
+	# push, and a car at rest on its side is not rocked by a moment that
+	# changes sign with every last mm/s of drift. Exactly nothing with the
+	# shell clear of the road, which is every certified tick.
+	# was nothing (the user's 20:35 retest; see SHELL_RATE).
+	_shell_friction_moment = Vector3.ZERO
+	_shell_lateral_slowing = 0.0
+	if shell_load > 0.0 and ground_speed > 0.0:
+		var slide_x := cg_lateral_speed / ground_speed
+		var slide_z := -forward_speed / ground_speed
+		var friction := minf(SHELL_FRICTION * shell_load, total_mass() * ground_speed / delta)
+		slowing += friction * absf(forward_speed) / ground_speed
+		_shell_lateral_slowing = friction * absf(cg_lateral_speed) / ground_speed
+		for j in _shell_loads.size():
+			if _shell_loads[j] <= 0.0:
+				continue
+			var drag_x := -friction * _shell_loads[j] / shell_load * slide_x
+			var drag_z := -friction * _shell_loads[j] / shell_load * slide_z
+			var at := _shell_offsets[j]
+			_shell_friction_moment += Vector3(at.y * drag_z, at.z * drag_x - at.x * drag_z, -at.y * drag_x)
 	var speed_before := forward_speed
 	forward_speed += pushing / total_mass() * delta
 	forward_speed = move_toward(forward_speed, 0.0, slowing / total_mass() * delta)
@@ -4045,6 +4165,9 @@ func _physics_process(delta: float) -> void:
 	#    the yaw rate. Nothing else turns the car or bends its path.
 	cg_lateral_speed += right_force / total_mass() * delta
 	yaw_rate += (yaw_moment / yaw_inertia + assist) * delta
+	if shell_load > 0.0:
+		cg_lateral_speed = move_toward(cg_lateral_speed, 0.0, _shell_lateral_slowing / total_mass() * delta)
+		yaw_rate += _shell_friction_moment.y / yaw_inertia * delta
 
 	# 9. Low-speed blend (see LOW_SPEED_BLEND_END): ease the car onto the circle
 	#    its front wheels roll round, where the forces lose their meaning.
@@ -4495,6 +4618,9 @@ func _settle_suspension(height := _stand_height) -> void:
 		wheel_loads[i] = weight * ((1.0 - REAR_WEIGHT_FRACTION) if i < 2 else REAR_WEIGHT_FRACTION) * 0.5
 	is_airborne = false
 	airborne_frames = 0
+	shell_load = 0.0
+	for j in _shell_loads.size():
+		_shell_loads[j] = 0.0
 	front_axle_load = wheel_loads[0] + wheel_loads[1]
 	rear_axle_load = wheel_loads[2] + wheel_loads[3]
 	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
@@ -4529,7 +4655,111 @@ func _road_height_under_wheel(i: int) -> float:
 ## compression: the car's height (its centre of mass's) plus what pitch and
 ## roll do at that corner, small angles.
 func _corner_height(i: int) -> float:
-	return global_position.y + body_pitch * WHEEL_ARMS_AHEAD[i] + body_roll * WHEEL_ARMS_RIGHT[i]
+	var linear := global_position.y + body_pitch * WHEEL_ARMS_AHEAD[i] + body_roll * WHEEL_ARMS_RIGHT[i]
+	var blend := _attitude_blend()
+	if blend == 0.0:
+		return linear
+	return lerpf(linear, global_position.y + CG_HEIGHT + _body_offset(_seat_offset(i)).y, blend)
+
+
+## How fast the corner of the body over wheel `i` rises [m/s]: the body's
+## `vertical_speed` plus what its pitch and roll rates do at that corner, the
+## small angles' first-order sum under ATTITUDE_BLEND_START (to the bit, the
+## same expression as ever), the rigid body's own past ATTITUDE_BLEND_END.
+# was the first-order sum inline in _corner_forces (the user's 20:35 retest).
+func _corner_rate(i: int, vertical_speed: float) -> float:
+	var linear := vertical_speed + pitch_rate * WHEEL_ARMS_AHEAD[i] + roll_rate * WHEEL_ARMS_RIGHT[i]
+	var blend := _attitude_blend()
+	if blend == 0.0:
+		return linear
+	return lerpf(linear, vertical_speed + _body_offset_rate(_seat_offset(i)), blend)
+
+
+## The seat of wheel `i` in the body's frame, from the centre of mass [m]: on
+## its arm ahead and to the right, CG_HEIGHT under it.
+func _seat_offset(i: int) -> Vector3:
+	return Vector3(WHEEL_ARMS_RIGHT[i], -CG_HEIGHT, -WHEEL_ARMS_AHEAD[i])
+
+
+## Corner `j` of the body's shell in the body's frame, from the centre of mass
+## [m] (see SHELL_HALF_SIZE): j's bits pick right / left, top / bottom,
+## behind / ahead.
+func _shell_corner(j: int) -> Vector3:
+	return Vector3(
+		SHELL_HALF_SIZE.x if j & 1 else -SHELL_HALF_SIZE.x,
+		SHELL_CENTRE_HEIGHT + (SHELL_HALF_SIZE.y if j & 2 else -SHELL_HALF_SIZE.y) - CG_HEIGHT,
+		(SHELL_HALF_SIZE.z if j & 4 else -SHELL_HALF_SIZE.z) - CG_OFFSET)
+
+
+## The body's basis in the car's frame: its pitch and roll about the centre of
+## mass, in the Euler order Node3D draws _body with (pitch about the car's x,
+## then roll about the body's own z).
+func _body_basis() -> Basis:
+	return Basis.from_euler(Vector3(body_pitch, 0.0, body_roll))
+
+
+## How far the body's geometry has left the small angles, 0 .. 1 (see
+## ATTITUDE_BLEND_START): exactly 0 under the start.
+func _attitude_blend() -> float:
+	return smoothstep(ATTITUDE_BLEND_START, ATTITUDE_BLEND_END, maxf(absf(body_pitch), absf(body_roll)))
+
+
+## Where a point `p` of the body [m, the body's frame, from the centre of
+## mass] is now, carried round the centre of mass by pitch and roll: its
+## offset from the centre of mass in the car's frame [m].
+func _body_offset(p: Vector3) -> Vector3:
+	return _body_basis() * p
+
+
+## How fast that point rises [m/s] from the pitch and roll rates alone (the
+## body's own vertical speed not included): the time derivative of
+## _body_offset(p).y, pitch's rate about the car's x and roll's about the
+## body's z, as the Euler angles have it.
+func _body_offset_rate(p: Vector3) -> float:
+	var sin_pitch := sin(body_pitch)
+	var cos_pitch := cos(body_pitch)
+	var sin_roll := sin(body_roll)
+	var cos_roll := cos(body_roll)
+	return (p.x * cos_roll - p.y * sin_roll) * roll_rate * cos_pitch \
+			- (p.x * sin_roll + p.y * cos_roll) * sin_pitch * pitch_rate \
+			- p.z * cos_pitch * pitch_rate
+
+
+## One tick of the shell (see SHELL_RATE): each corner carried round the
+## centre of mass, the road looked up under it, and where the road is above
+## the corner a push of SHELL_RATE x the depth less SHELL_DAMPING x the
+## corner's rate of rise, never below 0. Fills shell_load and the per-corner
+## pushes and offsets _advance_body and the tick's friction work from.
+## `vertical_speed` is the body's.
+## Within the small angles (ATTITUDE_BLEND_START) only the four bottom
+## corners are looked up: the top ones are the body's height over them and
+## cannot reach the road; the bottom ones can, at any angle - a lip on a
+## steep knee - and are.
+func _shell_forces(vertical_speed: float) -> void:
+	shell_load = 0.0
+	var basis := _body_basis()
+	var cg_height := global_position.y + CG_HEIGHT
+	var small := _attitude_blend() == 0.0
+	for j in _shell_loads.size():
+		if small and j & 2:
+			_shell_loads[j] = 0.0
+			continue
+		var p := _shell_corner(j)
+		var at := basis * p
+		_shell_offsets[j] = at
+		var under := global_transform * Vector3(at.x, 0.0, at.z + CG_OFFSET)
+		var depth := road_profile.sample_height(under.x, under.z) - (cg_height + at.y) if road_profile != null else -(cg_height + at.y)
+		var load := 0.0
+		if depth > 0.0:
+			load = maxf(SHELL_RATE * depth - SHELL_DAMPING * (vertical_speed + _body_offset_rate(p)), 0.0)
+		_shell_loads[j] = load
+		shell_load += load
+
+
+## Whether the car lies overturned: on its shell, its up more than 60 degrees
+## from the world's (see OVERTURN_COS).
+func is_overturned() -> bool:
+	return shell_load > 0.0 and cos(body_pitch) * cos(body_roll) < OVERTURN_COS
 
 
 ## One tick of the four corners: works out wheel_supported, wheel_travel and
@@ -4556,29 +4786,37 @@ func _corner_height(i: int) -> float:
 # road is out of the sum. The same number to the bit for a wheel in reach.
 func _corner_forces(vertical_speed: float, delta: float) -> void:
 	var envelope := 1.0 - exp(-TYRE_ENVELOPE_RATE * delta)
+	# The body's up against the world's: past OVERTURN_COS no wheel is on the
+	# road as a wheel (the user's 20:35 retest; see WHEEL_LEAN_FULL_COS).
+	var lean := cos(body_pitch) * cos(body_roll)
 	for i in wheel_loads.size():
 		var road := _road_height_under_wheel(i)
 		var corner := _corner_height(i)
 		var tyre_before := _tyre_heights[i]
 		_tyre_heights[i] = lerpf(tyre_before, road, envelope)
 		_tyre_height_rates[i] = (_tyre_heights[i] - tyre_before) / delta
-		wheel_supported[i] = road - corner - _corner_trim[i] >= -MAX_WHEEL_VISUAL_TRAVEL
+		wheel_supported[i] = road - corner - _corner_trim[i] >= -MAX_WHEEL_VISUAL_TRAVEL and lean >= OVERTURN_COS
 		wheel_travel[i] = (_tyre_heights[i] - corner - _corner_trim[i]) if wheel_supported[i] else -MAX_WHEEL_VISUAL_TRAVEL
 	# The static share is that of the car as it weighs now, fuel and payload in:
 	# the spring seats carry the load, the rates stay those of the car on its
 	# kerb weight (see FRONT / REAR_CORNER_MASS).
 	var weight := total_mass() * _gravity
 	var airborne := true
+	# Leaned past 50 degrees the tyre is going on to its sidewall (see
+	# WHEEL_LEAN_FULL_COS): exactly 1 with the body anywhere near level.
+	var carry := smoothstep(OVERTURN_COS, WHEEL_LEAN_FULL_COS, lean)
 	for i in wheel_loads.size():
 		if not wheel_supported[i]:
 			wheel_loads[i] = 0.0
 			continue
 		var front := i < 2
 		var spring_rate := FRONT_SPRING_RATE if front else REAR_SPRING_RATE
-		var corner_speed := vertical_speed + pitch_rate * WHEEL_ARMS_AHEAD[i] + roll_rate * WHEEL_ARMS_RIGHT[i]
-		var travel := wheel_travel[i]
+		var corner_speed := _corner_rate(i, vertical_speed)
+		# The travel the spring, the bar and the stop see: up to GROUND_CLEARANCE
+		# in bump, the stop crushed solid there (see the bump stops).
+		var travel := minf(wheel_travel[i], GROUND_CLEARANCE)
 		# i ^ 1: the wheel across the axle.
-		var across := wheel_travel[i ^ 1]
+		var across := minf(wheel_travel[i ^ 1], GROUND_CLEARANCE)
 		var depth := maxf(absf(travel) - SUSPENSION_TRAVEL, 0.0)
 		var stop := signf(travel) * BUMP_STOP_RATE * spring_rate * depth * (1.0 + depth / BUMP_STOP_PROGRESSION)
 		var pushing := weight * ((1.0 - REAR_WEIGHT_FRACTION) if front else REAR_WEIGHT_FRACTION) * 0.5 \
@@ -4587,10 +4825,13 @@ func _corner_forces(vertical_speed: float, delta: float) -> void:
 				+ (FRONT_ANTI_ROLL_RATE if front else REAR_ANTI_ROLL_RATE) * (travel - across) \
 				+ stop
 		wheel_loads[i] = maxf(pushing, 0.0)
+		if carry < 1.0:
+			wheel_loads[i] *= carry
 		if wheel_loads[i] > AIRBORNE_LOAD_FLOOR:
 			airborne = false
 	is_airborne = airborne
 	airborne_frames = airborne_frames + 1 if airborne else 0
+	_shell_forces(vertical_speed)
 
 
 ## One tick of the body on its springs; returns its new vertical speed [m/s]
@@ -4609,14 +4850,34 @@ func _corner_forces(vertical_speed: float, delta: float) -> void:
 ## Semi-implicit Euler: rates from the forces, angles from the new rates.
 ## Steady state the springs then carry exactly the classic weight transfer
 ## (force x CG_HEIGHT / wheelbase or track); how they get there is the ride.
+## Past the small angles the lever arms are the seats' as they are carried
+## round (ATTITUDE_BLEND_START: a load's moment about the car's x is its
+## offset behind the centre of mass, about the body's z its offset to the
+## right, in the plane of the pitch), and the shell's corners push and drag
+## the same way (SHELL_RATE, SHELL_FRICTION) - nothing of either with the
+## body under 0.1 rad and its shell clear of the road.
+# was the first-order arms alone and no shell (the user's 20:35 retest).
 func _advance_body(vertical_speed: float, downforce: float, air_drag: float, delta: float) -> float:
 	var lift := 0.0
 	var pitch_moment := 0.0
 	var roll_moment := 0.0
+	var blend := _attitude_blend()
 	for i in wheel_loads.size():
 		lift += wheel_loads[i]
-		pitch_moment += wheel_loads[i] * WHEEL_ARMS_AHEAD[i]
-		roll_moment += wheel_loads[i] * WHEEL_ARMS_RIGHT[i]
+		if blend == 0.0:
+			pitch_moment += wheel_loads[i] * WHEEL_ARMS_AHEAD[i]
+			roll_moment += wheel_loads[i] * WHEEL_ARMS_RIGHT[i]
+		else:
+			var at := _body_offset(_seat_offset(i))
+			pitch_moment += wheel_loads[i] * lerpf(WHEEL_ARMS_AHEAD[i], -at.z, blend)
+			roll_moment += wheel_loads[i] * lerpf(WHEEL_ARMS_RIGHT[i], at.x * cos(body_pitch), blend)
+	if shell_load > 0.0:
+		for j in _shell_loads.size():
+			lift += _shell_loads[j]
+			pitch_moment -= _shell_loads[j] * _shell_offsets[j].z
+			roll_moment += _shell_loads[j] * _shell_offsets[j].x * cos(body_pitch)
+		pitch_moment += _shell_friction_moment.x
+		roll_moment += _shell_friction_moment.z * cos(body_pitch)
 	var front_arm := AXLE_DISTANCE + CG_OFFSET
 	var rear_arm := AXLE_DISTANCE - CG_OFFSET
 	pitch_moment += (total_mass() * longitudinal_accel + air_drag) * CG_HEIGHT
@@ -5791,27 +6052,49 @@ func _update_visuals(delta: float) -> void:
 		# Rolling towards -Z is a negative rotation about +X.
 		_wheel_spinners[i].rotate_x(-(front_step if i < 2 else rear_step))
 
-	for wheel in _front_wheels:
-		wheel.rotation.y = wheel_angle
-
 	# Each wheel is drawn on the road (as far as its travel reaches), the body
 	# above it where its springs have it: pitched and rolled about the centre
-	# of mass, CG_OFFSET behind the body node. A wheel the road is out of
-	# reach of (wheel_supported, the physics' own word) hangs at full droop,
-	# MAX_WHEEL_VISUAL_TRAVEL under its seat, wherever the road is: in the air
-	# the wheels go with the body, at the end of their travel.
+	# of mass, CG_OFFSET behind the body node and CG_HEIGHT over the origin.
+	# The wheels go round with it: each is fixed to the body at its seat
+	# (_seat_offset, the corner's trim in it) and hangs its drawn travel
+	# under that along the body's own down, so a body on its roof has its
+	# wheels in the air over it, a body on its nose its wheels out sideways.
+	# A wheel the road is out of reach of (wheel_supported, the physics' own
+	# word) hangs at full droop, MAX_WHEEL_VISUAL_TRAVEL under its seat,
+	# wherever the road is: in the air the wheels go with the body, at the end
+	# of their travel.
 	# The road as it lies under the wheel now, after the move, every bump of it:
 	# the springs feel it through the tyre (TYRE_ENVELOPE_RATE), the eye does not.
 	# was the clamp alone, the same place for a wheel in the air by arithmetic
 	# and a body that had the wheel's phantom load in it (the user's catch on
 	# the ramp jump, 2026-09-22: "the wheels and body fell apart... somehow the
 	# joints stretched") -> the wheel's reach, physics and drawing alike.
+	# was the wheel's height alone, its place across and along the car fixed
+	# and its axle level whatever the body did: a tumbling body over four
+	# wheels hanging straight down (the user's 20:35 retest: "the wheels
+	# stuck to the vertical axis") -> the wheel carried with the body, past
+	# the small angles (ATTITUDE_BLEND_START: under it the certified picture
+	# to the bit, the wheel's height alone).
+	var blend := _attitude_blend()
+	var basis := _body_basis()
+	var cg_local := Vector3(0.0, CG_HEIGHT, CG_OFFSET)
 	for i in _wheels.size():
 		var seat := _corner_height(i) + _corner_trim[i]
 		var drawn_travel := -MAX_WHEEL_VISUAL_TRAVEL
 		if wheel_supported[i]:
 			drawn_travel = clampf(_road_height_under_wheel(i) - seat, -MAX_WHEEL_VISUAL_TRAVEL, MAX_WHEEL_VISUAL_TRAVEL)
-		_wheels[i].position.y = _wheel_rest_height + seat - global_position.y + drawn_travel
+		var steered := Basis(Vector3.UP, wheel_angle if i < 2 else 0.0)
+		if blend == 0.0:
+			_wheels[i].basis = steered
+			_wheels[i].position.y = _wheel_rest_height + seat - global_position.y + drawn_travel
+			continue
+		var level := Vector3(WHEEL_ARMS_RIGHT[i], _wheel_rest_height + seat - global_position.y + drawn_travel, CG_OFFSET - WHEEL_ARMS_AHEAD[i])
+		var hung := _seat_offset(i) + Vector3(0.0, _wheel_rest_height + _corner_trim[i] + drawn_travel, 0.0)
+		_wheels[i].transform = Transform3D(Basis.IDENTITY.slerp(basis, blend) * steered, level.lerp(cg_local + basis * hung, blend))
 	_body.rotation.x = body_pitch
 	_body.rotation.z = body_roll
-	_body.position.y = _body_rest_height + body_pitch * CG_OFFSET
+	if blend == 0.0:
+		_body.position.y = _body_rest_height + body_pitch * CG_OFFSET
+	else:
+		var level := Vector3(0.0, _body_rest_height + body_pitch * CG_OFFSET, 0.0)
+		_body.position = level.lerp(cg_local + basis * (Vector3(0.0, _body_rest_height, 0.0) - cg_local), blend)
