@@ -294,6 +294,12 @@ func _check_warm_up(car: ArcadeCar) -> void:
 func _check_warming_in_the_scene(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning), and the model warm-up before this leaves
+	# the idle hunt's phase where its cold minutes took it, which is a tick
+	# of idle torque in the launch; the cold car here is the fresh car with
+	# its coolant set cold, as it was.
+	_fresh_heat(car)
 	await _step(SETTLE_FRAMES)
 	car.coolant_temp = 0.0
 	car.set_driver_input(1.0, 0.0, 0.0)
