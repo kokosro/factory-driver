@@ -758,7 +758,10 @@ seed copying byte for byte, never over a file, never touching the source, never 
 the autoload having seeded nothing with no window; the bar legend naming every bar; every
 key the controls text names in the map, `Tab` among them; the LICENCE page's checklist
 ticking exactly the three elements a seeded record holds and all dashes on a fresh one;
-and no folder dialog ever made.
+no folder dialog ever made; and, the window set to the game's own 1280 x 720, every
+garage page walked with `Tab`, `Right`, `Down` and `PgDn`, the book on `L`, a lesson's
+input display with its caption, the mission line and the banners laid out and measured,
+nothing reaching past the screen and every row landing inside the scroll area.
 
 ### Handling tests
 
@@ -1017,6 +1020,12 @@ does all of it too:
 
 The garage reads and never writes: the one thing it changes is the bootstrap file when
 a folder is chosen. Nothing of it runs in the headless suite unless the test opens it.
+
+Every page fits the 1280 x 720 screen: a row's hint wraps to the frame's width and a
+page taller than the frame (THE STUDY's list, the SETTINGS legend) scrolls, `Down` and
+`PgDn` reaching every row and line; the licence book, the lesson caption, the mission
+line and the banners fit the screen too (a long banner headline in smaller letters,
+never under 40 px), and the menu test fails on anything drawn past the screen's edge.
 
 ### The study
 
