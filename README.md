@@ -708,16 +708,24 @@ the end box by 0.7 m; 54 km/h at the bar and stopped 13.1 m on, 0.9 m inside the
 8 of 8 answered); the gate before, during and after (unlicensed the clutch key leaves
 the pedal at 0 and `T`, `G`, `K` are refused with the hint by the lamps; in the sitting
 the hill start is driven on the pedal in manual; licensed the pedal moves and the
-switches flip); the book holds the number keys and frees them; a retake that dumps the
-clutch on the locked axle stalls and fails the sitting at once at element 4/7 with the
-three before it passed; a wrong first answer fails it at 1/7 before a wheel turns; the
-handbrake let go before the bite rolls back 15.6 cm and fails the element the moment it
-does, no stall; the skid pad test (2.04 laps in 31.4 s, every wheel between the rings,
-no cone down); L1 only on the seventh of seven passes, a FAILED handling test never
-recorded; the record to the bit through the store beside the odometer, the fuel and the
-wear, an old file untouched at version 1, a level the passes do not earn written and
-read as what they earn, 14 non-levels and non-lists refused with the reason; and the
-ramp: 8 % up, level, 8 % down, exactly zero at 13 certified points, straight between the
+switches flip); the book holds the number keys and frees them; a practice run on the
+complete record that dumps the clutch on the locked axle stalls and fails the sitting
+at once at element 4/7 with the three before it passed; a wrong first answer fails one
+at 1/7 before a wheel turns; the handbrake let go before the bite rolls back 15.6 cm
+and fails the element the moment it does, no stall; the skid pad test (2.04 laps in
+31.4 s, every wheel between the rings, no cone down); L1 only on the seventh of seven
+passes, a FAILED handling test never recorded; the record to the bit through the store
+beside the odometer, the fuel and the wear, an old file untouched at version 1, a level
+the passes do not earn written and read as what they earn, 14 non-levels and non-lists
+refused with the reason; the per-element memory: the elements passed as the record's
+third field (an old licence object without it a clean slate, a malformed one reported),
+the level they earn (all seven, or the old exam-level pass alone), the manager seeded
+from a file with the theory passed resuming at `ELEMENT 2/7` in manual and driving the
+six practical elements to L0 with each saved as it passed - manual through the parks
+and the hill start, automatic from the three-point turn on - a stalled hill start on a
+record of three leaving the three in the record and on the file with `1` retaking from
+the hill start, and a wrong answer on a practice run changing nothing; and the ramp:
+8 % up, level, 8 % down, exactly zero at 13 certified points, straight between the
 mesh's 5 m points along its axis (0.23 mm).
 
 And the garage (`tests/menu_test.gd`, see [Garage](#garage), [The study](#the-study) and
@@ -748,7 +756,9 @@ resolved from the variable, the bootstrap file or the default, a relative or a G
 path refused by name, the bootstrap file written, refused and cleared, and the one-time
 seed copying byte for byte, never over a file, never touching the source, never twice,
 the autoload having seeded nothing with no window; the bar legend naming every bar; every
-key the controls text names in the map, `Tab` among them; and no folder dialog ever made.
+key the controls text names in the map, `Tab` among them; the LICENCE page's checklist
+ticking exactly the three elements a seeded record holds and all dashes on a fresh one;
+and no folder dialog ever made.
 
 ### Handling tests
 
@@ -849,10 +859,11 @@ the book's - no handling test starts (`scripts/mission_manager.gd` is told,
 `start_keys_locked`); with the book closed, `1`-`5` are the free training they always
 were. During a sitting the line under the controls text reads e.g.
 `L0 EXAM  ELEMENT 4/7  HILL START — BITE AND AWAY — rolled back 1 cm, crest 12 m  8.3 s`
-with the element's objective under it; `Esc` or `R` abandon the sitting (no verdict). A
-banner then says `PASSED  L0 EXAM` with the licence now held, or `FAILED  L0 EXAM` with
-the element it failed on, its measured numbers and the checks missed; `1` under it
-retakes, `Esc` closes it. `scripts/licence_manager.gd` only picks the exam, moves it
+with the element's objective under it; `Esc` or `R` abandon the sitting (no verdict; the
+elements passed so far are already in the record). A banner then says `PASSED  L0 EXAM`
+with the licence now held, or `FAILED  L0 EXAM` with the element it failed on, its
+measured numbers and the checks missed; `1` under it retakes - from the element that
+failed, not from the theory - and `Esc` closes it. `scripts/licence_manager.gd` only picks the exam, moves it
 through idle, running, result shown and hands the HUD its strings; the elements and
 their checks are the data in `scripts/licence_exams.gd`, run with the scripted driver
 off, the human's driving through the same checks the headless test drives. Every
@@ -860,12 +871,28 @@ verdict is measured: the car's 1.8 x 4.2 m footprint against painted lines, the 
 own cones toppled, real roll-back, a real stall, the real handbrake and clutch pedal,
 the real speed at the cue. Nothing is a timer.
 
-**L0 CITIZEN** is one sitting, all or nothing: the theory first, then six practical
-elements in a fixed order, and any element failed - a wrong answer, a cone down, a wheel
-over a line, a stall - fails the whole sitting at once; the elements after it are not
-sat. Passing all seven in the one sitting grants L0. A retake is a new sitting from the
-theory. The elements, in the licence yard behind the start gantry (positive z, driven
-towards the gantry like everything else on the pad):
+**L0 CITIZEN** is seven elements in a fixed order, the theory first, then six practical
+elements, and **the sitting remembers**: every element passed goes into the car's
+record the moment it is passed (saved at once, so it survives a failed later element,
+`Esc` and the process ending). Any element failed - a wrong answer, a cone down, a wheel
+over a line, a stall - ends the sitting at once; the elements after it are not sat, the
+ones before it stay passed, and the next sitting (`1` in the book, `1` under the FAILED
+banner, or the garage's DRIVE row) begins at the first element not yet passed. A passed
+theory is never retaken. The seventh element passed grants L0. With every element in the
+record the exam can be sat again from the theory as a practice run, which changes
+nothing: a pass is recorded once and never taken away. The book (`L`) and the garage's
+LICENCE page show the checklist - `Theory: PASSED` or `Theory: —`, then each practical
+element `[PASSED]` or `[ - ]`. (Until 2026-09-22 the sitting was one sitting, all or
+nothing, a retake a new sitting from the theory: the user's verdict, 14:56 + 15:02 -
+"it's annoying that if i fail any of the L0 tests i need to get back to theory and not
+retry the test i failed, it's like nothing remembers i took the tests". The rule dated
+from L0 being two exams, theory and practice, each with its own retake.) **The
+instructor's car** is a manual for the first three practical elements - the parallel
+park, the bay park and the hill start - and an automatic from the three-point turn on,
+"now they've proven they can drive an auto": an element flagged `"manual": true` puts
+the gearbox in manual as it starts, and every element's start resets the car, which
+re-arms automatic. The elements, in the licence yard behind the start gantry (positive
+z, driven towards the gantry like everything else on the pad):
 
 1. **Theory** - 8 question cards on the HUD overlay, three answers each, fixed order,
    digits `1`-`3` answer, 20 s a question. Every question is a rule the sim itself proves
@@ -891,10 +918,9 @@ towards the gantry like everything else on the pad):
    1.1 cm). A stall fails the element on the spot, and the sitting with it (the clutch
    let up to the floor on the locked axle with the throttle open lugs the engine under
    450 rpm; letting the lever go with the pedal still down rolls the car back 16 cm in a
-   second). The instructor's car is a manual for this element: the element puts the
-   gearbox in manual (`M` undoes it, and then there is no pedal to floor). Mind the car's
-   own rule: a fresh press of the brake at a standstill is reverse, so the lever goes on
-   before the foot comes off the brake.
+   second). Sat in manual, like the two parks before it (`M` undoes it, and then there
+   is no pedal to floor). Mind the car's own rule: a fresh press of the brake at a
+   standstill is reverse, so the lever goes on before the foot comes off the brake.
 5. **Three-point turn** - on the straight between two white bars (z = -12 and -48),
    from the right-hand side of the lane: turn to face back the way you came, every
    corner of the car inside the lane's edge lines (6 m either side) and between the bars
@@ -925,7 +951,8 @@ ring; a driver has 19 s in hand.
 clutch pedal key (the pedal stays up, the car works its own clutch as ever) and cannot
 switch TCS, ABS or SC off (`T`, `G`, `K` are refused, `LICENSED ONLY — L  licence book`
 flashes by the aid lamps for 1.5 s). L0 unlocks both, for good. During a sitting both are
-allowed - the instructor's dual-control car, so the hill start can be sat. The car knows
+allowed - the instructor's dual-control car, so the parks and the hill start can be sat
+in manual. The car knows
 nothing of licences: it holds a gate reference (`ArcadeCar.licence_gate`, null by
 default = everything allowed, which is every test scene and every certified run) that
 the licence manager wires up from `main.tscn`, and asks it the tick a gated key is read.
@@ -978,8 +1005,10 @@ does all of it too:
   reads a store-shaped entry: the live car's, or a file's, which is what the menu test
   reads it from), and where the car's file is kept this run. Read-only.
 - **LICENCE** - the licence held, the rank it is (`TEST DRIVER` from L1; the ranks
-  beyond are named as not yet playable), every pass recorded, what the next level still
-  takes, and the licence book's own text under it - the same book `L` opens.
+  beyond are named as not yet playable), every pass recorded, the L0 sitting's checklist
+  (`Theory: PASSED` or `Theory: —`, then each practical element `[PASSED]` or `[ - ]`,
+  in the sitting's order, from the record), what the next level still takes, and the
+  licence book's own text under it - the same book `L` opens.
 - **SETTINGS** - the data folder (see [Data location](#data-location): where it is this
   run and why, the folder chosen, a native folder dialog to choose another, a row to go
   back to the default), the HUD bar legend (every bar and lamp on the HUD, on the
@@ -1333,11 +1362,16 @@ a new car's, and is written back with everything else it holds. The headless sui
 the certified runs read nothing: every car there starts new.
 
 The licence lives in the same entry too, under `licence` (see
-[Licence ladder](#licence-ladder)): the level held (`level`: -1 none, 0 L0, 1 L1) and
-the exams passed at this car's wheel (`passed`: the L0 sitting, the skid pad, the five
-handling tests by name). The licence manager, not the car, reads it once when the scene
-comes up and writes it on every pass, its own save; the car's saves write the entry's
-other fields round it:
+[Licence ladder](#licence-ladder)): the level held (`level`: -1 none, 0 L0, 1 L1), the
+exams passed at this car's wheel (`passed`: the L0 sitting, the skid pad, the five
+handling tests by name) and the L0 sitting's elements passed (`elements`: the seven
+element names, each kept from the moment it is passed - the sitting resumes at the
+first missing one). The level is always what the record earns: L0 with all seven
+elements, or with the L0 sitting in `passed` (a record written before there were
+elements keeps its licence); a licence object without `elements` reads as none passed
+yet, nothing reported, and the file's version stays 1. The licence manager, not the
+car, reads it once when the scene comes up and writes it on every pass, its own save;
+the car's saves write the entry's other fields round it:
 
 ```json
 {"version": 1, "cars": {"boxster_986": {"odometer_m": 123.4, "fuel_l": 31.5,
@@ -1346,7 +1380,9 @@ other fields round it:
   "battery": {"charge": 0.93, "capacity_wear": 0.0},
   "wear": {"clutch": 0.012, "brakes_front": 0.03, "brakes_rear": 0.02,
     "tyres_front": 0.05, "tyres_rear": 0.08, "engine": 0.004},
-  "licence": {"level": 0, "passed": ["L0_CITIZEN", "SLALOM_TEST"]}}}}
+  "licence": {"level": 0, "passed": ["L0_CITIZEN", "SLALOM_TEST"],
+    "elements": ["THEORY_QUIZ", "PARALLEL_PARK", "BAY_PARK", "HILL_START",
+      "TURN_IN_ROAD", "REVERSING_COURSE", "EMERGENCY_STOP"]}}}}
 ```
 
 Per car, riding this file, because this store is the one per-car ledger there is: the
