@@ -101,19 +101,27 @@ fallback default, given in brackets.
 - `launch`: `rpm`. *(optional)* `clutch_share` [0.5], `bite_band` [50].
 - `creep` *(optional, all of it)*: `clutch_engagement` [0.02], `free_speed` [0.9],
   `engage_speed` [0.05], `dwell` [0.4], `max_speed` [0.8].
-- `wear` *(optional, all of it)*: `clutch_rate` [1e-8], `clutch_floor` [0.7],
-  `brake_rate` [1e-9], `brake_abuse` [3], `brake_floor` [0.75], `tyre_rate` [4e-10],
-  `tyre_abuse` [3], `tyre_floor` [0.85], `engine_rate` [1e-8], `engine_abuse` [10],
-  `engine_floor` [0.85]. A rate is wear (a share of the component's life, 0..1) per
-  joule of the clutch's slip energy, the disc's work or the tyre's heat, and per
-  radian the engine turns under load; never negative (wear never comes back). An
-  abuse multiplier is how many times faster the component wears per joule or radian
-  while it is over its line (the disc over the brake fade line, the tyre over its
-  window, the coolant over the overheat line); 1 or more. A floor is what a worn-out
-  component keeps of itself - the clutch of its capacity, a brake of its torque, a
-  tyre of its grip, the engine of its torque curve; over 0 (nothing here breaks) and
-  no more than 1 (a floor of 1 is a component that wears without effect). See "The
-  wear table" below for the 986's numbers and their reasoning.
+- `wear` *(optional, all of it)*: `clutch_life_km` [175000], `clutch_slip_m_per_kj`
+  [5], `clutch_floor` [0.7], `brake_life_km` [50000], `brake_work_m_per_kj` [1],
+  `brake_abuse` [3], `brake_floor` [0.75], `tyre_life_km_front` [25500],
+  `tyre_life_km_rear` [17000], `tyre_slip_m_per_kj` [0.5], `tyre_abuse` [3],
+  `tyre_floor` [0.85], `engine_life_km` [140000], `engine_flat_out` [6],
+  `engine_abuse` [10], `engine_floor` [0.85]. A rated life is the kilometres of street
+  driving that use the whole of a component up (a share of 1): every metre the odometer
+  counts is that share of it, and a gentle cruise costs exactly that; over 0 (the
+  metres are divided by it). A cost per kilojoule is what the driving adds on top, in
+  metres of the component's life per kJ of the clutch's slip energy, the disc's work or
+  the tyre's slip work; never negative (wear never comes back). An abuse multiplier is
+  how many times over that cost counts while the component is over its line (the disc
+  over the brake fade line, the tyre over its window); the engine's `engine_flat_out`
+  is how many times a cruise's wear per metre the engine takes at full load (the load
+  squared between), and `engine_abuse` how many times over its metres count with the
+  coolant over the overheat line, every revolution at full load up there; each 1 or
+  more. A floor is what a worn-out component keeps of itself - the clutch of its
+  capacity, a brake of its torque, a tyre of its grip, the engine of its torque curve;
+  over 0 (nothing here breaks) and no more than 1 (a floor of 1 is a component that
+  wears without effect). See "The wear table" below for the 986's numbers, their
+  sources and which are estimates.
 - `brakes`: `bias_front`, `decel_g`. *(optional)* `coast_decel` [0.15].
 - `tyres`: `mu`, `front_grip`, `rear_grip`, `peak_slip_ratio`, `abs_slip_ratio`,
   `drive_slip_ratio`, `front_peak_slip_angle`, `rear_peak_slip_angle`, `slide_grip`,
@@ -200,25 +208,37 @@ estimates know least.
 
 ## The wear table
 
-The 986's numbers (3L, `car.gd`'s "Wear and aging"). JSON has no comments: this is
-where each rate's provenance is written. Every one is a CHOICE, not a measurement: the
-rates are set gentle on purpose (the user's car is a test instrument, and a session on
-the pad has to wear it measurably in the ledger, not visibly at the wheel), the per-event
-costs beside them are MEASURED by `tests/wear_test.gd` on the certified car, and the
-lives they add up to are held against what real parts last.
+The 986's numbers (3L, rebased on the kilometres in 3AB; `car.gd`'s "Wear and aging").
+JSON has no comments: this is where each number's provenance is written. The user's 15:24
+verdict (2026-09-22): "in a real car i get more hill starts, 15 clutch launches / 46 hard
+stops is a very fragile car ... all wear could be researched online, how many kilometers
+would the engine run on average, how much that type of tire, that type of clutch, that
+type of brakes actually take. I think the measurement is more in kilometers driven and
+how they were driven rather than how many times i can start the car from a hill." So
+each component has a RATED LIFE in kilometres from a research pass on what the real
+parts take (SOURCED where a range was found, the midpoint taken; an ESTIMATE where
+not, labelled so, tunable), every metre the odometer counts is that share of it, and
+what the driving costs on top is a labelled estimate of an event's equivalence in
+metres of life, normalised on the certified car's own measured numbers
+(`tests/wear_test.gd` states what each event comes to).
 
 | Key | Value | Unit | Reasoning |
 |---|---|---|---|
-| `clutch_rate` | 1e-8 | 1/J | 1 % per MJ of slip energy. 8 s flat out from rest (the launch and two upshifts) slips ~68 kJ: ~15 of them per percent, ~1500 to worn out. A donut under the automatic's hunting slips ~25 kW: that is abuse, and costs ~1 % in 40 s. |
+| `clutch_life_km` | 175000 | km | SOURCED: a street clutch lasts 100 000-250 000 km (986/Boxster owner corroboration); the midpoint. 1 % per 1750 km of gentle driving. |
+| `clutch_slip_m_per_kj` | 5 | m/kJ | ESTIMATE (physics, range 100-500 m): a full-throttle launch is ~100-500 m of normal clutch wear, the midpoint 300 m; the first engagement of a flat-out launch slips 58.4 kJ (measured): 300 / 58.4 = 5.1, rounded to 5. An 8 s flat-out run (the launch and two upshifts, 68 kJ) is 341 m of life on top of its 133 m of road: ~3700 of them per percent (was 15). Riding the clutch is the joules themselves: tens of kilowatts, ~100 m of life a second; a donut under the automatic's hunting slips ~600 kJ, ~3 km of it. |
 | `clutch_floor` | 0.7 | share | A worn-out clutch still passes 350 Nm, over what the engine makes; what goes is the margin - it slips longer on a launch and through a shift (6 ticks more over 8 s, measured). |
-| `brake_rate` | 1e-9 | 1/J | 1 % per 10 MJ of disc work. A full stop from 90 km/h is ~390 kJ, ~174 kJ on the front discs and ~216 kJ on the rears (the ABS holds the fronts at the tyres' limit; the driven axle's discs slow the engine too): ~45 such stops per percent of the rears, ~5000 to worn out - a set of racing pads' life on a circuit, far longer on the road. |
-| `brake_abuse` | 3 | x | A disc over the fade line wears three times as fast per joule: a string of hard stops without letting them cool. |
+| `brake_life_km` | 50000 | km | SOURCED: street pads last ~30 000-70 000 km, Porsche-class cars trending high; the midpoint, either axle. 1 % per 500 km of gentle driving. |
+| `brake_work_m_per_kj` | 1 | m/kJ | ESTIMATE (physics, from KE = ½mv², range 100-300 m): a full ABS stop from ~90 km/h is ~100-300 m of gentle-braking wear, the midpoint 200 m; the stop is the car's kinetic energy through the discs, ½ x 1300 kg x (25 m/s)² = 406 kJ over two axles (measured 174 kJ on the fronts, 216 kJ on the rears: the ABS holds the fronts at the tyres' limit, the driven axle's discs slow the engine too), ~200 kJ an axle: 200 m / 200 kJ, a metre per kilojoule. The stop is 216 m of the rears' life on top of its 36 m: ~2000 of them per percent of the rears (was 46). |
+| `brake_abuse` | 3 | x | ESTIMATE (the old model's, kept): a disc over the fade line wears three times as fast per joule - a string of hard stops without letting them cool. |
 | `brake_floor` | 0.75 | share | Pads down to the backing plate still stop the car: 15 % further from 90 km/h (measured), on top of whatever the fade takes. |
-| `tyre_rate` | 4e-10 | 1/J | 1 % per 25 MJ of tyre heat. Rolling at 72 km/h puts ~200 kJ/km into the four (`COAST_DECEL`'s work), a hard lap's sliding as much again: ~60 km of hard driving or ~130 km of cruising per percent; a 25 s donut puts ~480 kJ into the rears, ~35 of them per percent; ~13 000 km of cruising to worn out - a sports tyre's life, short. |
-| `tyre_abuse` | 3 | x | A tyre over its window wears three times as fast per joule: greasy rubber tears. The donut's last seconds pay it. |
+| `tyre_life_km_front` | 25500 | km | ESTIMATE (no number sourced): the fronts of this mid-engined, rear-driven car carry less and drive nothing; taken as 1.5 x the rears'. |
+| `tyre_life_km_rear` | 17000 | km | SOURCED (forum): a performance summer rear lasts 10 000-24 000 km on the street; the midpoint. 1 % per 170 km of gentle driving. |
+| `tyre_slip_m_per_kj` | 0.5 | m/kJ | ESTIMATE (range 0.5-2 km): a donut is ~0.5-2 km of a rear's life, the midpoint 1.25 km; the wear test's 25 s donut is 1574 kJ of slip work against the rears' contact patches (measured), 384 kJ of it with the rubber over its window and so `tyre_abuse` times over: 1250 / (1574 + 2 x 384) = 0.53, rounded to 0.5 - 1171 m of life on top of the donut's 89 m of way, ~135 of them per percent (was 35). Rubber goes by the frictional energy, which is why the slip work and not the tyre's heat: hard cornering is slip work too. A straight cruise's drive slip is a per-mille of it on the rears, nothing on the fronts. |
+| `tyre_abuse` | 3 | x | ESTIMATE (the old model's, kept): a tyre over its window wears three times as fast per joule - greasy rubber tears. The donut's last seconds pay it. |
 | `tyre_floor` | 0.85 | share | A bald tyre grips in the dry; what it has lost is the margin: 0.74 g worn out in the corner new tyres hold 0.88 g in (measured). |
-| `engine_rate` | 1e-8 | 1/rad | 1 % per Mrad turned under full load. 8 s flat out from rest costs ~33 ppm (the load weight counts the launch's and the shifts' revolutions for less); flat out at 6000 rpm ~27 min or ~50 km per percent; ~45 h or ~5000 km flat out to worn out, a race engine's rebuild interval; a road engine's mixed life is many times longer, an idle or a cruise counting for a small share of a turn. |
-| `engine_abuse` | 10 | x | Over the overheat line every revolution counts in full, loaded or not, and ten times over: an overheated engine driven on costs 1 % in ~3 min flat out, ~18 min idling. Neglect. |
+| `engine_life_km` | 140000 | km | SOURCED (forum): ~130 000-150 000+ km before major work for an engine of this era; the midpoint. (The IMS bearing is a separate failure mode of the 986's engine, not wear, and not modelled.) The engine's metres are its own: its revolutions in top-gear metres (`TOP_GEAR_M_PER_RAD`, the wheel's radius over the top ratio times the final drive, 0.090 m a radian - derived, not a key): in top gear, locked, exactly the road's; in 2nd at the same speed twice them; idling, 31 km/h of them (an hour's idle ~31 km of the engine's life; the fleet rule of thumb has 25-30 miles). 1 % per 1400 km of gentle driving in top gear. |
+| `engine_flat_out` | 6 | x | ESTIMATE (range 2-10x, unknown precisely): sustained full throttle is ~2-10 x a gentle cruise's wear per km; the midpoint. The style is 1 + (this - 1) x the load share squared (the load the clutch takes off the crank over the curve's peak): the square is an estimate of the shape too - wear climbs steeply towards full load (combustion pressure and oil-film temperature both rise with it) and a light cruise, a tenth of the peak on the crank (0.15 in 5th at 72 km/h, measured), is 1.11 by it, which is what the rated life means; a straight line would make that cruise 1.7x. 8 s flat out from rest is 1627 m of the engine's life for 133 m of road, a style of 12 (the low gears' revolutions and the load together). |
+| `engine_abuse` | 10 | x | ESTIMATE (the old model's, kept): over the overheat line every revolution counts at full load (x6) and ten times over - an overheated engine driven on costs 1 % in ~7 min flat out, ~50 min idling. Neglect. |
 | `engine_floor` | 0.85 | share | Rings and bores gone, compression down; it runs: 97 km/h after the same 8 s flat out where the new engine reaches 106 (measured). |
 
 Not a car's number, and not in the table: `WEAR_EFFECT_STEP` (0.01), the resolution
