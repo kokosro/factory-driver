@@ -28,6 +28,10 @@ extends RefCounted
 ## FD_TELEMETRY=1 asks for it.
 ## The car does the asking (enabled()); the functions here do as they are told,
 ## to whatever path, so the tests can try them on a file of their own.
+## WHERE user:// IS: every read and write goes through DataDir.resolve, so a
+## user:// path lands in the data folder chosen for this run (FD_DATA_DIR or
+## the garage's SETTINGS page, scripts/data_dir.gd) and any other path is
+## itself - a test's file of its own is read and written where it says.
 # was the odometers alone -> the fuel level beside them (fuel_l): it is the
 # user's car, and a tank driven half empty one day is half empty the next.
 # was odometer and fuel -> the dashboard with them (driver): the switches, the
@@ -535,7 +539,13 @@ static func _save_fields(car_id: String, fields: Dictionary, path: String) -> vo
 	cars[car_id] = entry
 	stored["version"] = VERSION
 	stored["cars"] = cars
-	var file := FileAccess.open(path, FileAccess.WRITE)
+	# was FileAccess.open(path, ...) -> the path as DataDir resolves it: a
+	# user:// path goes to the data folder in use (its folder made if it is
+	# new), any other path is itself.
+	var on_disk := DataDir.resolve(path)
+	if on_disk != path:
+		DirAccess.make_dir_recursive_absolute(on_disk.get_base_dir())
+	var file := FileAccess.open(on_disk, FileAccess.WRITE)
 	if file == null:
 		return
 	# Full precision: an odometer is read to the metre after a million of them,
@@ -545,10 +555,12 @@ static func _save_fields(car_id: String, fields: Dictionary, path: String) -> vo
 
 
 ## What the file holds, empty when there is none or it is not a dictionary.
+## `path` as DataDir resolves it (see the header).
 static func _read(path: String) -> Dictionary:
-	if not FileAccess.file_exists(path):
+	var on_disk := DataDir.resolve(path)
+	if not FileAccess.file_exists(on_disk):
 		return {}
-	var value: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	var value: Variant = JSON.parse_string(FileAccess.get_file_as_string(on_disk))
 	return value if value is Dictionary else {}
 
 

@@ -48,7 +48,10 @@ const TICK_SECONDS := 1.0 / 60.0
 const SESSIONS_KEPT := 20
 
 ## Everything this node writes lives under here, and nothing outside it is ever
-## touched.
+## touched. Named under user:// as ever; where that is on disk for this run
+## is DataDir's (scripts/data_dir.gd: FD_DATA_DIR or the garage's SETTINGS
+## page), and every open, listing and removal below goes through
+## DataDir.resolve - a test's fixed path (record_to_file) is itself.
 const ROOT_DIR := "user://telemetry"
 const INDEX_PATH := "user://telemetry/index.json"
 
@@ -360,9 +363,10 @@ func _note_run(test: Dictionary, outcome: Dictionary, run_time: float, medal: St
 ##   }
 ## Times are seconds; best_time_s is 0 for a test that has never been passed.
 static func load_index() -> Dictionary:
-	if not FileAccess.file_exists(INDEX_PATH):
+	var index_on_disk := DataDir.resolve(INDEX_PATH)
+	if not FileAccess.file_exists(index_on_disk):
 		return {}
-	var value: Variant = JSON.parse_string(FileAccess.get_file_as_string(INDEX_PATH))
+	var value: Variant = JSON.parse_string(FileAccess.get_file_as_string(index_on_disk))
 	if not value is Dictionary:
 		return {}
 	# JSON knows one kind of number: the counts come back as 25.0 and would be
@@ -451,25 +455,25 @@ func _file_path(context: String) -> String:
 	var day := "%04d-%02d-%02d" % [now.year, now.month, now.day]
 	var file_name := "%04d_%02d%02d%02d_%s.jsonl" % [_session_id, now.hour, now.minute, now.second, context]
 	var dir := ROOT_DIR.path_join(day)
-	DirAccess.make_dir_recursive_absolute(dir)
+	DirAccess.make_dir_recursive_absolute(DataDir.resolve(dir))
 	return dir.path_join(file_name)
 
 
 ## The same path with a number added if something is already there (two runs
 ## started inside the same second), so a file is never written over.
 func _unique_path(path: String) -> String:
-	if not FileAccess.file_exists(path):
+	if not FileAccess.file_exists(DataDir.resolve(path)):
 		return path
 	var stem := path.trim_suffix(".jsonl")
 	for attempt in range(2, 100):
 		var candidate := "%s_%d.jsonl" % [stem, attempt]
-		if not FileAccess.file_exists(candidate):
+		if not FileAccess.file_exists(DataDir.resolve(candidate)):
 			return candidate
 	return path
 
 
 func _open(path: String) -> FileAccess:
-	return FileAccess.open(path, FileAccess.WRITE)
+	return FileAccess.open(DataDir.resolve(path), FileAccess.WRITE)
 
 
 ## One line into a file, flushed as it goes: a game that is closed mid-drive
@@ -487,8 +491,8 @@ func _close(file: FileAccess) -> void:
 
 
 func _save_index() -> void:
-	DirAccess.make_dir_recursive_absolute(ROOT_DIR)
-	var file := FileAccess.open(INDEX_PATH, FileAccess.WRITE)
+	DirAccess.make_dir_recursive_absolute(DataDir.resolve(ROOT_DIR))
+	var file := FileAccess.open(DataDir.resolve(INDEX_PATH), FileAccess.WRITE)
 	if file == null:
 		return
 	file.store_string(JSON.stringify(index, "  "))
@@ -502,13 +506,14 @@ func _prune_sessions(kept: Array) -> void:
 	# Nothing recorded yet, nothing to prune. (Asking for the contents of a
 	# folder that is not there is an engine error, and errors are what the test
 	# suite fails on.)
-	if not DirAccess.dir_exists_absolute(ROOT_DIR):
+	var root_on_disk := DataDir.resolve(ROOT_DIR)
+	if not DirAccess.dir_exists_absolute(root_on_disk):
 		return
 	var keep := {}
 	for id: Variant in kept:
 		keep[int(id)] = true
-	for day in DirAccess.get_directories_at(ROOT_DIR):
-		var dir := ROOT_DIR.path_join(day)
+	for day in DirAccess.get_directories_at(root_on_disk):
+		var dir := root_on_disk.path_join(day)
 		for file_name in DirAccess.get_files_at(dir):
 			if not file_name.ends_with(".jsonl") or not file_name.substr(0, 4).is_valid_int():
 				continue
