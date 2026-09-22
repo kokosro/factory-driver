@@ -178,6 +178,7 @@ func _check_suite_gate(car: ArcadeCar) -> void:
 ## what the pre-thermal burn line gives, and the warm idle stands at IDLE_RPM.
 func _check_certified_untouched(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning); this check's premise is the warm fresh car.
@@ -228,6 +229,7 @@ func _check_cold_burn(car: ArcadeCar) -> void:
 	var at_warm := car.fuel_richness()
 	car.coolant_temp = ArcadeCar.coolant_temp_of_c((ArcadeCar.COOLANT_WARM_C + ArcadeCar.COOLANT_AMBIENT_C) / 2.0)
 	var halfway := car.fuel_richness()
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	_check(
@@ -251,6 +253,7 @@ func _check_warm_up(car: ArcadeCar) -> void:
 	var heat_w: float = cruise.power_w / ArcadeCar.FUEL_BURN_EFFICIENCY * ArcadeCar.COOLANT_HEAT_SHARE
 	var warm_line := ArcadeCar.coolant_temp_of_c(ArcadeCar.COOLANT_WARM_C)
 	var thermostat := ArcadeCar.coolant_temp_of_c(ArcadeCar.THERMOSTAT_C)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	car.coolant_temp = 0.0
 	car.coolant_fan_on = false
@@ -275,6 +278,7 @@ func _check_warm_up(car: ArcadeCar) -> void:
 	var settled_c := ArcadeCar.coolant_c_of(settled)
 	var warm_minutes := warm_tick * tick / 60.0
 	var thermostat_minutes := thermostat_tick * tick / 60.0
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was car.coolant_temp == 1.0, "a reset is the warm car again" -> the reset
 	# leaves the coolant where the cruise settled it (the user's report,
@@ -293,6 +297,7 @@ func _check_warm_up(car: ArcadeCar) -> void:
 ## over the lump's capacity - the model is wired to the engine.
 func _check_warming_in_the_scene(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning), and the model warm-up before this leaves
@@ -321,6 +326,7 @@ func _check_warming_in_the_scene(car: ArcadeCar) -> void:
 		never_cools and rise > 0.0 and is_equal_approx(rise, expected) and fan_stayed_off and car.speed_kmh > 50.0,
 		"scene: driven flat out from the air's temperature for %.0f s the coolant warms by %.1f K without a dip (%.0f kJ into the lump, %.1f K by the capacity), the thermostat shut, the fan off, %.0f km/h at the end" % [WARMING_FRAMES * tick, rise * ArcadeCar.COOLANT_SPAN_K, heat_j / 1000.0, expected * ArcadeCar.COOLANT_SPAN_K, car.speed_kmh],
 	)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 
@@ -360,6 +366,7 @@ func _check_overheat(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	var rpm := ArcadeCar.TORQUE_CURVE[3].x
 	var friction := ArcadeCar.ENGINE_FRICTION_TORQUE + ArcadeCar.ENGINE_FRICTION_TORQUE_PER_RPM * rpm
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	var warm_torque := car._combustion_torque(rpm, 1.0, 0.0)
@@ -386,6 +393,7 @@ func _check_overheat(car: ArcadeCar) -> void:
 	# And driven: the hot car is slower off the line than the warm one.
 	var warm_drive := await _flat_out(car, 1.0, FADE_DRIVE_FRAMES)
 	var hot_drive := await _flat_out(car, ArcadeCar.coolant_temp_of_c(HOT_C), FADE_DRIVE_FRAMES)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	_check(
@@ -405,6 +413,7 @@ func _check_fan(car: ArcadeCar) -> void:
 	var at_speed_off := ArcadeCar.coolant_cooling_w(hot, CRUISE_SPEED, false)
 	var at_speed_on := ArcadeCar.coolant_cooling_w(hot, CRUISE_SPEED, true)
 	var fan_expected := ArcadeCar.COOLANT_RADIATOR_COOLING * ArcadeCar.COOLANT_FAN_AIRFLOW * ArcadeCar.COOLANT_FAN_AIRFLOW * (ArcadeCar.COOLANT_FAN_ON_C - ArcadeCar.COOLANT_AMBIENT_C)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning), and the overheat check before this one
@@ -431,6 +440,7 @@ func _check_fan(car: ArcadeCar) -> void:
 	car.coolant_temp = ArcadeCar.coolant_temp_of_c(ArcadeCar.COOLANT_FAN_OFF_C) - 0.01
 	await _step(1)
 	var went_off := not car.coolant_fan_on
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	_check(
@@ -446,6 +456,7 @@ func _check_fan(car: ArcadeCar) -> void:
 ## IDLE_RPM, its target exactly IDLE_RPM on every tick.
 func _check_cold_idle(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning); the warm idle is measured on the warm car.
@@ -476,6 +487,7 @@ func _check_cold_idle(car: ArcadeCar) -> void:
 	var band := ArcadeCar.IDLE_WOBBLE_RPM
 	var in_band := cold_low >= ArcadeCar.IDLE_RPM - band - IDLE_HUNT_SLACK and cold_high <= ArcadeCar.IDLE_RPM + band + IDLE_HUNT_SLACK \
 		and target_low >= ArcadeCar.IDLE_RPM - band and target_high <= ArcadeCar.IDLE_RPM + band and target_low < ArcadeCar.IDLE_RPM and target_high > ArcadeCar.IDLE_RPM
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	_check(
@@ -492,6 +504,7 @@ func _check_cold_idle(car: ArcadeCar) -> void:
 func _check_hud_bar(car: ArcadeCar, hud: HUD, bar: ColorRect) -> void:
 	var fuel_bar := hud.get_node("FuelBarBack/FuelBar") as ColorRect
 	var battery_bar := hud.get_node("BatteryBarBack/BatteryBar") as ColorRect
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning), and the cold idle check leaves the engine
@@ -522,6 +535,7 @@ func _check_hud_bar(car: ArcadeCar, hud: HUD, bar: ColorRect) -> void:
 		and is_equal_approx(HUD.COOLANT_HOT_FRACTION, ArcadeCar.coolant_temp_of_c(ArcadeCar.OVERHEAT_FADE_START_C)) \
 		and HUD.COOLANT_HOT_FRACTION < HUD.COOLANT_VERY_HOT_FRACTION and HUD.COOLANT_VERY_HOT_FRACTION < HUD.COOLANT_BAR_FULL \
 		and HUD.COOLANT_BAR_FULL <= ArcadeCar.COOLANT_MAX_TEMP
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(2)
 	# was bar.color == HUD.COOLANT_COLOR, "it is the car's again after a
@@ -551,6 +565,7 @@ func _check_reset_keeps_heat(car: ArcadeCar) -> void:
 	var capacity := ArcadeCar.COOLANT_HEAT_CAPACITY * ArcadeCar.COOLANT_SPAN_K
 	var warm_line := ArcadeCar.coolant_temp_of_c(ArcadeCar.COOLANT_WARM_C)
 	# Cold: the engine at the air's temperature for a tick, then the reset.
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	_fresh_heat(car)
 	await _step(5)
@@ -558,6 +573,7 @@ func _check_reset_keeps_heat(car: ArcadeCar) -> void:
 	await _step(1)
 	var cold_before := car.coolant_temp
 	var cold_fan_before := car.coolant_fan_on
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	var cold_kept := car.coolant_temp == cold_before and car.coolant_fan_on == cold_fan_before and not cold_fan_before
 	await _step(SETTLE_FRAMES)
@@ -569,6 +585,7 @@ func _check_reset_keeps_heat(car: ArcadeCar) -> void:
 	await _step(1)
 	var hot_before := car.coolant_temp
 	var hot_fan_before := car.coolant_fan_on
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	var hot_kept := car.coolant_temp == hot_before and car.coolant_fan_on == hot_fan_before and hot_fan_before
 	var wired := true
@@ -589,6 +606,7 @@ func _check_reset_keeps_heat(car: ArcadeCar) -> void:
 	car.coolant_temp = ArcadeCar.coolant_temp_of_c(ArcadeCar.COOLANT_FAN_OFF_C + 1.0)
 	await _step(1)
 	var over_before := car.coolant_temp
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	var over_kept := car.coolant_temp == over_before and car.coolant_fan_on
 	var off_tick := -1
@@ -602,6 +620,7 @@ func _check_reset_keeps_heat(car: ArcadeCar) -> void:
 			under_line_when_off = not was_over
 			break
 		on_until_off = on_until_off and was_over
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	_fresh_heat(car)
 	await _step(5)
@@ -626,6 +645,7 @@ func _check_no_nan(car: ArcadeCar) -> void:
 	car._advance_coolant(NAN, 0.0, tick)
 	var nan_heat := car.coolant_temp == 1.0
 	# The limiter in neutral, flat out.
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	car.automatic = false
@@ -639,12 +659,14 @@ func _check_no_nan(car: ArcadeCar) -> void:
 		limited = limited or car.limiter_cutting
 	car.clear_driver_input()
 	# A stall on a dry tank, the coolant cold: no burn, no heat, no hunt.
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	car.coolant_temp = 0.0
 	car.fuel_l = 0.0
 	await _step(RUN_DOWN_FRAMES)
 	var stalled := not car.engine_running and car.engine_rpm == 0.0 and car._combustion_heat_w == 0.0
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(2)
 	var finite := is_finite(car.coolant_temp) and is_finite(car.coolant_c()) and is_finite(car.fuel_richness()) and is_finite(car.overheat_fade()) \
@@ -682,6 +704,7 @@ func _cruise_combustion_w(car: ArcadeCar) -> Dictionary:
 ## the automatic: { burnt_l: the litres gone, speed: the road speed at the end
 ## [m/s] }.
 func _flat_out(car: ArcadeCar, temp: float, frames := BURN_FRAMES) -> Dictionary:
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning); the two runs compared are driven on the
@@ -694,6 +717,7 @@ func _flat_out(car: ArcadeCar, temp: float, frames := BURN_FRAMES) -> Dictionary
 	await _step(frames)
 	car.clear_driver_input()
 	var seen := {"burnt_l": fuel_before - car.fuel_l, "speed": car.forward_speed}
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	return seen
@@ -722,8 +746,8 @@ func _fresh_heat(car: ArcadeCar) -> void:
 
 
 ## And the certified fresh car's components, new: the six wear shares and the
-## clutch's slip tracker at 0 - a reset keeps the wear (R refuels, it does not
-## un-wear), what HandlingTests._start sets for a certified run.
+## clutch's slip tracker at 0 - a reset keeps the wear (R does not un-wear),
+## what HandlingTests._start sets for a certified run.
 func _fresh_wear(car: ArcadeCar) -> void:
 	car.clutch_wear = 0.0
 	car.front_brake_wear = 0.0
@@ -732,6 +756,20 @@ func _fresh_wear(car: ArcadeCar) -> void:
 	car.rear_tyre_wear = 0.0
 	car.engine_wear = 0.0
 	car._clutch_slip_w = 0.0
+
+
+## And the certified fresh car's tank: full, its mass with it.
+# was the reset's own (reset_to filled the tank until 3Y) -> set by hand: a
+# reset keeps the fuel (the user's report, 2026-09-22 12:55: "resetting the
+# car MUST NOT refuel ... tests must not affect the game"), and every check
+# here was measured on the full tank - the kerb mass everything was tuned
+# with. What reset_to set until then, and what HandlingTests._start sets for
+# a certified run. Called before every reset here: the reset stands the car
+# on its springs by its mass (_settle_suspension reads total_mass()) and
+# keeps the tank it finds. A check that wants a dry tank empties it after.
+func _fresh_fuel(car: ArcadeCar) -> void:
+	car.fuel_l = ArcadeCar.FUEL_TANK_CAPACITY_L
+	car.fuel_mass = car.fuel_l * ArcadeCar.FUEL_DENSITY
 
 
 func _step(frames: int) -> void:

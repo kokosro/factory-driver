@@ -29,7 +29,7 @@ extends SceneTree
 ## without them is a new car's and rounds through untouched, what is no
 ## share of a life is refused with the reason naming the car and the field,
 ## and a car that loads worn components starts with them. Then the reset: it
-## keeps the wear to the bit (R refuels, it does not un-wear) and tells the
+## keeps the wear to the bit (R does not un-wear) and tells the
 ## file nothing; a handling test's start hands out the new car. Last, nothing
 ## of it is ever NaN.
 ## Exits 0 on success, 1 on any failed check.
@@ -672,6 +672,7 @@ func _check_reset(car: ArcadeCar, pad: TestPad) -> void:
 	await _step(1)
 	var before := _shares(car)
 	var file_before := FileAccess.get_file_as_string(_store_file)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	var kept := _shares(car) == before
 	var worn_after := true
@@ -685,6 +686,7 @@ func _check_reset(car: ArcadeCar, pad: TestPad) -> void:
 	var file_untold := FileAccess.get_file_as_string(_store_file) == file_before and not car._odometer_kept
 	var run := HandlingTests.begin(HandlingTests.all_tests()[0], car, pad)
 	var fresh := run != null and not run.finished and _all_equal(_shares(car), 0.0) and _all_equal(_factors(car), 1.0) and car._clutch_slip_w == 0.0
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	pad.reset_cones()
 	_fresh(car)
@@ -829,9 +831,11 @@ func _all_equal(values: Array[float], to: float) -> bool:
 
 
 ## A reset and the certified fresh car after it: the thermal state by hand (a
-## reset keeps the heat) and the new components (a reset keeps the wear) -
-## what HandlingTests._start sets for a certified run.
+## reset keeps the heat), the new components (a reset keeps the wear) and the
+## full tank (a reset keeps the fuel) - what HandlingTests._start sets for a
+## certified run.
 func _fresh(car: ArcadeCar) -> void:
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	car.coolant_temp = 1.0
 	car.coolant_fan_on = false
@@ -852,6 +856,20 @@ func _fresh(car: ArcadeCar) -> void:
 	car.rear_tyre_wear = 0.0
 	car.engine_wear = 0.0
 	car._clutch_slip_w = 0.0
+
+
+## And the certified fresh car's tank: full, its mass with it.
+# was the reset's own (reset_to filled the tank until 3Y) -> set by hand: a
+# reset keeps the fuel (the user's report, 2026-09-22 12:55: "resetting the
+# car MUST NOT refuel ... tests must not affect the game"), and every check
+# here was measured on the full tank - the kerb mass everything was tuned
+# with. What reset_to set until then, and what HandlingTests._start sets for
+# a certified run. Called before every reset here: the reset stands the car
+# on its springs by its mass (_settle_suspension reads total_mass()) and
+# keeps the tank it finds. A check that wants a dry tank empties it after.
+func _fresh_fuel(car: ArcadeCar) -> void:
+	car.fuel_l = ArcadeCar.FUEL_TANK_CAPACITY_L
+	car.fuel_mass = car.fuel_l * ArcadeCar.FUEL_DENSITY
 
 
 func _step(frames: int) -> void:

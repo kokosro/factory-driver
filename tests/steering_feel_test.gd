@@ -141,6 +141,7 @@ func _check_assist_curve(car: ArcadeCar) -> void:
 	_check(car._steering_assist(NAN) == 1.0, "assist: a NaN road speed is the full hand speed")
 
 	# Parking: the full hand speed, the first tick through the play.
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(10)
 	var parking_ticks := await _ticks_to_lock(car)
@@ -164,6 +165,7 @@ func _check_assist_curve(car: ArcadeCar) -> void:
 	car.set_driver_profile(ArcadeCar.DRIVER_PROFILES["test_driver"])
 	var expected_chauffeur := int(round(highway_ticks * ArcadeCar.STEERING_HAND_SPEED / ArcadeCar.DRIVER_PROFILES["chauffeur"]["steering_hand_speed"]))
 	_check(speed >= HIGHWAY_SPEED and absi(chauffeur_ticks - expected_chauffeur) <= CHAUFFEUR_TICKS_TOLERANCE, "assist: the chauffeur's hands (%.0f degrees a second) take %d ticks from %.0f km/h - the assist multiplies the driver's own hand speed (%d expected, %d either way)" % [ArcadeCar.DRIVER_PROFILES["chauffeur"]["steering_hand_speed"], chauffeur_ticks, speed * 3.6, expected_chauffeur, CHAUFFEUR_TICKS_TOLERANCE])
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 
@@ -172,6 +174,7 @@ func _check_assist_curve(car: ArcadeCar) -> void:
 ## until it is through, a tap back and forth never moves anything, and off
 ## centre there is no play at all.
 func _check_play(car: ArcadeCar) -> void:
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(10)
 	car.set_driver_input(0.0, 0.0, SUB_PLAY_STEER)
@@ -190,6 +193,7 @@ func _check_play(car: ArcadeCar) -> void:
 
 	# A tap: one tick in, one tick back, nothing moves.
 	car.set_driver_input(0.0, 0.0, 0.0)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	car.set_driver_input(0.0, 0.0, TAP_STEER)
@@ -213,6 +217,7 @@ func _check_play(car: ArcadeCar) -> void:
 	_check(is_equal_approx(held, OFF_CENTRE_STEER * ArcadeCar.STEERING_WHEEL_LOCK_DEG) and is_equal_approx(moved, asked) and car._steering_play_deg == 0.0, "play: off centre (%.0f degrees) the same %.2f degrees asked for is on the wheel the next tick, no play (%.2f)" % [held, asked, moved])
 	car.set_driver_input(0.0, 0.0, 0.0)
 	car.clear_driver_input()
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 
@@ -243,6 +248,7 @@ func _check_compliance(car: ArcadeCar) -> void:
 	_check(trailing and largest_trail > COMPLIANCE_MIN_TRAIL and largest_trail < COMPLIANCE_MAX_TRAIL, "bushings: from %.1f m/s the wheels trail the rack on every tick, never lead it, by %.4f rad at most (%.1f degrees; %.2f .. %.2f)" % [COMPLIANCE_SPEED, largest_trail, rad_to_deg(largest_trail), COMPLIANCE_MIN_TRAIL, COMPLIANCE_MAX_TRAIL])
 	_check(rack_tick == PARKING_TICKS_TO_LOCK and wheels_tick - rack_tick >= COMPLIANCE_MIN_LANDING_TICKS and wheels_tick - rack_tick <= COMPLIANCE_MAX_LANDING_TICKS, "bushings: the rack is at full lock on tick %d, the wheels stand on it to the bit %d ticks later (tick %d; %d .. %d)" % [rack_tick, wheels_tick - rack_tick, wheels_tick, COMPLIANCE_MIN_LANDING_TICKS, COMPLIANCE_MAX_LANDING_TICKS])
 	_check(tau_at_lock > ArcadeCar.STEERING_COMPLIANCE_TAU_MIN and tau_at_lock <= ArcadeCar.STEERING_COMPLIANCE_TAU_MAX, "bushings: at full lock at speed the front tyres are loaded and the time constant is up to %.4f s (%.3f .. %.3f)" % [tau_at_lock, ArcadeCar.STEERING_COMPLIANCE_TAU_MIN, ArcadeCar.STEERING_COMPLIANCE_TAU_MAX])
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 
@@ -276,6 +282,7 @@ func _check_steady_corner(car: ArcadeCar) -> void:
 		_check(absf(yaw_share - 1.0) < STEADY_YAW_TOLERANCE and absf(accel_share - 1.0) < STEADY_ACCEL_TOLERANCE, "corner from %.0f m/s: ... the yaw rate is the rigid rack's (%.4f rad/s, %.2f %% off) and so is the sideways acceleration (%.4f m/s^2, %.2f %% off)" % [corner.speed, car.yaw_rate, (yaw_share - 1.0) * 100.0, car.lateral_accel, (accel_share - 1.0) * 100.0])
 		_check(absf(radius_share - 1.0) < STEADY_RADIUS_TOLERANCE, "corner from %.0f m/s: ... and the mean radius within %.0f %% of it (%.2f m against %.2f, %.1f %% off)" % [corner.speed, STEADY_RADIUS_TOLERANCE * 100.0, radius, corner.radius, (radius_share - 1.0) * 100.0])
 		_check(wheel_tick_3 < corner.wheel_tick_3 * TRANSIENT_MAX_SHARE and accel_tick_1 < corner.accel_tick_1 * TRANSIENT_MAX_SHARE and wheel_tick_3 > 0.0 and accel_tick_1 > 0.0, "corner from %.0f m/s: the way in is softer - %.4f rad on the wheels on tick 3 (the rigid rack's %.4f) and %.3f m/s^2 sideways on tick 1 (%.3f)" % [corner.speed, wheel_tick_3, corner.wheel_tick_3, accel_tick_1, corner.accel_tick_1])
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 
@@ -283,6 +290,7 @@ func _check_steady_corner(car: ArcadeCar) -> void:
 ## Nothing new makes a NaN: NaN input, and every new state finite after all
 ## of the above.
 func _check_no_nan(car: ArcadeCar) -> void:
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	car.set_driver_input(NAN, NAN, NAN)
@@ -295,6 +303,7 @@ func _check_no_nan(car: ArcadeCar) -> void:
 	await _step(30)
 	var finite := is_finite(car.steering_wheel_deg) and is_finite(car.rack_angle) and is_finite(car.wheel_angle) and is_finite(car._steering_play_deg) and is_finite(car._front_lateral_load) and is_finite(car._steering_compliance_tau())
 	_check(quiet and finite and car.wheel_angle == 0.0, "no NaN: NaN steering asked for is none, and after a full lock and back every steering state is finite and the wheels are at centre (play %.2f, load %.3f, tau %.3f)" % [car._steering_play_deg, car._front_lateral_load, car._steering_compliance_tau()])
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 
@@ -326,6 +335,7 @@ func _first_tick_of_lock(car: ArcadeCar) -> float:
 ## Resets the car and accelerates it in a straight line to `speed`, then
 ## lifts; returns the speed it got to [m/s].
 func _reach_speed(car: ArcadeCar, speed: float) -> float:
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning), and the steady corners are compared against
@@ -365,8 +375,8 @@ func _fresh_heat(car: ArcadeCar) -> void:
 
 
 ## And the certified fresh car's components, new: the six wear shares and the
-## clutch's slip tracker at 0 - a reset keeps the wear (R refuels, it does not
-## un-wear), what HandlingTests._start sets for a certified run.
+## clutch's slip tracker at 0 - a reset keeps the wear (R does not un-wear),
+## what HandlingTests._start sets for a certified run.
 func _fresh_wear(car: ArcadeCar) -> void:
 	car.clutch_wear = 0.0
 	car.front_brake_wear = 0.0
@@ -375,6 +385,20 @@ func _fresh_wear(car: ArcadeCar) -> void:
 	car.rear_tyre_wear = 0.0
 	car.engine_wear = 0.0
 	car._clutch_slip_w = 0.0
+
+
+## And the certified fresh car's tank: full, its mass with it.
+# was the reset's own (reset_to filled the tank until 3Y) -> set by hand: a
+# reset keeps the fuel (the user's report, 2026-09-22 12:55: "resetting the
+# car MUST NOT refuel ... tests must not affect the game"), and every check
+# here was measured on the full tank - the kerb mass everything was tuned
+# with. What reset_to set until then, and what HandlingTests._start sets for
+# a certified run. Called before every reset here: the reset stands the car
+# on its springs by its mass (_settle_suspension reads total_mass()) and
+# keeps the tank it finds. A check that wants a dry tank empties it after.
+func _fresh_fuel(car: ArcadeCar) -> void:
+	car.fuel_l = ArcadeCar.FUEL_TANK_CAPACITY_L
+	car.fuel_mass = car.fuel_l * ArcadeCar.FUEL_DENSITY
 
 
 func _step(frames: int) -> void:

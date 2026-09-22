@@ -183,6 +183,7 @@ func _check_suite_gate(car: ArcadeCar) -> void:
 func _check_alternator(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	var capacity := ArcadeCar.BATTERY_CAPACITY_J
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(SETTLE_FRAMES)
 	var full_stays := car.battery_charge == 1.0 and car.engine_running
@@ -218,6 +219,7 @@ func _check_alternator(car: ArcadeCar) -> void:
 		car.gear == 0 and lowest_rpm >= ArcadeCar.ALTERNATOR_RATED_RPM and absf(fast_gain / fast_expected - 1.0) < CHARGE_RATE_TOLERANCE and fast_gain > 4.0 * idle_gain,
 		"alternator: at the limiter in neutral (never under %.0f rpm) it charges by %.1f J in the same second - the rated %.1f J, %.1f times the idle's: little at idle, more at speed" % [lowest_rpm, fast_gain * capacity, fast_expected * capacity, fast_gain / idle_gain],
 	)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 
@@ -260,6 +262,7 @@ func _check_crank_draw_and_sag(car: ArcadeCar, bar: ColorRect) -> void:
 		sagging and strictly_down and samples[samples.size() - 1] < bar_before,
 		"HUD: through the crank the battery bar sags tick by tick, every tick lower than the last (%d ticks sampled, %.6f down to %.6f), each the car's own charge" % [samples.size(), bar_before, samples[samples.size() - 1]],
 	)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 
@@ -307,6 +310,7 @@ func _check_weak_battery(car: ArcadeCar) -> void:
 		worn.caught and worn_full == 1.0 - WORN_WEAR and worn.ticks > full.ticks + 3 and worn.early_rpm < full.early_rpm,
 		"worn: a battery that has lost %.0f %% fills to %.0f %% and, full, cranks slower than a new one (%.0f rpm %d ticks in, caught after %d ticks; new %.0f rpm, %d ticks)" % [WORN_WEAR * 100.0, worn_full * 100.0, worn.early_rpm, CRANK_EARLY_TICK, worn.ticks, full.early_rpm, full.ticks],
 	)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 
@@ -356,6 +360,7 @@ func _check_deep_discharge(car: ArcadeCar) -> void:
 	var bounded := car.battery_wear == ArcadeCar.BATTERY_WEAR_LIMIT and car.battery_charge <= 1.0 - ArcadeCar.BATTERY_WEAR_LIMIT
 	car.battery_charge = 1.0
 	_check(bounded and car.battery_charge == 1.0 - ArcadeCar.BATTERY_WEAR_LIMIT and car.battery_capacity_j() > 0.0, "wear: bounded at %.0f %% - a battery that far gone fills to %.0f %% and still has a capacity to hold it against (%.0f J)" % [ArcadeCar.BATTERY_WEAR_LIMIT * 100.0, car.battery_charge * 100.0, car.battery_capacity_j()])
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 
@@ -472,6 +477,7 @@ func _check_store(car: ArcadeCar, bar: ColorRect) -> void:
 	# the charge held under what the wear leaves, the bar red. And a reset is a
 	# new battery - the debug verb it always was - without a word to the file.
 	OdometerStore.save_car(ArcadeCar.CAR_ID, 1000.0, 30.0, _store_file, {}, STORE_FLAT_BATTERY)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	car._load_stored_battery(_store_file)
 	var loaded_charge := car.battery_charge
@@ -484,6 +490,7 @@ func _check_store(car: ArcadeCar, bar: ColorRect) -> void:
 	var file_before := FileAccess.get_file_as_string(_store_file)
 	car._load_stored_battery(_store_file)
 	var trimmed := car.battery_charge == 0.75 and car.battery_wear == 0.25
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	_check(
@@ -508,6 +515,7 @@ func _check_no_nan(car: ArcadeCar) -> void:
 	var inf_charge := car.battery_charge == 1.0
 	car.battery_charge = -INF
 	var neg_inf_charge := car.battery_charge == 0.0
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(2)
 	var finite := is_finite(car.battery_charge) and is_finite(car.battery_wear) and is_finite(car.battery_cranking_strength()) and is_finite(car.battery_capacity_j()) and is_finite(ArcadeCar.alternator_power(car.engine_rpm))
@@ -518,6 +526,7 @@ func _check_no_nan(car: ArcadeCar) -> void:
 ## run down), then refuels: a stopped engine with fuel, which only the starter
 ## turns. Returns whether it stands at 0 rpm, not running, not cranking.
 func _stall(car: ArcadeCar) -> bool:
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	car.fuel_l = 0.0
@@ -592,3 +601,17 @@ func _finish() -> void:
 	else:
 		printerr("BATTERY TEST FAILED: %d check(s) failed" % _failures)
 	quit(1 if _failures > 0 else 0)
+
+
+## And the certified fresh car's tank: full, its mass with it.
+# was the reset's own (reset_to filled the tank until 3Y) -> set by hand: a
+# reset keeps the fuel (the user's report, 2026-09-22 12:55: "resetting the
+# car MUST NOT refuel ... tests must not affect the game"), and every check
+# here was measured on the full tank - the kerb mass everything was tuned
+# with. What reset_to set until then, and what HandlingTests._start sets for
+# a certified run. Called before every reset here: the reset stands the car
+# on its springs by its mass (_settle_suspension reads total_mass()) and
+# keeps the tank it finds. A check that wants a dry tank empties it after.
+func _fresh_fuel(car: ArcadeCar) -> void:
+	car.fuel_l = ArcadeCar.FUEL_TANK_CAPACITY_L
+	car.fuel_mass = car.fuel_l * ArcadeCar.FUEL_DENSITY

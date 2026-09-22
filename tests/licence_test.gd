@@ -256,6 +256,7 @@ func _check_ramp() -> void:
 ## CLUTCH_HOLD_FRAMES in manual, the pedal moves or stays at 0; tapped, a
 ## switch flips or stays, and the hint shows when refused.
 func _check_gate(label: String, licensed: bool) -> void:
+	_fresh_fuel(_car)
 	_car.reset_to_spawn()
 	await _step(5)
 	_car.automatic = false
@@ -383,6 +384,13 @@ func _drive_sitting(pilot_for: Callable) -> Dictionary:
 func _sit_l0() -> void:
 	print("-- the L0 sitting")
 	await _tap(LicenceManager.ACTION_BOOK)
+	# The sitting is sat on the debug car's full tank, handed by the test
+	# before the key: an element's start resets the car and the reset keeps
+	# the fuel (the user's report, 2026-09-22 12:55), so the elements after
+	# the first run on what the ones before them left - a sitting does not
+	# refuel between elements, that is the game's rule; the hill start's
+	# numbers are read on that tank.
+	_fresh_fuel(_car)
 	await _tap(LicenceManager.ACTION_SIT_L0)
 	_check(_manager.is_running() and _manager.exam == LicenceExams.EXAM_L0 and _manager.element_index == 0 and not _manager.book_open, "1 in the book starts the L0 sitting at the theory, the book closes")
 	_check(_missions.start_keys_locked and not _missions.is_running(), "the number keys are the sitting's (the theory's answers), no handling test starts")
@@ -436,6 +444,7 @@ func _sit_l0() -> void:
 func _sit_stalling_retake() -> void:
 	print("-- a retake that stalls on the hill")
 	await _tap(LicenceManager.ACTION_BOOK)
+	_fresh_fuel(_car)
 	await _tap(LicenceManager.ACTION_SIT_L0)
 	_check(_manager.is_running() and _manager.element_index == 0, "a retake is a new sitting from the theory")
 	var seen := await _drive_sitting(func(element: Dictionary) -> Dictionary:
@@ -470,6 +479,7 @@ func _sit_stalling_retake() -> void:
 func _sit_wrong_answer() -> void:
 	print("-- a retake with a wrong answer")
 	await _tap(LicenceManager.ACTION_BOOK)
+	_fresh_fuel(_car)
 	await _tap(LicenceManager.ACTION_SIT_L0)
 	var first: Dictionary = LicenceExams.quiz_questions()[0]
 	var wrong: int = 1 if first.correct != 1 else 2
@@ -509,8 +519,10 @@ func _check_roll_back_failure() -> void:
 	)
 
 
-## One element on its own, scripted, to its verdict.
+## One element on its own, scripted, to its verdict - on the full tank, handed
+## before the element's own reset (which keeps the tank it finds).
 func _play_element(element: Dictionary) -> Dictionary:
+	_fresh_fuel(_car)
 	var run := LicenceExams.begin(element, _car, _pad, true)
 	var delta := 1.0 / Engine.physics_ticks_per_second
 	var frames := 0
@@ -530,6 +542,7 @@ func _play_element(element: Dictionary) -> Dictionary:
 func _sit_skid_pad() -> void:
 	print("-- the skid pad test")
 	await _tap(LicenceManager.ACTION_BOOK)
+	_fresh_fuel(_car)
 	await _tap(LicenceManager.ACTION_SIT_SKID_PAD)
 	_check(_manager.is_running() and _manager.exam == LicenceExams.EXAM_SKID_PAD and _manager.elements.size() == 1, "2 in the book starts the skid pad test")
 	var seen := await _drive_sitting(func(element: Dictionary) -> Dictionary: return element)
@@ -664,3 +677,17 @@ func _finish() -> void:
 	else:
 		print("LICENCE TEST FAILED: %d check(s) failed" % _failures)
 	quit(1 if _failures > 0 else 0)
+
+
+## And the certified fresh car's tank: full, its mass with it.
+# was the reset's own (reset_to filled the tank until 3Y) -> set by hand: a
+# reset keeps the fuel (the user's report, 2026-09-22 12:55: "resetting the
+# car MUST NOT refuel ... tests must not affect the game"), and every check
+# here was measured on the full tank - the kerb mass everything was tuned
+# with. What reset_to set until then, and what HandlingTests._start sets for
+# a certified run. Called before every reset here: the reset stands the car
+# on its springs by its mass (_settle_suspension reads total_mass()) and
+# keeps the tank it finds. A check that wants a dry tank empties it after.
+func _fresh_fuel(car: ArcadeCar) -> void:
+	car.fuel_l = ArcadeCar.FUEL_TANK_CAPACITY_L
+	car.fuel_mass = car.fuel_l * ArcadeCar.FUEL_DENSITY

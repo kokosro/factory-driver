@@ -106,6 +106,7 @@ func _run() -> void:
 		_check(car.camera_view == camera.mode, "%s: the car remembers the view it is being driven in (%d)" % [expected, car.camera_view])
 
 		# Drive under this view, then judge where the camera sits while moving.
+		_fresh_fuel(car)
 		car.reset_to_spawn()
 		await _step(20)
 		var speed_before := car.forward_speed
@@ -176,6 +177,7 @@ func _check_look_back(camera: Camera3D, car: ArcadeCar) -> void:
 		if from == "cockpit":
 			await _check_head_turned_back(from, camera, car)
 			continue
+		_fresh_fuel(car)
 		car.reset_to_spawn()
 		await _step(20)
 		Input.action_press("look_back")
@@ -222,6 +224,7 @@ func _check_head_turned_back(from: String, camera: Camera3D, car: ArcadeCar) -> 
 	# Reference run, head straight: where the eye is in the car's space at the
 	# two moments the run proper is judged (it trails the accelerating car by a
 	# frame's travel, so it is held against the same frame of the same launch).
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(20)
 	Input.action_press("accelerate")
@@ -232,6 +235,7 @@ func _check_head_turned_back(from: String, camera: Camera3D, car: ArcadeCar) -> 
 	Input.action_release("accelerate")
 	await _step(10)
 
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(20)
 	Input.action_press("accelerate")
@@ -280,6 +284,7 @@ func _check_look_sideways(camera: Camera3D, car: ArcadeCar) -> void:
 			continue
 		var least := LOOK_CHASE_MIN_DEG if from == "chase" else LOOK_COCKPIT_MIN_DEG
 		var most := LOOK_CHASE_MAX_DEG if from == "chase" else LOOK_COCKPIT_MAX_DEG
+		_fresh_fuel(car)
 		car.reset_to_spawn()
 		await _step(20)
 		Input.action_press("accelerate")
@@ -357,6 +362,7 @@ func _check_steering_wheel(camera: Camera3D, car: ArcadeCar) -> void:
 	if not _check(camera.mode_name() == "cockpit" and rims.size() == 1, "steering wheel: the cockpit has one ('%s', %d rims)" % [camera.mode_name(), rims.size()]):
 		return
 	var wheel := rims[0].get_parent() as Node3D
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(20)
 	_check(is_zero_approx(wheel.rotation.y), "steering wheel: centred at rest (%.1f degrees)" % rad_to_deg(wheel.rotation.y))
@@ -422,6 +428,7 @@ func _check_xray(car: ArcadeCar) -> void:
 
 ## Full throttle from the spawn for one second; returns the speed reached [m/s].
 func _launch(car: ArcadeCar) -> float:
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(20)
 	Input.action_press("accelerate")
@@ -505,3 +512,17 @@ func _finish() -> void:
 	else:
 		print("CAMERA TEST FAILED: %d check(s) failed" % _failures)
 	quit(1 if _failures > 0 else 0)
+
+
+## And the certified fresh car's tank: full, its mass with it.
+# was the reset's own (reset_to filled the tank until 3Y) -> set by hand: a
+# reset keeps the fuel (the user's report, 2026-09-22 12:55: "resetting the
+# car MUST NOT refuel ... tests must not affect the game"), and every check
+# here was measured on the full tank - the kerb mass everything was tuned
+# with. What reset_to set until then, and what HandlingTests._start sets for
+# a certified run. Called before every reset here: the reset stands the car
+# on its springs by its mass (_settle_suspension reads total_mass()) and
+# keeps the tank it finds. A check that wants a dry tank empties it after.
+func _fresh_fuel(car: ArcadeCar) -> void:
+	car.fuel_l = ArcadeCar.FUEL_TANK_CAPACITY_L
+	car.fuel_mass = car.fuel_l * ArcadeCar.FUEL_DENSITY

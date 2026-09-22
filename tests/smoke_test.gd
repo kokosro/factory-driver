@@ -27,7 +27,8 @@ extends SceneTree
 ## the car driven through set_driver_input with no key down, and the HUD's
 ## pedal bars. Then what the engine takes and gives and what the car weighs:
 ## the tank (burnt by the work done, a little idling, a lot flat out, nothing on
-## the overrun; a dry tank stops the engine, a reset fills it), the fuel bar,
+## the overrun; a dry tank stops the engine, a reset keeps it dry and keeps a
+## half tank to the bit, the test start hands out the full one), the fuel bar,
 ## the one mass of the car (total_mass(): fuel and payload in it, a payload
 ## slows the car and rides level, a test's payload_kg is loaded at its start),
 ## the exhaust as data (three firings a turn, a flow that follows the throttle)
@@ -1908,6 +1909,7 @@ func _check_course(pad: TestPad, car: ArcadeCar) -> void:
 	# Cones never block: drive straight over the first slalom cone.
 	var cone := slalom[0]
 	var spawn := car.get_spawn_transform()
+	_fresh_fuel(car)
 	car.reset_to(Transform3D(spawn.basis, Vector3(cone.x, spawn.origin.y, cone.z + 40.0)))
 	_fresh_heat(car)
 	pad.reset_cones()
@@ -2065,7 +2067,8 @@ func _check_road_feel(pad: TestPad, car: ArcadeCar) -> void:
 	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
 	_reset_fresh(car)
 	# was ArcadeCar.CAR_MASS x gravity, worked out before the reset -> the weight
-	# of the car as the reset leaves it (total_mass(), the tank full): the static
+	# of the car as the fresh start leaves it (total_mass(), the tank full as
+	# the test hands it - the reset itself keeps the tank): the static
 	# shares are held to the hundredth of a Newton standing (ten ticks of idling
 	# burn 0.0002 N of fuel) and to the bit at the reset further down.
 	var weight := car.total_mass() * gravity
@@ -2138,6 +2141,7 @@ func _check_road_feel(pad: TestPad, car: ArcadeCar) -> void:
 func _check_crest(car: ArcadeCar) -> void:
 	var dip := RoadProfile.TEST_DIP_CENTRE
 	var spawn := car.get_spawn_transform()
+	_fresh_fuel(car)
 	car.reset_to(Transform3D(spawn.basis, Vector3(dip.x, spawn.origin.y, dip.y + CREST_RUN_UP)))
 	_fresh_heat(car)
 	await _step(10)
@@ -2204,6 +2208,7 @@ func _check_suspension(pad: TestPad, car: ArcadeCar) -> void:
 	# Drop test: stood above its ride height and let go, the body falls into
 	# its springs and bounces. Half a period between the first two turning
 	# points of its height.
+	_fresh_fuel(car)
 	car.reset_to(Transform3D(spawn.basis, spawn.origin + Vector3.UP * SUSPENSION_DROP_HEIGHT))
 	_fresh_heat(car)
 	var turning_frames: Array[int] = []
@@ -2583,7 +2588,12 @@ func _check_fuel_and_exhaust(car: ArcadeCar, hud: HUD) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	var capacity := ArcadeCar.FUEL_TANK_CAPACITY_L
 	_reset_fresh(car)
-	_check(car.fuel_l == capacity and car.fuel_fraction() == 1.0, "fuel: a reset car has a full tank (%.1f L of %.0f)" % [car.fuel_l, capacity])
+	# was "fuel: a reset car has a full tank" on car.fuel_l == capacity and
+	# fuel_fraction() == 1.0 alone -> the reset keeps the tank (the user's
+	# report, 2026-09-22 12:55); the full tank is the test start's hand-out
+	# (_fresh_fuel, what HandlingTests._start gives a certified run), litres
+	# and mass agreeing before any tick.
+	_check(car.fuel_l == capacity and car.fuel_fraction() == 1.0 and car.fuel_mass == capacity * ArcadeCar.FUEL_DENSITY, "fuel: the test start hands the fresh car a full tank, litres and mass agreeing (%.1f L of %.0f, %.2f kg)" % [car.fuel_l, capacity, car.fuel_mass])
 
 	# Idling: a little fuel, three firings for every turn of the crankshaft.
 	var turns := 0.0
@@ -2657,7 +2667,8 @@ func _check_fuel_and_exhaust(car: ArcadeCar, hud: HUD) -> void:
 	_check(never_negative and nan_empty and car.fuel_l == capacity and car.fuel_fraction() == 1.0, "fuel: the tank holds 0 .. %.0f L whatever it is handed (-5 and NaN are dry, 1000 is full)" % capacity)
 
 	# Dry: the engine runs down and stays down, throttle or not; nothing goes
-	# negative or NaN; a reset fills the tank and the engine idles again.
+	# negative or NaN; a reset keeps the tank dry, and with fuel handed back
+	# the starter has the engine idling again.
 	_reset_fresh(car)
 	car.fuel_l = 0.0
 	await _step(FUEL_DRY_RUN_DOWN_FRAMES)
@@ -2671,14 +2682,48 @@ func _check_fuel_and_exhaust(car: ArcadeCar, hud: HUD) -> void:
 	_check(stats.finite and finite and car.fuel_l == 0.0 and car.fuel_fraction() == 0.0 and is_finite(car.exhaust_flow) and car.exhaust_flow >= 0.0, "fuel: never negative, no NaN, tank dry or not (%.1f L, flow %.4f)" % [car.fuel_l, car.exhaust_flow])
 	await _step(2)
 	_check(not fuel_bar.visible, "HUD: the fuel bar is empty with the tank")
+	# was car.reset_to(spawn) then refilled := car.fuel_l == capacity, fuel_l =
+	# 1.0, _reset_fresh, "fuel: reset_to and reset_to_spawn fill the tank, and
+	# the engine idles again" (the reset was the refill) -> the reset keeps the
+	# tank dry to the bit (the user's report, 2026-09-22 12:55: resetting is
+	# not refuelling), the engine it puts there running has nothing to burn and
+	# stalls again, and it is the TEST that hands the fuel back - then the
+	# starter catches and the idle controller has it: the 3G starter, unchanged.
+	# The heat is handed out with the reset as everywhere here; the tank is
+	# not - the reset settles the dry car by its dry mass.
 	var spawn := car.get_spawn_transform()
 	car.reset_to(spawn)
+	var kept_dry := car.fuel_l == 0.0 and car.fuel_fraction() == 0.0 and car.fuel_mass == 0.0 and car.exhaust_events == 0.0 and car.engine_running \
+		and car.total_mass() == ArcadeCar.BASE_MASS
 	_fresh_heat(car)
-	var refilled := car.fuel_l == capacity and car.exhaust_events == 0.0
-	car.fuel_l = 1.0
+	await _step(FUEL_DRY_RUN_DOWN_FRAMES)
+	var stalled_again := not car.engine_running and car.engine_rpm == 0.0 and car.fuel_l == 0.0 and car.fuel_mass == 0.0 and not car.cranking()
+	_check(kept_dry and stalled_again, "fuel: a reset keeps the tank dry to the bit (0.0 L and 0.0 kg through reset_to, the car stood on its springs at its dry %.0f kg, no exhaust), and the engine it put there running stalls again within %.0f s (%.0f rpm)" % [ArcadeCar.BASE_MASS, FUEL_DRY_RUN_DOWN_FRAMES * tick, car.engine_rpm])
+	_fresh_fuel(car)
+	var handed_full := car.fuel_l == capacity and car.fuel_fraction() == 1.0 and not car.engine_running
+	await _tap("starter")
+	var caught_at := -1.0
+	for frame in STARTER_WATCH_FRAMES:
+		await physics_frame
+		if caught_at < 0.0 and car.engine_running:
+			caught_at = (frame + 2) * tick
+	await _step(CONTROLS_IDLE_FRAMES)
+	_check(handed_full and caught_at > 0.0 and caught_at < 1.0 and car.engine_running and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < CONTROLS_IDLE_TOLERANCE and car.fuel_l < capacity and car.exhaust_events > 0.0, "fuel: with the tank handed back full by hand the stalled engine stays stalled until the starter, then catches (%.2f s after the tap) and idles again, burning (%.4f of a tank, %.0f rpm)" % [caught_at, car.fuel_fraction(), car.engine_rpm])
+
+	# Half: a reset keeps whatever is in the tank, to the bit, litres and mass,
+	# and the car weighs exactly that - the 3X reset-keeps-heat idiom for the
+	# fuel (the user's report, 2026-09-22 12:55).
+	var half := capacity * 0.5
+	car.fuel_l = half
+	car.fuel_mass = half * ArcadeCar.FUEL_DENSITY
+	car.reset_to_spawn()
+	var half_kept := car.fuel_l == half and car.fuel_mass == half * ArcadeCar.FUEL_DENSITY and car.fuel_fraction() == 0.5 and car.engine_running
+	var weighs_half := car.total_mass() == ArcadeCar.BASE_MASS + half * ArcadeCar.FUEL_DENSITY
+	await _step(5)
+	var burns_on := car.fuel_l < half and car.fuel_l > half - 0.01 and is_equal_approx(car.fuel_mass, car.fuel_l * ArcadeCar.FUEL_DENSITY) and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < 1.0
+	_check(half_kept and weighs_half and burns_on, "fuel: a reset keeps a half tank to the bit - %.1f L and %.2f kg in, the same out of reset_to_spawn, the car weighing %.2f kg with it; the engine put there running idles and burns from that level (%.4f L, %.0f rpm)" % [half, half * ArcadeCar.FUEL_DENSITY, ArcadeCar.BASE_MASS + half * ArcadeCar.FUEL_DENSITY, car.fuel_l, car.engine_rpm])
 	_reset_fresh(car)
 	await _step(5)
-	_check(refilled and car.fuel_fraction() > 0.9999 and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < 1.0 and car.exhaust_events > 0.0, "fuel: reset_to and reset_to_spawn fill the tank, and the engine idles again (%.4f of a tank, %.0f rpm)" % [car.fuel_fraction(), car.engine_rpm])
 
 
 ## The car's config: the file passes, the car runs the certified engine, and
@@ -3838,6 +3883,7 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 	await _step(2)
 	var after_spawn_reset := marks.mark_count
 	marks.lay_mark(Vector3(5.0, 0.0, 5.0), Vector3(5.5, 0.0, 5.0))
+	_fresh_fuel(car)
 	car.reset_to(car.get_spawn_transform().translated(Vector3(3.0, 0.0, 0.0)))
 	_fresh_heat(car)
 	await _step(2)
@@ -4332,6 +4378,7 @@ func _check_odometer(main: Node, car: ArcadeCar) -> void:
 	before = car.odometer_m
 	_reset_fresh(car)
 	var after_spawn_reset := car.odometer_m
+	_fresh_fuel(car)
 	car.reset_to(car.get_spawn_transform().translated(Vector3(30.0, 0.0, -40.0)))
 	_fresh_heat(car)
 	var after_reset_to := car.odometer_m
@@ -4522,8 +4569,12 @@ func _check_fuel_store(hud: HUD, car: ArcadeCar) -> void:
 	)
 
 	# (4) The car that loads a level starts with it, not with a full tank: the
-	# litres, their mass, the red bar. And a reset fills the tank - the debug
-	# verb it always was - without a word to the file.
+	# litres, their mass, the red bar. And a reset keeps that level - without
+	# a word to the file.
+	# was "a reset fills the tank - the debug verb it always was" on
+	# car.fuel_l == capacity after the reset -> the reset keeps the fuel (the
+	# user's report, 2026-09-22 12:55: resetting is not refuelling): the level
+	# the idle left is the level after the reset, to the bit, litres and mass.
 	OdometerStore.save_car(ArcadeCar.CAR_ID, 1000.0, FUEL_STORE_LOW_LEVEL, _odometer_test_file)
 	var file_before := FileAccess.get_file_as_string(_odometer_test_file)
 	_reset_fresh(car)
@@ -4535,11 +4586,15 @@ func _check_fuel_store(hud: HUD, car: ArcadeCar) -> void:
 	var red := fuel_bar.visible and fuel_bar.color == HUD.FUEL_LOW_COLOR and is_equal_approx(fuel_bar.scale.x, car.fuel_fraction())
 	var burning := car.fuel_l < loaded_l and car.fuel_l > loaded_l - 0.01 and car.engine_running
 	var weighs := is_equal_approx(car.total_mass(), ArcadeCar.BASE_MASS + car.fuel_l * ArcadeCar.FUEL_DENSITY)
+	var idled_to_l := car.fuel_l
+	var idled_to_mass := car.fuel_mass
+	car.reset_to_spawn()
+	var reset_kept := car.fuel_l == idled_to_l and car.fuel_mass == idled_to_mass and car.fuel_l < capacity
 	_reset_fresh(car)
 	_check(
 		loaded_l == FUEL_STORE_LOW_LEVEL and loaded_mass == FUEL_STORE_LOW_LEVEL * ArcadeCar.FUEL_DENSITY and red and burning and weighs
-			and car.fuel_l == capacity and FileAccess.get_file_as_string(_odometer_test_file) == file_before and not car._odometer_kept,
-		"fuel store: a car that loads %.1f L starts with %.1f L and %.3f kg of it, not a full tank - the bar red at %.3f, the engine idling on it; a reset fills the tank and the file is not told" % [FUEL_STORE_LOW_LEVEL, loaded_l, loaded_mass, loaded_l / capacity],
+			and reset_kept and FileAccess.get_file_as_string(_odometer_test_file) == file_before and not car._odometer_kept,
+		"fuel store: a car that loads %.1f L starts with %.1f L and %.3f kg of it, not a full tank - the bar red at %.3f, the engine idling on it; a reset keeps the level it idled down to (%.4f L to the bit) and the file is not told" % [FUEL_STORE_LOW_LEVEL, loaded_l, loaded_mass, loaded_l / capacity, idled_to_l],
 	)
 	DirAccess.remove_absolute(_odometer_test_file)
 	await _step(5)
@@ -5107,18 +5162,24 @@ func _drive(car: ArcadeCar, frames: int, stats: Dictionary) -> void:
 		stats.max_load = maxf(stats.max_load, maxf(car.front_load_fraction, car.rear_load_fraction))
 
 
-## A reset and the certified fresh car's thermal state after it: the coolant
-## at operating with the fan off, the tyres at operating, the brakes at the
-## air's, the tick's heat trackers and the idle hunt's phase at 0.
+## A reset and the certified fresh car's state after it: the thermal state
+## (the coolant at operating with the fan off, the tyres at operating, the
+## brakes at the air's, the tick's heat trackers and the idle hunt's phase at
+## 0), the new components and the full tank.
 # was car.reset_to_spawn() alone at every segment's start -> the reset keeps
 # the heat now (the user's report, 2026-09-22 morning: R does not turn back
-# time on temperature), and every segment here was written for the certified
-# fresh car - its numbers to the bit, its two runs of the same corner
-# identical - so the reset that starts a segment is followed by that state,
-# set by hand: what reset_to set until then, and what HandlingTests._start
-# sets for a certified run. The reset checks themselves (the tank, the marks,
+# time on temperature), the wear (the wear-and-aging thought, 07:55) and,
+# since 3Y, the fuel (the user's report, 2026-09-22 12:55: resetting is not
+# refuelling), and every segment here was written for the certified fresh
+# car - its numbers to the bit, its two runs of the same corner identical -
+# so the reset that starts a segment is followed by that state, set by hand:
+# what reset_to set until then, and what HandlingTests._start sets for a
+# certified run. The tank goes in before the reset: the reset stands the car
+# on its springs by its mass (_settle_suspension reads total_mass()) and
+# keeps the tank it finds. The reset checks themselves (the tank, the marks,
 # the odometer) go through the same real reset.
 func _reset_fresh(car: ArcadeCar) -> void:
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	_fresh_heat(car)
 
@@ -5140,8 +5201,8 @@ func _fresh_heat(car: ArcadeCar) -> void:
 
 
 ## And the certified fresh car's components, new: the six wear shares and the
-## clutch's slip tracker at 0 - a reset keeps the wear (R refuels, it does not
-## un-wear), what HandlingTests._start sets for a certified run.
+## clutch's slip tracker at 0 - a reset keeps the wear (R does not un-wear),
+## what HandlingTests._start sets for a certified run.
 func _fresh_wear(car: ArcadeCar) -> void:
 	car.clutch_wear = 0.0
 	car.front_brake_wear = 0.0
@@ -5150,6 +5211,19 @@ func _fresh_wear(car: ArcadeCar) -> void:
 	car.rear_tyre_wear = 0.0
 	car.engine_wear = 0.0
 	car._clutch_slip_w = 0.0
+
+
+## And the certified fresh car's tank: full, its mass with it.
+# was the reset's own (reset_to filled the tank until 3Y) -> set by hand: a
+# reset keeps the fuel (the user's report, 2026-09-22 12:55: "resetting the
+# car MUST NOT refuel ... tests must not affect the game"), and every segment
+# here was measured on the full tank - the kerb mass everything was tuned
+# with. What reset_to set until then, and what HandlingTests._start sets for
+# a certified run - before the reset, which settles the car by its mass and
+# keeps the tank. A segment that wants a dry or a half tank sets it after.
+func _fresh_fuel(car: ArcadeCar) -> void:
+	car.fuel_l = ArcadeCar.FUEL_TANK_CAPACITY_L
+	car.fuel_mass = car.fuel_l * ArcadeCar.FUEL_DENSITY
 
 
 func _step(frames: int) -> void:

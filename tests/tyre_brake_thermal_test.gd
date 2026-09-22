@@ -327,6 +327,7 @@ func _check_certified_runs(car: ArcadeCar, pad: TestPad) -> void:
 			brake_high = run_brake
 			hottest_brake_run = definition.name
 		names += ("" if names == "" else ", ") + "%s %.2f s" % [definition.name, outcome.metrics.run_time_s]
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	pad.reset_cones()
 	await _step(5)
@@ -347,6 +348,7 @@ func _check_certified_runs(car: ArcadeCar, pad: TestPad) -> void:
 ## of either.
 func _check_tyre_heat(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning); the donut starts from operating.
@@ -382,6 +384,7 @@ func _check_tyre_heat(car: ArcadeCar) -> void:
 	car.tcs_on = true
 	car.sc_on = true
 	# The handbrake slide.
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning), and the donut left the rears over the
@@ -413,6 +416,7 @@ func _check_tyre_heat(car: ArcadeCar) -> void:
 	var front_change := car.front_tyre_temp - front_before
 	var slid_kmh := car.speed_kmh
 	car.clear_driver_input()
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	_check(
@@ -436,6 +440,7 @@ func _check_tyre_cooling(car: ArcadeCar) -> void:
 	var at_speed := ArcadeCar.tyre_cooling_w(hot, RECOVERY_CRUISE)
 	var model_ok := is_equal_approx(standing, ArcadeCar.TYRE_COOLING_STILL * over) and is_equal_approx(at_speed, (ArcadeCar.TYRE_COOLING_STILL + ArcadeCar.TYRE_COOLING_AIRFLOW * RECOVERY_CRUISE) * over) \
 		and at_speed > standing and ArcadeCar.tyre_cooling_w(0.0, RECOVERY_CRUISE) == 0.0
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(SETTLE_FRAMES)
 	car.set_driver_input(1.0, 0.0, 0.0)
@@ -456,6 +461,7 @@ func _check_tyre_cooling(car: ArcadeCar) -> void:
 	var fell := (start - car.rear_tyre_temp) * ArcadeCar.TYRE_SPAN_K
 	var speed := car.speed_kmh
 	car.clear_driver_input()
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	_check(
@@ -477,6 +483,7 @@ func _check_warm_up(car: ArcadeCar) -> void:
 	var rear_w := rolling_w * ArcadeCar.REAR_WEIGHT_FRACTION
 	var low := ArcadeCar.tyre_temp_of_c(ArcadeCar.TYRE_WINDOW_LOW_C)
 	var high := ArcadeCar.tyre_temp_of_c(ArcadeCar.TYRE_WINDOW_HIGH_C)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	car.front_tyre_temp = 0.0
 	car.rear_tyre_temp = 0.0
@@ -502,6 +509,7 @@ func _check_warm_up(car: ArcadeCar) -> void:
 	var settled_rear := car.rear_tyre_temp
 	var front_minutes := front_tick * tick / 60.0
 	var rear_minutes := rear_tick * tick / 60.0
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was car.front_tyre_temp == 1.0 and car.rear_tyre_temp == 1.0, "a reset
 	# is the warm tyres again" -> the reset leaves the tyres where the cruise
@@ -524,6 +532,7 @@ func _check_warm_up(car: ArcadeCar) -> void:
 func _check_mixed_driving(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	var low := ArcadeCar.tyre_temp_of_c(ArcadeCar.TYRE_WINDOW_LOW_C)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(SETTLE_FRAMES)
 	car.front_tyre_temp = 0.0
@@ -551,6 +560,7 @@ func _check_mixed_driving(car: ArcadeCar) -> void:
 	car.clear_driver_input()
 	var front_c := ArcadeCar.tyre_c_of(car.front_tyre_temp)
 	var rear_c := ArcadeCar.tyre_c_of(car.rear_tyre_temp)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	_check(
@@ -597,6 +607,7 @@ func _check_grip(car: ArcadeCar) -> void:
 ## front disc on a cruise is back under the fade line in the minutes stated.
 func _check_brake_heat(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning); the stop's rise is counted from the air's.
@@ -644,6 +655,7 @@ func _check_brake_heat(car: ArcadeCar) -> void:
 		recovery_ticks += 1
 	var recovery_minutes := recovery_ticks * tick / 60.0
 	var recovered := car.front_brake_temp <= 1.0 and car.rear_brake_temp == 0.0
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	_check(
@@ -670,6 +682,7 @@ func _check_brake_fade(car: ArcadeCar) -> void:
 	var stops_ok: bool = hot.distance_m > cold.distance_m and ceiling.distance_m > hot.distance_m and ceiling.ticks < 600 and ceiling.stopped \
 		and ceiling.distance_m < cold.distance_m / ArcadeCar.BRAKE_FADE_FLOOR * 1.2
 	# The string of stops: back up to speed straight after each one.
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning), and the stop before this left the discs at
@@ -705,6 +718,7 @@ func _check_brake_fade(car: ArcadeCar) -> void:
 		last_front = car.front_brake_temp
 		peak_c = maxf(peak_c, ArcadeCar.brake_c_of(car.front_brake_temp))
 	car.clear_driver_input()
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	_check(
@@ -739,6 +753,7 @@ func _check_hud_bars(car: ArcadeCar, hud: HUD, tyre_bar: ColorRect, brake_bar: C
 	var fuel_bar := hud.get_node("FuelBarBack/FuelBar") as ColorRect
 	var battery_bar := hud.get_node("BatteryBarBack/BatteryBar") as ColorRect
 	var coolant_bar := hud.get_node("CoolantBarBack/CoolantBar") as ColorRect
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning), and the handbrake check leaves the rear
@@ -792,6 +807,7 @@ func _check_hud_bars(car: ArcadeCar, hud: HUD, tyre_bar: ColorRect, brake_bar: C
 		and is_equal_approx(HUD.BRAKE_HOT_FRACTION, ArcadeCar.brake_temp_of_c(ArcadeCar.BRAKE_FADE_START_C)) \
 		and is_equal_approx(HUD.BRAKE_VERY_HOT_FRACTION, ArcadeCar.brake_temp_of_c(ArcadeCar.BRAKE_RED_HOT_C)) \
 		and is_equal_approx(HUD.BRAKE_BAR_FULL, ArcadeCar.BRAKE_MAX_TEMP)
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(2)
 	# was tyre_bar.color == HUD.TYRE_COLOR and not brake_bar.visible, "they
@@ -828,6 +844,7 @@ func _check_reset_keeps_heat(car: ArcadeCar, pad: TestPad) -> void:
 	var brake_capacity := ArcadeCar.BRAKE_HEAT_CAPACITY * ArcadeCar.BRAKE_SPAN_K
 	# Cold: both axles' tyres and discs at the air's for a tick, the reset,
 	# then the settle.
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	_fresh_heat(car)
 	await _step(5)
@@ -837,6 +854,7 @@ func _check_reset_keeps_heat(car: ArcadeCar, pad: TestPad) -> void:
 	car.rear_brake_temp = 0.0
 	await _step(1)
 	var cold_before: Array[float] = [car.front_tyre_temp, car.rear_tyre_temp, car.front_brake_temp, car.rear_brake_temp]
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	var cold_kept := car.front_tyre_temp == cold_before[0] and car.rear_tyre_temp == cold_before[1] \
 		and car.front_brake_temp == cold_before[2] and car.rear_brake_temp == cold_before[3]
@@ -854,6 +872,7 @@ func _check_reset_keeps_heat(car: ArcadeCar, pad: TestPad) -> void:
 	car.rear_brake_temp = hot_brake
 	await _step(1)
 	var hot_before: Array[float] = [car.front_tyre_temp, car.rear_tyre_temp, car.front_brake_temp, car.rear_brake_temp]
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	var hot_kept := car.front_tyre_temp == hot_before[0] and car.rear_tyre_temp == hot_before[1] \
 		and car.front_brake_temp == hot_before[2] and car.rear_brake_temp == hot_before[3] \
@@ -888,6 +907,7 @@ func _check_reset_keeps_heat(car: ArcadeCar, pad: TestPad) -> void:
 		and car.coolant_temp == 1.0 and not car.coolant_fan_on \
 		and car._front_tyre_heat_w == 0.0 and car._rear_tyre_heat_w == 0.0 and car._front_brake_heat_w == 0.0 and car._rear_brake_heat_w == 0.0 \
 		and car._combustion_heat_w == 0.0 and car._idle_wobble_phase == 0.0
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	pad.reset_cones()
 	_fresh_heat(car)
@@ -922,6 +942,7 @@ func _check_no_nan(car: ArcadeCar) -> void:
 	car._advance_brakes(NAN, NAN, NAN, tick)
 	var nan_heat := car.front_tyre_temp == 1.0 and car.rear_tyre_temp == 1.0 and car.front_brake_temp == 0.0 and car.rear_brake_temp == 0.0
 	# The limiter in neutral, flat out.
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	car.automatic = false
@@ -933,6 +954,7 @@ func _check_no_nan(car: ArcadeCar) -> void:
 		limited = limited or car.limiter_cutting
 	car.clear_driver_input()
 	# A stall on a dry tank with cold tyres and hot brakes.
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	car.front_tyre_temp = 0.0
@@ -942,6 +964,7 @@ func _check_no_nan(car: ArcadeCar) -> void:
 	await _step(RUN_DOWN_FRAMES)
 	var stalled := not car.engine_running and car.engine_rpm == 0.0
 	# A handbrake slide with everything hot.
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	car.set_driver_input(1.0, 0.0, 0.0)
@@ -956,6 +979,7 @@ func _check_no_nan(car: ArcadeCar) -> void:
 	var abused_finite := is_finite(car.forward_speed) and is_finite(car.yaw_rate) and is_finite(car.rear_omega) and is_finite(car.front_omega) \
 		and is_finite(car.front_tyre_temp) and is_finite(car.rear_tyre_temp) and is_finite(car.front_brake_temp) and is_finite(car.rear_brake_temp)
 	car.clear_driver_input()
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(2)
 	var finite := is_finite(car.front_tyre_temp) and is_finite(car.rear_tyre_temp) and is_finite(car.front_brake_temp) and is_finite(car.rear_brake_temp) \
@@ -981,6 +1005,7 @@ func _check_no_nan(car: ArcadeCar) -> void:
 ## `tyre_temp` and both brakes to `brake_temp` there, and a full-pedal stop:
 ## { distance_m, ticks, from_ms, stopped, front_c: the front discs after }.
 func _stop(car: ArcadeCar, tyre_temp: float, brake_temp: float) -> Dictionary:
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning); the drive up to speed is on the same warm
@@ -1010,6 +1035,7 @@ func _stop(car: ArcadeCar, tyre_temp: float, brake_temp: float) -> Dictionary:
 		"front_c": ArcadeCar.brake_c_of(car.front_brake_temp),
 	}
 	car.clear_driver_input()
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	return seen
@@ -1019,6 +1045,7 @@ func _stop(car: ArcadeCar, tyre_temp: float, brake_temp: float) -> Dictionary:
 ## CORNER_STEER with CORNER_THROTTLE, both tyres held at `tyre_temp` every
 ## tick: { lateral_g: the peak lateral acceleration [g] }.
 func _corner(car: ArcadeCar, tyre_temp: float) -> Dictionary:
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning); the drive up to speed is on the same warm
@@ -1036,6 +1063,7 @@ func _corner(car: ArcadeCar, tyre_temp: float) -> Dictionary:
 		await physics_frame
 		peak = maxf(peak, absf(car.lateral_accel))
 	car.clear_driver_input()
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	return {"lateral_g": peak / 9.8}
@@ -1046,6 +1074,7 @@ func _corner(car: ArcadeCar, tyre_temp: float) -> Dictionary:
 ## first third and let go for the rest: { speeds, yaws, rears: the tick by
 ## tick state, hold_seen: the lever's hold seen letting go, end_kmh }.
 func _handbrake_slide(car: ArcadeCar, brake_temp: float) -> Dictionary:
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	# was the reset's own -> set by hand: a reset keeps the heat (the user's
 	# report, 2026-09-22 morning); the two slides compared to the bit are
@@ -1070,6 +1099,7 @@ func _handbrake_slide(car: ArcadeCar, brake_temp: float) -> Dictionary:
 		hold_seen = hold_seen or (car._rear_lock_recovery > 0.0 and car._rear_lock_recovery < 1.0)
 	var seen := {"speeds": speeds, "yaws": yaws, "rears": rears, "hold_seen": hold_seen, "end_kmh": car.speed_kmh}
 	car.clear_driver_input()
+	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
 	return seen
@@ -1098,8 +1128,8 @@ func _fresh_heat(car: ArcadeCar) -> void:
 
 
 ## And the certified fresh car's components, new: the six wear shares and the
-## clutch's slip tracker at 0 - a reset keeps the wear (R refuels, it does not
-## un-wear), what HandlingTests._start sets for a certified run.
+## clutch's slip tracker at 0 - a reset keeps the wear (R does not un-wear),
+## what HandlingTests._start sets for a certified run.
 func _fresh_wear(car: ArcadeCar) -> void:
 	car.clutch_wear = 0.0
 	car.front_brake_wear = 0.0
@@ -1108,6 +1138,20 @@ func _fresh_wear(car: ArcadeCar) -> void:
 	car.rear_tyre_wear = 0.0
 	car.engine_wear = 0.0
 	car._clutch_slip_w = 0.0
+
+
+## And the certified fresh car's tank: full, its mass with it.
+# was the reset's own (reset_to filled the tank until 3Y) -> set by hand: a
+# reset keeps the fuel (the user's report, 2026-09-22 12:55: "resetting the
+# car MUST NOT refuel ... tests must not affect the game"), and every check
+# here was measured on the full tank - the kerb mass everything was tuned
+# with. What reset_to set until then, and what HandlingTests._start sets for
+# a certified run. Called before every reset here: the reset stands the car
+# on its springs by its mass (_settle_suspension reads total_mass()) and
+# keeps the tank it finds. A check that wants a dry tank empties it after.
+func _fresh_fuel(car: ArcadeCar) -> void:
+	car.fuel_l = ArcadeCar.FUEL_TANK_CAPACITY_L
+	car.fuel_mass = car.fuel_l * ArcadeCar.FUEL_DENSITY
 
 
 func _step(frames: int) -> void:
