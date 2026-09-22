@@ -446,13 +446,17 @@ func _build_study_panel() -> void:
 	_study_panel.add_child(back)
 
 	_study_title = _study_label("Title", Vector2(12, 6), Vector2(616, 26), 18, STUDY_TITLE_COLOR)
-	_study_caption = _study_label("Caption", Vector2(12, 34), Vector2(616, 62), 15, STUDY_TEXT_COLOR)
+	# was: 62 px for the caption, two lines - the longest objective (SC ON /
+	# OFF's, three lines, 72 px) grew over the steering label -> 72 px, and
+	# everything under it 10 px lower, the panel 10 px taller (hud.tscn:
+	# 250 px; the user's report, 2026-09-22 16:15).
+	_study_caption = _study_label("Caption", Vector2(12, 34), Vector2(616, 72), 15, STUDY_TEXT_COLOR)
 	_study_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 
-	_study_label("SteerLabel", Vector2(12, 104), Vector2(120, 16), 11, STUDY_DIM_TEXT_COLOR).text = "STEERING  left <  > right"
+	_study_label("SteerLabel", Vector2(12, 114), Vector2(120, 16), 11, STUDY_DIM_TEXT_COLOR).text = "STEERING  left <  > right"
 	var steer_back := ColorRect.new()
 	steer_back.name = "SteerBarBack"
-	steer_back.position = Vector2(12, 122)
+	steer_back.position = Vector2(12, 132)
 	steer_back.size = Vector2(STUDY_STEER_BAR_WIDTH, 12)
 	steer_back.color = STUDY_BAR_BACK_COLOR
 	steer_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -476,9 +480,9 @@ func _build_study_panel() -> void:
 	_study_brake_bar = _study_pedal_bar("Brake", 306.0, "BRK", STUDY_BRAKE_COLOR)
 	_study_clutch_bar = _study_pedal_bar("Clutch", 332.0, "CLU", STUDY_CLUTCH_COLOR)
 
-	_study_gear_label = _study_label("GearLabel", Vector2(370, 100), Vector2(260, 90), 15, STUDY_TEXT_COLOR)
-	_study_event_label = _study_label("EventLabel", Vector2(12, 196), Vector2(616, 26), 20, STUDY_EVENT_COLOR)
-	_study_wear_label = _study_label("WearLabel", Vector2(12, 222), Vector2(616, 16), 11, STUDY_DIM_TEXT_COLOR)
+	_study_gear_label = _study_label("GearLabel", Vector2(370, 110), Vector2(260, 90), 15, STUDY_TEXT_COLOR)
+	_study_event_label = _study_label("EventLabel", Vector2(12, 206), Vector2(616, 26), 20, STUDY_EVENT_COLOR)
+	_study_wear_label = _study_label("WearLabel", Vector2(12, 232), Vector2(616, 16), 11, STUDY_DIM_TEXT_COLOR)
 
 
 func _study_label(label_name: String, at: Vector2, size: Vector2, font_size: int, color: Color) -> Label:
@@ -500,7 +504,7 @@ func _study_label(label_name: String, at: Vector2, size: Vector2, font_size: int
 func _study_pedal_bar(bar_name: String, x: float, letters: String, color: Color) -> ColorRect:
 	var back := ColorRect.new()
 	back.name = bar_name + "BarBack"
-	back.position = Vector2(x, 100)
+	back.position = Vector2(x, 110)
 	back.size = Vector2(STUDY_PEDAL_BAR_WIDTH, STUDY_PEDAL_BAR_HEIGHT)
 	back.color = STUDY_BAR_BACK_COLOR
 	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -513,7 +517,7 @@ func _study_pedal_bar(bar_name: String, x: float, letters: String, color: Color)
 	bar.visible = false
 	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	back.add_child(bar)
-	var label := _study_label(bar_name + "Letters", Vector2(x - 6, 182), Vector2(STUDY_PEDAL_BAR_WIDTH + 12, 14), 10, STUDY_DIM_TEXT_COLOR)
+	var label := _study_label(bar_name + "Letters", Vector2(x - 6, 192), Vector2(STUDY_PEDAL_BAR_WIDTH + 12, 14), 10, STUDY_DIM_TEXT_COLOR)
 	label.text = letters
 	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	return bar
