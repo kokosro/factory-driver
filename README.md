@@ -480,32 +480,63 @@ physics it always was.
 
 #### Wear and aging
 
-The car's components age with usage and with neglect (`car.gd`, "Wear and aging"; the
-user's wear-and-aging thought, 2026-09-22 07:55). Nothing in it is new physics: the sim
-already emits every quantity wear needs, and wear is bookkeeping over those outputs, a
-share of each component's life, 0 new to 1 worn out, grown every tick from the tick's
-own numbers:
+The car's components age with the kilometres driven and with how they were driven
+(`car.gd`, "Wear and aging"; the user's 15:24 verdict, 2026-09-22: "in a real car i get
+more hill starts, 15 clutch launches / 46 hard stops is a very fragile car ... the
+measurement is more in kilometers driven and how they were driven rather than how many
+times i can start the car from a hill"; "we're not looking for drama, we are looking for
+real physics simulation"). Nothing in it is new physics: the sim already emits every
+quantity wear needs, and wear is bookkeeping over those outputs, a share of each
+component's life, 0 new to 1 worn out, grown every tick by the tick's wear-equivalent
+metres over the component's rated life - the kilometres of street driving that use the
+whole of it up. The wear-equivalent metres are the way the odometer counted this tick
+(the same number: the odometer is the single source) plus what the tick's own physics
+says the driving cost over a gentle cruise, in metres of the component's life:
 
-- the **clutch** (`clutch_wear`) from its slip energy, |clutch torque| x |slip| x dt: a
-  launch, an upshift, a donut under the automatic's hunting; nothing while it is locked;
-- each axle's **brakes** (`front_brake_wear`, `rear_brake_wear`) from the work the discs
-  were given, the same watts the brake temperature is warmed by, three times over on any
-  tick the disc is over the fade line;
-- each axle's **tyres** (`front_tyre_wear`, `rear_tyre_wear`) from the heat put into
-  them, the rolling and the slip work the tyre temperature is warmed by - every metre
-  rolled wears a little, a slide a lot - three times over on any tick the tyre is over
-  its window;
-- the **engine** (`engine_wear`) from its revolutions under load, the radians turned
-  weighted by the load the clutch takes off the crank as a share of the curve's peak
-  torque (nothing idling in neutral, nothing free-revving at the limiter); over the
-  overheat line every revolution counts in full, loaded or not, and ten times over.
+- the **clutch** (`clutch_wear`): the metres, plus its slip energy (|clutch torque| x
+  |slip| x dt) at 5 m of life per kJ - a launch, an upshift, a clutch ridden on a hill
+  (which slips at a standstill: metres of life with no metres of road); nothing extra
+  while it is locked;
+- each axle's **brakes** (`front_brake_wear`, `rear_brake_wear`): the metres, plus the
+  work the discs were given (the same watts the brake temperature is warmed by) at 1 m of
+  life per kJ, three times over on any tick the disc is over the fade line;
+- each axle's **tyres** (`front_tyre_wear`, `rear_tyre_wear`): the metres (the rolling
+  is the rated life's), plus the slip work against the contact patch - the frictional
+  energy rubber is abraded by: a slide, a spin, hard cornering - at 0.5 m of life per
+  kJ, three times over on any tick the tyre is over its window;
+- the **engine** (`engine_wear`): its own metres - its revolutions in top-gear metres
+  (the wheel's radius over the top ratio times the final drive, 0.09 m a radian: in top
+  gear, locked, exactly the road's way; in 2nd at the same speed twice them; idling, 31
+  km/h of them - an engine that runs ages, as the fleet rule of thumb has an hour's idle
+  for some 25-30 miles) - times the load's style, 1 + 5 x the square of the load the
+  clutch takes off the crank as a share of the curve's peak (a light cruise ~1, flat out
+  6); over the overheat line every revolution counts at full load and ten times over.
 
-The rates, the abuse multipliers and the floors are the config's (`wear`, optional: see
-`configs/README.md`); with them a flat-out 8 s launch costs the clutch ~0.07 %, a full
-stop from 90 km/h the discs ~0.02 %, a 25 s donut the rears ~0.03 %, 8 s flat out the
-engine ~0.003 %, and 2 s idling overheated more than half of what that launch does
-(`tests/wear_test.gd` states every one of these). Gentle by design: the car is a test instrument, and a
-session on the pad wears it measurably in the ledger, not visibly at the wheel.
+The style multiplier of a tick, the wear-equivalent metres over the metres, is exactly 1
+on a gentle cruise (a locked clutch, the pedal up, the tyres rolling, in top gear) and
+over 1 for everything harder: that is what "rated life" means. The lives and the costs
+are the config's (`wear`, optional: see `configs/README.md` for the table), from a
+research pass on what the real parts take; each is SOURCED or an ESTIMATE, and says so:
+
+| Component | Rated life | Source | On top of the metres |
+|---|---|---|---|
+| clutch | 175 000 km | sourced: 100 000-250 000 km on the street (986 owners); the midpoint | a flat-out launch ~ 300 m of its life (estimate, 100-500 m): 5 m per kJ of slip |
+| brake pads | 50 000 km, either axle | sourced: ~30 000-70 000 km, Porsche-class cars trending high; the midpoint | a full ABS stop from 90 km/h ~ 200 m of a set's life (estimate from ½mv², 100-300 m): 1 m per kJ of disc work, x3 over the fade line |
+| rear tyres | 17 000 km | sourced (forum): 10 000-24 000 km for a performance summer rear; the midpoint | a donut ~ 1.25 km of their life (estimate, 0.5-2 km): 0.5 m per kJ of slip work, x3 over the window |
+| front tyres | 25 500 km | estimate: no number sourced; the fronts of a mid-engined, rear-driven car carry less and drive nothing, taken as 1.5 x the rears' | the same slip cost |
+| engine | 140 000 km | sourced (forum): ~130 000-150 000+ km before major work for this era; the midpoint (the IMS bearing is a separate failure mode, not wear, not modelled) | flat out ~ 6 x a cruise per km (estimate, 2-10x); the square of the load is the estimate's shape |
+
+What the driving comes to, measured by `tests/wear_test.gd` on the certified car: a
+flat-out 8 s launch costs the clutch 2.7 ppm (341 m of slip on top of 133 m of road, a
+style of 3.6: some 3700 such launches to the first percent, where it was 15); a full stop
+from 90 km/h costs the rear pads 5.0 ppm (216 kJ of work on top of 36 m, a style of 7:
+~2000 stops to the first percent, where it was 46); a 25 s donut costs the rears 74 ppm
+(1574 kJ of slip work, a style of 14: 135 donuts to the first percent, where it was 35);
+8 s flat out costs the engine 11.6 ppm (a style of 12); 1.5 km of cruising in 5th at 72
+km/h costs every component exactly its rated share of the metres (8.6 ppm of the clutch,
+30 of the pads, 59 and 88 of the tyres, 12 of the engine at a style of 1.11), and the
+second 750 m the same as the first. The whole certified suite is a few hundred metres:
+nothing in it comes within a hundred of a percent.
 
 What wear does, each a multiplier on something that already exists: a worn clutch passes
 less torque (more slip, a softer bite, never under 70 % of its capacity); worn brakes
@@ -513,15 +544,15 @@ give less for the same pedal (never under 75 %, on top of the fade); worn tyres 
 less (never under 85 %); a worn engine makes less torque (never under 85 % of the
 curve). Nothing breaks: a worn-out component works at its floor. Every multiplier is
 EXACTLY 1.0 at zero wear, and every multiplier reads the wear at whole hundredths: the
-accumulators count every joule and radian, continuously, but the effect moves in one
-step per 1 % of wear (`WEAR_EFFECT_STEP`), so under 1 % of wear a multiplier is exactly
-1 and the car is the fresh car to the bit. That staircase is what keeps the certified
-runs certified: a handling test's start hands out the new car, a certified run wears it
-well under a hundredth of anything (the tests state the numbers), and its physics is the
-fresh car's to the bit. From 1 % on the effect steps once a percent, in a line to the
-floor at worn out. A worn car's telemetry shows why it is worn: the same slip energy,
-brake work, tyre heat and loaded revolutions that grew the shares are the tick's own
-outputs, and every claim above is checkable by driving.
+accumulators count every metre, continuously, but the effect moves in one step per 1 %
+of wear (`WEAR_EFFECT_STEP`), so under 1 % of wear a multiplier is exactly 1 and the car
+is the fresh car to the bit. That staircase is what keeps the certified runs certified:
+a handling test's start hands out the new car, a certified run wears it well under a
+hundredth of anything (the tests state the numbers), and its physics is the fresh car's
+to the bit. From 1 % on the effect steps once a percent, in a line to the floor at worn
+out. A worn car's telemetry shows why it is worn: the same slip energy, brake work, slip
+work, revolutions and load that grew the shares are the tick's own outputs, and every
+claim above is checkable by driving.
 
 Wear is for good. `R` puts the car back and puts in a new battery; it does not un-wear
 and it does not refuel: the six shares stay where they were through a reset, as the
@@ -689,18 +720,22 @@ is refused by name - by the validation's functions alone, never read into the ru
 car.
 
 And the wear (`tests/wear_test.gd`): the car comes out of `_ready` with nothing worn -
-all six shares exactly 0, every multiplier exactly 1 - and idles so; a multiplier is
-exactly 1 under 1 % of wear, steps once a percent in a line to the floor and never
-under it, the config's eleven numbers are the car's to the bit, a rate under zero, an
-abuse under 1, a floor outside its range and an unknown key are refused by name and a
-config without the table is a car; the clutch wears exactly its rate times the slip
-energy of a flat-out launch (68 kJ, 682 ppm, nothing on the locked ticks, the brakes
-exactly 0), the discs exactly the rate times the work of a stop from 90 km/h (174 and
-216 kJ; the engine only the radians the clutch loaded the crank on), the rears exactly
-the rate times a donut's heat with the abuse multiplier on the ticks over the window
-(the brakes doing no work on any tick the pedal was off), the engine exactly the rate
-times the loaded radians of a flat-out run and exactly 0 at the limiter in neutral, and
-every radian ten times over idling overheated; worn brakes stop the car 7 % longer half
+all six shares exactly 0, every multiplier exactly 1 - and idles so but for the engine's
+revolutions; a multiplier is exactly 1 under 1 % of wear, steps once a percent in a line
+to the floor and never under it, the config's sixteen numbers are the car's to the bit,
+a life of no distance, a cost under zero, a multiplier under 1, a floor outside its
+range and an unknown key are refused by name and a config without the table is a car;
+the clutch wears exactly the metres plus its slip's metres of a flat-out launch over its
+life (68 kJ, 341 m on top of 133 m, 2.7 ppm, the metres alone on the locked ticks, the
+brakes their metres alone), the pads exactly the metres plus the work's of a stop from
+90 km/h (174 and 216 kJ; the engine its revolutions at no load on the overrun), the
+rears exactly the metres plus a donut's slip work with the abuse multiplier on the ticks
+over the window (the brakes doing no work on any tick the pedal was off), the engine
+exactly its revolutions in top-gear metres times the load's style flat out, at a style
+of 1 at the limiter in neutral and idling warm, at full load and ten times over idling
+overheated; 1.5 km of cruising in 5th wears every component its rated share of the
+metres, the style exactly 1 but for the driven rears and the lightly loaded engine, and
+the second half the same as the first; worn brakes stop the car 7 % longer half
 worn and 15 % worn out, a hair further inside the same hundredth the same stop to the
 bit, and past worn out the same stop to the bit; a worn-out clutch passes at most 350
 Nm where the new one passes 500 and slips more ticks; worn tyres hold 0.81 g half worn
@@ -712,7 +747,8 @@ untouched at version 1, 78 values that are no share of a life are refused with t
 reason naming the car and the field, a car that loads worn components starts with
 them; a reset keeps six shares set by hand to the bit and tells the file nothing, and a
 handling test's start hands out the new car before its first tick; and NaN, inf and
--inf shares read none, worn out and none, NaN and negative tick quantities add nothing.
+-inf shares read none, worn out and none, NaN, infinite and negative tick quantities -
+the way among them - add nothing.
 
 And the licence ladder (`tests/licence_test.gd`, see [Licence ladder](#licence-ladder)):
 the L0 exam sat through the `LicenceManager` the way a player sits it - the book opened
@@ -1083,7 +1119,7 @@ and its captions written from what was measured. The catalogue:
 | | Manual gear changes | the study's own: 1st to 3rd at the shift light (14.8 and 26.0 m/s), off the throttle, on the brake, down into 2nd at 14 m/s, stop |
 | | Stall and recovery | the study's own: manual, the clutch let up as the throttle goes down (the smoke test's stall), clutch down, starter, revs up, clutch, away |
 | | Drive modes: sport, comfort, eco | the study's own: full throttle to 72 km/h in each program, `N` between them (sport changes up at 6800 rpm, comfort at ~2800, eco at ~1800 - 2000) |
-| | How tyres wear | the study's own: the wear test's donut for 22 s, TCS and SC off (the rears at 116 C and 225 ppm of wear at the end) |
+| | How tyres wear | the study's own: the wear test's donut for 22 s, TCS and SC off (the rears at 116 C and 58 ppm of wear at the end) |
 | AIDS ON AND OFF | TCS on / off | the study's own: the same launch twice, `T` between them (the rears held under 0.25 slip, then spinning at 2.6) |
 | | ABS on / off | the study's own: the same full stop from 80 km/h twice, `G` between them (the fronts held at 0.15 slip, then locked at -1.0) |
 | | SC on / off | the study's own: the same flick of lock and handbrake at 60 km/h twice, `K` between them (79 degrees and straight again; 153 degrees and backwards) |
