@@ -5,7 +5,10 @@ extends CanvasLayer
 ## bar under it and the coolant bar under that, to the left of those the tyre
 ## bar with the brake bar under it (the hotter axle each, labelled), and a lamp
 ## each for the three driver aids. The mission line and banner only show what
-## they are handed (see scripts/mission_manager.gd).
+## they are handed (see scripts/mission_manager.gd); so do the licence card
+## (the licence book and the theory quiz's question cards, one overlay,
+## scripts/licence_manager.gd) and the gate hint beside the aid lamps (what
+## a refused clutch key or aid switch says).
 ## The odometer's line sits over the aid lamps (see set_odometer).
 
 ## Tach text colour normally and from ArcadeCar.SHIFT_LIGHT_RPM up.
@@ -108,6 +111,9 @@ const AID_OFF_COLOR := Color(1.0, 0.7, 0.15, 1)
 @onready var _abs_lamp: Label = $AbsLamp
 @onready var _sc_lamp: Label = $ScLamp
 @onready var _odometer_label: Label = $OdometerLabel
+@onready var _gate_hint: Label = $GateHint
+@onready var _licence_card_back: ColorRect = $LicenceCardBack
+@onready var _licence_card: Label = $LicenceCard
 
 ## The odometer as last written on its label [tenths of a km]; the label's text
 ## is only made anew when this changes, every 100 m.
@@ -283,6 +289,31 @@ func _fill_bar(bar: ColorRect, value: float, flat := false) -> float:
 	elif bar.visible:
 		bar.scale.y = fill
 	return fill
+
+
+## The gate hint on the aid lamps' line, to their left: `text`, or nothing
+## for "". The licence manager puts it up when the clutch key or an aid
+## switch is refused and takes it down again.
+func set_gate_hint(text: String) -> void:
+	_gate_hint.text = text
+	_gate_hint.visible = text != ""
+
+
+## The licence card: one overlay for the licence book and the theory quiz's
+## question cards, `text` on a dark panel in the middle of the screen.
+func show_licence_card(text: String) -> void:
+	_licence_card.text = text
+	_licence_card.visible = true
+	_licence_card_back.visible = true
+
+
+func hide_licence_card() -> void:
+	_licence_card.visible = false
+	_licence_card_back.visible = false
+
+
+func licence_card_visible() -> bool:
+	return _licence_card.visible
 
 
 ## The mission line under the controls text.
