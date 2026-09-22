@@ -1888,7 +1888,8 @@ static var MAX_STEER_LOCK := 0.48
 static var STEERING_WHEEL_LOCK_DEG := 450.0
 
 ## How fast the driver's hands turn the steering wheel [degrees per second],
-## towards where the steer input asks for it and back to centre on release:
+## towards where the steer input asks for it and back to centre on release
+## (times the power assist's share at speed, STEERING_ASSIST_FULL_SPEED):
 ## 1300 is a quick pair of hands (900 degrees lock to lock in 0.69 s, centre to
 ## lock in 0.35 s), about what a driver manages catching a slide. The keys are
 ## on / off, the hands are not: a tap is a few degrees of wheel, a held key
@@ -1914,6 +1915,58 @@ static var STEERING_HAND_SPEED := 1300.0
 # was a const -> derived, never read: worked out again from the config's
 # numbers when a car reads them (_derive_from_config, the same sum as here).
 static var STEERING_RATIO := STEERING_WHEEL_LOCK_DEG / (MAX_STEER_LOCK * 180.0 / PI)
+
+## Power assist: the share of the driver's hand speed the steering gives at
+## road speed (see _steering_assist). A road car's assist is speed-sensitive:
+## light and quick for parking, heavier the faster the car goes, so the same
+## hands wind lock on more slowly on the motorway than in a car park. Full
+## hand speed (1.0) up to STEERING_ASSIST_FULL_SPEED [m/s], 65 km/h - town
+## speeds, and the raw-steer checks at 30 and 60 km/h certify the hand speed
+## there (tests/smoke_test.gd RAW_STEER_SPEEDS) - easing (smoothstep) to
+## STEERING_ASSIST_HIGHWAY of it at STEERING_ASSIST_HIGHWAY_SPEED [m/s],
+## 137 km/h, and staying there above. Measured: at 25 m/s (the 180's entry)
+## 0.89 of the hand speed, at 35 m/s (the 360's entry) 0.62, at 38 m/s and
+## above 0.6: centre to lock 0.35 s parking, 0.39 s at 25 m/s, 0.58 s at
+## highway speed. Multiplies whatever hand speed the driver in the seat has
+## (steering_hand_speed in DRIVER_PROFILES), on and back to centre alike.
+const STEERING_ASSIST_FULL_SPEED := 18.0
+const STEERING_ASSIST_HIGHWAY_SPEED := 38.0
+const STEERING_ASSIST_HIGHWAY := 0.6
+
+## Play in the rack at centre [degrees of steering wheel]: the hands' motion
+## about dead centre goes into the play before the rack moves. Not a dead
+## zone on the input and no standing offset: the motion that went into the
+## play is kept (_steering_play_deg) and the wheel moves, to where the hands
+## have it, the tick it adds up to more than this, so a slow steady turn
+## still comes (0.3 degrees a tick is through the play on the third tick) and
+## a tap of less than this, back and forth, moves nothing. Zero effect away
+## from centre. Under a tick of any driver's hands - the test driver's
+## 21.7 degrees a tick (1300 degrees a second), the chauffeur's 10.8 - so a
+## held key is through it on its first tick and the certified runs are the
+## same to the bit; the catch-up is at most this at the steering wheel,
+## 0.046 degrees (0.0008 rad) at the front wheels.
+const STEERING_PLAY_DEG := 0.75
+
+## Bushing compliance: the front wheels trail the rack by a first-order lag
+## (see _steering_compliance_tau) whose time constant [s] is
+## STEERING_COMPLIANCE_TAU_MIN with the front tyres unloaded sideways and
+## STEERING_COMPLIANCE_TAU_MAX with them at their lateral grip, linear in
+## between (the tick-old share of the front axle's grip its sideways force
+## used, _front_lateral_load). The steady state is the rack's exactly: within
+## STEERING_COMPLIANCE_SNAP [rad] of it (0.06 degrees at the front wheels,
+## 0.9 at the steering wheel - about the rack's play) the wheels are put on
+## it, so full lock reaches the wheels to the bit and a corner held ends on
+## the same radius as with a rigid rack. Measured: the wheels trail the test
+## driver's hands winding lock on (1.37 rad/s at the front wheels) by 0.018
+## rad (1.0 degree) at a standstill and 0.044 rad (2.5 degrees) at 30 and
+## 60 km/h, the front loading up as the lock goes on, and land on full lock
+## 4 ticks after the rack stops at a standstill, 9 at 30 and 60 km/h, 8 lock
+## to lock under the handbrake; a corner held 2 s from 12 and from 25 m/s
+## ends on the rigid rack's yaw rate to 0.3 % and its sideways acceleration
+## to 0.01 %, the wheels on the rack to the bit.
+const STEERING_COMPLIANCE_TAU_MIN := 0.02
+const STEERING_COMPLIANCE_TAU_MAX := 0.04
+const STEERING_COMPLIANCE_SNAP := 0.001
 
 # --- Slides ------------------------------------------------------------------
 
@@ -2155,6 +2208,9 @@ static var REAR_LOCK_RECOVERY_RATE := 3.0
 # goes on, in keeping with the rest of this driver.
 # With these the five certified runs read 28.77 / 15.83 / 18.28 / 8.72 / 7.68 s
 # against 28.75 / 15.83 / 18.23 / 8.67 / 7.70 on keys that were switches.
+# The steering feel (the power assist, the rack's play, the bushings; see
+# STEERING_ASSIST_FULL_SPEED) moved them from 28.77 / 15.92 / 18.13 / 8.72 /
+# 7.68 at 3781c8a to 28.82 / 15.95 / 18.07 / 8.72 / 7.72 s, 0.5 % at most.
 # was a const -> read from the car's config (driver_profiles, required); the
 # certified value stays here as the fallback default.
 static var DRIVER_PROFILES := {
@@ -2277,18 +2333,37 @@ var slide_yaw_rate := 0.0
 
 ## Angle of the driver's steering wheel [degrees], positive = turned left,
 ## within +/- STEERING_WHEEL_LOCK_DEG. A state: the hands turn it towards what
-## the steer input asks for at STEERING_HAND_SPEED. What the cockpit shows.
+## the steer input asks for, and back to centre, at STEERING_HAND_SPEED x the
+## power assist's share (_steering_assist). What the cockpit shows.
 var steering_wheel_deg := 0.0
+
+## The hands' motion about dead centre that has gone into the rack's play
+## [degrees of steering wheel], -STEERING_PLAY_DEG .. +STEERING_PLAY_DEG:
+## adds up while the wheel stands at centre, empties the tick it passes the
+## play (the wheel moves) and whenever the wheel is off centre.
+var _steering_play_deg := 0.0
 
 ## The same as a share of full lock, -1 (full right) .. +1 (full left):
 ## steering_wheel_deg / STEERING_WHEEL_LOCK_DEG.
 var steer := 0.0
 
-## Angle of the front wheels to the car [rad], positive = left: the steering
-## wheel's angle through the rack, steering_wheel_deg / STEERING_RATIO (worked
-## out as steer x MAX_STEER_LOCK, which is the same thing and lands on full
-## lock to the bit). All the steering ever sets.
+## Angle the rack asks of the front wheels [rad], positive = left: the
+## steering wheel's angle through the rack, steering_wheel_deg / STEERING_RATIO
+## (worked out as steer x MAX_STEER_LOCK, which is the same thing and lands on
+## full lock to the bit). All the steering ever sets.
+var rack_angle := 0.0
+
+## Angle of the front wheels to the car [rad], positive = left: rack_angle
+## through the bushings' compliance, trailing it by a first-order lag
+## (STEERING_COMPLIANCE_TAU_MIN .. _MAX) and standing on it exactly once
+## within STEERING_COMPLIANCE_SNAP. What the tyres and the drawn wheels use.
+# was steer x MAX_STEER_LOCK itself, the rack's angle on the wheels the same
+# tick -> the achieved angle; rack_angle is what that was.
 var wheel_angle := 0.0
+
+## Share of the front axle's grip its sideways force used last tick, 0..1:
+## what loads the steering's bushings (_steering_compliance_tau).
+var _front_lateral_load := 0.0
 
 ## Which wheels are driven; starts as DRIVEN_WHEELS. A variable so tests (and
 ## later cars) can compare the layouts on the same chassis.
@@ -3197,16 +3272,36 @@ func _physics_process(delta: float) -> void:
 #    old signf(forward_speed) only ever picked the side of the leading term).
 	#    The driver's hands turn the steering wheel towards what the input asks
 	#    for (a share of its 450 degrees each way) at the driver's hand speed
-	#    (STEERING_HAND_SPEED for the test driver); the rack turns that into
-	#    front wheel angle.
-	steering_wheel_deg = move_toward(steering_wheel_deg, steer_input * STEERING_WHEEL_LOCK_DEG, driver_profile.steering_hand_speed * delta)
+	#    (STEERING_HAND_SPEED for the test driver) times the power assist's
+	#    share at this road speed (_steering_assist: all of it up to 65 km/h,
+	#    0.6 on the motorway), and back to centre the same way. About
+	#    dead centre the hands' motion goes into the rack's play first
+	#    (STEERING_PLAY_DEG). The rack turns the wheel's angle into the
+	#    front wheel angle it asks for; the bushings let the wheels trail
+	#    that (_steering_compliance_tau), and stand on it exactly once close.
+	var hand_rate: float = driver_profile.steering_hand_speed * _steering_assist(absf(forward_speed))
+	var hands_deg := move_toward(steering_wheel_deg, steer_input * STEERING_WHEEL_LOCK_DEG, hand_rate * delta)
+	if steering_wheel_deg == 0.0 and hands_deg != 0.0:
+		_steering_play_deg += hands_deg
+		if absf(_steering_play_deg) <= STEERING_PLAY_DEG:
+			hands_deg = 0.0
+		else:
+			_steering_play_deg = 0.0
+	elif steering_wheel_deg != 0.0:
+		_steering_play_deg = 0.0
+	steering_wheel_deg = hands_deg
 	steer = steering_wheel_deg / STEERING_WHEEL_LOCK_DEG
 	var front_arm := AXLE_DISTANCE + CG_OFFSET
 	var rear_arm := AXLE_DISTANCE - CG_OFFSET
 	var yaw_inertia := total_mass() * YAW_GYRATION_RADIUS * YAW_GYRATION_RADIUS
 	var front_lateral := cg_lateral_speed - yaw_rate * front_arm
 	var rear_lateral := cg_lateral_speed + yaw_rate * rear_arm
-	wheel_angle = steer * MAX_STEER_LOCK
+	rack_angle = steer * MAX_STEER_LOCK
+	# was wheel_angle = steer * MAX_STEER_LOCK, the rack's angle on the wheels
+	# the same tick -> the wheels trail the rack through the bushings.
+	wheel_angle = rack_angle - (rack_angle - wheel_angle) * exp(-delta / _steering_compliance_tau())
+	if absf(rack_angle - wheel_angle) < STEERING_COMPLIANCE_SNAP:
+		wheel_angle = rack_angle
 	var front_across := front_lateral * cos(wheel_angle) + forward_speed * sin(wheel_angle)
 	var front_along := forward_speed * cos(wheel_angle) - front_lateral * sin(wheel_angle)
 	front_slip_angle = atan2(front_across, maxf(absf(front_along), SLIP_ANGLE_MIN_SPEED))
@@ -3254,6 +3349,9 @@ func _physics_process(delta: float) -> void:
 	# brake with the wheels turned.
 	var front_force := _limit_to_stick(front_tyre.y, front_across, front_arm, yaw_inertia, delta)
 	var rear_force := _limit_to_stick(rear_tyre.y, rear_lateral, rear_arm, yaw_inertia, delta)
+	# What loads the steering's bushings next tick: the front axle's sideways
+	# force as a share of its grip (a NaN or an unloaded axle count as none).
+	_front_lateral_load = clampf(absf(front_force) / maxf(front_grip, 1.0), 0.0, 1.0) if is_finite(front_force) and is_finite(front_grip) else 0.0
 	var front_drive := front_tyre.x
 	if front_drive * front_along < 0.0:
 		front_drive = _limit_to_stick(front_drive, front_along, front_arm * sin(wheel_angle), yaw_inertia, delta)
@@ -3413,6 +3511,7 @@ func reset_to(target: Transform3D) -> void:
 	yaw_rate = 0.0
 	slide_yaw_rate = 0.0
 	steering_wheel_deg = 0.0
+	_steering_play_deg = 0.0
 	steer = 0.0
 	_handbrake_amount = 0.0
 	_rear_lock_recovery = 0.0
@@ -3469,7 +3568,9 @@ func reset_to(target: Transform3D) -> void:
 	rear_slip_ratio = 0.0
 	front_omega = 0.0
 	rear_omega = 0.0
+	rack_angle = 0.0
 	wheel_angle = 0.0
+	_front_lateral_load = 0.0
 	longitudinal_accel = 0.0
 	lateral_accel = 0.0
 	_settle_suspension(target.origin.y)
@@ -4806,12 +4907,34 @@ func _slide_yaw_damping(along: float, across: float) -> float:
 	return lerpf(SLIDE_YAW_DAMPING, SPIN_YAW_DAMPING, spin)
 
 
+## Power assist's share of the driver's hand speed at `road_speed` [m/s], 1
+## up to STEERING_ASSIST_FULL_SPEED easing to STEERING_ASSIST_HIGHWAY at
+## STEERING_ASSIST_HIGHWAY_SPEED and above. Exactly 1.0 below the knee
+## (smoothstep is 0 there), so the hands are their certified selves in town,
+## and exactly STEERING_ASSIST_HIGHWAY from the motorway speed up. A NaN
+## speed is the full hand speed.
+func _steering_assist(road_speed: float) -> float:
+	if is_nan(road_speed):
+		return 1.0
+	if road_speed >= STEERING_ASSIST_HIGHWAY_SPEED:
+		return STEERING_ASSIST_HIGHWAY
+	return lerpf(1.0, STEERING_ASSIST_HIGHWAY, smoothstep(STEERING_ASSIST_FULL_SPEED, STEERING_ASSIST_HIGHWAY_SPEED, road_speed))
+
+
+## Time constant of the front wheels trailing the rack [s]:
+## STEERING_COMPLIANCE_TAU_MIN with the front tyres pushing nothing sideways,
+## STEERING_COMPLIANCE_TAU_MAX at their grip (_front_lateral_load).
+func _steering_compliance_tau() -> float:
+	return lerpf(STEERING_COMPLIANCE_TAU_MIN, STEERING_COMPLIANCE_TAU_MAX, _front_lateral_load)
+
+
 # Was _slide_feed() and _steering_lock() here -> removed with raw steering. The
 # first took lock held into a slide off the front wheels and let them trail
 # into line with the way the front travelled; the second set full lock a
 # tyre's peak slip past that travel angle, so it moved with the car. Both
-# turned the wheels without the driver. wheel_angle is steer * MAX_STEER_LOCK
-# (see step 3 of _physics_process); there is nothing to compute any more.
+# turned the wheels without the driver. rack_angle is steer * MAX_STEER_LOCK
+# and wheel_angle trails it through the bushings alone (see step 3 of
+# _physics_process); nothing turns the wheels but the driver's rack.
 
 
 ## What shows: wheel spin, front wheel steering, the wheels on the road and the
