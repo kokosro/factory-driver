@@ -322,7 +322,13 @@ crest, it falls out of the springs. Each axle's load is the sum of its two wheel
 travel is `wheel_travel`), so grip breathes with the road at speed (~8 % RMS per wheel
 flat out down the lane); standing still every wheel carries exactly its static share. The
 wheels are drawn on the road, up to `MAX_WHEEL_VISUAL_TRAVEL` (9 cm) from their place
-under the body, while the body heaves, pitches and rolls above them.
+under the body, while the body heaves, pitches and rolls above them. Take the ramp fast
+enough and the car leaves the ground like a car: a wheel the road is further below than
+that hangs at full droop and carries nothing, with all four off the car flies ballistic
+(`is_airborne`: gravity, the air's drag and downforce, no drive, no grip, no steering, no
+rolling resistance, no hill), and it comes down with a thud in the springs - measured in
+`tests/airborne_test.gd`, and nothing of it on the ground (the user's catch, 2026-09-22:
+"the wheels and body fell apart... somehow the joints stretched").
 
 The wheels are drawn turning at their axle's real speed, a tick's step at a time, folded
 into a quarter turn either way (`WHEEL_DRAW_PERIOD`: the one bar across the rim looks the
