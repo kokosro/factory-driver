@@ -40,7 +40,9 @@ extends CharacterBody3D
 ## drives, and a battery run flat is one that cranks weakly, or not at all, and
 ## has lost some of what it held for good (see Electrical). The engine and its
 ## coolant have a temperature: cold, the engine runs rich and its idle hunts,
-## overheated, its power fades (see Thermal). In automatic the
+## overheated, its power fades (see Thermal); so do the tyres, an axle each,
+## whose grip is down cold and fades overheated, and the brakes, whose pedal
+## gives less hot (see Thermal: tyres and brakes). In automatic the
 ## clutch also creeps the car off a released brake (see Creep, by the clutch).
 ## The driven wheels are where the layouts get their character, nobody scripts it: a
 ## rear-driven car spends rear grip on drive and pushes from behind, so power
@@ -704,6 +706,220 @@ static var COOLANT_SPAN_K := COOLANT_OPERATING_C - COOLANT_AMBIENT_C
 ## COOLANT_MAX_C on coolant_temp's scale (1.533): where the setter stops it.
 ## Derived, never read (_derive_from_config).
 static var COOLANT_MAX_TEMP := (COOLANT_MAX_C - COOLANT_AMBIENT_C) / COOLANT_SPAN_K
+
+# --- Thermal: tyres and brakes ------------------------------------------------
+
+# The tyres and the brakes have temperatures too, an axle each (front and rear,
+# not four wheels: the bicycle model's two contact patches), on the coolant's
+# idiom. A tyre's is tyre_temp on a scale where 0 is the air (COOLANT_AMBIENT_C,
+# the one air everything here stands in) and 1 the operating temperature
+# (TYRE_OPERATING_C, inside the window):
+#   tyre_c() = COOLANT_AMBIENT_C + tyre_temp x (TYRE_OPERATING_C - COOLANT_AMBIENT_C)
+# and its grip follows the window (tyre_grip_factor, in _axle_grip, where every
+# consumer of grip gets it): under TYRE_WINDOW_LOW_C the grip is down, in a
+# line from TYRE_COLD_GRIP of itself at the air's temperature to all of it at
+# the window's edge; between TYRE_WINDOW_LOW_C and TYRE_WINDOW_HIGH_C it is
+# exactly what it always was; over TYRE_WINDOW_HIGH_C it fades by
+# TYRE_FADE_RATE for every degree over, to TYRE_FADE_FLOOR at the most, and
+# the tyre stops at TYRE_MAX_C. Every tick (_advance_tyres):
+#   heat in:   the rolling resistance's work on that axle (the tyre's
+#              hysteresis: COAST_DECEL's drag, the axle's share of it by load,
+#              times the road speed) and TYRE_SLIP_HEAT_SHARE of the slip
+#              work - what the contact patch scrubs off, the force along the
+#              wheel times the slip speed along it plus the force across times
+#              the speed across, the forces the tick puts on the car (step 5
+#              and 6 of the tick, after _limit_to_stick): a burnout, a locked
+#              wheel and a slide are all slip work, and so, less, is a hard
+#              corner;
+#   heat out:  TYRE_COOLING_STILL + TYRE_COOLING_AIRFLOW x the road speed, per
+#              degree over the air (tyre_cooling_w): the road and the still
+#              air take a little from a standing tyre, the airflow the rest.
+# A brake's is brake_temp on the same idiom, 1 at BRAKE_FADE_START_C (the line
+# from which the pads fade; a brake has no operating temperature to speak of,
+# it works from cold):
+#   brake_c() = COOLANT_AMBIENT_C + brake_temp x (BRAKE_FADE_START_C - COOLANT_AMBIENT_C)
+# Over the line the axle's brake torque - all of it: the pedal's share and
+# what it takes to slow the turning parts (_brake_torque) - is scaled down by
+# BRAKE_FADE_RATE for every degree over, to BRAKE_FADE_FLOOR at the most
+# (brake_fade, in _advance_drivetrain); the handbrake's hold on the rear
+# brakes (HANDBRAKE_RELEASE_TORQUE) is the lever's and does not fade. Every
+# tick (_advance_brakes):
+#   heat in:   the brake torque that acted on the axle times its wheel speed
+#              (_advance_axle works it out from the wheel's speed change: what
+#              the ABS let go of did no work, a locked wheel's brake does
+#              none - that slide is the tyre's work);
+#   heat out:  BRAKE_COOLING_STILL + BRAKE_COOLING_AIRFLOW x the road speed,
+#              per degree over the air (brake_cooling_w): a vented disc.
+# Nothing here breaks: a tyre at TYRE_MAX_C grips TYRE_FADE_FLOOR of itself, a
+# brake at BRAKE_MAX_C stops the car with BRAKE_FADE_FLOOR of its torque, the
+# handbrake as ever.
+# The certified path: a car comes out of _ready and out of reset_to with its
+# tyres at the operating temperature (tyre_temp 1, in the window, the factor
+# exactly 1) and its brakes at the air's (brake_temp 0, the fade exactly 1).
+# The tyres of a certified run wander inside the window - the slalom's corners
+# warm them, a straight cools them, a handbrake spin's locked rears take the
+# slide's work, by the margins tests/tyre_brake_thermal_test.gd measures - and
+# its brakes stay under the fade line (one stop from 90 km/h is ~29 K on the
+# front discs and ~36 on the rears), so every certified run is physics to
+# the bit. Cold tyres are
+# opt-in (tyre_temp set to 0 by hand, the test's); hot brakes are earned.
+# Calibration: the first lap out of the garage is measurably more slippery
+# (TYRE_COLD_GRIP), the tyres are in the window in a minute or two of mixed
+# driving, and a donut or a burnout has them over it in tens of seconds
+# (tests/tyre_brake_thermal_test.gd states the measured numbers); a brake
+# fades after a string of hard stops and is back in a few minutes of driving.
+# Neither is kept between sessions (no user:// for it): a car's thermal state
+# is the world's to keep, when there is one (4C); tonight a car starts warm on
+# its tyres and cold on its brakes, every time.
+
+## The tyres' operating temperature [C]: where tyre_temp is 1, inside the
+## window, and where a car starts out of _ready and reset_to: where a road
+## tyre driven with some intent sits on a mild day, the rears of a
+## rear-heavy car a little over it at speed, the fronts under.
+## was 80 -> 75: the fronts carry 38 % of the load and get 38 % of the
+## rolling heat for the same cooling, and settle at 53 .. 63 C on a cruise
+## (10 .. 40 m/s, measured on the model); the start state sits between the
+## two axles' cruise temperatures, not over both.
+# read from the car's config (thermal.tyre_operating_c, optional); the
+# certified value here is the fallback default a config without it gets.
+static var TYRE_OPERATING_C := 75.0
+
+## The window [C]: the grip is exactly what it always was from
+## TYRE_WINDOW_LOW_C to TYRE_WINDOW_HIGH_C, down under it, fading over it. A
+## road tyre has most of its grip from 40 .. 50 C up and is going greasy over
+## ~110.
+## was 60 .. 110 -> 45 .. 110: the fronts settle at 53 C on a 10 m/s cruise
+## (measured, see TYRE_OPERATING_C) and must not drop out of the window
+## pottering; and the SPIN_360's locked rears reach 92 C from 75 (measured
+## in tests/tyre_brake_thermal_test.gd), 18 K under the upper edge.
+# read from the car's config (thermal.tyre_window_low_c / tyre_window_high_c,
+# optional); the certified values here are the fallback defaults a config
+# without them gets.
+static var TYRE_WINDOW_LOW_C := 45.0
+static var TYRE_WINDOW_HIGH_C := 110.0
+
+## Where the tyre model stops [C]: the rubber is going by then; this one goes
+## no further and nothing breaks - the grip sits at its floor (TYRE_FADE_RATE
+## has it there from 160 C).
+# read from the car's config (thermal.tyre_max_c, optional); the certified
+# value here is the fallback default a config without it gets.
+static var TYRE_MAX_C := 165.0
+
+## Heat capacity of an axle's two tyres, the rubber that warms [J/K]: the
+## tread and the carcass under it, ~3 kg of rubber a tyre at ~1.8 kJ/kg K -
+## the part of a tyre that warms in minutes, not the whole 10 kg. Calibrated
+## on the warm-up and the abuse together (see Thermal: tyres and brakes).
+## was 12000 -> 10000, with TYRE_SLIP_HEAT_SHARE 0.5 -> 0.3: the SPIN_360's
+## locked rears rose 23 K in their 3 s slide from 126 km/h and the donut was
+## over the window in 12 s (measured), the mixed-driving warm-up took over
+## 4 min on the fronts; the smaller lump warms sooner, the smaller share
+## keeps a slide's flash inside the window.
+# read from the car's config (thermal.tyre_heat_capacity, optional); the
+# certified value here is the fallback default a config without it gets.
+static var TYRE_HEAT_CAPACITY := 10000.0
+
+## Share of the slip work that ends up in the tyre (no unit): the rest goes
+## into the road and the smoke. Rubber on asphalt splits the heat of sliding
+## by thermal effusivity, and asphalt's is three times rubber's: a quarter to
+## a third into the tyre.
+## was 0.5 -> 0.3, see TYRE_HEAT_CAPACITY.
+# read from the car's config (thermal.tyre_slip_heat_share, optional); the
+# certified value here is the fallback default a config without it gets.
+static var TYRE_SLIP_HEAT_SHARE := 0.3
+
+## What an axle's tyres shed standing [W per K over the air]: into the road
+## and the still air ...
+# read from the car's config (thermal.tyre_cooling_still, optional); the
+# certified value here is the fallback default a config without it gets.
+static var TYRE_COOLING_STILL := 6.0
+
+## ... and per m/s of road speed on top [W per K per m/s]: the airflow over
+## the tread and the sidewalls, linear (a tyre is no radiator: no ram air).
+# read from the car's config (thermal.tyre_cooling_airflow, optional); the
+# certified value here is the fallback default a config without it gets.
+static var TYRE_COOLING_AIRFLOW := 1.4
+
+## The grip a stone-cold tyre has of its own (no unit): this share at the
+## air's temperature, in a line to all of it at TYRE_WINDOW_LOW_C.
+# read from the car's config (thermal.tyre_cold_grip, optional); the certified
+# value here is the fallback default a config without it gets.
+static var TYRE_COLD_GRIP := 0.85
+
+## How much of the grip goes per degree over TYRE_WINDOW_HIGH_C [1/K]: 0.005
+## is a tenth gone 20 K over the window, never more than TYRE_FADE_FLOOR
+## leaves.
+# read from the car's config (thermal.tyre_fade_rate, optional); the certified
+# value here is the fallback default a config without it gets.
+static var TYRE_FADE_RATE := 0.005
+
+## The least of its grip an overheated tyre keeps (0..1): three quarters. A
+## greasy tyre, not an ice rink.
+const TYRE_FADE_FLOOR := 0.75
+
+## From here up the brakes fade [C]: where brake_temp is 1. A road pad's
+## friction starts to go at a few hundred degrees on the disc.
+# read from the car's config (thermal.brake_fade_start_c, optional); the
+# certified value here is the fallback default a config without it gets.
+static var BRAKE_FADE_START_C := 250.0
+
+## ... by this share of the brake torque per degree over [1/K]: 0.002 is a
+## fifth gone at 350 C, and never more than BRAKE_FADE_FLOOR leaves.
+# read from the car's config (thermal.brake_fade_rate, optional); the
+# certified value here is the fallback default a config without it gets.
+static var BRAKE_FADE_RATE := 0.002
+
+## The least of its torque a faded brake keeps (0..1): half. A long pedal,
+## never no pedal.
+# read from the car's config (thermal.brake_fade_floor, optional); the
+# certified value here is the fallback default a config without it gets.
+static var BRAKE_FADE_FLOOR := 0.5
+
+## Red hot [C]: where the HUD's brake bar goes to its brighter red. Iron glows
+## a dull red a hundred degrees further on; this is where the fade is well
+## under way and the driver should know.
+# read from the car's config (thermal.brake_red_hot_c, optional); the
+# certified value here is the fallback default a config without it gets.
+static var BRAKE_RED_HOT_C := 400.0
+
+## Where the brake model stops [C]: a disc that hot is a disc in trouble; this
+## one goes no further and nothing breaks - the fade sits at its floor.
+# read from the car's config (thermal.brake_max_c, optional); the certified
+# value here is the fallback default a config without it gets.
+static var BRAKE_MAX_C := 600.0
+
+## Heat capacity of an axle's two discs and what warms with them [J/K]: a
+## 986's vented front discs are ~6 kg of iron each at ~0.46 kJ/kg K, the
+## calipers and the pads a little on top; the rears a little less, one number
+## for both. A stop from 90 km/h (~400 kJ; ~174 kJ of it on the front axle,
+## what the ABS lets through, ~216 on the rear, the engine's inertia to slow
+## on top of the bias's share) is ~29 K on the fronts and ~36 on the rears
+## (tests/tyre_brake_thermal_test.gd measures it).
+# read from the car's config (thermal.brake_heat_capacity, optional); the
+# certified value here is the fallback default a config without it gets.
+static var BRAKE_HEAT_CAPACITY := 6000.0
+
+## What an axle's discs shed standing [W per K over the air] ...
+# read from the car's config (thermal.brake_cooling_still, optional); the
+# certified value here is the fallback default a config without it gets.
+static var BRAKE_COOLING_STILL := 4.0
+
+## ... and per m/s of road speed on top [W per K per m/s]: a vented disc's
+## vanes pump the air through, linear in speed.
+# read from the car's config (thermal.brake_cooling_airflow, optional); the
+# certified value here is the fallback default a config without it gets.
+static var BRAKE_COOLING_AIRFLOW := 1.0
+
+## The tyre scale's span [K]: TYRE_OPERATING_C - COOLANT_AMBIENT_C, 60 K, what
+## one of tyre_temp is in degrees; and TYRE_MAX_C on that scale, where the
+## setters stop it. Derived, never read (_derive_from_config).
+static var TYRE_SPAN_K := TYRE_OPERATING_C - COOLANT_AMBIENT_C
+static var TYRE_MAX_TEMP := (TYRE_MAX_C - COOLANT_AMBIENT_C) / TYRE_SPAN_K
+
+## The brake scale's span [K]: BRAKE_FADE_START_C - COOLANT_AMBIENT_C, 235 K,
+## what one of brake_temp is in degrees; and BRAKE_MAX_C on that scale, where
+## the setters stop it. Derived, never read (_derive_from_config).
+static var BRAKE_SPAN_K := BRAKE_FADE_START_C - COOLANT_AMBIENT_C
+static var BRAKE_MAX_TEMP := (BRAKE_MAX_C - COOLANT_AMBIENT_C) / BRAKE_SPAN_K
 
 # --- Gearbox -----------------------------------------------------------------
 
@@ -2222,6 +2438,34 @@ var coolant_temp := 1.0:
 ## True while the radiator fan runs (COOLANT_FAN_ON_C .. COOLANT_FAN_OFF_C).
 var coolant_fan_on := false
 
+## Each axle's tyre temperature, 0 (the air, COOLANT_AMBIENT_C) .. 1 (the
+## operating temperature, TYRE_OPERATING_C), and over it up to TYRE_MAX_TEMP
+## (kept inside that, NaN is operating); tyre_c_of() is the same in degrees.
+## Warmed by the rolling and the slip work and cooled by the airflow every
+## tick (_advance_tyres); 1 out of _ready and out of reset_to, the warm tyres
+## every certified run drives on. Set them to 0 for the first lap out of the
+## garage (tests/tyre_brake_thermal_test.gd does). What the HUD's tyre bar
+## shows, the hotter of the two.
+var front_tyre_temp := 1.0:
+	set(value):
+		front_tyre_temp = 1.0 if is_nan(value) else clampf(value, 0.0, TYRE_MAX_TEMP)
+var rear_tyre_temp := 1.0:
+	set(value):
+		rear_tyre_temp = 1.0 if is_nan(value) else clampf(value, 0.0, TYRE_MAX_TEMP)
+
+## Each axle's brake temperature, 0 (the air, COOLANT_AMBIENT_C) .. 1 (the fade
+## line, BRAKE_FADE_START_C), and over it up to BRAKE_MAX_TEMP (kept inside
+## that, NaN is the air); brake_c_of() is the same in degrees. Warmed by the
+## brake torque's work and cooled by the airflow every tick (_advance_brakes);
+## 0 out of _ready and out of reset_to, the cold brakes every certified run
+## starts on. What the HUD's brake bar shows, the hotter of the two.
+var front_brake_temp := 0.0:
+	set(value):
+		front_brake_temp = 0.0 if is_nan(value) else clampf(value, 0.0, BRAKE_MAX_TEMP)
+var rear_brake_temp := 0.0:
+	set(value):
+		rear_brake_temp = 0.0 if is_nan(value) else clampf(value, 0.0, BRAKE_MAX_TEMP)
+
 ## Mass of what the car carries on top of itself and its fuel [kg]: packages,
 ## passengers, ballast. Payload is mass and nothing else: it rides at the
 ## centre of mass and is in total_mass() from the next tick on. Never negative,
@@ -2396,6 +2640,15 @@ var _battery_deep := false
 ## [rad], advanced only while the engine is cold (see IDLE_WOBBLE_HZ).
 var _combustion_heat_w := 0.0
 var _idle_wobble_phase := 0.0
+
+## The heat this tick put into each axle's tyres [W] (the rolling and the slip
+## work, see _advance_tyres) and into each axle's brakes [W] (the brake
+## torque's work, see _advance_axle): what _advance_tyres and _advance_brakes
+## were given, for the tests.
+var _front_tyre_heat_w := 0.0
+var _rear_tyre_heat_w := 0.0
+var _front_brake_heat_w := 0.0
+var _rear_brake_heat_w := 0.0
 
 ## True while the car creeps (see CREEP_CLUTCH_ENGAGEMENT); on the way there,
 ## whether the brake has held the car at a standstill (what arms the creep) and
@@ -2600,6 +2853,10 @@ func _read_config() -> void:
 	battery_charge = 1.0
 	coolant_temp = 1.0
 	coolant_fan_on = false
+	front_tyre_temp = 1.0
+	rear_tyre_temp = 1.0
+	front_brake_temp = 0.0
+	rear_brake_temp = 0.0
 	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
 	rear_load_fraction = REAR_WEIGHT_FRACTION
 	driver_profile = DRIVER_PROFILES["test_driver"]
@@ -2680,6 +2937,24 @@ static func _apply_config(config: Dictionary) -> void:
 	COOLANT_RICH_FACTOR = thermal.get("rich_factor", COOLANT_RICH_FACTOR)
 	IDLE_WOBBLE_RPM = thermal.get("idle_wobble_rpm", IDLE_WOBBLE_RPM)
 	IDLE_WOBBLE_HZ = thermal.get("idle_wobble_hz", IDLE_WOBBLE_HZ)
+	TYRE_OPERATING_C = thermal.get("tyre_operating_c", TYRE_OPERATING_C)
+	TYRE_WINDOW_LOW_C = thermal.get("tyre_window_low_c", TYRE_WINDOW_LOW_C)
+	TYRE_WINDOW_HIGH_C = thermal.get("tyre_window_high_c", TYRE_WINDOW_HIGH_C)
+	TYRE_MAX_C = thermal.get("tyre_max_c", TYRE_MAX_C)
+	TYRE_HEAT_CAPACITY = thermal.get("tyre_heat_capacity", TYRE_HEAT_CAPACITY)
+	TYRE_SLIP_HEAT_SHARE = thermal.get("tyre_slip_heat_share", TYRE_SLIP_HEAT_SHARE)
+	TYRE_COOLING_STILL = thermal.get("tyre_cooling_still", TYRE_COOLING_STILL)
+	TYRE_COOLING_AIRFLOW = thermal.get("tyre_cooling_airflow", TYRE_COOLING_AIRFLOW)
+	TYRE_COLD_GRIP = thermal.get("tyre_cold_grip", TYRE_COLD_GRIP)
+	TYRE_FADE_RATE = thermal.get("tyre_fade_rate", TYRE_FADE_RATE)
+	BRAKE_FADE_START_C = thermal.get("brake_fade_start_c", BRAKE_FADE_START_C)
+	BRAKE_FADE_RATE = thermal.get("brake_fade_rate", BRAKE_FADE_RATE)
+	BRAKE_FADE_FLOOR = thermal.get("brake_fade_floor", BRAKE_FADE_FLOOR)
+	BRAKE_RED_HOT_C = thermal.get("brake_red_hot_c", BRAKE_RED_HOT_C)
+	BRAKE_MAX_C = thermal.get("brake_max_c", BRAKE_MAX_C)
+	BRAKE_HEAT_CAPACITY = thermal.get("brake_heat_capacity", BRAKE_HEAT_CAPACITY)
+	BRAKE_COOLING_STILL = thermal.get("brake_cooling_still", BRAKE_COOLING_STILL)
+	BRAKE_COOLING_AIRFLOW = thermal.get("brake_cooling_airflow", BRAKE_COOLING_AIRFLOW)
 
 	var gearbox: Dictionary = config.gearbox
 	GEAR_RATIOS = []
@@ -2770,6 +3045,10 @@ static func _derive_from_config() -> void:
 	BATTERY_CAPACITY_J = BATTERY_CAPACITY_AH * 3600.0 * BATTERY_NOMINAL_VOLTAGE
 	COOLANT_SPAN_K = COOLANT_OPERATING_C - COOLANT_AMBIENT_C
 	COOLANT_MAX_TEMP = (COOLANT_MAX_C - COOLANT_AMBIENT_C) / COOLANT_SPAN_K
+	TYRE_SPAN_K = TYRE_OPERATING_C - COOLANT_AMBIENT_C
+	TYRE_MAX_TEMP = (TYRE_MAX_C - COOLANT_AMBIENT_C) / TYRE_SPAN_K
+	BRAKE_SPAN_K = BRAKE_FADE_START_C - COOLANT_AMBIENT_C
+	BRAKE_MAX_TEMP = (BRAKE_MAX_C - COOLANT_AMBIENT_C) / BRAKE_SPAN_K
 	CG_OFFSET = (REAR_WEIGHT_FRACTION - 0.5) * 2.0 * AXLE_DISTANCE
 	BRAKE_DECEL = BRAKE_DECEL_G * TYRE_MU * 9.8
 	FRONT_CORNER_MASS = KERB_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5
@@ -2899,8 +3178,11 @@ func _physics_process(delta: float) -> void:
 	if carried > 0.0:
 		front_load_fraction = front_axle_load / carried
 		rear_load_fraction = rear_axle_load / carried
-	var front_grip := FRONT_TYRE_GRIP * _axle_grip(front_axle_load, weight * (1.0 - REAR_WEIGHT_FRACTION))
-	var rear_grip := REAR_TYRE_GRIP * _axle_grip(rear_axle_load, weight * REAR_WEIGHT_FRACTION)
+	#    was _axle_grip(load, static load) -> with the axle's tyre temperature:
+	#    the same number to the bit inside the window (see Thermal: tyres and
+	#    brakes), every certified run.
+	var front_grip := FRONT_TYRE_GRIP * _axle_grip(front_axle_load, weight * (1.0 - REAR_WEIGHT_FRACTION), front_tyre_temp)
+	var rear_grip := REAR_TYRE_GRIP * _axle_grip(rear_axle_load, weight * REAR_WEIGHT_FRACTION, rear_tyre_temp)
 
 	# 3. How each contact patch moves over the road. The front axle sits ahead
 	#    of the centre of mass and its wheels are steered, so its motion is
@@ -2976,6 +3258,19 @@ func _physics_process(delta: float) -> void:
 	if front_drive * front_along < 0.0:
 		front_drive = _limit_to_stick(front_drive, front_along, front_arm * sin(wheel_angle), yaw_inertia, delta)
 	var rear_drive := rear_tyre.x
+	# The tyres' and the brakes' heat, now that the forces are known: the
+	# rolling and the slip work of the forces that act (the limited ones) into
+	# the tyres, the brake torque's work (_advance_axle left it in the
+	# contacts) into the discs, the airflow the road speed the tick began
+	# with. Nothing of it reaches this tick's physics; next tick's grip and
+	# brake torque are exactly this tick's for as long as the tyres stay in
+	# their window and the brakes under their line (see Thermal: tyres and
+	# brakes).
+	var rolling_w := COAST_DECEL * total_mass() * absf(forward_speed)
+	var front_slip_w := absf(front_drive * (front_omega * WHEEL_RADIUS - front_along)) + absf(front_force * front_across)
+	var rear_slip_w := absf(rear_drive * (rear_omega * WHEEL_RADIUS - forward_speed)) + absf(rear_force * rear_lateral)
+	_advance_tyres(rolling_w * front_load_fraction + TYRE_SLIP_HEAT_SHARE * front_slip_w, rolling_w * rear_load_fraction + TYRE_SLIP_HEAT_SHARE * rear_slip_w, absf(forward_speed), delta)
+	_advance_brakes(front_contact.get("brake_work_w", 0.0), rear_contact.get("brake_work_w", 0.0), absf(forward_speed), delta)
 
 	# 6. Add it all up at the centre of mass, in the car's frame. The front
 	#    forces act along and across the steered wheels: the sideways force of
@@ -3153,6 +3448,14 @@ func reset_to(target: Transform3D) -> void:
 	coolant_fan_on = false
 	_combustion_heat_w = 0.0
 	_idle_wobble_phase = 0.0
+	front_tyre_temp = 1.0
+	rear_tyre_temp = 1.0
+	front_brake_temp = 0.0
+	rear_brake_temp = 0.0
+	_front_tyre_heat_w = 0.0
+	_rear_tyre_heat_w = 0.0
+	_front_brake_heat_w = 0.0
+	_rear_brake_heat_w = 0.0
 	payload_mass = 0.0
 	exhaust_events = 0.0
 	exhaust_flow = 0.0
@@ -3269,6 +3572,66 @@ static func thermostat_open(temp: float) -> float:
 static func coolant_cooling_w(temp: float, airflow: float, fan_on: bool) -> float:
 	var flow := maxf(absf(airflow), COOLANT_FAN_AIRFLOW if fan_on else 0.0)
 	return thermostat_open(temp) * COOLANT_RADIATOR_COOLING * flow * flow * temp * COOLANT_SPAN_K
+
+
+## `temp` on the tyres' scale in degrees [C], and back: 0 is COOLANT_AMBIENT_C,
+## 1 is TYRE_OPERATING_C (see front_tyre_temp).
+static func tyre_c_of(temp: float) -> float:
+	return COOLANT_AMBIENT_C + temp * TYRE_SPAN_K
+
+
+static func tyre_temp_of_c(c: float) -> float:
+	return (c - COOLANT_AMBIENT_C) / TYRE_SPAN_K
+
+
+## What a tyre at `temp` has of its grip (0..1): exactly 1 in the window,
+## TYRE_WINDOW_LOW_C to TYRE_WINDOW_HIGH_C; under it a line from
+## TYRE_COLD_GRIP at the air's temperature to 1 at the window's edge; over it
+## less by TYRE_FADE_RATE for every degree over, never under TYRE_FADE_FLOOR.
+static func tyre_grip_factor(temp: float) -> float:
+	var c := tyre_c_of(temp)
+	if c < TYRE_WINDOW_LOW_C:
+		var span := TYRE_WINDOW_LOW_C - COOLANT_AMBIENT_C
+		if span <= 0.0:
+			return 1.0
+		return lerpf(TYRE_COLD_GRIP, 1.0, clampf((c - COOLANT_AMBIENT_C) / span, 0.0, 1.0))
+	if c > TYRE_WINDOW_HIGH_C:
+		return maxf(1.0 - TYRE_FADE_RATE * (c - TYRE_WINDOW_HIGH_C), TYRE_FADE_FLOOR)
+	return 1.0
+
+
+## What an axle's tyres shed [W] at `temp` in `airflow` [m/s] of road speed:
+## TYRE_COOLING_STILL plus TYRE_COOLING_AIRFLOW times the airflow, times how
+## far the tyre is over the air [K]. Nothing at the air's temperature.
+static func tyre_cooling_w(temp: float, airflow: float) -> float:
+	return (TYRE_COOLING_STILL + TYRE_COOLING_AIRFLOW * absf(airflow)) * temp * TYRE_SPAN_K
+
+
+## `temp` on the brakes' scale in degrees [C], and back: 0 is
+## COOLANT_AMBIENT_C, 1 is BRAKE_FADE_START_C (see front_brake_temp).
+static func brake_c_of(temp: float) -> float:
+	return COOLANT_AMBIENT_C + temp * BRAKE_SPAN_K
+
+
+static func brake_temp_of_c(c: float) -> float:
+	return (c - COOLANT_AMBIENT_C) / BRAKE_SPAN_K
+
+
+## What is left of a brake's torque at `temp` (0..1): exactly 1 up to
+## BRAKE_FADE_START_C, less by BRAKE_FADE_RATE for every degree over it, never
+## under BRAKE_FADE_FLOOR.
+static func brake_fade(temp: float) -> float:
+	var over := brake_c_of(temp) - BRAKE_FADE_START_C
+	if over <= 0.0:
+		return 1.0
+	return maxf(1.0 - BRAKE_FADE_RATE * over, BRAKE_FADE_FLOOR)
+
+
+## What an axle's discs shed [W] at `temp` in `airflow` [m/s] of road speed:
+## BRAKE_COOLING_STILL plus BRAKE_COOLING_AIRFLOW times the airflow, times
+## how far the disc is over the air [K]. Nothing at the air's temperature.
+static func brake_cooling_w(temp: float, airflow: float) -> float:
+	return (BRAKE_COOLING_STILL + BRAKE_COOLING_AIRFLOW * absf(airflow)) * temp * BRAKE_SPAN_K
 
 
 ## The share of its rated torque (CRANKING_TORQUE) the starter makes on the
@@ -3835,8 +4198,17 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 	var rear_share := 1.0 - front_share
 	var front_brake := _brake_torque(BRAKE_BIAS_FRONT, brake, AXLE_INERTIA)
 	var rear_brake := _brake_torque(1.0 - BRAKE_BIAS_FRONT, brake, AXLE_INERTIA)
+	# Hot pads give less for the same pedal (brake_fade: exactly 1 under
+	# BRAKE_FADE_START_C, every certified run, and the torque as it was).
+	var front_fade := brake_fade(front_brake_temp)
+	var rear_fade := brake_fade(rear_brake_temp)
+	if front_fade < 1.0:
+		front_brake *= front_fade
+	if rear_fade < 1.0:
+		rear_brake *= rear_fade
 	# The handbrake is on the rear brakes, not on the ABS's circuit: what it
-	# still holds them with goes on top, and the ABS does not let it go.
+	# still holds them with goes on top, and the ABS does not let it go. The
+	# lever's, not the pads': it does not fade.
 	var rear_hold := HANDBRAKE_RELEASE_TORQUE * _rear_lock_recovery
 	rear_brake += rear_hold
 	var abs_active := abs_on and brake > 0.0
@@ -3874,9 +4246,16 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 		var net := _engine_net_torque(engine_rpm, throttle, 0.0)
 		var at_axle := net * ratio * (DRIVETRAIN_EFFICIENCY if net > 0.0 else 1.0)
 		var reflected := ENGINE_INERTIA * ratio * ratio * DRIVETRAIN_EFFICIENCY
-		# The brakes have the engine to slow down too (see _brake_torque).
-		front_brake += _brake_torque(0.0, brake, reflected * front_share)
-		rear_brake += _brake_torque(0.0, brake, reflected * rear_share)
+		# The brakes have the engine to slow down too (see _brake_torque), and
+		# fade over that as over the rest.
+		var front_engine_brake := _brake_torque(0.0, brake, reflected * front_share)
+		var rear_engine_brake := _brake_torque(0.0, brake, reflected * rear_share)
+		if front_fade < 1.0:
+			front_engine_brake *= front_fade
+		if rear_fade < 1.0:
+			rear_engine_brake *= rear_fade
+		front_brake += front_engine_brake
+		rear_brake += rear_engine_brake
 		var next_front := _advance_axle(front_omega, at_axle * front_share, front_brake, AXLE_INERTIA + reflected * front_share, front, abs_active, delta)
 		var next_rear := _advance_axle(rear_omega, at_axle * rear_share, rear_brake, AXLE_INERTIA + reflected * rear_share, rear, rear_abs, delta)
 		var next_engine := (next_front * front_share + next_rear * rear_share) * ratio
@@ -4017,9 +4396,16 @@ func _brake_torque(share: float, brake: float, inertia: float) -> float:
 ## brake torque the tyre cannot answer stops the
 ## wheel, and holds it stopped for as long as it is more than the road's pull
 ## on the locked tyre.
+##   The brake's work goes into `contact` as "brake_work_w" [W], for
+## _advance_brakes: the brake torque that acted - read back off the wheel's
+## speed change, the backward-Euler balance the other way round, never more
+## than was asked - times the wheel speed the step ran at. What the ABS let go
+## of did no work; a wheel held stopped does none. The dictionary is this
+## tick's contact, made in _physics_process and read back there.
 func _advance_axle(omega: float, torque: float, brake_torque: float, inertia: float, contact: Dictionary, abs_active: bool, delta: float) -> float:
 	var along: float = contact.along
 	var road_torque: float = contact.grip * WHEEL_RADIUS
+	contact["brake_work_w"] = 0.0
 	# The brake works against the wheel's turning; on a stopped wheel against
 	# whatever would turn it, and holds it if it can.
 	var brake_direction := signf(omega)
@@ -4028,6 +4414,7 @@ func _advance_axle(omega: float, torque: float, brake_torque: float, inertia: fl
 		if absf(turning) <= brake_torque:
 			return 0.0
 		brake_direction = signf(turning)
+	var driving := torque
 	torque -= brake_direction * brake_torque
 
 	var net := torque - road_torque * _tyre_force(_slip_ratio(omega, along), contact.slip_angle, contact.peak_slip_angle, contact.slide_grip).x
@@ -4061,6 +4448,14 @@ func _advance_axle(omega: float, torque: float, brake_torque: float, inertia: fl
 			next = maxf(next, (along - abs_margin) / WHEEL_RADIUS)
 		else:
 			next = minf(next, (along + abs_margin) / WHEEL_RADIUS)
+	if brake_torque > 0.0:
+		# What the brake really took off the wheel this step: the balance
+		# inertia x (next - omega) / delta = driving - brake - tyre(next) read
+		# for the brake, inside 0 .. what was asked (the tyre curve is only
+		# linearised; the ABS's clamp is a torque let go).
+		var tyre_next := road_torque * _tyre_force(_slip_ratio(next, along), contact.slip_angle, contact.peak_slip_angle, contact.slide_grip).x
+		var acted := clampf((driving - tyre_next - inertia * (next - omega) / delta) * brake_direction, 0.0, brake_torque)
+		contact["brake_work_w"] = acted * absf(omega + next) * 0.5
 	return next
 
 
@@ -4323,6 +4718,32 @@ func _advance_coolant(heat_w: float, airflow: float, delta: float) -> void:
 		_idle_wobble_phase = fposmod(_idle_wobble_phase + IDLE_WOBBLE_HZ * TAU * delta, TAU)
 
 
+## One tick of the tyres: `front_w` and `rear_w` [W] in (the rolling and the
+## slip work, see Thermal: tyres and brakes), the airflow's cooling out
+## (tyre_cooling_w in `airflow` [m/s]), the difference over TYRE_HEAT_CAPACITY
+## on to each axle's tyre_temp (the setters stop it at TYRE_MAX_TEMP). What
+## went in is kept (_front_tyre_heat_w, _rear_tyre_heat_w) for the tests.
+func _advance_tyres(front_w: float, rear_w: float, airflow: float, delta: float) -> void:
+	_front_tyre_heat_w = front_w
+	_rear_tyre_heat_w = rear_w
+	var capacity := TYRE_HEAT_CAPACITY * TYRE_SPAN_K
+	front_tyre_temp += (front_w - tyre_cooling_w(front_tyre_temp, airflow)) * delta / capacity
+	rear_tyre_temp += (rear_w - tyre_cooling_w(rear_tyre_temp, airflow)) * delta / capacity
+
+
+## One tick of the brakes: `front_w` and `rear_w` [W] in (the brake torque's
+## work, see _advance_axle), the airflow's cooling out (brake_cooling_w in
+## `airflow` [m/s]), the difference over BRAKE_HEAT_CAPACITY on to each
+## axle's brake_temp (the setters stop it at BRAKE_MAX_TEMP). What went in is
+## kept (_front_brake_heat_w, _rear_brake_heat_w) for the tests.
+func _advance_brakes(front_w: float, rear_w: float, airflow: float, delta: float) -> void:
+	_front_brake_heat_w = front_w
+	_rear_brake_heat_w = rear_w
+	var capacity := BRAKE_HEAT_CAPACITY * BRAKE_SPAN_K
+	front_brake_temp += (front_w - brake_cooling_w(front_brake_temp, airflow)) * delta / capacity
+	rear_brake_temp += (rear_w - brake_cooling_w(rear_brake_temp, airflow)) * delta / capacity
+
+
 ## The rev limiter's fuel cut: on at REDLINE_RPM, off again under
 ## LIMITER_RESUME_RPM.
 func _update_limiter() -> void:
@@ -4334,9 +4755,15 @@ func _update_limiter() -> void:
 
 ## Most force [N] the tyres of an axle can make, in any direction, under
 ## `load` [N] when the axle carries `static_load` [N] at rest: TYRE_MU times
-## the load at rest, sub-linear in load from there (LOAD_GRIP_EXPONENT).
-func _axle_grip(load: float, static_load: float) -> float:
-	return TYRE_MU * static_load * pow(maxf(load, 0.0) / static_load, LOAD_GRIP_EXPONENT)
+## the load at rest, sub-linear in load from there (LOAD_GRIP_EXPONENT), and
+## what the tyres' temperature leaves of that (tyre_grip_factor at `temp`:
+## exactly all of it in the window, so exactly the pre-thermal number).
+func _axle_grip(load: float, static_load: float, temp: float) -> float:
+	var grip := TYRE_MU * static_load * pow(maxf(load, 0.0) / static_load, LOAD_GRIP_EXPONENT)
+	var factor := tyre_grip_factor(temp)
+	if factor >= 1.0:
+		return grip
+	return grip * factor
 
 
 ## The tyre curve: share of the peak force (-1..1) at `slip`, the slip angle in

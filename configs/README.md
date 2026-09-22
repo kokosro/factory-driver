@@ -58,7 +58,19 @@ fallback default, given in brackets.
   the capacity J/K, the cooling W per K per (m/s)^2 of airflow, the fan's airflow the
   road speed it stands in for [m/s], the fade rate per degree over its start. A car
   starts at `operating_c` whatever is here: the warm-up is what a cold start (set by
-  hand) climbs through.
+  hand) climbs through. The tyres and the brakes, an axle each: `tyre_operating_c` [75],
+  `tyre_window_low_c` [45], `tyre_window_high_c` [110], `tyre_max_c` [165],
+  `tyre_heat_capacity` [10000], `tyre_slip_heat_share` [0.3], `tyre_cooling_still` [6],
+  `tyre_cooling_airflow` [1.4], `tyre_cold_grip` [0.85], `tyre_fade_rate` [0.005],
+  `brake_fade_start_c` [250], `brake_fade_rate` [0.002], `brake_fade_floor` [0.5],
+  `brake_red_hot_c` [400], `brake_max_c` [600], `brake_heat_capacity` [6000],
+  `brake_cooling_still` [4], `brake_cooling_airflow` [1]. Degrees Celsius, the
+  capacities J/K an axle, the cooling W per K standing and W per K per m/s of road
+  speed on top, the cold grip the share of the grip at the air's temperature, the
+  fade rates per degree over the window's upper edge and the brakes' fade line, the
+  slip heat share the part of the slip work that warms the tyre. A car starts with its
+  tyres at `tyre_operating_c` (inside the window, the grip exactly its own) and its
+  brakes at `ambient_c` (the fade exactly none) whatever is here.
 - `gearbox`: `ratios` (neutral's 0 first, then the forward gears, each above zero),
   `final_drive`, `reverse_ratio`, `drivetrain_efficiency`, `clutch_torque_max`,
   `clutch_engage_time`, `clutch_shift_engage_time`.
