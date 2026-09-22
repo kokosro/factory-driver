@@ -816,9 +816,15 @@ func _finish() -> void:
 
 
 ## Removes the test's own folder, files first, folders after, deepest first.
+## Hidden files included: the seed's marker is a dotfile, which the static
+## listing skips, and a folder with one left in it never goes.
 func _remove_tree(dir: String) -> void:
-	for file_name in DirAccess.get_files_at(dir):
+	var listing := DirAccess.open(dir)
+	if listing == null:
+		return
+	listing.include_hidden = true
+	for file_name in listing.get_files():
 		DirAccess.remove_absolute(dir.path_join(file_name))
-	for dir_name in DirAccess.get_directories_at(dir):
+	for dir_name in listing.get_directories():
 		_remove_tree(dir.path_join(dir_name))
 	DirAccess.remove_absolute(dir)
