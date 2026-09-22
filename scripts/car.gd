@@ -172,6 +172,43 @@ static var CG_OFFSET := (REAR_WEIGHT_FRACTION - 0.5) * 2.0 * AXLE_DISTANCE
 # required); the certified value stays here as the fallback default.
 static var YAW_GYRATION_RADIUS := 1.25
 
+## The mass ledger (3W, docs/car-component-audit.md section 4): KERB_MASS as
+## the table of the car's components it adds up from, one row each of
+## {name, mass_kg [kg], x_position_m [m], sprung (bool)}. x is measured from
+## the middle of the wheelbase, positive toward the rear (+Z, the sign of
+## CG_OFFSET): the front axle at -AXLE_DISTANCE, the rear at +AXLE_DISTANCE.
+## The fuel is not a row, it rides total_mass() as fuel_mass; the tank is.
+## Read from the car's config (mass_ledger, required; validated to sum to
+## mass.kerb_mass and to put mass.rear_weight_fraction on the rear axle, to
+## the bit, see CarConfigValidation._check_mass_ledger). Data: the physics
+## reads what is derived from it, below, never the rows. The fallback is
+## empty, the table is the config's; what the certified table adds up to
+## stands as the fallback defaults of the three sums under it.
+static var MASS_LEDGER: Array[Dictionary] = []
+
+## What the ledger's rows add up to [kg]: KERB_MASS again, by the sum of its
+## parts, and held equal to it to the bit by the validation.
+# derived, never read: worked out again from the ledger when a car reads its
+# config (_derive_from_config); the certified table's sum is the fallback.
+static var LEDGER_KERB_MASS := KERB_MASS
+
+## The rear axle's share of the ledger's weight at rest (0..1): the sum of
+## mass x (AXLE_DISTANCE + x) over the rows, over 2 x AXLE_DISTANCE x the
+## total. REAR_WEIGHT_FRACTION again, by where the parts sit, and held equal
+## to it to the bit by the validation.
+# derived, never read: worked out again from the ledger when a car reads its
+# config (_derive_from_config); the certified table's share is the fallback.
+static var LEDGER_REAR_FRACTION := REAR_WEIGHT_FRACTION
+
+## What the ledger's unsprung rows add up to [kg]: wheels and tyres, brakes,
+## hubs and uprights. Data and validation only, no consumer yet: the
+## suspension runs the whole kerb per axle (see "no unsprung mass" over the
+## Suspension section: tyre and wheel are part of the road as far as the
+## spring is concerned), and the certified numbers were tuned that way.
+# derived, never read: worked out again from the ledger when a car reads its
+# config (_derive_from_config); the certified table's sum is the fallback.
+static var UNSPRUNG_MASS := 122.0
+
 # --- Engine ------------------------------------------------------------------
 
 ## Torque curve at full throttle: Vector2(rpm, torque [Nm]) anchor points,
@@ -1743,10 +1780,17 @@ static var RIDE_DAMPING_RATIO := 0.4
 ## _corner_forces), so it stands at its ride height whatever is in it.
 # was a const -> derived, never read: worked out again from the config's
 # numbers when a car reads them (_derive_from_config, the same sum as here).
-static var FRONT_CORNER_MASS := KERB_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5
+# was KERB_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5 -> the same sum on the
+# mass ledger's own total and split (3W, docs/car-component-audit.md section
+# 4: the ledger feeds the corner masses, it does not bypass them); the
+# validation holds those equal to KERB_MASS and REAR_WEIGHT_FRACTION to the
+# bit, so this is the same number by the same f64 expression.
+static var FRONT_CORNER_MASS := LEDGER_KERB_MASS * (1.0 - LEDGER_REAR_FRACTION) * 0.5
 # was a const -> derived, never read: worked out again from the config's
 # numbers when a car reads them (_derive_from_config, the same sum as here).
-static var REAR_CORNER_MASS := KERB_MASS * REAR_WEIGHT_FRACTION * 0.5
+# was KERB_MASS * REAR_WEIGHT_FRACTION * 0.5 -> the ledger's total and split
+# (3W, as FRONT_CORNER_MASS above).
+static var REAR_CORNER_MASS := LEDGER_KERB_MASS * LEDGER_REAR_FRACTION * 0.5
 
 ## Spring rate at the wheel [N/m]: corner mass x (TAU x ride frequency)^2.
 ## Front ~21.9 kN/m, rear ~46.0 kN/m (static compression 11.0 and 8.6 cm).
@@ -2959,6 +3003,9 @@ static func _apply_config(config: Dictionary) -> void:
 	CG_HEIGHT = mass.cg_height
 	AXLE_DISTANCE = mass.axle_distance
 	YAW_GYRATION_RADIUS = mass.yaw_gyration_radius
+	MASS_LEDGER = []
+	for row: Dictionary in config.mass_ledger:
+		MASS_LEDGER.append({"name": row.name, "mass_kg": row.mass_kg, "x_position_m": row.x_position_m, "sprung": row.sprung})
 
 	var engine: Dictionary = config.engine
 	TORQUE_CURVE = []
@@ -3136,8 +3183,23 @@ static func _derive_from_config() -> void:
 	BRAKE_MAX_TEMP = (BRAKE_MAX_C - COOLANT_AMBIENT_C) / BRAKE_SPAN_K
 	CG_OFFSET = (REAR_WEIGHT_FRACTION - 0.5) * 2.0 * AXLE_DISTANCE
 	BRAKE_DECEL = BRAKE_DECEL_G * TYRE_MU * 9.8
-	FRONT_CORNER_MASS = KERB_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5
-	REAR_CORNER_MASS = KERB_MASS * REAR_WEIGHT_FRACTION * 0.5
+	# The ledger's sums, the plain loop CarConfigValidation._check_mass_ledger
+	# runs, in row order: the same f64 operations give the same bits.
+	LEDGER_KERB_MASS = 0.0
+	UNSPRUNG_MASS = 0.0
+	var ledger_moment := 0.0
+	for row: Dictionary in MASS_LEDGER:
+		LEDGER_KERB_MASS += row.mass_kg
+		ledger_moment += row.mass_kg * (AXLE_DISTANCE + row.x_position_m)
+		if not row.sprung:
+			UNSPRUNG_MASS += row.mass_kg
+	LEDGER_REAR_FRACTION = ledger_moment / (2.0 * AXLE_DISTANCE * LEDGER_KERB_MASS)
+	# was KERB_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5 and KERB_MASS *
+	# REAR_WEIGHT_FRACTION * 0.5 -> the ledger's total and split (3W,
+	# docs/car-component-audit.md section 4), held equal to those to the bit
+	# by the validation: the same numbers.
+	FRONT_CORNER_MASS = LEDGER_KERB_MASS * (1.0 - LEDGER_REAR_FRACTION) * 0.5
+	REAR_CORNER_MASS = LEDGER_KERB_MASS * LEDGER_REAR_FRACTION * 0.5
 	FRONT_SPRING_RATE = FRONT_CORNER_MASS * (TAU * FRONT_RIDE_FREQUENCY) * (TAU * FRONT_RIDE_FREQUENCY)
 	REAR_SPRING_RATE = REAR_CORNER_MASS * (TAU * REAR_RIDE_FREQUENCY) * (TAU * REAR_RIDE_FREQUENCY)
 	FRONT_DAMPER_RATE = 2.0 * RIDE_DAMPING_RATIO * FRONT_CORNER_MASS * TAU * FRONT_RIDE_FREQUENCY
