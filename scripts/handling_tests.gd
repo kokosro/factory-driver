@@ -667,6 +667,25 @@ func _start() -> void:
 	var offset: Vector3 = test.get("start_offset", Vector3.ZERO)
 	var heading := deg_to_rad(test.get("start_heading_deg", 0.0))
 	car.reset_to(Transform3D(spawn.basis.rotated(Vector3.UP, heading), spawn.origin + offset))
+	# The certified fresh car's temperatures: the coolant at operating with the
+	# fan off, the tyres at operating, the brakes at the air's, the tick's heat
+	# trackers and the idle hunt's phase at 0 - exactly what reset_to used to
+	# set, so every certified run's physics is the bit it was. A reset keeps
+	# the heat now (the user's report, 2026-09-22 morning: R must not turn
+	# back time on temperature); a test starting is the one place that hands
+	# out the fresh car, before any physics frame.
+	car.coolant_temp = 1.0
+	car.coolant_fan_on = false
+	car._combustion_heat_w = 0.0
+	car._idle_wobble_phase = 0.0
+	car.front_tyre_temp = 1.0
+	car.rear_tyre_temp = 1.0
+	car.front_brake_temp = 0.0
+	car.rear_brake_temp = 0.0
+	car._front_tyre_heat_w = 0.0
+	car._rear_tyre_heat_w = 0.0
+	car._front_brake_heat_w = 0.0
+	car._rear_brake_heat_w = 0.0
 	# The reset unloads the car; the test's payload goes on after it.
 	car.payload_mass = float(test.get("payload_kg", 0.0))
 	if pad != null and pad.has_method("reset_cones"):
