@@ -34,6 +34,13 @@ extends SceneTree
 ## overwrites, never touches the source, once) and the autoload that ran
 ## it (nothing seeded with no window); the bar legend naming every bar;
 ## the keys in the map, Tab among them; and no folder dialog ever made.
+## Last, readability (the user's report, 2026-09-22 16:15: THE STUDY's
+## page spanned more than the screen): the window set to the game's own
+## 1280 x 720 and every surface laid out on it and measured - the five
+## garage pages walked with Tab, Right, Down and PgDn, the licence book on
+## L, a lesson's input display with its caption, the mission line, the
+## ABORTED and LESSON ENDED banners - no control reaching past the screen,
+## every row reachable inside the scroll area.
 ## Exits 0 on success, 1 on any failed check.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -55,6 +62,18 @@ const DRIVE_STEER := 0.35
 
 ## Ticks the donuts lesson runs before Esc ends it.
 const ABORT_AFTER_FRAMES := 30
+
+## How far a laid-out rect may reach past the screen, or past its scroll
+## area, before it counts as off it [px]: sub-pixel rounding of a rect,
+## nothing a reader could see.
+const OVERFLOW_TOLERANCE_PX := 1.0
+
+## Ticks the steering lesson runs before its input display is measured
+## (its second caption is up by then) [physics ticks].
+const LESSON_MEASURE_FRAMES := 120
+
+## PgDn presses that reach the end of the longest garage page, with room.
+const MAX_PAGE_DOWNS := 20
 
 ## Where the store and folder checks write: a folder of this test's own,
 ## one per process, removed at the end.
@@ -133,6 +152,8 @@ func _run() -> void:
 	print("-- the LICENCE page")
 	_check_licence_panel()
 	_check_licence_checklist()
+	print("-- readability: nothing off the screen")
+	await _check_readability()
 
 	_car.clear_driver_input()
 	_car.reset_to_spawn()
@@ -809,6 +830,193 @@ func _check_licence_checklist() -> void:
 	_licence._load_licence()
 	_licence._store_path = OdometerStore.PATH
 	_check(_licence.licence == held and _licence.level() == LicenceExams.LICENCE_L1, "the manager's record is back as it was")
+
+
+# =============================================================================
+#  Readability: nothing off the screen
+# =============================================================================
+
+## Every surface on the game's own screen (project.godot's viewport size;
+## headless the window is the dummy display's 64 x 64, so it is set here).
+## Each is put up the way a player does it and given two ticks to lay out
+## before its global rects are measured against the screen (_off_screen):
+## the garage's five pages on Tab and Right, Down through every row and
+## PgDn to the end of the page (a page taller than the frame scrolls:
+## every row must land inside the scroll area, never past it), the book on
+## L, the steering lesson from THE STUDY's row with its caption up, the
+## longest line any lesson says on the caption, the LESSON ENDED banner of
+## the longest lesson title on Esc, the longest mission line (test 3) and
+## its ABORTED banner.
+func _check_readability() -> void:
+	var screen := Rect2(Vector2.ZERO, Vector2(
+		float(ProjectSettings.get_setting("display/window/size/viewport_width")),
+		float(ProjectSettings.get_setting("display/window/size/viewport_height")),
+	))
+	root.size = Vector2i(screen.size)
+	await _step(2)
+	_check(root.get_visible_rect() == screen and screen.size == Vector2(1280, 720), "the window is the game's own %d x %d: every surface below is laid out on that screen" % [int(screen.size.x), int(screen.size.y)])
+	await _fresh()
+
+	# The idle HUD: the controls text and the mission line under it.
+	var controls: Control = _hud.get_node("ControlsLabel")
+	var mission_line: Control = _hud.get_node("MissionLabel")
+	var off := _off_screen(_hud, screen)
+	_check(off.is_empty() and controls.get_global_rect().end.y <= mission_line.get_global_rect().position.y + OVERFLOW_TOLERANCE_PX, "the idle HUD: every label inside the screen, the mission line (%.0f px wide, wrapped) under the controls text, not over it%s" % [mission_line.get_global_rect().size.x, _listed(off)])
+
+	# The garage: Tab (it reopens on the page it last showed), Right round
+	# to DRIVE, then Right through the pages.
+	await _tap(Garage.ACTION_OPEN)
+	await _page_right_to(Garage.Page.DRIVE)
+	var frame: Control = _garage.get_node("Frame")
+	var scroll: ScrollContainer = _garage.get_node("Frame/Column/Scroll")
+	var body: Control = _garage.get_node("Frame/Column/Scroll/Body")
+	_check(_garage.is_open and _garage.page == Garage.Page.DRIVE, "Tab opens the garage, Right brings DRIVE round")
+	for index in Garage.PAGE_TITLES.size():
+		if index > 0:
+			await _tap(&"ui_right")
+		var title: String = Garage.PAGE_TITLES[_garage.page]
+		off = _off_screen(_garage, screen)
+		_check(_garage.page == index and off.is_empty() and _inside(frame.get_global_rect(), screen), "%s: the frame %.0f x %.0f px at (%.0f, %.0f), inside the screen, and every control on the page inside it or its scroll area%s" % [title, frame.size.x, frame.size.y, frame.global_position.x, frame.global_position.y, _listed(off)])
+		var rows := _garage.page_rows()
+		var unreachable := PackedStringArray()
+		for row in rows.size():
+			if row > 0:
+				await _tap(&"ui_down")
+			var button: Control = _garage.get_node("Frame/Column/Scroll/Body/Row%d" % row)
+			if not (_garage.cursor == row and _inside(button.get_global_rect(), scroll.get_global_rect())):
+				unreachable.append("%s (%s)" % [rows[row].label, button.get_global_rect()])
+		var downs := 0
+		while downs < MAX_PAGE_DOWNS:
+			var before := scroll.scroll_vertical
+			await _tap(&"ui_page_down")
+			downs += 1
+			if scroll.scroll_vertical == before:
+				break
+		var last: Control = body.get_child(body.get_child_count() - 1)
+		_check(unreachable.is_empty() and _inside(last.get_global_rect(), scroll.get_global_rect()), "%s: Down lands on each of its %d rows inside the %.0f px scroll area (the page is %.0f px), PgDn reaches its end%s" % [title, rows.size(), scroll.size.y, body.size.y, ": " + ", ".join(unreachable) if not unreachable.is_empty() else ""])
+	await _tap(Garage.ACTION_OPEN)
+	_check(not _garage.is_open, "Tab closes it")
+
+	# The licence book on L.
+	await _tap(LicenceManager.ACTION_BOOK)
+	var card: Label = _hud.get_node("LicenceCard")
+	var card_back: Control = _hud.get_node("LicenceCardBack")
+	off = _off_screen(_hud, screen)
+	_check(_licence.book_open and _hud.licence_card_visible() and off.is_empty() and _inside(card.get_global_rect(), card_back.get_global_rect()), "the licence book (L): %.0f px of text on a %.0f px card, on its back, inside the screen%s" % [card.get_minimum_size().y, card.size.y, _listed(off)])
+	await _tap(&"abort_mission")
+
+	# A lesson from THE STUDY's row: the input display with its caption.
+	var catalogue := StudyLessons.catalogue()
+	await _tap(Garage.ACTION_OPEN)
+	await _page_right_to(Garage.Page.STUDY)
+	var rows := _garage.page_rows()
+	for row in rows.size():
+		if rows[row].id == "steering":
+			for _down in row:
+				await _tap(&"ui_down")
+	await _tap(&"ui_accept")
+	_check(_garage.page == Garage.Page.STUDY and not _garage.is_open and _study.is_running() and _study.lesson.id == "steering", "Right to THE STUDY, Enter on the steering row: the lesson runs")
+	await _step(LESSON_MEASURE_FRAMES)
+	var panel: Control = _hud.get_node("StudyPanel")
+	var caption: Label = _hud.get_node("StudyPanel/Caption")
+	var steer_label: Control = _hud.get_node("StudyPanel/SteerLabel")
+	off = _off_screen(_hud, screen)
+	_check(_study.is_running() and _hud.study_panel_visible() and caption.text != "" and off.is_empty() and _inside(caption.get_global_rect(), panel.get_global_rect()) and caption.get_global_rect().end.y <= steer_label.get_global_rect().position.y + OVERFLOW_TOLERANCE_PX, "the lesson's input display: inside the screen, the caption ('%s') inside the panel and above the steering bar%s" % [caption.text.left(40), _listed(off)])
+	var longest_line := ""
+	for entry in catalogue:
+		for line in _lines_said(entry):
+			if line.length() > longest_line.length():
+				longest_line = line
+	_hud.set_study_caption(longest_line)
+	await _step(2)
+	_check(caption.get_minimum_size().y <= caption.size.y + OVERFLOW_TOLERANCE_PX and caption.get_global_rect().end.y <= steer_label.get_global_rect().position.y + OVERFLOW_TOLERANCE_PX, "the longest line any lesson says (%d characters) fits the caption's %.0f px, above the steering bar" % [longest_line.length(), caption.size.y])
+	await _tap(&"abort_mission")
+	_study.dismiss_banner()
+	await _step(2)
+
+	# The LESSON ENDED banner of the longest title, on Esc.
+	var longest_lesson: Dictionary = {}
+	for entry in catalogue:
+		if not entry.get("coming_soon", false) and String(entry.title).length() > String(longest_lesson.get("title", "")).length():
+			longest_lesson = entry
+	await _fresh()
+	_check(_study.start_lesson(longest_lesson), "the lesson with the longest title starts (%s)" % longest_lesson.title)
+	await _step(ABORT_AFTER_FRAMES)
+	await _tap(&"abort_mission")
+	var detail: Control = _hud.get_node("MissionBannerDetail")
+	off = _off_screen(_hud, screen)
+	_check(_study.state == Study.State.RESULT and _banner.visible and off.is_empty() and _banner.get_minimum_size().x <= _banner.size.x + OVERFLOW_TOLERANCE_PX and _banner.get_global_rect().end.y <= detail.get_global_rect().position.y + OVERFLOW_TOLERANCE_PX, "Esc: the banner '%s' fits the screen's width in %d px letters, its small print under it%s" % [_banner.text, _banner.get_theme_font_size("font_size"), _listed(off)])
+	_study.dismiss_banner()
+	await _step(2)
+
+	# The mission line of test 3 (the longest) and its ABORTED banner.
+	await _fresh()
+	await _tap(&"test_3")
+	off = _off_screen(_hud, screen)
+	_check(_missions.is_running() and _missions.selected_index == 2 and off.is_empty() and controls.get_global_rect().end.y <= mission_line.get_global_rect().position.y + OVERFLOW_TOLERANCE_PX, "test 3 running: the mission line (%.0f px tall) inside the screen, under the controls text%s" % [mission_line.size.y, _listed(off)])
+	await _tap(&"abort_mission")
+	off = _off_screen(_hud, screen)
+	_check(_missions.state == MissionManager.State.RESULT and _banner.visible and off.is_empty() and _banner.get_minimum_size().x <= _banner.size.x + OVERFLOW_TOLERANCE_PX, "Esc: the ABORTED banner and its small print inside the screen (%d px letters)%s" % [_banner.get_theme_font_size("font_size"), _listed(off)])
+	await _tap(&"abort_mission")
+	await _step(2)
+	_check(_missions.state == MissionManager.State.IDLE and not _banner.visible, "Esc: the banner is down, idle again")
+
+
+## Right until the garage shows `wanted` (at most once round the tabs).
+func _page_right_to(wanted: Garage.Page) -> void:
+	for _tab in Garage.PAGE_TITLES.size():
+		if _garage.page == wanted:
+			return
+		await _tap(&"ui_right")
+
+
+## The visible Controls under `node` that reach past `bounds` by more than
+## OVERFLOW_TOLERANCE_PX, each by path with how far and its rect. Under a
+## ScrollContainer the bounds are its own rect sideways only: up and down
+## is what scrolling is for, and _check_readability holds every row to it.
+func _off_screen(node: Node, bounds: Rect2, path := "") -> PackedStringArray:
+	var found := PackedStringArray()
+	for child in node.get_children():
+		var child_path := path + "/" + child.name
+		var child_bounds := bounds
+		if child is Control:
+			var control := child as Control
+			if not control.is_visible_in_tree():
+				continue
+			var rect := control.get_global_rect()
+			var over := maxf(
+				maxf(bounds.position.x - rect.position.x, rect.end.x - bounds.end.x),
+				maxf(bounds.position.y - rect.position.y, rect.end.y - bounds.end.y),
+			)
+			if over > OVERFLOW_TOLERANCE_PX:
+				found.append("%s by %.0f px (%s)" % [child_path, over, rect])
+			if control is ScrollContainer:
+				child_bounds = Rect2(rect.position.x, -1.0e9, rect.size.x, 2.0e9)
+		found.append_array(_off_screen(child, child_bounds, child_path))
+	return found
+
+
+## Whether `rect` lies inside `bounds`, OVERFLOW_TOLERANCE_PX allowed.
+func _inside(rect: Rect2, bounds: Rect2) -> bool:
+	return rect.position.x >= bounds.position.x - OVERFLOW_TOLERANCE_PX and rect.position.y >= bounds.position.y - OVERFLOW_TOLERANCE_PX \
+		and rect.end.x <= bounds.end.x + OVERFLOW_TOLERANCE_PX and rect.end.y <= bounds.end.y + OVERFLOW_TOLERANCE_PX
+
+
+## What is off the screen, for a check's line: nothing, or the list.
+func _listed(off: PackedStringArray) -> String:
+	return "" if off.is_empty() else " - OFF: " + ", ".join(off)
+
+
+## Every line a lesson can put on the caption: its objective, its caption
+## overlays and its pilot's own lines.
+func _lines_said(entry: Dictionary) -> PackedStringArray:
+	var lines := PackedStringArray([entry.objective])
+	for caption: Dictionary in entry.get("captions", []):
+		lines.append(String(caption.say))
+	for step: Dictionary in StudyLessons.pilot_for(entry).get("steps", []):
+		if step.has("say"):
+			lines.append(String(step.say))
+	return lines
 
 
 # =============================================================================
