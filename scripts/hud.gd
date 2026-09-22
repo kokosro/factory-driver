@@ -380,7 +380,11 @@ func licence_card_visible() -> bool:
 	return _licence_card.visible
 
 
-## The mission line under the controls text.
+## The mission line under the controls text. In hud.tscn it spans the
+## screen's width and wraps: was one line as wide as its text, 1273 px
+## from x = 24 on a 1280 px screen, its start 7 px under the controls
+## text's last line -> wrapped inside the screen, 12 px lower, clear of the
+## controls (the user's report, 2026-09-22 16:15).
 func set_mission_line(text: String, color: Color) -> void:
 	_mission_label.text = text
 	_mission_label.add_theme_color_override("font_color", color)
