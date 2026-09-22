@@ -42,7 +42,10 @@ extends CharacterBody3D
 ## coolant have a temperature: cold, the engine runs rich and its idle hunts,
 ## overheated, its power fades (see Thermal); so do the tyres, an axle each,
 ## whose grip is down cold and fades overheated, and the brakes, whose pedal
-## gives less hot (see Thermal: tyres and brakes). In automatic the
+## gives less hot (see Thermal: tyres and brakes). And the parts AGE: the
+## clutch with its slips, the brakes with their work, the tyres with their
+## heat, the engine with its revolutions under load - bookkeeping over those
+## same numbers, for good, and gradual (see Wear and aging). In automatic the
 ## clutch also creeps the car off a released brake (see Creep, by the clutch).
 ## The driven wheels are where the layouts get their character, nobody scripts it: a
 ## rear-driven car spends rear grip on drive and pushes from behind, so power
@@ -963,6 +966,165 @@ static var TYRE_MAX_TEMP := (TYRE_MAX_C - COOLANT_AMBIENT_C) / TYRE_SPAN_K
 ## the setters stop it. Derived, never read (_derive_from_config).
 static var BRAKE_SPAN_K := BRAKE_FADE_START_C - COOLANT_AMBIENT_C
 static var BRAKE_MAX_TEMP := (BRAKE_MAX_C - COOLANT_AMBIENT_C) / BRAKE_SPAN_K
+
+# --- Wear and aging ------------------------------------------------------------
+
+# The car's components age with usage AND with neglect (the user's
+# wear-and-aging thought, 2026-09-22 07:55: the sim already emits every
+# quantity wear needs, wear is bookkeeping over existing physics outputs, the
+# odometer is the per-car usage ledger; damage is instant, wear is gradual;
+# the economy cannot lie). Nothing here is new physics: every tick
+# (_advance_wear, at the end of step 5, after the tyres' and the brakes' heat)
+# a share of each component's life, 0 (new) .. WEAR_LIMIT, grows from a
+# quantity the tick has already worked out:
+#   clutch_wear   from the slip energy [J]: |clutch torque| x |slip| x dt,
+#                 the slip the engine-vs-gearbox speed difference the clutch
+#                 section of _advance_drivetrain feathers (_clutch_slip_w) -
+#                 a launch, an upshift; none while it is locked;
+#   front/rear_brake_wear  from each axle's brake work [J]: the brake torque's
+#                 work the discs were given (_front/_rear_brake_heat_w x dt);
+#                 BRAKE_WEAR_ABUSE times as fast while the disc is over the
+#                 fade line (a pad that far over glazes and sheds);
+#   front/rear_tyre_wear  from each axle's tyre heat [J]: the rolling and the
+#                 slip work the tyres were given (_front/_rear_tyre_heat_w x
+#                 dt: every metre rolled wears a little, a slide a lot);
+#                 TYRE_WEAR_ABUSE times as fast while the tyre is over its
+#                 window (greasy rubber tears);
+#   engine_wear   from the revolutions under load [rad]: engine_omega x dt
+#                 weighted by the load on the crank as a share of the curve's
+#                 peak (clutch_torque / ENGINE_PEAK_TORQUE: 0 idling in
+#                 neutral, 0 with the clutch turning the engine, 1 flat out
+#                 at the peak; under hard braking in gear the flywheel
+#                 unloading into the driveline is a load, and counts, a
+#                 small one); over
+#                 OVERHEAT_FADE_START_C every revolution counts in full,
+#                 loaded or not, and ENGINE_WEAR_ABUSE times over (the oil
+#                 film thinned: neglect).
+# Wear is for good: the accumulators start at 0, only ever grow, and nothing
+# in the car puts them back (restoration is the garage's, a later iteration;
+# reset_to leaves them alone - R refuels, it does not un-wear). Kept from one
+# session to the next where the odometer is (_load_stored_wear).
+# What wear does to the car - each a multiplier on something that exists:
+#   the clutch's capacity (CLUTCH_TORQUE_MAX x engagement), so a worn clutch
+#   slips more and bites softer, to CLUTCH_WEAR_FLOOR of itself at the most;
+#   each axle's brake torque, after the fade, to BRAKE_WEAR_FLOOR;
+#   each axle's grip, after the temperature's factor, to TYRE_WEAR_FLOOR;
+#   the torque curve, with the overheat fade, to ENGINE_WEAR_FLOOR.
+# Nothing here breaks: a component at WEAR_LIMIT works at its floor.
+# The certified path: every multiplier is EXACTLY 1 at zero wear - a car out
+# of _ready, out of a handling test's start (HandlingTests._start) - and the
+# multipliers read the wear at whole hundredths (WEAR_EFFECT_STEP): under a
+# hundredth of wear a multiplier is exactly 1 and the physics is to the bit
+# what it was without wear, so a certified run, which wears well under a
+# hundredth of anything from its fresh start (tests/wear_test.gd states the
+# numbers), is the bit it was. From a hundredth on the effect steps once a
+# percent, in a line to the floor at WEAR_LIMIT.
+
+## The clutch's wear per joule of slip energy [1/J]: 1e-8 is 1 % per MJ, and
+## 8 s flat out from rest - the launch and two upshifts - slips ~70 kJ
+## (measured, tests/wear_test.gd states it): some 15 such launches per
+## percent; 100 MJ, ~1500 of them, to WEAR_LIMIT. A donut with the automatic
+## hunting up and down slips far more (~25 kW of it, measured): that is
+## abuse, and it costs. Gentle by design otherwise: the car is a test
+## instrument, and a session on the pad wears it measurably, not visibly.
+# read from the car's config (wear.clutch_rate, optional); the certified
+# value here is the fallback default a config without it gets.
+static var CLUTCH_WEAR_RATE := 1.0e-8
+
+## The least of its capacity a worn-out clutch keeps (0..1): 0.7. At
+## WEAR_LIMIT the clutch still passes 350 Nm, over what the engine makes;
+## what goes is the margin - it slips longer on a launch and through a shift.
+# read from the car's config (wear.clutch_floor, optional); the certified
+# value here is the fallback default a config without it gets.
+static var CLUTCH_WEAR_FLOOR := 0.7
+
+## A brake's wear per joule of the disc's work [1/J]: 1e-9 is 1 % per 10 MJ.
+## A full stop from 90 km/h is ~390 kJ of disc work, ~175 kJ of it on the
+## fronts and ~215 kJ on the rears (measured, tests/wear_test.gd states it:
+## the ABS holds the fronts at the tyres' limit, and the driven axle's discs
+## slow the engine too): ~60 such stops per percent of the fronts, ~45 of
+## the rears; 1 GJ, some 5000 stops, to WEAR_LIMIT - a set of racing pads'
+## life on a circuit, a road car's on the road is far longer.
+# read from the car's config (wear.brake_rate, optional); the certified
+# value here is the fallback default a config without it gets.
+static var BRAKE_WEAR_RATE := 1.0e-9
+
+## How many times faster a disc over the fade line wears per joule (1 or
+## more): 3. Neglect - a string of hard stops without letting them cool.
+# read from the car's config (wear.brake_abuse, optional); the certified
+# value here is the fallback default a config without it gets.
+static var BRAKE_WEAR_ABUSE := 3.0
+
+## The least of its torque a worn-out brake keeps (0..1): 0.75. Pads down to
+## the backing plate still stop the car; on top of the fade's own floor that
+## is still BRAKE_FADE_FLOOR x this of the pedal.
+# read from the car's config (wear.brake_floor, optional); the certified
+# value here is the fallback default a config without it gets.
+static var BRAKE_WEAR_FLOOR := 0.75
+
+## A tyre's wear per joule of heat put into it [1/J]: 4e-10 is 1 % per 25 MJ.
+## Rolling at 72 km/h puts ~200 kJ/km into the four (COAST_DECEL's work), a
+## hard lap's sliding as much again: ~60 km of hard driving, ~130 km of
+## cruising, per percent; a 25 s donut puts ~480 kJ into the rears (measured,
+## tests/wear_test.gd states it), ~35 of them per percent with the abuse
+## multiplier on its last seconds; 2.5 GJ, ~13 000 km of cruising, to
+## WEAR_LIMIT - a sports tyre's life, short.
+# read from the car's config (wear.tyre_rate, optional); the certified value
+# here is the fallback default a config without it gets.
+static var TYRE_WEAR_RATE := 4.0e-10
+
+## How many times faster a tyre over its window wears per joule (1 or more):
+## 3. Neglect - a donut kept up after the rears have gone greasy.
+# read from the car's config (wear.tyre_abuse, optional); the certified value
+# here is the fallback default a config without it gets.
+static var TYRE_WEAR_ABUSE := 3.0
+
+## The least of its grip a worn-out tyre keeps (0..1): 0.85. A bald tyre
+## grips in the dry; what it has lost is the margin.
+# read from the car's config (wear.tyre_floor, optional); the certified value
+# here is the fallback default a config without it gets.
+static var TYRE_WEAR_FLOOR := 0.85
+
+## The engine's wear per radian turned under load [1/rad]: 1e-8 is 1 % per
+## Mrad, ~160 000 turns under full load; flat out at 6000 rpm that is ~27
+## min, some 50 km of driving the engine flat out (8 s flat out from rest
+## costs ~30 ppm, measured, tests/wear_test.gd states it: the load weight
+## counts the launch's and the shifts' revolutions for less); 100 Mrad, ~45 h
+## or ~5000 km flat out, to WEAR_LIMIT - a race engine's rebuild interval; a
+## road engine's mixed life is many times longer, an idle or a cruise
+## counting for a small share of a turn.
+# read from the car's config (wear.engine_rate, optional); the certified
+# value here is the fallback default a config without it gets.
+static var ENGINE_WEAR_RATE := 1.0e-8
+
+## How many times faster an engine over OVERHEAT_FADE_START_C wears per
+## radian (1 or more), every radian counting in full up there: 10. Neglect -
+## an overheated engine driven on costs 1 % in ~3 min flat out, ~18 min
+## idling.
+# read from the car's config (wear.engine_abuse, optional); the certified
+# value here is the fallback default a config without it gets.
+static var ENGINE_WEAR_ABUSE := 10.0
+
+## The least of its torque curve a worn-out engine keeps (0..1): 0.85. Rings
+## and bores gone, compression down; it runs.
+# read from the car's config (wear.engine_floor, optional); the certified
+# value here is the fallback default a config without it gets.
+static var ENGINE_WEAR_FLOOR := 0.85
+
+## Where every wear share stops (0..1): 1, worn out - the component works at
+## its floor from there. Not a car's number.
+const WEAR_LIMIT := 1.0
+
+## The resolution the multipliers read the wear at (share): a hundredth. Under
+## it a multiplier is exactly 1 (the certified path, see above); from there
+## the effect steps once a percent. The accumulators themselves count every
+## joule and radian. Not a car's number.
+const WEAR_EFFECT_STEP := 0.01
+
+## The most the torque curve makes [Nm]: the highest anchor of TORQUE_CURVE,
+## 245 Nm at 4500 rpm. What the engine's load is weighed against for the
+## wear. Derived, never read (_derive_from_config).
+static var ENGINE_PEAK_TORQUE := 245.0
 
 # --- Gearbox -----------------------------------------------------------------
 
@@ -2595,6 +2757,40 @@ var rear_brake_temp := 0.0:
 	set(value):
 		rear_brake_temp = 0.0 if is_nan(value) else clampf(value, 0.0, BRAKE_MAX_TEMP)
 
+## The share of its life each component has used up, 0 (new) .. WEAR_LIMIT
+## (kept inside that, NaN is none): the clutch, each axle's brakes, each
+## axle's tyres, the engine (see Wear and aging). Grown every tick by
+## _advance_wear from the tick's own slip energy, brake work, tyre heat and
+## loaded revolutions; never shrunk by anything in the car - a reset
+## (reset_to) leaves them where they were, R refuels, it does not un-wear. 0
+## out of _ready (then what the store holds, _load_stored_wear) and out of a
+## handling test's start (HandlingTests._start), the new car every certified
+## run drives. What the multipliers read (clutch_wear_factor and the rest).
+var clutch_wear := 0.0:
+	set(value):
+		clutch_wear = 0.0 if is_nan(value) else clampf(value, 0.0, WEAR_LIMIT)
+var front_brake_wear := 0.0:
+	set(value):
+		front_brake_wear = 0.0 if is_nan(value) else clampf(value, 0.0, WEAR_LIMIT)
+var rear_brake_wear := 0.0:
+	set(value):
+		rear_brake_wear = 0.0 if is_nan(value) else clampf(value, 0.0, WEAR_LIMIT)
+var front_tyre_wear := 0.0:
+	set(value):
+		front_tyre_wear = 0.0 if is_nan(value) else clampf(value, 0.0, WEAR_LIMIT)
+var rear_tyre_wear := 0.0:
+	set(value):
+		rear_tyre_wear = 0.0 if is_nan(value) else clampf(value, 0.0, WEAR_LIMIT)
+var engine_wear := 0.0:
+	set(value):
+		engine_wear = 0.0 if is_nan(value) else clampf(value, 0.0, WEAR_LIMIT)
+
+## The power the clutch turned into heat this tick [W]: |clutch_torque| x
+## |slip|, the slip the engine-vs-gearbox speed difference at the tick's
+## start; 0 while it is locked (_advance_drivetrain leaves it, for
+## _advance_wear and the tests: the heat trackers' idiom).
+var _clutch_slip_w := 0.0
+
 ## Mass of what the car carries on top of itself and its fuel [kg]: packages,
 ## passengers, ballast. Payload is mass and nothing else: it rides at the
 ## centre of mass and is in total_mass() from the next tick on. Never negative,
@@ -2868,6 +3064,7 @@ func _ready() -> void:
 		# its _ready runs after ours) to pick up camera_view.
 		_load_stored_driver()
 		_load_stored_battery()
+		_load_stored_wear()
 	_spawn_transform = global_transform
 	# The body floats on its springs over the floor; nothing may pull it onto
 	# it (CharacterBody3D snaps to a floor within 0.1 m by default).
@@ -2880,7 +3077,7 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	if _odometer_kept:
-		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l, OdometerStore.PATH, driver_settings(), battery_settings())
+		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l, OdometerStore.PATH, driver_settings(), battery_settings(), wear_settings())
 
 
 ## The tank as this car was left with it the last time (OdometerStore, from
@@ -2958,6 +3155,37 @@ func battery_settings() -> Dictionary:
 	}
 
 
+## The wear as this car was left with it (OdometerStore, from `path`): the
+## six shares, the clutch, each axle's brakes and tyres, the engine (see Wear
+## and aging). A car the file does not know starts on the new components it
+## was created with; a number in there that is no share of a life is an error
+## and that one default, the other five still load. Nothing in the car puts a
+## share back: one left with a worn clutch starts with it.
+func _load_stored_wear(path := OdometerStore.PATH) -> void:
+	var stored := OdometerStore.load_wear(CAR_ID, path)
+	for problem: String in stored.problems:
+		push_error(problem)
+	clutch_wear = stored.clutch
+	front_brake_wear = stored.brakes_front
+	rear_brake_wear = stored.brakes_rear
+	front_tyre_wear = stored.tyres_front
+	rear_tyre_wear = stored.tyres_rear
+	engine_wear = stored.engine
+
+
+## The wear as it stands, for the store: a car's whole "wear" object
+## (OdometerStore.WEAR_DEFAULTS has the same six fields).
+func wear_settings() -> Dictionary:
+	return {
+		"clutch": clutch_wear,
+		"brakes_front": front_brake_wear,
+		"brakes_rear": rear_brake_wear,
+		"tyres_front": front_tyre_wear,
+		"tyres_rear": rear_tyre_wear,
+		"engine": engine_wear,
+	}
+
+
 ## Makes this car the one its config describes (CONFIG_PATH), before anything
 ## else in _ready looks at a number: the file is read and checked
 ## (CarConfigValidation), its primary numbers go into the static vars of the
@@ -2986,6 +3214,13 @@ func _read_config() -> void:
 	rear_tyre_temp = 1.0
 	front_brake_temp = 0.0
 	rear_brake_temp = 0.0
+	clutch_wear = 0.0
+	front_brake_wear = 0.0
+	rear_brake_wear = 0.0
+	front_tyre_wear = 0.0
+	rear_tyre_wear = 0.0
+	engine_wear = 0.0
+	_clutch_slip_w = 0.0
 	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
 	rear_load_fraction = REAR_WEIGHT_FRACTION
 	driver_profile = DRIVER_PROFILES["test_driver"]
@@ -3088,6 +3323,19 @@ static func _apply_config(config: Dictionary) -> void:
 	BRAKE_COOLING_STILL = thermal.get("brake_cooling_still", BRAKE_COOLING_STILL)
 	BRAKE_COOLING_AIRFLOW = thermal.get("brake_cooling_airflow", BRAKE_COOLING_AIRFLOW)
 
+	var wear: Dictionary = config.get("wear", {})
+	CLUTCH_WEAR_RATE = wear.get("clutch_rate", CLUTCH_WEAR_RATE)
+	CLUTCH_WEAR_FLOOR = wear.get("clutch_floor", CLUTCH_WEAR_FLOOR)
+	BRAKE_WEAR_RATE = wear.get("brake_rate", BRAKE_WEAR_RATE)
+	BRAKE_WEAR_ABUSE = wear.get("brake_abuse", BRAKE_WEAR_ABUSE)
+	BRAKE_WEAR_FLOOR = wear.get("brake_floor", BRAKE_WEAR_FLOOR)
+	TYRE_WEAR_RATE = wear.get("tyre_rate", TYRE_WEAR_RATE)
+	TYRE_WEAR_ABUSE = wear.get("tyre_abuse", TYRE_WEAR_ABUSE)
+	TYRE_WEAR_FLOOR = wear.get("tyre_floor", TYRE_WEAR_FLOOR)
+	ENGINE_WEAR_RATE = wear.get("engine_rate", ENGINE_WEAR_RATE)
+	ENGINE_WEAR_ABUSE = wear.get("engine_abuse", ENGINE_WEAR_ABUSE)
+	ENGINE_WEAR_FLOOR = wear.get("engine_floor", ENGINE_WEAR_FLOOR)
+
 	var gearbox: Dictionary = config.gearbox
 	GEAR_RATIOS = []
 	GEAR_RATIOS.assign(gearbox.ratios)
@@ -3183,6 +3431,9 @@ static func _derive_from_config() -> void:
 	BRAKE_MAX_TEMP = (BRAKE_MAX_C - COOLANT_AMBIENT_C) / BRAKE_SPAN_K
 	CG_OFFSET = (REAR_WEIGHT_FRACTION - 0.5) * 2.0 * AXLE_DISTANCE
 	BRAKE_DECEL = BRAKE_DECEL_G * TYRE_MU * 9.8
+	ENGINE_PEAK_TORQUE = 0.0
+	for anchor: Vector2 in TORQUE_CURVE:
+		ENGINE_PEAK_TORQUE = maxf(ENGINE_PEAK_TORQUE, anchor.y)
 	# The ledger's sums, the plain loop CarConfigValidation._check_mass_ledger
 	# runs, in row order: the same f64 operations give the same bits.
 	LEDGER_KERB_MASS = 0.0
@@ -3330,6 +3581,15 @@ func _physics_process(delta: float) -> void:
 	#    brakes), every certified run.
 	var front_grip := FRONT_TYRE_GRIP * _axle_grip(front_axle_load, weight * (1.0 - REAR_WEIGHT_FRACTION), front_tyre_temp)
 	var rear_grip := REAR_TYRE_GRIP * _axle_grip(rear_axle_load, weight * REAR_WEIGHT_FRACTION, rear_tyre_temp)
+	#    Worn tyres grip less again (front/rear_tyre_wear_factor: exactly 1
+	#    under a hundredth of wear, every certified run, and the grip as it
+	#    was; see Wear and aging).
+	var front_tyre_condition := front_tyre_wear_factor()
+	var rear_tyre_condition := rear_tyre_wear_factor()
+	if front_tyre_condition < 1.0:
+		front_grip *= front_tyre_condition
+	if rear_tyre_condition < 1.0:
+		rear_grip *= rear_tyre_condition
 
 	# 3. How each contact patch moves over the road. The front axle sits ahead
 	#    of the centre of mass and its wheels are steered, so its motion is
@@ -3441,6 +3701,11 @@ func _physics_process(delta: float) -> void:
 	var rear_slip_w := absf(rear_drive * (rear_omega * WHEEL_RADIUS - forward_speed)) + absf(rear_force * rear_lateral)
 	_advance_tyres(rolling_w * front_load_fraction + TYRE_SLIP_HEAT_SHARE * front_slip_w, rolling_w * rear_load_fraction + TYRE_SLIP_HEAT_SHARE * rear_slip_w, absf(forward_speed), delta)
 	_advance_brakes(front_contact.get("brake_work_w", 0.0), rear_contact.get("brake_work_w", 0.0), absf(forward_speed), delta)
+	# The wear, now that the tick's slip energy, brake work, tyre heat and
+	# loaded revolutions are all known: bookkeeping over them (see Wear and
+	# aging). Nothing of it reaches this tick's physics; next tick's is exactly
+	# this tick's for as long as every share stays under a hundredth.
+	_advance_wear(delta)
 
 	# 6. Add it all up at the centre of mass, in the car's frame. The front
 	#    forces act along and across the steered wheels: the sideways force of
@@ -3525,9 +3790,9 @@ func _physics_process(delta: float) -> void:
 ## The way the body got over the ground this tick goes on the odometer (level
 ## distance, x and z; anything not finite is no way at all), and every
 ## ODOMETER_SAVE_INTERVAL the odometer goes to its file, where that is on - and
-## the fuel level and the battery as they stand with it: after a reset that is
-## the full tank and the new battery the reset put in, which is what the car
-## has.
+## the fuel level, the battery and the wear as they stand with it: after a
+## reset that is the full tank and the new battery the reset put in, which is
+## what the car has, and the wear as it was, which the reset left.
 func _count_odometer(delta: float) -> void:
 	var way := Vector2(global_position.x - _odometer_from.x, global_position.z - _odometer_from.z).length()
 	if is_finite(way):
@@ -3539,8 +3804,9 @@ func _count_odometer(delta: float) -> void:
 	if _since_odometer_save >= ODOMETER_SAVE_INTERVAL:
 		_since_odometer_save = 0.0
 		# was save_odometer -> the fuel in the tank goes with it, and the
-		# dashboard the driver has set, and the battery, all in the one write.
-		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l, OdometerStore.PATH, driver_settings(), battery_settings())
+		# dashboard the driver has set, and the battery, and the wear, all in
+		# the one write.
+		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l, OdometerStore.PATH, driver_settings(), battery_settings(), wear_settings())
 
 
 ## Puts the car back where the scene placed it, at rest, in 1st, automatic, the
@@ -3578,8 +3844,10 @@ func get_spawn_transform() -> Transform3D:
 ## keep what they held (coolant_temp, front_tyre_temp, rear_tyre_temp,
 ## front_brake_temp, rear_brake_temp, the fan's state with them) and cool or
 ## warm from the next tick as they would have - the car cools as it cools; R
-## does not turn back time on temperature. A handling test's start sets the
-## certified fresh state itself (HandlingTests._start).
+## does not turn back time on temperature. Nor is the wear: the six shares
+## (clutch_wear and the rest) stay - R refuels, it does not un-wear. A
+## handling test's start sets the certified fresh state itself
+## (HandlingTests._start).
 func reset_to(target: Transform3D) -> void:
 	global_transform = target
 	_odometer_from = target.origin
@@ -3621,6 +3889,13 @@ func reset_to(target: Transform3D) -> void:
 	battery_wear = 0.0
 	battery_charge = 1.0
 	_battery_deep = false
+	# The wear is not part of it either: clutch_wear, front/rear_brake_wear,
+	# front/rear_tyre_wear and engine_wear stay where they were (the user's
+	# wear-and-aging thought, 2026-09-22 07:55: wear is for good, the economy
+	# cannot lie - R refuels, it does not un-wear; the garage will). The
+	# certified path gets its new components from HandlingTests._start, as it
+	# gets its fresh heat. (That the battery's wear IS put back here is the
+	# older rule, "a reset is a new battery", left as it is.)
 	# was coolant_temp = 1.0, coolant_fan_on = false, _combustion_heat_w = 0,
 	# _idle_wobble_phase = 0, front/rear_tyre_temp = 1.0, front/rear_brake_temp
 	# = 0.0 and the four heat trackers 0 -> nothing: heat is state, not part of
@@ -4387,6 +4662,15 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 		front_brake *= front_fade
 	if rear_fade < 1.0:
 		rear_brake *= rear_fade
+	# Worn pads give less again (front/rear_brake_wear_factor: exactly 1 under
+	# a hundredth of wear, every certified run, and the torque as it was; see
+	# Wear and aging).
+	var front_condition := front_brake_wear_factor()
+	var rear_condition := rear_brake_wear_factor()
+	if front_condition < 1.0:
+		front_brake *= front_condition
+	if rear_condition < 1.0:
+		rear_brake *= rear_condition
 	# The handbrake is on the rear brakes, not on the ABS's circuit: what it
 	# still holds them with goes on top, and the ABS does not let it go. The
 	# lever's, not the pads': it does not fade.
@@ -4416,6 +4700,13 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 		var engage_time := CLUTCH_ENGAGE_TIME if gearbox_omega < idle_omega else CLUTCH_SHIFT_ENGAGE_TIME
 		clutch_engagement = minf(clutch_engagement + delta / engage_time, target)
 	var capacity := CLUTCH_TORQUE_MAX * clutch_engagement
+	# A worn clutch passes less (clutch_wear_factor: exactly 1 under a
+	# hundredth of wear, every certified run, and the capacity as it was; see
+	# Wear and aging).
+	var clutch_condition := clutch_wear_factor()
+	if clutch_condition < 1.0:
+		capacity *= clutch_condition
+	_clutch_slip_w = 0.0
 	if not is_shifting and (target <= 0.0 or gearbox_omega < idle_omega):
 		# Nothing to catch: neutral, a stop, or a gear taken at a standstill,
 		# where pulling away is the launch's business. The foot is free again.
@@ -4435,6 +4726,10 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 			front_engine_brake *= front_fade
 		if rear_fade < 1.0:
 			rear_engine_brake *= rear_fade
+		if front_condition < 1.0:
+			front_engine_brake *= front_condition
+		if rear_condition < 1.0:
+			rear_engine_brake *= rear_condition
 		front_brake += front_engine_brake
 		rear_brake += rear_engine_brake
 		var next_front := _advance_axle(front_omega, at_axle * front_share, front_brake, AXLE_INERTIA + reflected * front_share, front, abs_active, delta)
@@ -4495,6 +4790,8 @@ func _advance_drivetrain(throttle: float, coasting: bool, brake: float, front: D
 				rear_torque = eased.x
 				next_rear = eased.y if eased.x != 0.0 else _advance_axle(rear_omega, 0.0, rear_brake, AXLE_INERTIA, rear, rear_abs, delta)
 		clutch_torque = (front_torque + rear_torque) / (ratio * DRIVETRAIN_EFFICIENCY)
+	# What the slipping clutch turns into heat this tick, for the wear.
+	_clutch_slip_w = absf(clutch_torque) * absf(slip)
 	front_omega = next_front
 	rear_omega = next_rear
 	_run_engine_outputs(throttle, clutch_torque, delta)
@@ -4772,9 +5069,14 @@ func _combustion_torque(rpm: float, throttle: float, load: float) -> float:
 
 ## The torque curve as the engine has it right now [Nm]: engine_torque at
 ## `rpm`, exactly that up to OVERHEAT_FADE_START_C, faded over it
-## (overheat_fade).
+## (overheat_fade), and what a worn engine has left of that
+## (engine_wear_factor: exactly 1 under a hundredth of wear, every certified
+## run, and the curve as it was; see Wear and aging).
 func _curve_torque(rpm: float) -> float:
 	var fade := overheat_fade()
+	var condition := engine_wear_factor()
+	if condition < 1.0:
+		fade *= condition
 	if fade >= 1.0:
 		return engine_torque(rpm)
 	return engine_torque(rpm) * fade
@@ -4923,6 +5225,78 @@ func _advance_brakes(front_w: float, rear_w: float, airflow: float, delta: float
 	var capacity := BRAKE_HEAT_CAPACITY * BRAKE_SPAN_K
 	front_brake_temp += (front_w - brake_cooling_w(front_brake_temp, airflow)) * delta / capacity
 	rear_brake_temp += (rear_w - brake_cooling_w(rear_brake_temp, airflow)) * delta / capacity
+
+
+## One tick of the wear (see Wear and aging): each share grows by its rate
+## times the tick's own quantity - the clutch's slip energy (_clutch_slip_w x
+## delta [J]), each axle's brake work (_front/_rear_brake_heat_w x delta [J])
+## and tyre heat (_front/_rear_tyre_heat_w x delta [J]), the engine's
+## revolutions (engine_omega x delta [rad]) weighted by the load on the crank
+## (clutch_torque over ENGINE_PEAK_TORQUE, 0..1) - times the abuse multiplier
+## where the component is over its line: a disc over the fade line, a tyre
+## over its window, the coolant over OVERHEAT_FADE_START_C (up there every
+## revolution counts in full, loaded or not). A quantity that is not a
+## positive finite number (NaN heat, a tick that did no work) adds nothing:
+## the shares only ever grow, and the setters hold them under WEAR_LIMIT.
+func _advance_wear(delta: float) -> void:
+	var clutch_j := _clutch_slip_w * delta
+	if clutch_j > 0.0:
+		clutch_wear += CLUTCH_WEAR_RATE * clutch_j
+	var front_brake_j := _front_brake_heat_w * delta
+	if front_brake_j > 0.0:
+		front_brake_wear += BRAKE_WEAR_RATE * front_brake_j * (BRAKE_WEAR_ABUSE if brake_fade(front_brake_temp) < 1.0 else 1.0)
+	var rear_brake_j := _rear_brake_heat_w * delta
+	if rear_brake_j > 0.0:
+		rear_brake_wear += BRAKE_WEAR_RATE * rear_brake_j * (BRAKE_WEAR_ABUSE if brake_fade(rear_brake_temp) < 1.0 else 1.0)
+	var front_tyre_j := _front_tyre_heat_w * delta
+	if front_tyre_j > 0.0:
+		front_tyre_wear += TYRE_WEAR_RATE * front_tyre_j * (TYRE_WEAR_ABUSE if tyre_c_of(front_tyre_temp) > TYRE_WINDOW_HIGH_C else 1.0)
+	var rear_tyre_j := _rear_tyre_heat_w * delta
+	if rear_tyre_j > 0.0:
+		rear_tyre_wear += TYRE_WEAR_RATE * rear_tyre_j * (TYRE_WEAR_ABUSE if tyre_c_of(rear_tyre_temp) > TYRE_WINDOW_HIGH_C else 1.0)
+	var hot := overheat_fade() < 1.0
+	var load_share := 1.0 if hot else clampf(clutch_torque / ENGINE_PEAK_TORQUE, 0.0, 1.0)
+	var engine_rad := absf(engine_omega) * delta * load_share
+	if engine_rad > 0.0:
+		engine_wear += ENGINE_WEAR_RATE * engine_rad * (ENGINE_WEAR_ABUSE if hot else 1.0)
+
+
+## What a component with `wear` of its life used up has left of itself
+## (`floor`..1): exactly 1 under WEAR_EFFECT_STEP of wear, then one step
+## down per WEAR_EFFECT_STEP, in a line to `floor` at WEAR_LIMIT -
+## 1 - (the wear, read at whole steps) x (1 - floor), never under the floor.
+static func wear_factor(wear: float, floor: float) -> float:
+	var steps := floorf(wear / WEAR_EFFECT_STEP)
+	if steps <= 0.0:
+		return 1.0
+	return clampf(1.0 - steps * WEAR_EFFECT_STEP * (1.0 - floor), floor, 1.0)
+
+
+## What is left of the clutch's capacity (CLUTCH_WEAR_FLOOR..1), of each
+## axle's brake torque (BRAKE_WEAR_FLOOR..1) and grip (TYRE_WEAR_FLOOR..1),
+## and of the torque curve (ENGINE_WEAR_FLOOR..1): wear_factor on each share.
+func clutch_wear_factor() -> float:
+	return wear_factor(clutch_wear, CLUTCH_WEAR_FLOOR)
+
+
+func front_brake_wear_factor() -> float:
+	return wear_factor(front_brake_wear, BRAKE_WEAR_FLOOR)
+
+
+func rear_brake_wear_factor() -> float:
+	return wear_factor(rear_brake_wear, BRAKE_WEAR_FLOOR)
+
+
+func front_tyre_wear_factor() -> float:
+	return wear_factor(front_tyre_wear, TYRE_WEAR_FLOOR)
+
+
+func rear_tyre_wear_factor() -> float:
+	return wear_factor(rear_tyre_wear, TYRE_WEAR_FLOOR)
+
+
+func engine_wear_factor() -> float:
+	return wear_factor(engine_wear, ENGINE_WEAR_FLOOR)
 
 
 ## The rev limiter's fuel cut: on at REDLINE_RPM, off again under
