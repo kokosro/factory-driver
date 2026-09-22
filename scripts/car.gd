@@ -566,7 +566,9 @@ static var BATTERY_CAPACITY_J := BATTERY_CAPACITY_AH * 3600.0 * BATTERY_NOMINAL_
 #              Nothing here kills an engine - no stall, no seizure, no
 #              boil-over: the coolant stops at COOLANT_MAX_C, the fade at its
 #              floor, the engine runs on.
-# The certified path: a car comes out of _ready and out of reset_to at the
+# The certified path: a car comes out of _ready, and out of a handling test's
+# start (HandlingTests._start sets it so after its reset; reset_to itself
+# leaves the temperatures where they were, see there), at the
 # operating temperature (coolant_temp 1) - the warmed-up car it has been all
 # along - where the richness is exactly 1, the idle target exactly IDLE_RPM and
 # the fade exactly 1; the thermostat holds a warm engine over THERMOSTAT_C,
@@ -591,7 +593,8 @@ static var BATTERY_CAPACITY_J := BATTERY_CAPACITY_AH * 3600.0 * BATTERY_NOMINAL_
 static var COOLANT_AMBIENT_C := 15.0
 
 ## The operating temperature [C]: where coolant_temp is 1, the thermostat is
-## fully open, and where a car starts out of _ready and reset_to. A 986's
+## fully open, and where a car starts out of _ready and out of a handling
+## test's start (not out of reset_to: a reset keeps the heat). A 986's
 ## gauge sits at 90.
 # read from the car's config (thermal.operating_c, optional); the certified
 # value here is the fallback default a config without it gets.
@@ -753,7 +756,9 @@ static var COOLANT_MAX_TEMP := (COOLANT_MAX_C - COOLANT_AMBIENT_C) / COOLANT_SPA
 # Nothing here breaks: a tyre at TYRE_MAX_C grips TYRE_FADE_FLOOR of itself, a
 # brake at BRAKE_MAX_C stops the car with BRAKE_FADE_FLOOR of its torque, the
 # handbrake as ever.
-# The certified path: a car comes out of _ready and out of reset_to with its
+# The certified path: a car comes out of _ready, and out of a handling test's
+# start (HandlingTests._start sets it so after its reset; reset_to itself
+# leaves the temperatures where they were, see there), with its
 # tyres at the operating temperature (tyre_temp 1, in the window, the factor
 # exactly 1) and its brakes at the air's (brake_temp 0, the fade exactly 1).
 # The tyres of a certified run wander inside the window - the slalom's corners
@@ -773,7 +778,8 @@ static var COOLANT_MAX_TEMP := (COOLANT_MAX_C - COOLANT_AMBIENT_C) / COOLANT_SPA
 # its tyres and cold on its brakes, every time.
 
 ## The tyres' operating temperature [C]: where tyre_temp is 1, inside the
-## window, and where a car starts out of _ready and reset_to: where a road
+## window, and where a car starts out of _ready and out of a handling test's
+## start (not out of reset_to: a reset keeps the heat): where a road
 ## tyre driven with some intent sits on a mild day, the rears of a
 ## rear-heavy car a little over it at speed, the fronts under.
 ## was 80 -> 75: the fronts carry 38 % of the load and get 38 % of the
@@ -2503,8 +2509,9 @@ var fuel_mass := FUEL_TANK_CAPACITY_L * FUEL_DENSITY
 ## operating temperature, COOLANT_OPERATING_C), and over it up to
 ## COOLANT_MAX_TEMP (kept inside that, NaN is operating); coolant_c() is the
 ## same in degrees. Warmed by the burn and cooled by the radiator every tick
-## (_advance_coolant); 1 out of _ready and out of reset_to, the warmed-up car
-## every certified run drives. Set it to 0 for a cold morning
+## (_advance_coolant); 1 out of _ready and out of a handling test's start
+## (HandlingTests._start), the warmed-up car every certified run drives; a
+## reset (reset_to) leaves it where it was. Set it to 0 for a cold morning
 ## (tests/thermal_test.gd does). What the HUD's coolant bar shows.
 var coolant_temp := 1.0:
 	set(value):
@@ -2517,10 +2524,11 @@ var coolant_fan_on := false
 ## operating temperature, TYRE_OPERATING_C), and over it up to TYRE_MAX_TEMP
 ## (kept inside that, NaN is operating); tyre_c_of() is the same in degrees.
 ## Warmed by the rolling and the slip work and cooled by the airflow every
-## tick (_advance_tyres); 1 out of _ready and out of reset_to, the warm tyres
-## every certified run drives on. Set them to 0 for the first lap out of the
-## garage (tests/tyre_brake_thermal_test.gd does). What the HUD's tyre bar
-## shows, the hotter of the two.
+## tick (_advance_tyres); 1 out of _ready and out of a handling test's start
+## (HandlingTests._start), the warm tyres every certified run drives on; a
+## reset (reset_to) leaves them where they were. Set them to 0 for the first
+## lap out of the garage (tests/tyre_brake_thermal_test.gd does). What the
+## HUD's tyre bar shows, the hotter of the two.
 var front_tyre_temp := 1.0:
 	set(value):
 		front_tyre_temp = 1.0 if is_nan(value) else clampf(value, 0.0, TYRE_MAX_TEMP)
@@ -2532,8 +2540,10 @@ var rear_tyre_temp := 1.0:
 ## line, BRAKE_FADE_START_C), and over it up to BRAKE_MAX_TEMP (kept inside
 ## that, NaN is the air); brake_c_of() is the same in degrees. Warmed by the
 ## brake torque's work and cooled by the airflow every tick (_advance_brakes);
-## 0 out of _ready and out of reset_to, the cold brakes every certified run
-## starts on. What the HUD's brake bar shows, the hotter of the two.
+## 0 out of _ready and out of a handling test's start (HandlingTests._start),
+## the cold brakes every certified run starts on; a reset (reset_to) leaves
+## them where they were. What the HUD's brake bar shows, the hotter of the
+## two.
 var front_brake_temp := 0.0:
 	set(value):
 		front_brake_temp = 0.0 if is_nan(value) else clampf(value, 0.0, BRAKE_MAX_TEMP)
@@ -3502,6 +3512,12 @@ func get_spawn_transform() -> Transform3D:
 ## stand. The height of `target` counts from the road: the car is stood on its springs on the road
 ## there (_settle_suspension), 0 = at its ride height.
 ## The odometer keeps its metres, and the jump to `target` is not among them.
+## The temperatures are not part of it: the coolant, the tyres and the brakes
+## keep what they held (coolant_temp, front_tyre_temp, rear_tyre_temp,
+## front_brake_temp, rear_brake_temp, the fan's state with them) and cool or
+## warm from the next tick as they would have - the car cools as it cools; R
+## does not turn back time on temperature. A handling test's start sets the
+## certified fresh state itself (HandlingTests._start).
 func reset_to(target: Transform3D) -> void:
 	global_transform = target
 	_odometer_from = target.origin
@@ -3543,18 +3559,20 @@ func reset_to(target: Transform3D) -> void:
 	battery_wear = 0.0
 	battery_charge = 1.0
 	_battery_deep = false
-	coolant_temp = 1.0
-	coolant_fan_on = false
-	_combustion_heat_w = 0.0
-	_idle_wobble_phase = 0.0
-	front_tyre_temp = 1.0
-	rear_tyre_temp = 1.0
-	front_brake_temp = 0.0
-	rear_brake_temp = 0.0
-	_front_tyre_heat_w = 0.0
-	_rear_tyre_heat_w = 0.0
-	_front_brake_heat_w = 0.0
-	_rear_brake_heat_w = 0.0
+	# was coolant_temp = 1.0, coolant_fan_on = false, _combustion_heat_w = 0,
+	# _idle_wobble_phase = 0, front/rear_tyre_temp = 1.0, front/rear_brake_temp
+	# = 0.0 and the four heat trackers 0 -> nothing: heat is state, not part of
+	# what a reset means (the user's report, 2026-09-22 morning: "the bar
+	# filled 100%, but when i did an R it took the tyres bar to middle ... i
+	# was expecting the temperature to not reset all of a sudden, but to
+	# respect the time it takes for the tires to cooldown ... same with all
+	# the other temperatures"). The coolant, the tyres and the brakes keep what
+	# they held and go on from the next tick by their own laws (_advance_coolant,
+	# _advance_tyres, _advance_brakes); the per-tick heat trackers and the
+	# fan's state are recomputed or driven by those same functions from the
+	# next tick on, and the idle hunt's phase runs on where it was. The
+	# certified path gets its fresh warm state from HandlingTests._start,
+	# which sets these twelve by hand after this reset.
 	payload_mass = 0.0
 	exhaust_events = 0.0
 	exhaust_flow = 0.0
