@@ -4,12 +4,24 @@ extends RefCounted
 ## on the real car. The user's licence design (2026-09-22 23:20): rigorous,
 ## real-licence-shaped certifications - cartoon world, serious rules.
 ##
-##   LICENCE 0, CITIZEN: one sitting, all or nothing. The theory quiz first,
-##   then six practical elements in a fixed order (l0_sitting()): parallel
-##   park, bay park, hill start, turn in the road, reversing course, emergency
-##   stop. Any element failed fails the whole sitting at once; all seven
-##   passed in the one sitting grants L0. A retake is a new sitting from the
-##   quiz.
+##   LICENCE 0, CITIZEN: seven elements in a fixed order (l0_sitting()), the
+##   theory quiz first, then six practical elements: parallel park, bay park,
+##   hill start, turn in the road, reversing course, emergency stop. Each
+##   element passed is kept in the car's record the moment it is (the
+##   manager's record_element); an element failed ends the sitting at once
+##   and the next sitting resumes at the first element not yet passed - a
+##   passed theory is never retaken. The seventh grants L0. With every
+##   element in the record the exam is sat again from the theory as a
+##   practice run, which changes nothing. The first three practical elements
+##   are sat in manual, from the fourth the instructor's car is automatic
+##   (the "manual" flag; see hill_start_element).
+# was one sitting, all or nothing, a retake a new sitting from the quiz ->
+# per element: the user's verdict, 2026-09-22 14:56 + 15:02 ("it's annoying
+# that if i fail any of the L0 tests i need to get back to theory and not
+# retry the test i failed, it's like nothing remembers i took the tests").
+# The all-or-nothing rule dated from L0 being two exams, theory and practice,
+# each with its own retake; fused into one sitting it dragged the passed
+# theory under every failed practice element.
 ##   LICENCE 1, FACTORY ENTRY: L0, a recorded PASSED on each of the five
 ##   handling tests (HandlingTests.all_tests(), free training on keys 1-5 as
 ##   ever) and the skid pad discipline test (skid_pad_test(), 2A's circle).
@@ -460,6 +472,9 @@ static func parallel_park_element() -> Dictionary:
 		"objective": "Drive past the bay on your right, reverse in between the cones, stop straight inside the lines.",
 		"bay": bay,
 		"min_reverse_m": PARALLEL_MIN_REVERSE_M,
+		# Sat in manual (the user's verdict, 2026-09-22: the first three
+		# practical elements are; see hill_start_element).
+		"manual": true,
 		"start_offset": Vector3(centre.x - 3.0, 0.0, centre.z + 12.0),
 		"start_heading_deg": 0.0,
 		"steps": [
@@ -493,6 +508,9 @@ static func bay_park_element() -> Dictionary:
 		"objective": "Along the aisle and nose-first into the marked bay: stop with the whole car inside its lines, square.",
 		"bay": bay,
 		"min_reverse_m": 0.0,
+		# Sat in manual (the user's verdict, 2026-09-22: the first three
+		# practical elements are; see hill_start_element).
+		"manual": true,
 		# The aisle runs along x at aisle_z; the car starts at its far end
 		# facing -X (heading 90) and turns right into the bay.
 		"start_offset": Vector3(centre.x + 12.0, 0.0, bay.aisle_z),
@@ -511,10 +529,17 @@ static func bay_park_element() -> Dictionary:
 
 ## Hill start: up the ramp, stop in the hold box on the rise, hold on the
 ## handbrake, clutch to the floor, revs up, bite and away over the crest
-## without rolling back or stalling. The instructor's car is a manual for
-## this: the element puts the gearbox in manual (the clutch key works, and so
-## does M to undo it - then there is no pedal to floor and the element
-## fails).
+## without rolling back or stalling.
+##   THE INSTRUCTOR'S CAR (the user's verdict, 2026-09-22): the first three
+## practical elements - the parallel park, the bay park and this - are sat in
+## manual; from the fourth, the turn in the road, on it is automatic, "now
+## they've proven they can drive an auto". An element with "manual": true
+## puts the gearbox in manual as it starts (_start; the clutch key works,
+## and so does M to undo it - here there is then no pedal to floor and the
+## element fails); every element's start resets the car, and the reset
+## re-arms automatic (ArcadeCar.reset_to), so an element without the flag is
+## sat in automatic. The parks' scripted drivers never touch the clutch key:
+## the car's own feathering works the clutch until the driver's foot does.
 static func hill_start_element() -> Dictionary:
 	var hill := TestPad.hill_start()
 	return {
