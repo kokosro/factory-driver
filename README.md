@@ -233,11 +233,16 @@ engine's losses, times the throttle it really has, the idle controller's share i
 times the engine speed is a power, and the fuel that takes is that power over an
 indicated efficiency of 0.30 and petrol's 44 MJ/kg: ~0.6 L/h idling, ~67 L/h flat out
 at the limiter, nothing on the overrun with the throttle shut. The tank holds the 986's
-64 L (`fuel_l`, `fuel_fraction()`), every reset fills it, the running game keeps the
-level from one session to the next (see Odometer below), and the thin bar lying under
-the pedal bars shows it: amber under 15 %, red under 8 %. With the tank dry nothing
-burns: the engine runs down, stops running, and stays down until there is fuel again
-(a reset fills the tank and starts the engine; see the starter below).
+64 L (`fuel_l`, `fuel_fraction()`), a new car's tank is full, a reset keeps whatever is
+in it (`R` is a reset, not a refuel: a fresh tank comes from a gas station or a canister,
+both world content to come with iteration 4C), the running game keeps the level from one
+session to the next (see Odometer below), and the thin bar lying under the pedal bars
+shows it: amber under 15 %, red under 8 %. With the tank dry nothing burns: the engine
+runs down, stops running, and stays down until there is fuel again (a reset on a dry
+tank puts the car there running, and it runs down again the same way; with fuel in it the
+starter catches, see below). The headless suite is the one place a tank is filled by
+hand: a test starting hands the certified car its full tank, which is test furniture,
+not game behaviour.
 
 The car has one mass, `car.total_mass()`: `BASE_MASS` (the car with a dry tank, 1252 kg)
 plus the fuel in the tank (`fuel_mass`, 48 kg full) plus `payload_mass`, a plain variable
@@ -415,7 +420,8 @@ the engine to ~96 rpm: tapping never restarted a stalled engine.) Cranking burns
 fuel, a dry tank only ever spins at ~620 rpm, for its cycle or for as long as the key is
 held, and there
 is no bump start (the clutch stays open on an engine that is not running). A reset
-starts a stopped engine: it puts a car there that is ready to drive.
+starts a stopped engine: it puts a car there that is ready to drive - on the fuel it
+has; a reset does not refuel, so a car reset dry stalls again.
 
 **Battery and alternator.** The starter draws on a 12 V, 50 Ah lead-acid battery
 (`battery_charge`, 0..1 of what it held new, 2.16 MJ; `battery_wear`, the share of that
@@ -443,14 +449,16 @@ fills to a tenth and its starter turns nothing. All twelve numbers are the confi
 (`battery`, optional: see `configs/README.md`). The bar under the fuel bar shows the
 charge tick by tick, unsmoothed, amber under 40 %, red under 20 %; through a crank it
 sags by what the crank takes, which on a 50 Ah battery is a ten-thousandth - the honest
-figure, and not one you will see move. A reset (`R`, a test starting) is a fresh car,
-battery and all: full and healthy, so the test pad never strands anyone; the running game
-keeps the charge and the wear from one session to the next (see The car's own file).
-The temperatures are the one thing a reset leaves alone: the coolant, the tyres and the
+figure, and not one you will see move. A reset (`R`, a test starting) is a new battery:
+full and healthy, so the test pad never strands anyone; the running game keeps the charge
+and the wear from one session to the next (see The car's own file). The temperatures,
+the wear and the fuel are what a reset leaves alone: the coolant, the tyres and the
 brakes keep whatever heat they held and go on cooling (or warming) from the next tick by
-their own laws - the car cools as it cools; R does not turn back time on temperature. A
-test starting is the exception: it hands out the certified fresh car, warm coolant, warm
-tyres and cold brakes, so every certified run is the physics it always was.
+their own laws - the car cools as it cools; R does not turn back time on temperature -
+the six wear shares stay (see Wear and aging) and the tank keeps its level. A test
+starting is the exception: it hands out the certified fresh car, warm coolant, warm
+tyres, cold brakes, new components and a full tank, so every certified run is the
+physics it always was.
 
 #### Wear and aging
 
@@ -497,10 +505,10 @@ floor at worn out. A worn car's telemetry shows why it is worn: the same slip en
 brake work, tyre heat and loaded revolutions that grew the shares are the tick's own
 outputs, and every claim above is checkable by driving.
 
-Wear is for good. `R` refuels the car, fills the tank and puts in a new battery; it does
-not un-wear: the six shares stay where they were through a reset, as the temperatures
-do. Service comes with the garage (iteration 4A); until then nothing in the game
-restores a component. Between sessions the wear rides `user://cars.json` beside the
+Wear is for good. `R` puts the car back and puts in a new battery; it does not un-wear
+and it does not refuel: the six shares stay where they were through a reset, as the
+temperatures and the tank do. Service comes with the garage (iteration 4A); until then
+nothing in the game restores a component. Between sessions the wear rides `user://cars.json` beside the
 battery (see The car's own file below); the headless suite and the certified runs read
 nothing, every car there starts new.
 
@@ -530,8 +538,10 @@ chauffeur's foot is measurably slower than the test driver's, `set_driver_input`
 launches the car with no key down exactly as the key does, holds half a pedal, clamps
 what is out of range and keeps the reverse rule, and the HUD's pedal bars follow the
 pedals and take 0..1; and fuel, mass, exhaust and creep: idling burns ~0.6 L/h and flat
-out some 70 times that, nothing burns on the overrun, a dry tank stops the engine and a
-reset fills it, the fuel bar reads the tank and changes colour, `total_mass()` has the
+out some 70 times that, nothing burns on the overrun, a dry tank stops the engine, a
+reset keeps it dry to the bit (and a half tank half) while the test start hands out the
+full one, fuel handed back by hand takes the starter to run again, the fuel bar reads
+the tank and changes colour, `total_mass()` has the
 fuel and the payload in it, 300 kg on board ride level and are slower over the same 5 s,
 a test's `payload_kg` is loaded at its start, the exhaust fires three times a turn and
 its flow follows the throttle, and the car creeps when the brake is let go at a
@@ -639,8 +649,8 @@ And the fuel kept beside it: the car came out of `_ready` with the full tank to 
 the store off, whatever `user://cars.json` holds; a level goes through the store and
 comes back the float it was, beside the odometer; NaN, inf, under 0, over the tank, words,
 null and a bool are no fuel level (a full tank and the reason, as text); and a car that
-loads 5 L starts with 5 L, their 3.7 kg and a red bar - a reset fills it, the file is not
-told.
+loads 5 L starts with 5 L, their 3.7 kg and a red bar - a reset keeps the level it has
+idled down to, to the bit, the file is not told.
 
 And the dashboard kept with them: the car came out of `_ready` with the aids on, the
 sport program, automatic and the camera in the cockpit, the store off; all six settings
@@ -1061,12 +1071,13 @@ It is the user's car: driven half empty one day, it is half empty the next - a c
 at 8 % starts at 8 %, the bar red. The level is read once, when the car enters the scene,
 before it is stood on its springs (the fuel is weight); no entry is a new car, a full
 tank; a `fuel_l` that is no level of this tank (not a number, not finite, under 0, over
-the tank) is an error in the log and a full tank. Nothing refuels the car but `reset_to`
-(`R`, a test starting): that fills the tank as it always did and tells the file nothing -
-the next save on the 45 s cadence writes the tank as it then stands, which after a reset
-is the full one the car has. The headless suite and the certified handling runs read
-nothing: every car there starts on the config's full tank (and every handling run begins
-with a `reset_to` anyway).
+the tank) is an error in the log and a full tank. Nothing in the game refuels the car:
+`reset_to` (`R`) keeps the tank as it finds it - resetting is not refuelling; a gas
+station or a canister will, both world content to come - and tells the file nothing; the
+next save on the 45 s cadence writes the tank as it then stands. The headless suite and
+the certified handling runs read nothing: every car there starts on the config's full
+tank, and every handling run's start hands its car the full tank by hand before its
+`reset_to`.
 
 The dashboard lives in the same entry too, under `driver`: the three aid switches
 (`tcs_on`, `abs_on`, `sc_on`), the gearbox program by name (`sport`, `comfort` or `eco`),
@@ -1108,8 +1119,9 @@ what a deep discharge took off its capacity stays taken. No entry is a new car, 
 healthy; a number that is no share of a battery (not a number, not finite, under 0, over
 1) is an error in the log and that one default, the other still loads; a charge saved
 fuller than its wear leaves is trimmed to what the battery can hold. A reset (`R`, a test
-starting) is a fresh battery - full and healthy, as it fills the tank - and tells the
-file nothing: the next save on the 45 s cadence writes the battery as it then stands.
+starting) is a fresh battery - full and healthy, the one thing besides the gearbox that a
+reset makes new - and tells the file nothing: the next save on the 45 s cadence writes
+the battery as it then stands.
 The headless suite and the certified runs read nothing: every car there starts full and
 healthy.
 
@@ -1130,8 +1142,8 @@ the rest in the same save:
 What a car has worn out is worn out the next day too. No entry is a new car, nothing
 worn; a number that is no share of a life (not a number, not finite, under 0, over 1) is
 an error in the log and that one default, the other five still load. A reset (`R`)
-leaves the wear where it is - R refuels, it does not un-wear - and tells the file
-nothing: the next save on the 45 s cadence writes the wear as it then stands. The file's
+leaves the wear where it is - R does not un-wear, as it does not refuel - and tells the
+file nothing: the next save on the 45 s cadence writes the wear as it then stands. The file's
 version stays 1: an entry written before there was wear has no `wear` object, reads as
 a new car's, and is written back with everything else it holds. The headless suite and
 the certified runs read nothing: every car there starts new.
