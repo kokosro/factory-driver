@@ -418,7 +418,19 @@ theme_override_font_sizes/font_size = 18
 text = "Up / W  accelerate      Down / S  brake (press again at a stop: reverse)
 Left / A, Right / D  steer      Space  handbrake      R  reset car
 Q / E  shift down / up (manual; under neutral: reverse)      M  automatic / manual
-N  sport / comfort / eco      T  TCS      G  ABS      K  SC      Left Shift  clutch (manual)      I  starter      L  licence book"
+N  sport / comfort / eco      T  TCS      G  ABS      K  SC      Left Shift  clutch (manual)      I  starter      L  licence book      Tab  garage"
+
+[node name="StudyPanel" type="Control" parent="."]
+visible = false
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -262.0
+offset_right = 664.0
+offset_bottom = -22.0
+grow_vertical = 0
+mouse_filter = 2
 
 [node name="MissionLabel" type="Label" parent="."]
 offset_left = 24.0

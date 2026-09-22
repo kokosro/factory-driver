@@ -10,6 +10,15 @@ extends CanvasLayer
 ## scripts/licence_manager.gd) and the gate hint beside the aid lamps (what
 ## a refused clutch key or aid switch says).
 ## The odometer's line sits over the aid lamps (see set_odometer).
+## THE STUDY's input display (the StudyPanel, bottom left, built in code by
+## _build_study_panel): while a lesson runs, every input the scripted driver
+## works, live off the car - the steering wheel as a marker on a bar, the
+## throttle, brake and clutch pedals as three of the pedal bars above
+## (_fill_bar, the same idiom), the gear and the program, the handbrake, the
+## clutch pedal's depth, the three aids - the wear readout, the lesson's
+## caption, and the event flashes (study_events: a stall, wheel spin, locked
+## wheels, the heat, an aid switched, a gear changed). Shown and fed by
+## scripts/study.gd; hidden it costs nothing.
 
 ## Tach text colour normally and from ArcadeCar.SHIFT_LIGHT_RPM up.
 const TACH_COLOR := Color(1, 1, 1, 1)
@@ -93,6 +102,40 @@ const BRAKE_BAR_FULL := 585.0 / 235.0
 const AID_ON_COLOR := Color(1, 1, 1, 0.35)
 const AID_OFF_COLOR := Color(1.0, 0.7, 0.15, 1)
 
+# --- THE STUDY's input display ------------------------------------------------
+
+## How long an event flash stays up after the last tick it was seen [s].
+const STUDY_FLASH_TIME := 1.2
+
+## Slip ratio from which a driven axle reads as spinning, and under which
+## (negative: the wheel turns slower than the road) an axle reads as locked:
+## the tyre marks' own threshold (TyreMarks.MARK_SLIP_RATIO, 0.35), the slip
+## at which a tyre lays rubber - over everything the aids hold a tyre at
+## (TCS 0.25, ABS 0.15), so a launch with TCS and a stop with ABS flash
+## nothing.
+const STUDY_SPIN_SLIP := TyreMarks.MARK_SLIP_RATIO
+
+## Under this road speed a locked wheel is a parked one, not a lockup [m/s].
+const STUDY_LOCKUP_MIN_SPEED := 1.0
+
+## The steering bar: how wide [px], and the marker's width [px]; the pedal
+## bars: how tall [px] and wide [px].
+const STUDY_STEER_BAR_WIDTH := 240.0
+const STUDY_STEER_MARKER_WIDTH := 8.0
+const STUDY_PEDAL_BAR_HEIGHT := 80.0
+const STUDY_PEDAL_BAR_WIDTH := 14.0
+
+const STUDY_PANEL_COLOR := Color(0, 0, 0, 0.55)
+const STUDY_TITLE_COLOR := Color(1.0, 0.9, 0.35, 1)
+const STUDY_TEXT_COLOR := Color(1, 1, 1, 1)
+const STUDY_DIM_TEXT_COLOR := Color(1, 1, 1, 0.6)
+const STUDY_BAR_BACK_COLOR := Color(0, 0, 0, 0.45)
+const STUDY_STEER_COLOR := Color(1.0, 0.9, 0.35, 1)
+const STUDY_THROTTLE_COLOR := Color(0.25, 0.9, 0.35, 1)
+const STUDY_BRAKE_COLOR := Color(1, 0.25, 0.2, 1)
+const STUDY_CLUTCH_COLOR := Color(0.55, 0.8, 0.95, 1)
+const STUDY_EVENT_COLOR := Color(1.0, 0.55, 0.2, 1)
+
 @export var car: ArcadeCar
 
 @onready var _speed_label: Label = $SpeedLabel
@@ -118,6 +161,27 @@ const AID_OFF_COLOR := Color(1.0, 0.7, 0.15, 1)
 ## The odometer as last written on its label [tenths of a km]; the label's text
 ## is only made anew when this changes, every 100 m.
 var _odometer_shown := -1
+
+# THE STUDY's input display: the nodes _build_study_panel makes, the last
+# snapshot the events were judged against, and the flashes up with the
+# seconds each has left.
+@onready var _study_panel: Control = $StudyPanel
+var _study_title: Label
+var _study_caption: Label
+var _study_steer_marker: ColorRect
+var _study_throttle_bar: ColorRect
+var _study_brake_bar: ColorRect
+var _study_clutch_bar: ColorRect
+var _study_gear_label: Label
+var _study_event_label: Label
+var _study_wear_label: Label
+var _study_before: Dictionary = {}
+var _study_flashes: Dictionary = {}
+var _study_state: Dictionary = {}
+
+
+func _ready() -> void:
+	_build_study_panel()
 
 
 func _process(_delta: float) -> void:
@@ -334,3 +398,281 @@ func show_mission_banner(headline: String, detail: String, color: Color) -> void
 func hide_mission_banner() -> void:
 	_mission_banner.visible = false
 	_mission_banner_detail.visible = false
+
+
+# =============================================================================
+#  THE STUDY's input display
+# =============================================================================
+
+## The panel's nodes, under the StudyPanel of hud.tscn: the title and the
+## caption on top, the steering bar and the three pedal bars in the middle,
+## the gear / handbrake / aids text beside them, the event flash and the
+## wear readout at the bottom. Controls only, no assets.
+func _build_study_panel() -> void:
+	var back := ColorRect.new()
+	back.name = "Back"
+	back.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	back.color = STUDY_PANEL_COLOR
+	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_study_panel.add_child(back)
+
+	_study_title = _study_label("Title", Vector2(12, 6), Vector2(616, 26), 18, STUDY_TITLE_COLOR)
+	_study_caption = _study_label("Caption", Vector2(12, 34), Vector2(616, 62), 15, STUDY_TEXT_COLOR)
+	_study_caption.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+
+	_study_label("SteerLabel", Vector2(12, 104), Vector2(120, 16), 11, STUDY_DIM_TEXT_COLOR).text = "STEERING  left <  > right"
+	var steer_back := ColorRect.new()
+	steer_back.name = "SteerBarBack"
+	steer_back.position = Vector2(12, 122)
+	steer_back.size = Vector2(STUDY_STEER_BAR_WIDTH, 12)
+	steer_back.color = STUDY_BAR_BACK_COLOR
+	steer_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_study_panel.add_child(steer_back)
+	var centre := ColorRect.new()
+	centre.name = "Centre"
+	centre.position = Vector2(STUDY_STEER_BAR_WIDTH * 0.5 - 1.0, -2)
+	centre.size = Vector2(2, 16)
+	centre.color = STUDY_DIM_TEXT_COLOR
+	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	steer_back.add_child(centre)
+	_study_steer_marker = ColorRect.new()
+	_study_steer_marker.name = "Marker"
+	_study_steer_marker.size = Vector2(STUDY_STEER_MARKER_WIDTH, 16)
+	_study_steer_marker.position = Vector2((STUDY_STEER_BAR_WIDTH - STUDY_STEER_MARKER_WIDTH) * 0.5, -2)
+	_study_steer_marker.color = STUDY_STEER_COLOR
+	_study_steer_marker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	steer_back.add_child(_study_steer_marker)
+
+	_study_throttle_bar = _study_pedal_bar("Throttle", 280.0, "THR", STUDY_THROTTLE_COLOR)
+	_study_brake_bar = _study_pedal_bar("Brake", 306.0, "BRK", STUDY_BRAKE_COLOR)
+	_study_clutch_bar = _study_pedal_bar("Clutch", 332.0, "CLU", STUDY_CLUTCH_COLOR)
+
+	_study_gear_label = _study_label("GearLabel", Vector2(370, 100), Vector2(260, 90), 15, STUDY_TEXT_COLOR)
+	_study_event_label = _study_label("EventLabel", Vector2(12, 196), Vector2(616, 26), 20, STUDY_EVENT_COLOR)
+	_study_wear_label = _study_label("WearLabel", Vector2(12, 222), Vector2(616, 16), 11, STUDY_DIM_TEXT_COLOR)
+
+
+func _study_label(label_name: String, at: Vector2, size: Vector2, font_size: int, color: Color) -> Label:
+	var label := Label.new()
+	label.name = label_name
+	label.position = at
+	label.size = size
+	label.add_theme_font_size_override("font_size", font_size)
+	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_outline_color", Color.BLACK)
+	label.add_theme_constant_override("outline_size", 4)
+	label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_study_panel.add_child(label)
+	return label
+
+
+## One of the study's pedal bars at `x`: the HUD's pedal-bar idiom, a full
+## rectangle scaled from its foot (_fill_bar), with its letters under it.
+func _study_pedal_bar(bar_name: String, x: float, letters: String, color: Color) -> ColorRect:
+	var back := ColorRect.new()
+	back.name = bar_name + "BarBack"
+	back.position = Vector2(x, 100)
+	back.size = Vector2(STUDY_PEDAL_BAR_WIDTH, STUDY_PEDAL_BAR_HEIGHT)
+	back.color = STUDY_BAR_BACK_COLOR
+	back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_study_panel.add_child(back)
+	var bar := ColorRect.new()
+	bar.name = bar_name + "Bar"
+	bar.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	bar.pivot_offset = Vector2(0, STUDY_PEDAL_BAR_HEIGHT)
+	bar.color = color
+	bar.visible = false
+	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	back.add_child(bar)
+	var label := _study_label(bar_name + "Letters", Vector2(x - 6, 182), Vector2(STUDY_PEDAL_BAR_WIDTH + 12, 14), 10, STUDY_DIM_TEXT_COLOR)
+	label.text = letters
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	return bar
+
+
+## Puts the study panel up for a lesson called `title`, everything on it at
+## rest and no flash pending.
+func show_study_panel(title: String) -> void:
+	_study_title.text = "THE STUDY  —  %s" % title
+	_study_caption.text = ""
+	_study_event_label.text = ""
+	_study_before = {}
+	_study_flashes = {}
+	_study_state = {}
+	_study_panel.visible = true
+
+
+func hide_study_panel() -> void:
+	_study_panel.visible = false
+
+
+func study_panel_visible() -> bool:
+	return _study_panel.visible
+
+
+## The lesson's caption: what the scripted driver is doing right now.
+func set_study_caption(text: String) -> void:
+	_study_caption.text = text
+
+
+## One tick of the input display off `target_car`: the bars and the text
+## from the car's state, the event flashes from study_events against the
+## tick before, each flash kept up STUDY_FLASH_TIME after it was last seen.
+func update_study_panel(target_car: ArcadeCar, delta: float) -> void:
+	var now := study_snapshot(target_car)
+	# The steering marker: +1 (full left lock) at the bar's left end, -1 at
+	# its right, centre for straight ahead.
+	var travel := (STUDY_STEER_BAR_WIDTH - STUDY_STEER_MARKER_WIDTH) * 0.5
+	_study_steer_marker.position.x = travel - clampf(now.steer, -1.0, 1.0) * travel
+	_fill_bar(_study_throttle_bar, now.throttle)
+	_fill_bar(_study_brake_bar, now.brake)
+	_fill_bar(_study_clutch_bar, now.clutch)
+	var gear_text := study_gear_text(now)
+	_study_gear_label.text = gear_text
+	_study_wear_label.text = "wear   clutch %.3f %%   brakes F %.3f R %.3f %%   tyres F %.3f R %.3f %%   engine %.3f %%" % [
+		now.clutch_wear * 100.0, now.front_brake_wear * 100.0, now.rear_brake_wear * 100.0,
+		now.front_tyre_wear * 100.0, now.rear_tyre_wear * 100.0, now.engine_wear * 100.0,
+	]
+	for event in study_events(now, _study_before):
+		_study_flashes[event] = STUDY_FLASH_TIME
+	var shown := PackedStringArray()
+	for event: String in _study_flashes.keys():
+		_study_flashes[event] -= delta
+		if _study_flashes[event] <= 0.0:
+			_study_flashes.erase(event)
+		else:
+			shown.append(event)
+	_study_event_label.text = "   ".join(shown)
+	_study_before = now
+	_study_state = {
+		"steer": now.steer, "throttle": now.throttle, "brake": now.brake, "clutch": now.clutch,
+		"handbrake": now.handbrake, "gear_text": gear_text, "events": shown,
+		"tcs_on": now.tcs_on, "abs_on": now.abs_on, "sc_on": now.sc_on,
+	}
+
+
+## What the panel shows right now (after update_study_panel): steer -1..1,
+## the three pedals 0..1, handbrake, the gear text, the flashes up, the aids.
+## Empty before the first update.
+func study_state() -> Dictionary:
+	return _study_state
+
+
+## The car's state the display and the events are read from, as plain
+## numbers: pure, so the events can be judged on any snapshot.
+static func study_snapshot(target_car: ArcadeCar) -> Dictionary:
+	return {
+		"steer": target_car.steer,
+		"throttle": target_car.throttle_pedal,
+		"brake": target_car.brake_pedal,
+		"clutch": target_car.clutch_pedal,
+		"handbrake": target_car._handbrake_amount > 0.0,
+		"gear": target_car.gear,
+		"reverse": target_car.reverse_engaged,
+		"automatic": target_car.automatic,
+		"gearbox_mode": OdometerStore.GEARBOX_MODES[target_car.gearbox_mode],
+		"engine_running": target_car.engine_running,
+		"cranking": target_car.cranking(),
+		"speed": absf(target_car.forward_speed),
+		"front_slip_ratio": target_car.front_slip_ratio,
+		"rear_slip_ratio": target_car.rear_slip_ratio,
+		"coolant_temp": target_car.coolant_temp,
+		"tyre_temp": maxf(target_car.front_tyre_temp, target_car.rear_tyre_temp),
+		"brake_temp": maxf(target_car.front_brake_temp, target_car.rear_brake_temp),
+		"tcs_on": target_car.tcs_on,
+		"abs_on": target_car.abs_on,
+		"sc_on": target_car.sc_on,
+		"clutch_wear": target_car.clutch_wear,
+		"front_brake_wear": target_car.front_brake_wear,
+		"rear_brake_wear": target_car.rear_brake_wear,
+		"front_tyre_wear": target_car.front_tyre_wear,
+		"rear_tyre_wear": target_car.rear_tyre_wear,
+		"engine_wear": target_car.engine_wear,
+	}
+
+
+## The gear / handbrake / aids text for a snapshot, three lines.
+static func study_gear_text(now: Dictionary) -> String:
+	var gear := "R" if now.reverse else ("N" if now.gear == 0 else "G%d" % now.gear)
+	var box := "manual" if not now.automatic else "auto %s" % String(now.gearbox_mode).to_upper()
+	var engine := "CRANKING" if now.cranking else ("running" if now.engine_running else "STALLED")
+	return "GEAR %s   %s   engine %s\nHANDBRAKE %s   clutch pedal %.0f %%\nTCS %s   ABS %s   SC %s" % [
+		gear, box, engine, "ON" if now.handbrake else "off", now.clutch * 100.0,
+		"on" if now.tcs_on else "OFF", "on" if now.abs_on else "OFF", "on" if now.sc_on else "OFF",
+	]
+
+
+## The events to flash for the snapshot `now`, judged against `before` (the
+## tick before; empty for the first tick): pure.
+##   STALL          the engine is not running (and not being cranked),
+##   RUNNING AGAIN  it caught, having been stopped the tick before,
+##   WHEEL SPIN     a driven axle over STUDY_SPIN_SLIP,
+##   WHEELS LOCKED  an axle under -STUDY_SPIN_SLIP with the car moving,
+##   OVERHEAT       the coolant from the fade line (COOLANT_HOT_FRACTION),
+##   BRAKE FADE     a brake from its fade line (BRAKE_HOT_FRACTION),
+##   TYRES HOT      a tyre over its window (TYRE_HOT_FRACTION),
+##   TCS ON / TCS OFF, ABS ..., SC ...   an aid switched since `before`,
+##   SHIFT <gear>   the gear changed since `before`, REVERSE selected.
+static func study_events(now: Dictionary, before: Dictionary) -> Array[String]:
+	var events: Array[String] = []
+	if not now.engine_running and not now.cranking:
+		events.append("STALL")
+	if now.engine_running and not before.is_empty() and not before.engine_running:
+		events.append("RUNNING AGAIN")
+	if maxf(now.front_slip_ratio, now.rear_slip_ratio) > STUDY_SPIN_SLIP:
+		events.append("WHEEL SPIN")
+	if minf(now.front_slip_ratio, now.rear_slip_ratio) < -STUDY_SPIN_SLIP and now.speed > STUDY_LOCKUP_MIN_SPEED:
+		events.append("WHEELS LOCKED")
+	if now.coolant_temp >= COOLANT_HOT_FRACTION:
+		events.append("OVERHEAT")
+	if now.brake_temp >= BRAKE_HOT_FRACTION:
+		events.append("BRAKE FADE")
+	if now.tyre_temp >= TYRE_HOT_FRACTION:
+		events.append("TYRES HOT")
+	if not before.is_empty():
+		for aid: String in ["tcs", "abs", "sc"]:
+			var key := aid + "_on"
+			if now[key] != before[key]:
+				events.append("%s %s" % [aid.to_upper(), "ON" if now[key] else "OFF"])
+		if now.reverse != before.reverse and now.reverse:
+			events.append("REVERSE")
+		elif now.gear != before.gear:
+			events.append("SHIFT %s" % ("N" if now.gear == 0 else "G%d" % now.gear))
+	return events
+
+
+# =============================================================================
+#  The bar legend
+# =============================================================================
+
+## What every bar on the HUD, on the study's input display and on the
+## garage's CAR page means, with the thresholds its colours turn at (the
+## constants above, spelt out): the garage's SETTINGS page shows it.
+static func bar_legend() -> String:
+	var lines := PackedStringArray()
+	lines.append("HUD BARS, bottom right, by the speed:")
+	lines.append("  THROTTLE (green, upright) and BRAKE (red, upright): how far the driver's feet really have the two pedals, 0 at the foot")
+	lines.append("    to full at the top; a tap is a partial press, a held key gets to the top. In reverse the throttle bar is the brake key's pedal.")
+	lines.append("  FUEL (flat, under the pedal bars): the tank, empty to full; amber under %.0f %% of it (reserve), red under %.0f %%." % [FUEL_RESERVE_FRACTION * 100.0, FUEL_LOW_FRACTION * 100.0])
+	lines.append("  BATTERY (flat, under FUEL): the charge, flat to a new battery's full; amber under %.0f %% (the starter is getting slow), red under %.0f %%" % [BATTERY_LOW_FRACTION * 100.0, BATTERY_CRITICAL_FRACTION * 100.0])
+	lines.append("    (two cranks from the deep-discharge line). A worn battery never fills the bar.")
+	lines.append("  COOLANT (flat, under BATTERY): the engine's temperature, 15 C at the left, the operating 90 C two thirds along, full at %.0f C;" % ArcadeCar.coolant_c_of(COOLANT_BAR_FULL))
+	lines.append("    blue while cold (under %.0f C: enrichment, the idle hunts), grey warm, red from %.0f C (the power fades), brighter red from %.0f C." % [ArcadeCar.coolant_c_of(COOLANT_COLD_FRACTION), ArcadeCar.coolant_c_of(COOLANT_HOT_FRACTION), ArcadeCar.coolant_c_of(COOLANT_VERY_HOT_FRACTION)])
+	lines.append("  TYRES (flat, left of BATTERY, labelled): the hotter axle's tyre temperature, 15 C at the left, full at %.0f C; blue under %.0f C (cold, less grip)," % [ArcadeCar.tyre_c_of(TYRE_BAR_FULL), ArcadeCar.tyre_c_of(TYRE_COLD_FRACTION)])
+	lines.append("    grey in the window, red from %.0f C (the grip fades, the rubber wears three times as fast), brighter red from %.0f C." % [ArcadeCar.tyre_c_of(TYRE_HOT_FRACTION), ArcadeCar.tyre_c_of(TYRE_VERY_HOT_FRACTION)])
+	lines.append("  BRAKES (flat, under TYRES, labelled): the hotter axle's disc temperature, 15 C at the left, full at %.0f C; grey under the fade line," % ArcadeCar.brake_c_of(BRAKE_BAR_FULL))
+	lines.append("    red from %.0f C (the pedal gives less, the pads wear three times as fast), brighter red from %.0f C (red hot). Cold brakes are an empty bar." % [ArcadeCar.brake_c_of(BRAKE_HOT_FRACTION), ArcadeCar.brake_c_of(BRAKE_VERY_HOT_FRACTION)])
+	lines.append("  TCS / ABS / SC lamps (over the bars): dim while the aid is on, amber with OFF once it is switched off. ODO over them: the odometer, km.")
+	lines.append("")
+	lines.append("THE STUDY's input display, bottom left, while a lesson runs:")
+	lines.append("  STEERING: a marker on a bar, centre for straight ahead, the left end for full left lock, the right end for full right - the steering wheel's")
+	lines.append("    share of its 450 degrees each way, as the driver's hands have it.")
+	lines.append("  THR / BRK / CLU: the throttle, brake and clutch pedals, the HUD's pedal bars again, plus the clutch (blue): 0 at the foot, full at the top.")
+	lines.append("  GEAR line: the gear (N, G1-G5, R), automatic with its program or manual, the engine running / STALLED / CRANKING; HANDBRAKE on or off,")
+	lines.append("    the clutch pedal's depth in %; TCS / ABS / SC on or OFF. The wear line: each component's share of its life used, in %.")
+	lines.append("  Flashes: STALL, RUNNING AGAIN, WHEEL SPIN (an axle over %.2f slip, where a tyre lays rubber), WHEELS LOCKED, OVERHEAT, BRAKE FADE, TYRES HOT," % STUDY_SPIN_SLIP)
+	lines.append("    an aid switched (TCS OFF ...), SHIFT G2 ..., REVERSE; each stays %.1f s after it was last true." % STUDY_FLASH_TIME)
+	lines.append("")
+	lines.append("THE GARAGE's CAR page: WEAR bars, one per component (clutch, front and rear brakes, front and rear tyres, engine), empty for new, full for worn out;")
+	lines.append("  a component under 1 % of wear is as new to the physics, and the effect steps once a percent from there. FUEL and BATTERY bars there read as the HUD's.")
+	return "\n".join(lines)
