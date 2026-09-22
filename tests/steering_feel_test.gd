@@ -13,9 +13,18 @@ extends SceneTree
 ## held key is through it on its first tick), and the bushings' compliance
 ## (the front wheels trail the rack by a lag that grows with the front
 ## tyres' sideways load, and stand on it exactly once close: the steady
-## corner is the rigid rack's, the turn-in is softer). The certified
+## corner is the rigid rack's, the turn-in is softer), and the caster
+## (CASTER_RETURN_RATE_MAX: hands off, the rolling front tyres' aligning
+## torque brings the wheel back to centre - nothing at a standstill, nothing
+## in reverse, little at a creep, at the full rate from CASTER_FULL_SPEED
+## up; the hands unwinding get it on top of their own speed). The certified
 ## handling runs and the smoke test's raw-steering identity are checked
 ## where they are; this is the feel itself, measured.
+# was "back to centre on release at hand speed": the hands brought the
+# wheel back by themselves the moment the key was let go, at a standstill
+# too -> the caster's, on the move only (the user's verdict, 15:24: "while
+# standing still in a real car the wheel doesn't center by itself, it only
+# happens when the car moves").
 ## Exits 0 on success, 1 on any failed check.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -93,6 +102,64 @@ const STEADY_ACCEL_TOLERANCE := 0.002
 const STEADY_RADIUS_TOLERANCE := 0.02
 const TRANSIENT_MAX_SHARE := 0.8
 
+## The caster (ArcadeCar CASTER_RETURN_RATE_MAX 600 degrees a second at the
+## tyres' peak from CASTER_FULL_SPEED 9 m/s up). At a standstill full lock
+## let go is watched this many ticks (3 s) and must not move ...
+const CASTER_STANDSTILL_FRAMES := 180
+
+## ... at a creep [m/s] the curve is continuous, not a gate: 0.036 of the
+## rate there (the smoothstep's square start), 21.7 degrees a second at
+## full lock as a function, and let go at full lock the wheel moves under
+## this much [degrees] in this many ticks (1 s; measured: 17.7 degrees,
+## the car coasting down from 1.03 to 0.86 m/s as it goes) ...
+const CASTER_CREEP_SPEED := 1.0
+const CASTER_CREEP_MAX_RATE := 30.0
+const CASTER_CREEP_FRAMES := 60
+const CASTER_CREEP_MAX_DEG := 30.0
+
+## ... the return from full lock is timed at two speeds [m/s], off the
+## throttle (the car coasts down through it): the ticks it takes at least
+## and at most at each, the slow one longer than the fast (measured: 177
+## from 5.0 m/s, 83 from 11.4 - the coast-down to the lock's 26 ticks) ...
+const CASTER_SLOW_SPEED := 5.0
+const CASTER_SLOW_MIN_TICKS := 150
+const CASTER_SLOW_MAX_TICKS := 220
+const CASTER_FAST_SPEED := 12.0
+const CASTER_FAST_MIN_TICKS := 70
+const CASTER_FAST_MAX_TICKS := 100
+
+## ... once back at centre the car is watched this many ticks more and has
+## to be running straight, the yaw rate under this [rad/s] ...
+const CASTER_STRAIGHT_FRAMES := 60
+const CASTER_STRAIGHT_MAX_YAW_RATE := 0.01
+
+## ... a motorway lane change's 100 degrees of wheel let go at 25 m/s comes
+## back in this many ticks at least and at most (measured 48, 0.80 s) ...
+const CASTER_LANE_CHANGE_DEG := 100.0
+const CASTER_LANE_CHANGE_SPEED := 25.0
+const CASTER_LANE_CHANGE_MIN_TICKS := 40
+const CASTER_LANE_CHANGE_MAX_TICKS := 60
+
+## ... rolling backwards at this [m/s] or faster full lock let go stays for
+## this many ticks (2 s) ...
+const CASTER_REVERSE_SPEED := -6.0
+const CASTER_REVERSE_FRAMES := 120
+
+## ... and unwinding with the hands at 60 km/h, full lock to centre with the
+## opposite key held takes at most this many ticks (the caster's rate on top
+## of the hands' 1300; measured 15 against the 21 winding on).
+const UNWIND_SPEED := 16.7
+const UNWIND_MAX_TICKS := 18
+
+## The no-NaN full lock and back is made on the move [m/s], where the caster
+## brings the wheel back, and given this long (2 s) to be back.
+const NO_NAN_SPEED := 12.0
+const NO_NAN_RETURN_FRAMES := 120
+
+## Ticks the front wheels are given to stand on a rack that has just come
+## to centre (the bushings' catch-up, COMPLIANCE_MAX_LANDING_TICKS at most).
+const RAW_SETTLE_FRAMES := 15
+
 var _failures := 0
 
 
@@ -116,6 +183,7 @@ func _run() -> void:
 	await _check_play(car)
 	await _check_compliance(car)
 	await _check_steady_corner(car)
+	await _check_caster(car)
 	await _check_no_nan(car)
 	_finish()
 
@@ -287,6 +355,117 @@ func _check_steady_corner(car: ArcadeCar) -> void:
 	await _step(5)
 
 
+## The caster: the curve as a function - nothing at a standstill or in
+## reverse, continuous from a creep, growing with speed to CASTER_FULL_SPEED
+## and flat from there, growing with the wheel's angle to the tyres' peak -
+## then measured on the car: full lock let go stays at a standstill and in
+## reverse, barely moves at a creep, comes back quicker at 12 m/s than at 5
+## and leaves the car running straight, a lane change's 100 degrees come
+## back in under a second, and the hands unwinding are quicker than winding
+## on.
+func _check_caster(car: ArcadeCar) -> void:
+	var lock := ArcadeCar.STEERING_WHEEL_LOCK_DEG
+	var full := ArcadeCar.CASTER_RETURN_RATE_MAX
+	var peak_deg := rad_to_deg(ArcadeCar.FRONT_PEAK_SLIP_ANGLE) * ArcadeCar.STEERING_RATIO
+	_check(car._caster_return_rate(lock, 0.0) == 0.0 and car._caster_return_rate(lock, -1.0) == 0.0 and car._caster_return_rate(lock, -40.0) == 0.0 and car._caster_return_rate(0.0, 20.0) == 0.0, "caster: exactly 0 at a standstill, exactly 0 rolling backwards at 1 and at 40 m/s, 0 with the wheel at centre")
+	_check(car._caster_return_rate(NAN, 10.0) == 0.0 and car._caster_return_rate(lock, NAN) == 0.0, "caster: a NaN angle or a NaN speed is 0")
+	_check(car._caster_return_rate(lock, ArcadeCar.CASTER_FULL_SPEED) == full and car._caster_return_rate(lock, 60.0) == full and car._caster_return_rate(peak_deg, ArcadeCar.CASTER_FULL_SPEED) == full and is_equal_approx(car._caster_return_rate(peak_deg * 0.5, 60.0), full * 0.5), "caster: %.0f degrees a second at full lock from %.0f m/s up and at 60, the same at the tyres' peak (%.1f degrees of wheel), half of it at half that angle" % [full, ArcadeCar.CASTER_FULL_SPEED, peak_deg])
+	var speed_monotonic := true
+	var previous := 0.0
+	for i in 161:
+		var rate: float = car._caster_return_rate(lock, i * 0.25)
+		speed_monotonic = speed_monotonic and is_finite(rate) and rate >= previous and rate <= full
+		previous = rate
+	var angle_monotonic := true
+	previous = 0.0
+	for i in 91:
+		var rate: float = car._caster_return_rate(i * 5.0, 60.0)
+		angle_monotonic = angle_monotonic and is_finite(rate) and rate >= previous and rate <= full
+		previous = rate
+	_check(speed_monotonic and angle_monotonic, "caster: never falls with speed (every quarter metre a second from 0 to 40) nor with the wheel's angle (every 5 degrees to full lock), never over %.0f, finite" % full)
+	var creep_rate: float = car._caster_return_rate(lock, CASTER_CREEP_SPEED)
+	_check(creep_rate > 0.0 and creep_rate < CASTER_CREEP_MAX_RATE, "caster: continuous, not a gate - %.1f degrees a second at full lock at %.1f m/s (under %.0f: the smoothstep's square start)" % [creep_rate, CASTER_CREEP_SPEED, CASTER_CREEP_MAX_RATE])
+
+	# A standstill: full lock let go stays, to the bit, for 3 s.
+	_fresh_fuel(car)
+	car.reset_to_spawn()
+	await _step(10)
+	Input.action_press("steer_left")
+	await _step(PARKING_TICKS_TO_LOCK + 10)
+	Input.action_release("steer_left")
+	var stayed := true
+	for frame in CASTER_STANDSTILL_FRAMES:
+		await physics_frame
+		stayed = stayed and car.steering_wheel_deg == lock and car.rack_angle == ArcadeCar.MAX_STEER_LOCK and car.wheel_angle == ArcadeCar.MAX_STEER_LOCK
+	_check(stayed and car.forward_speed == 0.0 and car._steering_play_deg == 0.0, "caster: at a standstill full lock let go stays full lock on every tick of %d, to the bit - the standstill rule (wheel %.0f degrees, rack %.2f rad, %.1f m/s)" % [CASTER_STANDSTILL_FRAMES, car.steering_wheel_deg, car.rack_angle, car.forward_speed])
+
+	# A creep: it barely moves.
+	var creep_speed := await _reach_speed(car, CASTER_CREEP_SPEED)
+	Input.action_press("steer_left")
+	await _step(PARKING_TICKS_TO_LOCK + 5)
+	Input.action_release("steer_left")
+	var at_release := car.steering_wheel_deg
+	await _step(CASTER_CREEP_FRAMES)
+	var crept := at_release - car.steering_wheel_deg
+	_check(at_release == lock and crept > 0.0 and crept < CASTER_CREEP_MAX_DEG, "caster: let go at full lock at a creep (%.2f m/s, %.2f a second on) the wheel comes back %.1f degrees in %d ticks (under %.0f)" % [creep_speed, car.forward_speed, crept, CASTER_CREEP_FRAMES, CASTER_CREEP_MAX_DEG])
+
+	# Two speeds: quicker the faster, and straight afterwards.
+	var slow := await _return_from_lock(car, CASTER_SLOW_SPEED)
+	var fast := await _return_from_lock(car, CASTER_FAST_SPEED)
+	_check(slow.ticks >= CASTER_SLOW_MIN_TICKS and slow.ticks <= CASTER_SLOW_MAX_TICKS and fast.ticks >= CASTER_FAST_MIN_TICKS and fast.ticks <= CASTER_FAST_MAX_TICKS, "caster: full lock let go comes back to centre in %d ticks (%.2f s) from %.1f m/s and %d (%.2f s) from %.1f (%d .. %d and %d .. %d)" % [slow.ticks, slow.ticks / 60.0, slow.speed, fast.ticks, fast.ticks / 60.0, fast.speed, CASTER_SLOW_MIN_TICKS, CASTER_SLOW_MAX_TICKS, CASTER_FAST_MIN_TICKS, CASTER_FAST_MAX_TICKS])
+	_check(slow.ticks > fast.ticks, "caster: ... quicker the faster the car goes (%d against %d ticks)" % [fast.ticks, slow.ticks])
+	_check(slow.centred and fast.centred, "caster: ... and it is centre to the bit, the rack and the wheels on it, the play empty")
+	_check(slow.straight and fast.straight, "caster: ... the car running straight %d ticks on (yaw rate %.4f and %.4f rad/s, under %.2f)" % [CASTER_STRAIGHT_FRAMES, slow.yaw_rate, fast.yaw_rate, CASTER_STRAIGHT_MAX_YAW_RATE])
+
+	# A lane change's worth of wheel on the motorway.
+	var lane_speed := await _reach_speed(car, CASTER_LANE_CHANGE_SPEED)
+	car.set_driver_input(0.0, 0.0, CASTER_LANE_CHANGE_DEG / lock)
+	await _step(10)
+	var held := car.steering_wheel_deg
+	car.set_driver_input(0.0, 0.0, 0.0)
+	var lane_ticks := await _ticks_to_centre(car)
+	car.clear_driver_input()
+	_check(is_equal_approx(held, CASTER_LANE_CHANGE_DEG) and lane_ticks >= CASTER_LANE_CHANGE_MIN_TICKS and lane_ticks <= CASTER_LANE_CHANGE_MAX_TICKS, "caster: %.0f degrees of wheel let go at %.1f m/s come back in %d ticks (%.2f s; %d .. %d)" % [held, lane_speed, lane_ticks, lane_ticks / 60.0, CASTER_LANE_CHANGE_MIN_TICKS, CASTER_LANE_CHANGE_MAX_TICKS])
+
+	# Reverse: nothing comes back.
+	_fresh_fuel(car)
+	car.reset_to_spawn()
+	_fresh_heat(car)
+	await _step(10)
+	Input.action_press("brake")
+	for frame in 600:
+		if car.forward_speed <= CASTER_REVERSE_SPEED:
+			break
+		await physics_frame
+	Input.action_press("steer_left")
+	await _step(PARKING_TICKS_TO_LOCK + 5)
+	Input.action_release("steer_left")
+	var reverse_speed := car.forward_speed
+	stayed = true
+	for frame in CASTER_REVERSE_FRAMES:
+		await physics_frame
+		stayed = stayed and car.steering_wheel_deg == lock and car.rack_angle == ArcadeCar.MAX_STEER_LOCK and car.forward_speed < 0.0
+	Input.action_release("brake")
+	_check(reverse_speed <= CASTER_REVERSE_SPEED and stayed, "caster: rolling backwards at %.1f m/s full lock let go stays full lock on every tick of %d, to the bit - the trail is the wrong way round (%.1f m/s at the end)" % [reverse_speed, CASTER_REVERSE_FRAMES, car.forward_speed])
+
+	# Unwinding with the hands: the caster's rate on top.
+	await _reach_speed(car, UNWIND_SPEED)
+	var winding_ticks := await _ticks_to_lock(car)
+	Input.action_release("steer_left")
+	Input.action_press("steer_right")
+	var unwinding_ticks := -1
+	for frame in 60:
+		await physics_frame
+		if car.steering_wheel_deg <= 0.0:
+			unwinding_ticks = frame + 1
+			break
+	Input.action_release("steer_right")
+	_check(winding_ticks == PARKING_TICKS_TO_LOCK and unwinding_ticks > 0 and unwinding_ticks <= UNWIND_MAX_TICKS and unwinding_ticks < winding_ticks, "caster: at %.0f km/h the hands wind full lock on in %d ticks and unwind it with the caster's help in %d (at most %d)" % [UNWIND_SPEED * 3.6, winding_ticks, unwinding_ticks, UNWIND_MAX_TICKS])
+	_fresh_fuel(car)
+	car.reset_to_spawn()
+	await _step(5)
+
+
 ## Nothing new makes a NaN: NaN input, and every new state finite after all
 ## of the above.
 func _check_no_nan(car: ArcadeCar) -> void:
@@ -297,12 +476,16 @@ func _check_no_nan(car: ArcadeCar) -> void:
 	await _step(5)
 	var quiet := car.steering_wheel_deg == 0.0 and car.rack_angle == 0.0 and car.wheel_angle == 0.0 and car._steering_play_deg == 0.0
 	car.clear_driver_input()
+	# was at a standstill, the hands bringing the wheel back on the release
+	# -> on the move: hands off at a standstill bring nothing back (the
+	# user's verdict, 15:24), the caster does from CASTER_FULL_SPEED in 1.4 s.
+	await _reach_speed(car, NO_NAN_SPEED)
 	Input.action_press("steer_left")
 	await _step(30)
 	Input.action_release("steer_left")
-	await _step(30)
+	await _step(NO_NAN_RETURN_FRAMES)
 	var finite := is_finite(car.steering_wheel_deg) and is_finite(car.rack_angle) and is_finite(car.wheel_angle) and is_finite(car._steering_play_deg) and is_finite(car._front_lateral_load) and is_finite(car._steering_compliance_tau())
-	_check(quiet and finite and car.wheel_angle == 0.0, "no NaN: NaN steering asked for is none, and after a full lock and back every steering state is finite and the wheels are at centre (play %.2f, load %.3f, tau %.3f)" % [car._steering_play_deg, car._front_lateral_load, car._steering_compliance_tau()])
+	_check(quiet and finite and car.wheel_angle == 0.0 and car.steering_wheel_deg == 0.0, "no NaN: NaN steering asked for is none, and after a full lock and back on the move every steering state is finite and the wheels are at centre (play %.2f, load %.3f, tau %.3f)" % [car._steering_play_deg, car._front_lateral_load, car._steering_compliance_tau()])
 	_fresh_fuel(car)
 	car.reset_to_spawn()
 	await _step(5)
@@ -319,17 +502,51 @@ func _ticks_to_lock(car: ArcadeCar) -> int:
 	return -1
 
 
-## Lets the key go, waits for centre, presses again for one tick and returns
-## how far the wheel went on it [degrees]; leaves the key released.
+## Lets the key go, resets the car (the wheel let go at a standstill stays
+## where it is - the standstill rule - and a reset stands it at centre),
+## presses again for one tick and returns how far the wheel went on it
+## [degrees]; leaves the key released.
+# was: let go and 30 ticks of waiting for the hands to bring the wheel back
+# -> the reset (the user's verdict, 15:24: no return at a standstill).
 func _first_tick_of_lock(car: ArcadeCar) -> float:
 	Input.action_release("steer_left")
-	await _step(30)
+	_fresh_fuel(car)
+	car.reset_to_spawn()
+	await _step(10)
 	Input.action_press("steer_left")
 	await physics_frame
 	var moved := car.steering_wheel_deg
 	Input.action_release("steer_left")
-	await _step(30)
+	await _step(5)
 	return moved
+
+
+## Reaches `speed`, winds full lock on, lets go and counts the ticks until
+## the wheel is at centre; then watches the car CASTER_STRAIGHT_FRAMES more.
+## Returns { speed (at the release), ticks, centred, straight, yaw_rate }.
+func _return_from_lock(car: ArcadeCar, speed: float) -> Dictionary:
+	await _reach_speed(car, speed)
+	Input.action_press("steer_left")
+	await _step(PARKING_TICKS_TO_LOCK + 5)
+	Input.action_release("steer_left")
+	var result := {"speed": car.forward_speed, "ticks": -1, "centred": false, "straight": false, "yaw_rate": 0.0}
+	result.ticks = await _ticks_to_centre(car)
+	await _step(RAW_SETTLE_FRAMES)
+	result.centred = car.steering_wheel_deg == 0.0 and car.rack_angle == 0.0 and car.wheel_angle == 0.0 and car._steering_play_deg == 0.0
+	await _step(CASTER_STRAIGHT_FRAMES - RAW_SETTLE_FRAMES)
+	result.yaw_rate = car.yaw_rate
+	result.straight = absf(car.yaw_rate) < CASTER_STRAIGHT_MAX_YAW_RATE and car.forward_speed > 0.0
+	return result
+
+
+## Counts the ticks until the steering wheel is at centre, to the bit, with
+## whatever is (not) held; -1 if it is not there inside 10 s.
+func _ticks_to_centre(car: ArcadeCar) -> int:
+	for frame in 600:
+		await physics_frame
+		if car.steering_wheel_deg == 0.0:
+			return frame + 1
+	return -1
 
 
 ## Resets the car and accelerates it in a straight line to `speed`, then

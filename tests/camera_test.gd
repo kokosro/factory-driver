@@ -23,6 +23,11 @@ extends SceneTree
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 
+## Ticks a full lock let go at a standstill is given to come back to centre
+## once the car pulls away on it (the caster comes on with the speed, the
+## car circling at full lock as it builds; measured 158, at 12.5 m/s).
+const WHEEL_RETURN_MAX_FRAMES := 300
+
 ## The views in the order the key cycles through them, from the one a fresh car
 ## comes up in: a full round of five presses, back to the cockpit.
 # was from chase, the view the camera itself started in -> from the cockpit,
@@ -374,7 +379,20 @@ func _check_steering_wheel(camera: Camera3D, car: ArcadeCar) -> void:
 	_check(car.steering_wheel_deg == ArcadeCar.STEERING_WHEEL_LOCK_DEG and is_equal_approx(wheel.rotation.y, deg_to_rad(ArcadeCar.STEERING_WHEEL_LOCK_DEG)), "steering wheel: full lock is a turn and a quarter (%.0f degrees, drawn at %.0f)" % [car.steering_wheel_deg, rad_to_deg(wheel.rotation.y)])
 	Input.action_release("steer_left")
 	await _step(40)
-	_check(is_zero_approx(wheel.rotation.y), "steering wheel: let go, it comes back to centre (%.1f degrees)" % rad_to_deg(wheel.rotation.y))
+	# was "let go, it comes back to centre": the hands brought the wheel back
+	# at a standstill -> it stays: hands off at a standstill bring nothing
+	# back (ArcadeCar CASTER_RETURN_RATE_MAX; the user's verdict, 15:24), on
+	# the move the caster does, and the rim shows both.
+	_check(car.steering_wheel_deg == ArcadeCar.STEERING_WHEEL_LOCK_DEG and is_equal_approx(wheel.rotation.y, deg_to_rad(ArcadeCar.STEERING_WHEEL_LOCK_DEG)), "steering wheel: let go at a standstill, it stays at full lock and so does the rim (%.0f degrees, drawn at %.0f)" % [car.steering_wheel_deg, rad_to_deg(wheel.rotation.y)])
+	Input.action_press("accelerate")
+	var centred_tick := -1
+	for frame in WHEEL_RETURN_MAX_FRAMES:
+		await physics_frame
+		if car.steering_wheel_deg == 0.0:
+			centred_tick = frame + 1
+			break
+	Input.action_release("accelerate")
+	_check(centred_tick > 0 and is_zero_approx(wheel.rotation.y), "steering wheel: pulling away, the caster brings it back to centre (%d ticks, %.1f m/s) and the rim comes back with it (%.1f degrees)" % [centred_tick, car.forward_speed, rad_to_deg(wheel.rotation.y)])
 	for expected in ["front", "overhead", "wheel", "chase"]:
 		await _tap("camera_cycle")
 
