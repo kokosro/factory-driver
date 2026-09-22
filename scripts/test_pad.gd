@@ -18,7 +18,12 @@ extends Node3D
 ##   * a skid pad to the left: a paler disc with painted rings, two concentric
 ##     cone circles and a ring of reference posts,
 ##   * tall pylons on a distant perimeter, so sideways motion reads at speed,
-##   * a row of sheds far right, as tall parallax references (these collide).
+##   * a row of sheds far right, as tall parallax references (these collide),
+##   * the licence yard behind the start gantry (+Z): the hill start's ramp
+##     (the road's, RoadProfile.RAMP_X) with its hold box and crest line, the
+##     parallel bay and the parking bay, the reversing lane and the emergency
+##     stop lane, painted lines and cones (see "Licence course"), and a pair
+##     of bars across the straight for the turn in the road.
 ## Painted markings, posts, pylons and cones are visual only and can be driven
 ## through; cones the car touches topple without slowing it down.
 ##
@@ -119,6 +124,74 @@ const GROUP_SLALOM := &"slalom_cones"
 const GROUP_SKID_INNER := &"skid_inner_cones"
 const GROUP_SKID_OUTER := &"skid_outer_cones"
 const GROUP_STOP_BOX := &"stop_box_cones"
+const GROUP_PARALLEL_BAY := &"parallel_bay_cones"
+const GROUP_PARKING_BAY := &"parking_bay_cones"
+const GROUP_REVERSING := &"reversing_cones"
+const GROUP_EMERGENCY_STOP := &"emergency_stop_cones"
+
+# --- Licence course ------------------------------------------------------------
+# The licence yard: behind the start gantry, on the ground the swell leaves
+# within a centimetre of level there (measured: -8 .. +4 mm over the yard),
+# clear of everything certified (nothing certified goes past z = +5; the yard
+# starts at z = +30). Everything is driven the pad's way, towards -Z, from the
+# back of the yard towards the gantry, so the car's right is +X as everywhere
+# else. Sizes and clearances are the real exams' (the user's licence design,
+# 2026-09-22 23:20): a bay park's bay 2.6 x 5.2 m, a parallel bay a car and a
+# half long, a reversing lane a car and two boot-widths wide.
+
+## Parallel bay: centre and size along X and Z [m], axis along Z; the car is
+## 1.8 x 4.2, so 0.3 m a side and 1.4 m an end. Its right edge is the kerb.
+## A cone stands on the axis PARALLEL_BAY_CONE_GAP beyond either end line: the
+## parked cars' bumpers, in the way of an overshoot.
+const PARALLEL_BAY_CENTRE := Vector3(12.0, 0.0, 50.0)
+const PARALLEL_BAY_SIZE := Vector2(2.4, 7.0)
+const PARALLEL_BAY_CONE_GAP := 0.5  # [m].
+
+## Parking bay: centre and size [m], axis along Z, entered from the aisle at
+## PARKING_AISLE_Z (its opening faces +Z), a painted neighbour either side and
+## a cone on either back corner: the wall.
+const PARKING_BAY_CENTRE := Vector3(22.0, 0.0, 80.0)
+const PARKING_BAY_SIZE := Vector2(2.6, 5.2)
+const PARKING_AISLE_Z := 90.0  # The aisle's centre line [m] ...
+const PARKING_AISLE_HALF_WIDTH := 3.0  # ... and its half width [m].
+const PARKING_AISLE_X_RANGE := Vector2(12.0, 40.0)  # Where the aisle's lines run, x [m].
+
+## Hill start: the hold box on the ramp's rise (RoadProfile.RAMP_X ... the
+## ramp climbs towards -Z from RAMP_FOOT_Z 95 to RAMP_CREST_Z 75), where the
+## car stops and holds: centre and size [m]; the crest line across the ramp's
+## top, where the pull-away is done [m]; and the start point at the foot [m].
+const HILL_HOLD_BOX_CENTRE := Vector3(-30.0, 0.0, 85.0)
+const HILL_HOLD_BOX_SIZE := Vector2(3.6, 8.0)
+const HILL_CREST_LINE_Z := 72.0
+const HILL_START_Z := 110.0
+
+## Reversing lane: centre and size [m] (axis along Z; a car and two boot-widths
+## wide: 0.7 m a side), reversed up from its near end (z = 38) towards +Z into
+## the end box at its far end; a pair of cones either side of the lane at
+## each gate z, REVERSING_GATE_HALF_GAP from the axis.
+const REVERSING_LANE_CENTRE := Vector3(-14.0, 0.0, 55.0)
+const REVERSING_LANE_SIZE := Vector2(3.2, 34.0)
+const REVERSING_END_BOX_CENTRE := Vector3(-14.0, 0.0, 67.0)
+const REVERSING_END_BOX_SIZE := Vector2(3.2, 8.0)
+const REVERSING_GATE_ZS: Array[float] = [48.0, 57.0]
+const REVERSING_GATE_HALF_GAP := 2.0  # [m].
+const REVERSING_START_Z := 36.0  # The car starts here, facing -Z, and reverses towards +Z [m].
+
+## Emergency stop: a lane down the yard's middle (x = 0, EMERGENCY_LANE_HALF_WIDTH
+## either side, from EMERGENCY_START_Z to the zone), a red cue bar across it at
+## EMERGENCY_STOP_CUE_Z - the board that says STOP - and the zone to stop in
+## beyond it: centre and size [m], a cone on either far corner.
+const EMERGENCY_START_Z := 100.0
+const EMERGENCY_LANE_HALF_WIDTH := 3.0
+const EMERGENCY_STOP_CUE_Z := 58.0
+const EMERGENCY_STOP_ZONE_CENTRE := Vector3(0.0, 0.0, 41.0)
+const EMERGENCY_STOP_ZONE_SIZE := Vector2(3.6, 16.0)
+
+## Turn in the road: the stretch of the straight it is done in, between two
+## white bars across the lane, centre z and length [m]. The lane's own edge
+## lines (LANE_HALF_WIDTH) are its sides.
+const TURN_STRETCH_CENTRE_Z := -30.0
+const TURN_STRETCH_LENGTH := 36.0
 
 const SHED_X := 80.0
 const SHED_SIZE := Vector3(24.0, 9.0, 48.0)
@@ -193,6 +266,7 @@ func _ready() -> void:
 	_build_skid_pad()
 	_build_pylons()
 	_build_sheds()
+	_build_licence_course()
 
 
 func _physics_process(delta: float) -> void:
@@ -240,6 +314,89 @@ static func skid_circle() -> Dictionary:
 ## The stop box on the straight: its centre and its size along X and Z.
 static func stop_box() -> Dictionary:
 	return {"centre": STOP_BOX_CENTRE, "size": STOP_BOX_SIZE, "group": GROUP_STOP_BOX}
+
+
+## The licence yard's parallel bay: centre, size along X and Z, the axis's
+## heading (0 = along -Z, the bay is entered tail-first going +Z) and its cone
+## group (the two bumper cones).
+static func parallel_bay() -> Dictionary:
+	return {"centre": PARALLEL_BAY_CENTRE, "size": PARALLEL_BAY_SIZE, "heading_deg": 0.0, "group": GROUP_PARALLEL_BAY}
+
+
+## The licence yard's parking bay: centre, size, the axis's heading (0 = along
+## -Z: nose-first in from the aisle at +Z) and its cone group (the wall's two
+## cones), and the aisle it is entered from (z, half width).
+static func parking_bay() -> Dictionary:
+	return {
+		"centre": PARKING_BAY_CENTRE, "size": PARKING_BAY_SIZE, "heading_deg": 0.0, "group": GROUP_PARKING_BAY,
+		"aisle_z": PARKING_AISLE_Z, "aisle_half_width": PARKING_AISLE_HALF_WIDTH,
+	}
+
+
+## The hill start: the hold box on the rise (centre, size), the crest line's z,
+## the start point's z at the foot and the ramp's axis x.
+static func hill_start() -> Dictionary:
+	return {
+		"hold_box": {"centre": HILL_HOLD_BOX_CENTRE, "size": HILL_HOLD_BOX_SIZE},
+		"crest_z": HILL_CREST_LINE_Z, "start_z": HILL_START_Z, "axis_x": RoadProfile.RAMP_X,
+	}
+
+
+## The reversing lane: the lane (centre, size), the end box in it, the z of
+## the start point, the gates' z and the cone group.
+static func reversing_course() -> Dictionary:
+	return {
+		"lane": {"centre": REVERSING_LANE_CENTRE, "size": REVERSING_LANE_SIZE},
+		"end_box": {"centre": REVERSING_END_BOX_CENTRE, "size": REVERSING_END_BOX_SIZE},
+		"start_z": REVERSING_START_Z, "gate_zs": REVERSING_GATE_ZS, "group": GROUP_REVERSING,
+	}
+
+
+## The emergency stop: the start point's z, the cue bar's z, the zone (centre,
+## size) and its cone group.
+static func emergency_stop() -> Dictionary:
+	return {
+		"start_z": EMERGENCY_START_Z, "cue_z": EMERGENCY_STOP_CUE_Z,
+		"zone": {"centre": EMERGENCY_STOP_ZONE_CENTRE, "size": EMERGENCY_STOP_ZONE_SIZE},
+		"lane_half_width": EMERGENCY_LANE_HALF_WIDTH, "group": GROUP_EMERGENCY_STOP,
+	}
+
+
+## The turn in the road's stretch of the straight: centre z, length and the
+## lane's half width.
+static func turn_stretch() -> Dictionary:
+	return {"centre_z": TURN_STRETCH_CENTRE_Z, "length": TURN_STRETCH_LENGTH, "lane_half_width": LANE_HALF_WIDTH}
+
+
+## The positions of the cones that stand at the yard's gates and bays, by
+## course, as the exams place and judge them (the pad places them from here).
+static func parallel_bay_cone_positions() -> Array[Vector3]:
+	var positions: Array[Vector3] = []
+	for side: float in [-1.0, 1.0]:
+		positions.append(PARALLEL_BAY_CENTRE + Vector3(0.0, 0.0, side * (PARALLEL_BAY_SIZE.y * 0.5 + PARALLEL_BAY_CONE_GAP)))
+	return positions
+
+
+static func parking_bay_cone_positions() -> Array[Vector3]:
+	var positions: Array[Vector3] = []
+	for side: float in [-1.0, 1.0]:
+		positions.append(PARKING_BAY_CENTRE + Vector3(side * PARKING_BAY_SIZE.x * 0.5, 0.0, -PARKING_BAY_SIZE.y * 0.5 - 0.3))
+	return positions
+
+
+static func reversing_cone_positions() -> Array[Vector3]:
+	var positions: Array[Vector3] = []
+	for gate_z in REVERSING_GATE_ZS:
+		for side: float in [-1.0, 1.0]:
+			positions.append(Vector3(REVERSING_LANE_CENTRE.x + side * REVERSING_GATE_HALF_GAP, 0.0, gate_z))
+	return positions
+
+
+static func emergency_stop_cone_positions() -> Array[Vector3]:
+	var positions: Array[Vector3] = []
+	for side: float in [-1.0, 1.0]:
+		positions.append(EMERGENCY_STOP_ZONE_CENTRE + Vector3(side * (EMERGENCY_STOP_ZONE_SIZE.x * 0.5 + 0.5), 0.0, -EMERGENCY_STOP_ZONE_SIZE.y * 0.5 - 0.5))
+	return positions
 
 
 ## Standing positions of every cone in a group (GROUP_* constants).
@@ -737,6 +894,92 @@ func _build_sheds() -> void:
 	for i in SHED_COLORS.size():
 		var centre := Vector3(SHED_X, SHED_SIZE.y * 0.5, -80.0 - i * 190.0)
 		_add_box(group, centre, SHED_SIZE, SHED_COLORS[i], true)
+
+
+## Licence course: the yard behind the gantry (see the constants above).
+## Paint and cones by the pad's own idioms, everything stood on the ground
+## (the ramp included: the road's elevation carries it, so the hold box's
+## paint lies on the slope and the crest line on the top).
+##   The ramp and the ground mesh: the ramp's knees are on the mesh's 5 m
+## lattice and its profile is straight between them, so along its axis and
+## across its top the mesh IS the ramp (the licence test checks the road's
+## function is linear between lattice points there: 0 deviation). Where a
+## flank crosses a rise (the four corner cells, 5 x 5 m each) the height is a
+## product of two straight ramps, bilinear over the cell, and the mesh's two
+## triangles cut it straight: 0.25 x 1.6 m x (5 / 5) x (5 / 20) = 0.10 m at
+## worst, at those cells' middles, nowhere the car is driven (the hold box
+## is 3.6 m wide on the 10 m top). The car rides the function, not the mesh.
+func _build_licence_course() -> void:
+	var group := _add_group("LicenceCourse")
+
+	# The hill: the hold box on the rise (yellow, like the stop box), the crest
+	# line across the top (white, like a start line) and a bar at the foot.
+	var hold_box := HILL_HOLD_BOX_CENTRE
+	_add_box_outline(group, hold_box, HILL_HOLD_BOX_SIZE, 0.2, COLOR_PAINT_YELLOW)
+	for i in 4:
+		var z := hold_box.z - HILL_HOLD_BOX_SIZE.y * 0.5 + (i + 0.5) * HILL_HOLD_BOX_SIZE.y / 4.0
+		_add_paint_at_angle(group, Vector3(hold_box.x, 0.0, z), Vector2(0.18, HILL_HOLD_BOX_SIZE.x * 0.95), _vary(COLOR_PAINT_YELLOW, 0.05), 0.9)
+	_add_paint(group, Vector3(RoadProfile.RAMP_X, 0.0, HILL_CREST_LINE_Z), Vector2(RoadProfile.RAMP_HALF_WIDTH * 2.0, 0.6), COLOR_PAINT_WHITE)
+	_add_paint(group, Vector3(RoadProfile.RAMP_X, 0.0, RoadProfile.RAMP_FOOT_Z), Vector2(RoadProfile.RAMP_HALF_WIDTH * 2.0, 0.3), COLOR_PAINT_YELLOW)
+	_add_label(group, Vector3(RoadProfile.RAMP_X, 3.0, RoadProfile.RAMP_CREST_Z), "HILL START")
+
+	# The parallel bay: its outline, the kerb (a thicker line on its right
+	# edge), the two bumper cones.
+	var bay := parallel_bay()
+	_add_box_outline(group, bay.centre, bay.size, 0.15, COLOR_PAINT_WHITE)
+	_add_paint(group, bay.centre + Vector3(bay.size.x * 0.5 + 0.2, 0.0, 0.0), Vector2(0.25, bay.size.y + 2.0 * PARALLEL_BAY_CONE_GAP + 2.0), COLOR_PAINT_YELLOW, 0.03)
+	for cone_position in parallel_bay_cone_positions():
+		_add_cone(group, cone_position, COLOR_CONE_ORANGE, GROUP_PARALLEL_BAY)
+	_add_label(group, bay.centre + Vector3(0.0, 2.5, 0.0), "PARALLEL")
+
+	# The parking bay with a painted neighbour either side, the wall's cones
+	# on its back corners, and the aisle's edge lines.
+	var parking := parking_bay()
+	for i: float in [-1.0, 0.0, 1.0]:
+		var centre: Vector3 = parking.centre + Vector3(i * parking.size.x, 0.0, 0.0)
+		_add_box_outline(group, centre, parking.size, 0.15, COLOR_PAINT_WHITE if i == 0.0 else _vary(COLOR_PAINT_WHITE, 0.1))
+	for cone_position in parking_bay_cone_positions():
+		_add_cone(group, cone_position, COLOR_CONE_BLUE, GROUP_PARKING_BAY)
+	for side: float in [-1.0, 1.0]:
+		var z: float = parking.aisle_z + side * parking.aisle_half_width
+		var length := PARKING_AISLE_X_RANGE.y - PARKING_AISLE_X_RANGE.x
+		_add_paint(group, Vector3((PARKING_AISLE_X_RANGE.x + PARKING_AISLE_X_RANGE.y) * 0.5, 0.0, z), Vector2(length, 0.2), COLOR_PAINT_YELLOW)
+	_add_label(group, parking.centre + Vector3(0.0, 2.5, 0.0), "BAY")
+
+	# The reversing lane: two white lines, the end box, a cone pair per gate.
+	var reversing := reversing_course()
+	var lane: Dictionary = reversing.lane
+	for side: float in [-1.0, 1.0]:
+		_add_paint(group, lane.centre + Vector3(side * lane.size.x * 0.5, 0.0, 0.0), Vector2(0.15, lane.size.y), COLOR_PAINT_WHITE)
+	_add_box_outline(group, reversing.end_box.centre, reversing.end_box.size, 0.15, COLOR_PAINT_YELLOW)
+	for cone_position in reversing_cone_positions():
+		_add_cone(group, cone_position, COLOR_CONE_ORANGE, GROUP_REVERSING)
+	_add_label(group, lane.centre + Vector3(0.0, 2.5, -lane.size.y * 0.5), "REVERSE")
+
+	# The emergency stop lane: yellow edges, the red cue bar, the hatched zone
+	# (the stop box's idiom) with a cone on either far corner.
+	var stop := emergency_stop()
+	var zone: Dictionary = stop.zone
+	var lane_length: float = EMERGENCY_START_Z + 4.0 - (zone.centre.z - zone.size.y * 0.5 - 2.0)
+	var lane_centre_z: float = (EMERGENCY_START_Z + 4.0 + zone.centre.z - zone.size.y * 0.5 - 2.0) * 0.5
+	for side: float in [-1.0, 1.0]:
+		_add_paint(group, Vector3(side * stop.lane_half_width, 0.0, lane_centre_z), Vector2(0.2, lane_length), COLOR_PAINT_YELLOW)
+	_add_paint(group, Vector3(0.0, 0.0, stop.cue_z), Vector2(stop.lane_half_width * 2.0 + 1.0, 0.6), COLOR_BOARD_RED, 0.03)
+	_add_box_outline(group, zone.centre, zone.size, 0.2, COLOR_PAINT_YELLOW)
+	for i in 8:
+		var z: float = zone.centre.z - zone.size.y * 0.5 + (i + 0.5) * zone.size.y / 8.0
+		_add_paint_at_angle(group, Vector3(zone.centre.x, 0.0, z), Vector2(0.18, zone.size.x * 0.95), _vary(COLOR_PAINT_YELLOW, 0.05), 0.9)
+	for cone_position in emergency_stop_cone_positions():
+		_add_cone(group, cone_position, COLOR_CONE_BLUE, GROUP_EMERGENCY_STOP)
+	for side: float in [-1.0, 1.0]:
+		_add_box(group, Vector3(side * (stop.lane_half_width + 1.0), 1.25, stop.cue_z), Vector3(0.35, 2.5, 0.35), COLOR_BOARD_RED)
+	_add_label(group, Vector3(0.0, 3.3, stop.cue_z), "STOP")
+
+	# The turn in the road: a white bar across the lane at either end of its
+	# stretch of the straight.
+	var stretch := turn_stretch()
+	for side: float in [-1.0, 1.0]:
+		_add_paint(group, Vector3(0.0, 0.0, stretch.centre_z + side * stretch.length * 0.5), Vector2(LANE_HALF_WIDTH * 2.0, 0.4), COLOR_PAINT_WHITE)
 
 
 func _add_cone_circle(parent: Node3D, radius: float, count: int, color: Color, group: StringName) -> void:
