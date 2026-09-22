@@ -1,9 +1,9 @@
 # Tests
 
 `tests/run_tests.sh` is the gate: a headless import, then the config, smoke, handling,
-camera, mission, battery, thermal, tyre/brake thermal, steering-feel, wear and licence
-tests, all on the tick clock (`--fixed-fps 60`), under a minute.
-`tests/run_tests.sh --parallel` runs the eleven tests side by side after the import and
+camera, mission, battery, thermal, tyre/brake thermal, steering-feel, wear, licence and
+menu tests, all on the tick clock (`--fixed-fps 60`), under a minute.
+`tests/run_tests.sh --parallel` runs the twelve tests side by side after the import and
 prints the same lines in the same order. What each test checks is in the main
 `README.md`.
 
@@ -27,6 +27,7 @@ The copy has no `.godot/` yet, so its first import is a full one and prints more
 warm one does; the `== step` markers, the `  ok` lines and the verdicts are the same as
 anywhere else. Several copies can be gated at once: the only things the suite writes
 outside the project are the smoke test's `/tmp/fd-3R-smoke-<pid>/`, the battery
-test's `/tmp/fd-3T-battery-<pid>/`, the wear test's `/tmp/fd-3L-wear-<pid>/` and the
-licence test's `/tmp/fd-3K-licence-<pid>/`, one per process each, removed when the test
-finishes.
+test's `/tmp/fd-3T-battery-<pid>/`, the wear test's `/tmp/fd-3L-wear-<pid>/`, the
+licence test's `/tmp/fd-3K-licence-<pid>/` and the menu test's `/tmp/fd-4A-menu-<pid>/`,
+one per process each, removed when the test finishes. No test opens a window or a
+native dialog: the garage's folder picker is a GUI path the menu test never takes.
