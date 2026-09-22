@@ -2,11 +2,11 @@
 # Headless checks: import the project, check the car configs (seconds: a broken
 # config fails here, not somewhere in the smoke test), run the smoke test,
 # then the handling, camera, mission, battery, thermal, tyre/brake thermal,
-# steering-feel and wear tests. Fails on a non-zero exit code or on any
-# engine/script error in the output.
+# steering-feel, wear and licence tests. Fails on a non-zero exit code or on
+# any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the ten tests side by side
+#   tests/run_tests.sh --parallel   the import first, then the eleven tests side by side
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -125,6 +125,7 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 "$STEP" "tyre/brake thermal test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/tyre_brake_thermal_test.gd
 "$STEP" "steering feel test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/steering_feel_test.gd
 "$STEP" "wear test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/wear_test.gd
+"$STEP" "licence test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/licence_test.gd
 if [ "$PARALLEL" -eq 1 ]; then
 	join_steps
 fi

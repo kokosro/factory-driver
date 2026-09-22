@@ -871,6 +871,14 @@ func _run() -> void:
 		return
 	var main := packed.instantiate()
 	root.add_child(main)
+	# The smoke test's driver holds L0: the clutch key and the aid switches it
+	# tests below go through the licence gate (LicenceManager.allows; the
+	# store is off headless, so a fresh scene is unlicensed and would refuse
+	# them). Granted through the manager's own record, as a sitting would;
+	# the gate itself is tests/licence_test.gd's to check.
+	var licence_at_ready := main.get_node_or_null("LicenceManager") as LicenceManager
+	if licence_at_ready:
+		licence_at_ready.record_pass(LicenceExams.EXAM_L0)
 	var car_at_ready := main.get_node_or_null("Car") as ArcadeCar
 	if car_at_ready:
 		_fuel_at_start = car_at_ready.fuel_l
