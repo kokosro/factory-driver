@@ -46,8 +46,15 @@ extends RefCounted
 ## clutch pedal near a point ("clutch_hold": 0..1, -1 to let go: the key
 ## tapped so the pedal hovers there, the way a foot finds the bite) or hold
 ## the steering wheel near an angle ("steer_deg", left positive, the keys
-## tapped the same way; "steer_free" to let go). The skid pad's driver steers
-## by a radius (hold_radius) instead: see _drive_skid_pad.
+## tapped the same way - "steer_deg": 0.0 is the driver steering back to
+## straight and holding it; "steer_free" to let go: hands off, the caster's).
+## The skid pad's driver steers by a radius (hold_radius) instead: see
+## _drive_skid_pad.
+# was: a driver straightened up by letting the key go, the hands bringing
+# the wheel back by themselves -> the hands let go turn nothing (ArcadeCar
+# CASTER_RETURN_RATE_MAX: the caster brings the wheel back on the move, and
+# slowly at a yard's pace; the user's verdict, 15:24), so the yard's drivers
+# steer back with "steer_deg": 0.0.
 ##
 ## The verdicts are measured, never assumed (the economy cannot lie): the car's
 ## footprint (TestPad.CAR_HALF_SIZE, 1.8 x 4.2 m) against painted lines, real
@@ -488,7 +495,8 @@ static func parallel_park_element() -> Dictionary:
 			{"when": {"after": 0.2}, "press": [&"brake", &"steer_right"]},
 			{"when": {"after": PARALLEL_PREWIND_TIME}, "cruise_reverse": YARD_REVERSE_SPEED},
 			{"when": {"rotation_deg": PARALLEL_SWING_DEG}, "release": [&"steer_right"], "press": [&"steer_left"]},
-			{"when": {"rotation_deg_below": PARALLEL_STRAIGHT_DEG}, "release": [&"steer_left"], "cruise_off": true, "press": [&"accelerate"]},
+			# was "release": [&"steer_left"] -> steered back (the user's verdict, 15:24).
+			{"when": {"rotation_deg_below": PARALLEL_STRAIGHT_DEG}, "steer_deg": 0.0, "cruise_off": true, "press": [&"accelerate"]},
 			{"when": {"stopped": 1.0}, "release": [&"accelerate"]},
 		],
 		"settle": 1.0,
@@ -518,7 +526,8 @@ static func bay_park_element() -> Dictionary:
 		"steps": [
 			{"when": {}, "cruise_forward": YARD_APPROACH_SPEED - 1.0},
 			{"when": {"x_below": BAY_TURN_IN_X}, "press": [&"steer_right"]},
-			{"when": {"rotation_deg_below": -BAY_STRAIGHTEN_DEG}, "release": [&"steer_right"]},
+			# was "release": [&"steer_right"] -> steered back (the user's verdict, 15:24).
+			{"when": {"rotation_deg_below": -BAY_STRAIGHTEN_DEG}, "steer_deg": 0.0},
 			{"when": {"z_below": BAY_STOP_Z}, "cruise_off": true, "press": [&"brake"]},
 			{"when": {"stopped": 1.0}},
 		],
@@ -587,13 +596,15 @@ static func turn_in_road_element() -> Dictionary:
 		"start_heading_deg": 0.0,
 		"steps": [
 			{"when": {}, "press": [&"steer_left"], "cruise_forward": TURN_SPEED},
-			{"when": {"rotation_deg": TURN_FIRST_LEG_DEG}, "cruise_off": true, "release": [&"steer_left"], "press": [&"brake"]},
+			# was "release" of the lock at the end of each leg -> steered back
+			# (the user's verdict, 15:24).
+			{"when": {"rotation_deg": TURN_FIRST_LEG_DEG}, "cruise_off": true, "steer_deg": 0.0, "press": [&"brake"]},
 			{"when": {"stopped": 1.0}, "release": [&"brake"]},
 			{"when": {"after": 0.2}, "press": [&"brake", &"steer_right"], "cruise_reverse": TURN_REVERSE_SPEED},
-			{"when": {"rotation_deg": TURN_SECOND_LEG_DEG}, "cruise_off": true, "release": [&"steer_right"], "press": [&"accelerate"]},
+			{"when": {"rotation_deg": TURN_SECOND_LEG_DEG}, "cruise_off": true, "steer_deg": 0.0, "press": [&"accelerate"]},
 			{"when": {"stopped": 1.0}, "release": [&"accelerate"]},
 			{"when": {"after": 0.2}, "press": [&"accelerate", &"steer_left"], "cruise_forward": TURN_SPEED},
-			{"when": {"rotation_deg": TURN_THIRD_LEG_DEG}, "cruise_off": true, "release": [&"steer_left"], "press": [&"brake"]},
+			{"when": {"rotation_deg": TURN_THIRD_LEG_DEG}, "cruise_off": true, "steer_deg": 0.0, "press": [&"brake"]},
 			{"when": {"stopped": 1.0}},
 		],
 		"settle": 1.0,
@@ -923,20 +934,38 @@ func _drive_skid_pad(delta: float) -> void:
 	_steer_target_deg = clampf(geometric_deg + SKID_PAD_STEER_GAIN * (radius - wanted) + SKID_PAD_STEER_DAMPING * rate, 0.0, ArcadeCar.STEERING_WHEEL_LOCK_DEG)
 
 
-## Taps the steering keys so the wheel hovers at _steer_target_deg: the left
-## key while the wheel is short of a positive target (it returns to centre on
-## its own when let go), the right key for a negative one.
+## Taps the steering keys so the wheel hovers at _steer_target_deg, within a
+## tick of the driver's hands of it (21.7 degrees for the test driver's,
+## 1.3 at the front wheels), where a held key would overshoot by more than
+## the wheel is off: at centre, the key towards it while the wheel is more
+## than a tick off either way; at an angle, the key towards it while the
+## wheel is short of it and the key back once it is more than a tick past
+## it. On the move the caster closes the rest towards centre, at a
+## standstill or in reverse the wheel stays where the hands leave it.
+# was one-sided: the left key while the wheel was short of a positive
+# target, no key while it was past it, "it returns to centre on its own
+# when let go" -> it does not at a standstill or in reverse, and on the move
+# at the caster's rate, not the hands' (ArcadeCar CASTER_RETURN_RATE_MAX;
+# the user's verdict, 15:24): the driver steers back too.
 func _hold_steering() -> void:
-	var wheel := car.steering_wheel_deg
-	if _steer_target_deg > 0.0:
-		_set_action(&"steer_right", false)
-		_set_action(&"steer_left", wheel < _steer_target_deg)
-	elif _steer_target_deg < 0.0:
-		_set_action(&"steer_left", false)
-		_set_action(&"steer_right", wheel > _steer_target_deg)
-	else:
-		_set_action(&"steer_left", false)
-		_set_action(&"steer_right", false)
+	var band: float = car.driver_profile.steering_hand_speed / Engine.physics_ticks_per_second
+	var side := signf(_steer_target_deg)
+	if side == 0.0:
+		# Centre: the key towards it while the wheel is more than a tick off
+		# it either way, none within - on the move the caster closes the rest.
+		_set_action(&"steer_left", car.steering_wheel_deg < -band)
+		_set_action(&"steer_right", car.steering_wheel_deg > band)
+		return
+	# An angle: the key towards it while the wheel is short of it (the caster
+	# pulls the wheel back from it all the while), the key back only once the
+	# wheel is more than a tick past it, none between - the caster eases it
+	# back down to the angle on its own.
+	var along := side * car.steering_wheel_deg
+	var wanted := side * _steer_target_deg
+	var outward: StringName = &"steer_left" if side > 0.0 else &"steer_right"
+	var inward: StringName = &"steer_right" if side > 0.0 else &"steer_left"
+	_set_action(outward, along < wanted)
+	_set_action(inward, along > wanted + band)
 
 
 func _conditions_met(when: Dictionary) -> bool:
