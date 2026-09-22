@@ -354,25 +354,38 @@ spring, it does not crumple for good), pole-vaults on to its rear wheels and rol
 taken across the flank at 50 degrees it comes down on the wheels of one side rolled past
 its tipping angle (atan(`HALF_TRACK` / `CG_HEIGHT`) = 60.8 degrees), goes over to 110
 degrees, comes back on to its side and stays there, its weight on the shell, no wheel on
-the road, nothing driving. Which it is - on the wheels, on its side, on the roof - is the
-numbers' call, not a rule's, and deterministic: the flank jump twice from the same state
-is the same run to the bit. A wheel's stop is counted to `GROUND_CLEARANCE` deep (5 cm
-into the rubber, where the shell's underside is on the road) and no further: no wheel
-carries more than ~35 kN plus its damper, whatever the tumble. (At c5ee9c3 it was 266 kN
-on one wheel, a rear seat 1.2 m under a body pitched 1.2 rad by the small-angle formula:
-the catapult that flung the car into a tumbling second and third flight over four wheels
-hanging straight down and let the springs pull it flat - the cat.) The one place the
-shell shows on the reference jump is the ramp's knee at 87 km/h: the front lip, with the
-fronts 9 cm into their stops, kisses the 8 % rise for two ticks (3.5 kN). The collision
-box and the level ground plane under the car's centre stay what they were, the backstop
-for a level body 5 cm into all four stops; the airborne test holds that neither ever
-touches on any of its landings. Leaned past 60 degrees a tyre is on its sidewall and
-carries nothing (faded out from 50), the car is `is_overturned` and drives nowhere - so
-honest landings can leave you on your roof or your side, and `F` (`flip_car`) rights an
-overturned car that has come to rest (under 3 m/s) where it lies, heading kept, on its
-wheels at ride height, at rest, and changes nothing else: not the fuel, not the wear, not
-the heat, not the gear, not the odometer. Upright, in the air or still sliding it is
-refused; `R` remains the reset it always was.
+the road, nothing driving. Overturned, the shell's friction is the kinetic friction of a
+car on the road, `ROLL_FRICTION_COEFF` (0.45) times its weight at the most - not
+`SHELL_FRICTION` times what a corner dug 0.4 m into the road carries for a tick - so a
+tumble keeps its momentum: handbraked at 30 m/s along the hill's lateral with the wheel
+hard right (the user's roll, session 82) the car goes over at 18 m/s, no tick takes more
+than 0.45 g off its centre of mass, it scrapes 17 m through the roll and comes down on
+its wheels 43 m on. (Before, the same run took 7 g off the centre of mass in one tick and
+the car went on turning about the stopped contact - "like the car hit a wall and was
+rolling against that wall".) Which it is - on the wheels, on its side, on the roof - is
+the numbers' call, not a rule's, and deterministic: the flank jump twice from the same
+state is the same run to the bit, and so is the handbrake roll. A wheel's stop is
+counted to `GROUND_CLEARANCE` deep (5 cm into the rubber, where the shell's underside is
+on the road) and no further: no wheel carries more than ~35 kN plus its damper, whatever
+the tumble. (At c5ee9c3 it was 266 kN on one wheel, a rear seat 1.2 m under a body
+pitched 1.2 rad by the small-angle formula: the catapult that flung the car into a
+tumbling second and third flight over four wheels hanging straight down and let the
+springs pull it flat - the cat.) The one place the shell shows on the reference jump is
+the ramp's knee at 87 km/h: the front lip, with the fronts 9 cm into their stops, kisses
+the 8 % rise for two ticks (3.5 kN). The collision box and the level ground plane under
+the car's centre stay what they were, the backstop for a level body 5 cm into all four
+stops; the airborne test holds that neither ever touches on any of its landings. Leaned
+past 60 degrees a tyre is on its sidewall and carries nothing (faded out from 50), the
+car is `is_overturned` and drives nowhere - so honest landings can leave you on your
+roof or your side, and `F` (`flip_car`) rights an overturned car that has come to rest
+(under 3 m/s) where it lies, heading kept, on its wheels at ride height, at rest, and
+changes nothing else: not the fuel, not the wear, not the heat, not the gear, not the
+odometer. Upright, in the air or still sliding it is refused; `R` remains the reset it
+always was. Both draw the car they leave: the four wheels on the road at their own
+corners, the body on its centre line, the scene's layout to the bit (the level picture
+writes the whole transform now; it wrote the heights alone and left the rest where the
+carried picture had put it - righted off its side the car had "no tires anymore
+(visually), only tire marks", off its roof "the wheels are reversed").
 
 The wheels are drawn turning at their axle's real speed, a tick's step at a time, folded
 into a quarter turn either way (`WHEEL_DRAW_PERIOD`: the one bar across the rim looks the
