@@ -666,6 +666,17 @@ func _start() -> void:
 	var spawn := car.get_spawn_transform()
 	var offset: Vector3 = test.get("start_offset", Vector3.ZERO)
 	var heading := deg_to_rad(test.get("start_heading_deg", 0.0))
+	# The certified fresh car's tank: full, its mass with it - the certified
+	# runs are the debug car, deliberately full. A reset keeps the fuel (the
+	# user's report, 2026-09-22 12:55: resetting is not refuelling, fuel comes
+	# from a gas station or a canister, tests must not affect the game); the
+	# test start hands out the fresh car's full tank here, before any physics
+	# frame - and before the reset, which stands the car on its springs by its
+	# mass (_settle_suspension reads total_mass()) and keeps the tank it finds:
+	# exactly what reset_to set until then, so every certified run's physics
+	# is the bit it was. The game's reset never refuels.
+	car.fuel_l = ArcadeCar.FUEL_TANK_CAPACITY_L
+	car.fuel_mass = car.fuel_l * ArcadeCar.FUEL_DENSITY
 	car.reset_to(Transform3D(spawn.basis.rotated(Vector3.UP, heading), spawn.origin + offset))
 	# The certified fresh car's temperatures: the coolant at operating with the
 	# fan off, the tyres at operating, the brakes at the air's, the tick's heat
@@ -687,8 +698,8 @@ func _start() -> void:
 	car._front_brake_heat_w = 0.0
 	car._rear_brake_heat_w = 0.0
 	# And the certified fresh car's components: new, nothing worn, the clutch's
-	# slip tracker at 0 - a reset keeps the wear (R refuels, it does not
-	# un-wear: the user's wear-and-aging thought, 2026-09-22 07:55), a test
+	# slip tracker at 0 - a reset keeps the wear (R does not un-wear: the
+	# user's wear-and-aging thought, 2026-09-22 07:55), a test
 	# starting hands out the new car, before any physics frame.
 	car.clutch_wear = 0.0
 	car.front_brake_wear = 0.0

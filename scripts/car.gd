@@ -372,12 +372,14 @@ static var IDLE_CONTROL_MAX_THROTTLE := 0.3
 # 1 warm). The fuel
 # in the tank is mass the car carries (fuel_mass, in total_mass()). With the
 # tank dry nothing burns: the engine runs down on its friction, stops running
-# under STALL_RPM and stays down until there is fuel again (a reset fills the
-# tank and starts the engine; fuel put in any other way takes the starter).
+# under STALL_RPM and stays down until there is fuel again (a reset keeps the
+# tank - R does not refuel, the user's report, 2026-09-22 12:55; fuel put in
+# takes the starter).
 # was "stays down (there is no starter) until a reset fills the tank" -> the
 # starter, see CRANKING_TORQUE.
 
-## What the tank holds [L]: the 1997 Boxster 986's tank. A reset fills it.
+## What the tank holds [L]: the 1997 Boxster 986's tank. A new car's tank, and
+## the certified test car's (HandlingTests._start); a reset keeps the level.
 # was a const -> read from the car's config (fuel.tank_capacity_l, required);
 # the certified value stays here as the fallback default.
 static var FUEL_TANK_CAPACITY_L := 64.0
@@ -1009,7 +1011,7 @@ static var BRAKE_MAX_TEMP := (BRAKE_MAX_C - COOLANT_AMBIENT_C) / BRAKE_SPAN_K
 #                 film thinned: neglect).
 # Wear is for good: the accumulators start at 0, only ever grow, and nothing
 # in the car puts them back (restoration is the garage's, a later iteration;
-# reset_to leaves them alone - R refuels, it does not un-wear). Kept from one
+# reset_to leaves them alone - R does not un-wear). Kept from one
 # session to the next where the odometer is (_load_stored_wear).
 # What wear does to the car - each a multiplier on something that exists:
 #   the clutch's capacity (CLUTCH_TORQUE_MAX x engagement), so a worn clutch
@@ -2694,9 +2696,10 @@ var limiter_cutting := false
 
 ## Fuel left in the tank [L], 0 .. FUEL_TANK_CAPACITY_L (kept inside that, NaN
 ## is an empty tank). Burnt by the engine every tick (_run_engine_outputs),
-## filled by reset_to. Kept from one session to the next where the odometer is
-## (_load_stored_fuel): the car starts with what it was left with, the full
-## tank below is a new car's - and every car's in the headless test suite.
+## kept through a reset (reset_to: R is a reset, not a refuel). Kept from one
+## session to the next where the odometer is (_load_stored_fuel): the car
+## starts with what it was left with, the full tank below is a new car's - and
+## every car's in the headless test suite, where a test's start hands it out.
 var fuel_l := FUEL_TANK_CAPACITY_L:
 	set(value):
 		fuel_l = 0.0 if is_nan(value) else clampf(value, 0.0, FUEL_TANK_CAPACITY_L)
@@ -2777,7 +2780,7 @@ var rear_brake_temp := 0.0:
 ## axle's tyres, the engine (see Wear and aging). Grown every tick by
 ## _advance_wear from the tick's own slip energy, brake work, tyre heat and
 ## loaded revolutions; never shrunk by anything in the car - a reset
-## (reset_to) leaves them where they were, R refuels, it does not un-wear. 0
+## (reset_to) leaves them where they were, R does not un-wear. 0
 ## out of _ready (then what the store holds, _load_stored_wear) and out of a
 ## handling test's start (HandlingTests._start), the new car every certified
 ## run drives. What the multipliers read (clutch_wear_factor and the rest).
@@ -3069,7 +3072,7 @@ func _ready() -> void:
 	_read_config()
 	# was asked further down, for the odometer alone -> before the car is stood
 	# on its springs: the fuel it starts with is weight (_settle_suspension
-	# reads total_mass()). Once, here; never in reset_to, which fills the tank.
+	# reads total_mass()). Once, here; never in reset_to, which keeps the tank.
 	_odometer_kept = OdometerStore.enabled()
 	if _odometer_kept:
 		_load_stored_fuel()
@@ -3100,8 +3103,9 @@ func _exit_tree() -> void:
 ## litres inside the tank and no more, fuel_mass [kg] is a number of its own
 ## until the next tick. A car the file does not know starts on the full tank
 ## the config gave it; a level in there that is none of this tank's is an error
-## and a full tank. Nothing refuels a car but reset_to: one left at 8 % starts
-## at 8 %.
+## and a full tank. Nothing in the game refuels a car (reset_to keeps the
+## tank; a gas station or a canister will, world content to come): one left
+## at 8 % starts at 8 %.
 func _load_stored_fuel(path := OdometerStore.PATH) -> void:
 	var stored := OdometerStore.load_fuel(CAR_ID, FUEL_TANK_CAPACITY_L, path)
 	if stored.problem != "":
@@ -3837,7 +3841,7 @@ func _count_odometer(delta: float) -> void:
 
 
 ## Puts the car back where the scene placed it, at rest, in 1st, automatic, the
-## engine running, the tank full and nothing loaded.
+## engine running, the tank as it was and nothing loaded (see reset_to).
 func reset_to_spawn() -> void:
 	reset_to(_spawn_transform)
 
@@ -3856,15 +3860,17 @@ func get_spawn_transform() -> Transform3D:
 
 
 ## Puts the car at `target`, at rest, in 1st, automatic, the engine running
-## (a stalled one is started: the car is put there ready to drive), the tank
-## full, the battery full and healthy (the test pad never strands anyone: a
-## reset is a fresh car, its battery new) and nothing loaded (payload_mass is
-## for whoever resets the car to load again afterwards). The switches stay as
-## the driver has them: tcs_on, abs_on, sc_on, gearbox_mode - and so does the
-## view being looked through, camera_view. Of what the store keeps, the gearbox
-## is put back (automatic), the tank and the battery are filled; nothing a
-## reset does reaches the file, which goes on writing these as they then
-## stand. The height of `target` counts from the road: the car is stood on its springs on the road
+## (a stalled one is started: the car is put there ready to drive - with fuel
+## it runs on, on a dry tank it stalls again and the starter can crank it), the
+## battery full and healthy (the test pad never strands anyone: a reset is a
+## new battery) and nothing loaded (payload_mass is for whoever resets the car
+## to load again afterwards). The switches stay as the driver has them: tcs_on,
+## abs_on, sc_on, gearbox_mode - and so does the view being looked through,
+## camera_view. Of what the store keeps, the gearbox is put back (automatic)
+## and the battery is filled; the tank is not: fuel_l and fuel_mass stay where
+## they were, a reset is a reset, not a refuel. Nothing a reset does reaches
+## the file, which goes on writing these as they then stand. The height of
+## `target` counts from the road: the car is stood on its springs on the road
 ## there (_settle_suspension), 0 = at its ride height.
 ## The odometer keeps its metres, and the jump to `target` is not among them.
 ## The temperatures are not part of it: the coolant, the tyres and the brakes
@@ -3872,9 +3878,10 @@ func get_spawn_transform() -> Transform3D:
 ## front_brake_temp, rear_brake_temp, the fan's state with them) and cool or
 ## warm from the next tick as they would have - the car cools as it cools; R
 ## does not turn back time on temperature. Nor is the wear: the six shares
-## (clutch_wear and the rest) stay - R refuels, it does not un-wear. A
-## handling test's start sets the certified fresh state itself
-## (HandlingTests._start).
+## (clutch_wear and the rest) stay - R does not un-wear. Nor is the fuel: the
+## tank stays as it was - R does not refuel; fuel comes from a gas station or
+## a canister. A handling test's start sets the certified fresh state itself
+## (HandlingTests._start): the heat, the wear and the full tank.
 func reset_to(target: Transform3D) -> void:
 	global_transform = target
 	_odometer_from = target.origin
@@ -3911,15 +3918,29 @@ func reset_to(target: Transform3D) -> void:
 	_creeping = false
 	_creep_armed = false
 	_creep_rest_time = 0.0
-	fuel_l = FUEL_TANK_CAPACITY_L
-	fuel_mass = fuel_l * FUEL_DENSITY
+	# was fuel_l = FUEL_TANK_CAPACITY_L, fuel_mass = fuel_l * FUEL_DENSITY ->
+	# nothing: the reset keeps the fuel where it was, fuel_l and fuel_mass both
+	# (the user's report, 2026-09-22 12:55: "resetting the car MUST NOT refuel.
+	# I'm resetting not refueling. Refuel happens at specific points where the
+	# gas stations are, or if I have some canisters of fuel with me ... tests
+	# must not affect the game"). A reset is a reset; refuelling happens at a
+	# gas station or from a canister, both world content to come (4C). The
+	# refill here was the headless suite's convenience: the certified test car
+	# gets its full tank from HandlingTests._start, as it gets its fresh heat
+	# and its new components - handed before this reset, which stands the car
+	# on its springs by its mass (_settle_suspension reads total_mass()) and
+	# keeps the tank it finds; tests hand out their own state, the game's
+	# reset never does. A car reset on a dry tank is put here ready to drive
+	# like any other (engine_running = true below): with nothing to burn it
+	# runs down and stalls the tick after, and the starter cranks it without
+	# a catch (_advance_engine: a catch takes fuel_l > 0) - honest, unchanged.
 	battery_wear = 0.0
 	battery_charge = 1.0
 	_battery_deep = false
 	# The wear is not part of it either: clutch_wear, front/rear_brake_wear,
 	# front/rear_tyre_wear and engine_wear stay where they were (the user's
 	# wear-and-aging thought, 2026-09-22 07:55: wear is for good, the economy
-	# cannot lie - R refuels, it does not un-wear; the garage will). The
+	# cannot lie - R does not un-wear; the garage will). The
 	# certified path gets its new components from HandlingTests._start, as it
 	# gets its fresh heat. (That the battery's wear IS put back here is the
 	# older rule, "a reset is a new battery", left as it is.)
