@@ -2702,6 +2702,58 @@ func _check_car_config() -> void:
 	nan_anchor.engine.torque_curve[2][1] = NAN
 	errors = CarConfigValidation.validate(nan_anchor, "broken")
 	_check(errors.size() == 1 and errors[0].begins_with("broken: engine.torque_curve[2]"), "config: a torque anchor that is not a number is refused ('%s')" % "; ".join(errors))
+	# The mass ledger (3W): the car's kerb mass and static split as the sum of
+	# its parts, to the bit, and the corner masses the suspension is set up
+	# for drawn from that sum. The sums here are the test's own, the plain
+	# loop over the file's rows, checked against what the car derived.
+	var axle_distance: float = config.mass.axle_distance
+	var ledger_total := 0.0
+	var ledger_moment := 0.0
+	var ledger_unsprung := 0.0
+	for row: Dictionary in config.mass_ledger:
+		ledger_total += row.mass_kg
+		ledger_moment += row.mass_kg * (axle_distance + row.x_position_m)
+		if not row.sprung:
+			ledger_unsprung += row.mass_kg
+	var ledger_fraction := ledger_moment / (2.0 * axle_distance * ledger_total)
+	_check(ledger_total == ArcadeCar.KERB_MASS and ArcadeCar.LEDGER_KERB_MASS == ArcadeCar.KERB_MASS, "config: the mass ledger's %d rows sum to KERB_MASS to the bit (%s kg, car.gd derived %s)" % [config.mass_ledger.size(), ledger_total, ArcadeCar.LEDGER_KERB_MASS])
+	_check(ledger_fraction == ArcadeCar.REAR_WEIGHT_FRACTION and ArcadeCar.LEDGER_REAR_FRACTION == ArcadeCar.REAR_WEIGHT_FRACTION, "config: where the ledger's rows sit puts REAR_WEIGHT_FRACTION on the rear axle to the bit (%s, car.gd derived %s)" % [ledger_fraction, ArcadeCar.LEDGER_REAR_FRACTION])
+	_check(ArcadeCar.UNSPRUNG_MASS == ledger_unsprung and ledger_unsprung > 0.0 and ledger_unsprung < ArcadeCar.KERB_MASS, "config: UNSPRUNG_MASS is the ledger's unsprung rows, some of the car and not all of it (%s of %s kg)" % [ArcadeCar.UNSPRUNG_MASS, ArcadeCar.KERB_MASS])
+	_check(ArcadeCar.FRONT_CORNER_MASS == ArcadeCar.LEDGER_KERB_MASS * (1.0 - ArcadeCar.LEDGER_REAR_FRACTION) * 0.5 and ArcadeCar.REAR_CORNER_MASS == ArcadeCar.LEDGER_KERB_MASS * ArcadeCar.LEDGER_REAR_FRACTION * 0.5, "config: the corner masses are the ledger's total and split, halved per axle (%s / %s kg)" % [ArcadeCar.FRONT_CORNER_MASS, ArcadeCar.REAR_CORNER_MASS])
+	_check(ArcadeCar.FRONT_CORNER_MASS == ArcadeCar.KERB_MASS * (1.0 - ArcadeCar.REAR_WEIGHT_FRACTION) * 0.5 and ArcadeCar.REAR_CORNER_MASS == ArcadeCar.KERB_MASS * ArcadeCar.REAR_WEIGHT_FRACTION * 0.5, "config: and to the bit what 3B's kerb x split made of them, the suspension unchanged (%s / %s kg)" % [ArcadeCar.FRONT_CORNER_MASS, ArcadeCar.REAR_CORNER_MASS])
+	var row_gone: Dictionary = config.duplicate(true)
+	row_gone.mass_ledger.remove_at(0)
+	errors = CarConfigValidation.validate(row_gone, "broken")
+	_check(errors.size() == 2 and errors[0].begins_with("broken: mass_ledger sums to ") and errors[0].ends_with(", mass.kerb_mass is %s" % var_to_str(config.mass.kerb_mass)) and errors[1].begins_with("broken: mass_ledger puts "), "config: a ledger row removed is refused by the sum and the split, both numbers named ('%s')" % "; ".join(errors))
+	var no_mass_row: Dictionary = config.duplicate(true)
+	no_mass_row.mass_ledger[2].mass_kg = 0.0
+	errors = CarConfigValidation.validate(no_mass_row, "broken")
+	_check(errors.size() == 1 and errors[0].begins_with("broken: mass_ledger[2].mass_kg is 0"), "config: a ledger row of no mass is refused by name ('%s')" % "; ".join(errors))
+	var off_wheelbase: Dictionary = config.duplicate(true)
+	off_wheelbase.mass_ledger[3].x_position_m = -config.mass.axle_distance - 0.1
+	errors = CarConfigValidation.validate(off_wheelbase, "broken")
+	_check(errors.size() == 1 and errors[0].begins_with("broken: mass_ledger[3].x_position_m is "), "config: a ledger row off the wheelbase is refused by name ('%s')" % "; ".join(errors))
+	var sprung_string: Dictionary = config.duplicate(true)
+	sprung_string.mass_ledger[4].sprung = "yes"
+	errors = CarConfigValidation.validate(sprung_string, "broken")
+	_check(errors.size() == 1 and errors[0].begins_with("broken: mass_ledger[4].sprung is yes"), "config: a ledger row's sprung that is not true or false is refused by name ('%s')" % "; ".join(errors))
+	var other_kerb: Dictionary = config.duplicate(true)
+	other_kerb.mass.kerb_mass = config.mass.kerb_mass + 1.0
+	errors = CarConfigValidation.validate(other_kerb, "broken")
+	_check(errors.size() == 1 and errors[0] == "broken: mass_ledger sums to %s kg, mass.kerb_mass is %s" % [var_to_str(config.mass.kerb_mass), var_to_str(config.mass.kerb_mass + 1.0)], "config: a kerb mass the ledger does not add up to is refused, both numbers named ('%s')" % "; ".join(errors))
+	var moved_row: Dictionary = config.duplicate(true)
+	moved_row.mass_ledger[0].x_position_m = config.mass_ledger[0].x_position_m - 0.1
+	errors = CarConfigValidation.validate(moved_row, "broken")
+	_check(errors.size() == 1 and errors[0].begins_with("broken: mass_ledger puts ") and errors[0].ends_with(", mass.rear_weight_fraction is %s" % var_to_str(config.mass.rear_weight_fraction)), "config: a ledger row moved off its calibrated place is refused by the split, both numbers named ('%s')" % "; ".join(errors))
+	var all_sprung: Dictionary = config.duplicate(true)
+	for row: Dictionary in all_sprung.mass_ledger:
+		row.sprung = true
+	errors = CarConfigValidation.validate(all_sprung, "broken")
+	_check(errors.size() == 1 and errors[0].begins_with("broken: mass_ledger's unsprung rows weigh 0"), "config: a ledger with nothing unsprung is refused ('%s')" % "; ".join(errors))
+	var no_ledger: Dictionary = config.duplicate(true)
+	no_ledger.erase("mass_ledger")
+	errors = CarConfigValidation.validate(no_ledger, "broken")
+	_check(errors.size() == 1 and errors[0] == "broken: section mass_ledger is missing or has no component row", "config: a config without a mass ledger is refused: the ledger is required ('%s')" % "; ".join(errors))
 
 
 ## The one mass of the car: fuel and payload are in it.
