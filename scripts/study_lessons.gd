@@ -54,7 +54,11 @@ const LESSON_ACTIONS: Array[StringName] = [
 const TAP_TIME := 0.1
 
 ## Steering lesson: how long each way is held and how long the wheel is
-## left to come back [s], at a walk [m/s].
+## left to come back [s], at a walk [m/s]. Measured at the walk (the cruise
+## holds it): let go at full lock, the caster has the wheel at 15 degrees
+## after the 1.5 s and at centre in 2.1 s (ArcadeCar CASTER_RETURN_RATE_MAX
+## at 0.58 of its rate at 5 m/s); the stop comes with 7 degrees still on
+## the wheel, which stay there standing.
 const STEERING_HOLD_TIME := 2.5
 const STEERING_RETURN_TIME := 1.5
 const STEERING_WALK_SPEED := 5.0
@@ -117,7 +121,9 @@ static func catalogue() -> Array[Dictionary]:
 		# --- BASICS ------------------------------------------------------------
 		{
 			"id": "steering", "group": "BASICS", "title": "STEERING",
-			"objective": "The 900-degree wheel: a held key winds it on at hand speed, let go it comes back to centre; the nose follows the front tyres.",
+			# was "... let go it comes back to centre" -> the caster's, on the
+			# move (the user's verdict, 15:24).
+			"objective": "The 900-degree wheel: a held key winds it on at hand speed; let go on the move, the caster brings it back to centre - standing still it stays put. The nose follows the front tyres.",
 			"source": SOURCE_STUDY, "pilot": "STEERING",
 		},
 		{
@@ -405,16 +411,23 @@ static func _lesson(name: String, title: String, steps: Array[Dictionary], time_
 	return pilot
 
 
-## Steering: at a walk, full left lock held, let go, full right lock held,
-## let go, and a stop.
+## Steering: at a walk, full left lock held, let go (the caster brings it
+## back), full right lock held, let go, and a stop (what is left on the
+## wheel stays there).
+# was "Let go: the hands bring the wheel back to centre the same way" ->
+# the hands let go bring nothing back: the caster does, on the move, at
+# its own rate for the speed, and standing still nothing does (the user's
+# verdict, 15:24: "while standing still in a real car the wheel doesn't
+# center by itself, it only happens when the car moves"). The steps are the
+# same six, the keys let go as before: the lesson is what letting go does.
 static func steering_pilot() -> Dictionary:
 	return _lesson("STEERING", "STEERING", [
-		{"when": {}, "cruise_forward": STEERING_WALK_SPEED, "say": "A walk down the straight. Nothing turns the wheels but the driver's hands on the 900-degree wheel."},
+		{"when": {}, "cruise_forward": STEERING_WALK_SPEED, "say": "A walk down the straight. Nothing turns the wheels but the driver's hands on the 900-degree wheel - and, rolling, the caster."},
 		{"when": {"after": STEERING_RETURN_TIME}, "press": [&"steer_left"], "say": "Left key held: the hands wind the wheel on at 1300 degrees a second, centre to full lock in 0.35 s. The nose follows the front tyres."},
-		{"when": {"after": STEERING_HOLD_TIME}, "release": [&"steer_left"], "say": "Let go: the hands bring the wheel back to centre the same way. The car straightens as the tyres do."},
+		{"when": {"after": STEERING_HOLD_TIME}, "release": [&"steer_left"], "say": "Let go: hands off. The rolling front tyres pull the wheel straight - the caster - slowly at a walk, quicker with speed, never standing still."},
 		{"when": {"after": STEERING_RETURN_TIME}, "press": [&"steer_right"], "say": "Right key held: full lock the other way. A held key at speed winds on more lock than the tyres can use; short presses ask for less."},
-		{"when": {"after": STEERING_HOLD_TIME}, "release": [&"steer_right"], "say": "Let go again: back to centre."},
-		{"when": {"after": STEERING_RETURN_TIME}, "cruise_off": true, "press": [&"brake"], "say": "And a stop."},
+		{"when": {"after": STEERING_HOLD_TIME}, "release": [&"steer_right"], "say": "Let go again: the caster brings it back. To straighten up quickly, steer back yourself - the hands are faster."},
+		{"when": {"after": STEERING_RETURN_TIME}, "cruise_off": true, "press": [&"brake"], "say": "And a stop. What is still on the wheel stays there: standing still, nothing centres it."},
 		{"when": {"stopped": 1.0}},
 	], 30.0)
 
@@ -524,14 +537,17 @@ static func sc_pilot() -> Dictionary:
 	return _lesson("SC_ON_OFF", "SC ON / OFF", [
 		{"when": {}, "cruise_forward": SC_FLICK_SPEED, "say": "SC ON: up to 60 km/h."},
 		{"when": {"speed_above": SC_FLICK_SPEED - 0.5}, "cruise_off": true, "press": [&"steer_left", &"handbrake"], "say": "A flick: full left lock and the handbrake for half a second."},
-		{"when": {"after": SC_FLICK_TIME}, "release": [&"steer_left", &"handbrake"], "say": "Let go: with SC the slide is damped - the car swings 79 degrees, straightens itself and rolls on nose-first."},
+		# was 79 degrees -> 76: the hands let go leave the wheel to the caster
+		# (1.5 s back to centre as the car rolls on; the user's verdict, 15:24).
+		{"when": {"after": SC_FLICK_TIME}, "release": [&"steer_left", &"handbrake"], "say": "Let go: with SC the slide is damped - the car swings 76 degrees, straightens itself and rolls on nose-first, the caster centring the wheel."},
 		{"when": {"after": 3.0}, "press": [&"brake"]},
 		{"when": {"stopped": 1.0}, "release": [&"brake"]},
 		{"when": {"after": 0.3}, "press": [&"sc_toggle"], "say": "K: SC OFF (the lamp lights)."},
 		{"when": {"after": TAP_TIME}, "release": [&"sc_toggle"]},
 		{"when": {"after": 0.5}, "cruise_forward": SC_FLICK_SPEED, "say": "SC OFF: up to 60 km/h again."},
 		{"when": {"speed_above": SC_FLICK_SPEED - 0.5}, "cruise_off": true, "press": [&"steer_left", &"handbrake"], "say": "The same flick."},
-		{"when": {"after": SC_FLICK_TIME}, "release": [&"steer_left", &"handbrake"], "say": "Let go: nothing damps the slide now. It hangs on for as long as the tyres let it - the car swings 153 degrees and ends up rolling backwards. The spin is yours to catch."},
+		# was 153 degrees -> 152 (the caster; the user's verdict, 15:24).
+		{"when": {"after": SC_FLICK_TIME}, "release": [&"steer_left", &"handbrake"], "say": "Let go: nothing damps the slide now. It hangs on for as long as the tyres let it - the car swings 152 degrees and ends up rolling backwards. The spin is yours to catch."},
 		{"when": {"after": 3.0}, "press": [&"brake"]},
 		{"when": {"stopped": 1.0}, "release": [&"brake"]},
 		{"when": {"after": 0.3}, "press": [&"sc_toggle"], "say": "K: SC back on."},
@@ -543,6 +559,8 @@ static func sc_pilot() -> Dictionary:
 static func donuts_pilot() -> Dictionary:
 	return _lesson("DONUTS", "DONUTS", [
 		{"when": {}, "press": [&"accelerate", &"steer_left"], "say": "TCS and SC off, full left lock, full throttle from rest: the rears spin up, the tail comes round, and the car circles its own nose."},
-		{"when": {"after": DONUT_SPIN_TIME}, "release": [&"accelerate", &"steer_left"], "press": [&"brake"], "say": "Throttle off, lock off, brake: it costs the rears their rubber (see HOW TYRES WEAR)."},
+		# was "lock off" -> hands off: the caster takes the lock off as the car
+		# rolls (the user's verdict, 15:24).
+		{"when": {"after": DONUT_SPIN_TIME}, "release": [&"accelerate", &"steer_left"], "press": [&"brake"], "say": "Throttle off, hands off, brake: the caster straightens the wheel as the car rolls. It costs the rears their rubber (see HOW TYRES WEAR)."},
 		{"when": {"stopped": 1.0}},
 	], 30.0)
