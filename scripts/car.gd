@@ -978,37 +978,65 @@ static var BRAKE_MAX_TEMP := (BRAKE_MAX_C - COOLANT_AMBIENT_C) / BRAKE_SPAN_K
 
 # --- Wear and aging ------------------------------------------------------------
 
-# The car's components age with usage AND with neglect (the user's
-# wear-and-aging thought, 2026-09-22 07:55: the sim already emits every
-# quantity wear needs, wear is bookkeeping over existing physics outputs, the
-# odometer is the per-car usage ledger; damage is instant, wear is gradual;
-# the economy cannot lie). Nothing here is new physics: every tick
-# (_advance_wear, at the end of step 5, after the tyres' and the brakes' heat)
-# a share of each component's life, 0 (new) .. WEAR_LIMIT, grows from a
-# quantity the tick has already worked out:
-#   clutch_wear   from the slip energy [J]: |clutch torque| x |slip| x dt,
-#                 the slip the engine-vs-gearbox speed difference the clutch
-#                 section of _advance_drivetrain feathers (_clutch_slip_w) -
-#                 a launch, an upshift; none while it is locked;
-#   front/rear_brake_wear  from each axle's brake work [J]: the brake torque's
-#                 work the discs were given (_front/_rear_brake_heat_w x dt);
-#                 BRAKE_WEAR_ABUSE times as fast while the disc is over the
-#                 fade line (a pad that far over glazes and sheds);
-#   front/rear_tyre_wear  from each axle's tyre heat [J]: the rolling and the
-#                 slip work the tyres were given (_front/_rear_tyre_heat_w x
-#                 dt: every metre rolled wears a little, a slide a lot);
-#                 TYRE_WEAR_ABUSE times as fast while the tyre is over its
-#                 window (greasy rubber tears);
-#   engine_wear   from the revolutions under load [rad]: engine_omega x dt
-#                 weighted by the load on the crank as a share of the curve's
-#                 peak (clutch_torque / ENGINE_PEAK_TORQUE: 0 idling in
-#                 neutral, 0 with the clutch turning the engine, 1 flat out
-#                 at the peak; under hard braking in gear the flywheel
-#                 unloading into the driveline is a load, and counts, a
-#                 small one); over
-#                 OVERHEAT_FADE_START_C every revolution counts in full,
-#                 loaded or not, and ENGINE_WEAR_ABUSE times over (the oil
-#                 film thinned: neglect).
+# The car's components age with the kilometres driven and with how they were
+# driven (the user's 15:24 verdict, 2026-09-22: "in a real car i get more hill
+# starts, 15 clutch launches / 46 hard stops is a very fragile car ... how
+# many kilometers would the engine run on average, how much that type of
+# tire, that type of clutch, that type of brakes actually take. I think the
+# measurement is more in kilometers driven and how they were driven rather
+# than how many times i can start the car from a hill"; "we're not looking
+# for drama, we are looking for real physics simulation"; the wear-and-aging
+# thought of 07:55 stands: the sim already emits every quantity wear needs,
+# wear is bookkeeping over existing physics outputs, the odometer is the
+# per-car usage ledger). Nothing here is new physics: every tick
+# (_advance_wear, after the odometer has counted the
+# tick's way) a share of each component's life, 0 (new) .. WEAR_LIMIT, grows
+# by the tick's WEAR-EQUIVALENT METRES over the component's RATED LIFE - the
+# kilometres of street driving that use up the whole of it, from the
+# calibration table (each *_LIFE_KM below cites its source or its estimate):
+#   wear-equivalent metres = the way the odometer counted (_wear_way_m: the
+#   body's level distance this tick, the same number, the single source)
+#   PLUS what the tick's own physics quantities say the driving cost over
+#   and above a gentle cruise, each in metres of the component's life:
+#   clutch        + the slip energy [J] (|clutch torque| x |slip| x dt, the
+#                 slip the engine-vs-gearbox speed difference the clutch
+#                 section of _advance_drivetrain feathers, _clutch_slip_w) x
+#                 CLUTCH_SLIP_M_PER_KJ - a launch, an upshift, a clutch
+#                 ridden on a hill (which slips at a standstill: metres of
+#                 life with no metres of road); none while it is locked;
+#   front/rear_brake_wear  + each axle's brake work [J] (the brake torque's
+#                 work the discs were given, _front/_rear_brake_heat_w x dt)
+#                 x BRAKE_WORK_M_PER_KJ, BRAKE_WEAR_ABUSE times over while
+#                 the disc is over the fade line (a pad that far over glazes
+#                 and sheds);
+#   front/rear_tyre_wear   + each axle's slip work [J] (the drive's and the
+#                 sideways force's work against the contact patch's slip,
+#                 _front/_rear_slip_w x dt - the frictional energy rubber is
+#                 abraded by; the rolling is the rated life's) x
+#                 TYRE_SLIP_M_PER_KJ, TYRE_WEAR_ABUSE times over while the
+#                 tyre is over its window (greasy rubber tears);
+#   engine_wear   from its own metres: the revolutions (|engine_omega| x dt
+#                 [rad]) in top-gear metres (TOP_GEAR_M_PER_RAD: in top gear,
+#                 locked, exactly the road's way; in 2nd at the same speed
+#                 twice them; idling, ~27 km/h of them: an engine that runs
+#                 ages) x the load's style (1 + (ENGINE_FLAT_OUT - 1) x the
+#                 load share squared, the load the clutch takes off the crank
+#                 as a share of the curve's peak, clutch_torque /
+#                 ENGINE_PEAK_TORQUE: a light cruise ~1, flat out at the
+#                 peak ENGINE_FLAT_OUT); over OVERHEAT_FADE_START_C every
+#                 revolution counts at full load and ENGINE_WEAR_ABUSE times
+#                 over (the oil film thinned: neglect).
+# The style multiplier of a tick - the wear-equivalent metres over the
+# metres - is 1 exactly on a gentle cruise (a locked clutch, the pedal up,
+# the tyres rolling, in top gear) and over 1 for everything harder; that is
+# what "rated life" means, and every equivalence (a launch ~ 300 m of the
+# clutch, a stop from 90 km/h ~ 200 m of the pads, a donut ~ 1.25 km of the
+# rears, flat out ~ 6x a cruise for the engine) is an ESTIMATE from the
+# calibration table, labelled so with its range at its constant, tunable in
+# the car's config; tests/wear_test.gd measures what they come to.
+# was each share its rate times the tick's joules or radians (a launch ~ 1/15
+# of a percent of the clutch, a stop from 90 km/h ~ 1/46 of the rear pads)
+# -> the kilometres, and the driving on top (the user's 15:24 verdict).
 # Wear is for good: the accumulators start at 0, only ever grow, and nothing
 # in the car puts them back (restoration is the garage's, a later iteration;
 # reset_to leaves them alone - R does not un-wear). Kept from one
@@ -1025,20 +1053,33 @@ static var BRAKE_MAX_TEMP := (BRAKE_MAX_C - COOLANT_AMBIENT_C) / BRAKE_SPAN_K
 # multipliers read the wear at whole hundredths (WEAR_EFFECT_STEP): under a
 # hundredth of wear a multiplier is exactly 1 and the physics is to the bit
 # what it was without wear, so a certified run, which wears well under a
-# hundredth of anything from its fresh start (tests/wear_test.gd states the
-# numbers), is the bit it was. From a hundredth on the effect steps once a
-# percent, in a line to the floor at WEAR_LIMIT.
+# hundredth of anything from its fresh start (a whole certified suite is a
+# few hundred metres of a life of tens of thousands of kilometres;
+# tests/wear_test.gd states the numbers), is the bit it was. From a
+# hundredth on the effect steps once a percent, in a line to the floor at
+# WEAR_LIMIT.
 
-## The clutch's wear per joule of slip energy [1/J]: 1e-8 is 1 % per MJ, and
-## 8 s flat out from rest - the launch and two upshifts - slips ~70 kJ
-## (measured, tests/wear_test.gd states it): some 15 such launches per
-## percent; 100 MJ, ~1500 of them, to WEAR_LIMIT. A donut with the automatic
-## hunting up and down slips far more (~25 kW of it, measured): that is
-## abuse, and it costs. Gentle by design otherwise: the car is a test
-## instrument, and a session on the pad wears it measurably, not visibly.
-# read from the car's config (wear.clutch_rate, optional); the certified
+## The clutch's rated life [km]: the kilometres of street driving that use
+## the whole of it up, 175 000. SOURCED: a street clutch lasts 100 000 to
+## 250 000 km (986/Boxster owner corroboration); the midpoint. A gentle
+## cruise costs it exactly its metres; the slips on top (CLUTCH_SLIP_M_PER_KJ).
+# was CLUTCH_WEAR_RATE, 1e-8 per joule of slip - 15 launches per percent, "a
+# very fragile car" -> the rated life (the user's 15:24 verdict).
+# read from the car's config (wear.clutch_life_km, optional); the certified
 # value here is the fallback default a config without it gets.
-static var CLUTCH_WEAR_RATE := 1.0e-8
+static var CLUTCH_LIFE_KM := 175000.0
+
+## Metres of the clutch's life per kilojoule of slip energy [m/kJ]: 5.
+## ESTIMATE (physics, range 100-500 m): a full-throttle launch is ~100-500 m
+## of normal clutch wear, the midpoint 300 m; the first engagement of a
+## flat-out launch slips 58.4 kJ (measured, tests/wear_test.gd): 300 / 58.4 =
+## 5.1, rounded to 5 - ~290 m a launch. The joules themselves are the abuse:
+## riding the clutch (a low torque against a big slip, for seconds) is tens
+## of kilowatts, ~100 m of its life a second; a donut under the automatic's
+## hunting slips ~600 kJ, ~3 km of it. Tunable.
+# read from the car's config (wear.clutch_slip_m_per_kj, optional); the
+# certified value here is the fallback default a config without it gets.
+static var CLUTCH_SLIP_M_PER_KJ := 5.0
 
 ## The least of its capacity a worn-out clutch keeps (0..1): 0.7. At
 ## WEAR_LIMIT the clutch still passes 350 Nm, over what the engine makes;
@@ -1047,19 +1088,33 @@ static var CLUTCH_WEAR_RATE := 1.0e-8
 # value here is the fallback default a config without it gets.
 static var CLUTCH_WEAR_FLOOR := 0.7
 
-## A brake's wear per joule of the disc's work [1/J]: 1e-9 is 1 % per 10 MJ.
-## A full stop from 90 km/h is ~390 kJ of disc work, ~175 kJ of it on the
-## fronts and ~215 kJ on the rears (measured, tests/wear_test.gd states it:
-## the ABS holds the fronts at the tyres' limit, and the driven axle's discs
-## slow the engine too): ~60 such stops per percent of the fronts, ~45 of
-## the rears; 1 GJ, some 5000 stops, to WEAR_LIMIT - a set of racing pads'
-## life on a circuit, a road car's on the road is far longer.
-# read from the car's config (wear.brake_rate, optional); the certified
+## A set of brake pads' rated life [km], either axle's: 50 000. SOURCED:
+## street pads last ~30 000-70 000 km, Porsche-class cars trending high; the
+## midpoint. A gentle cruise costs them exactly its metres; the discs' work
+## on top (BRAKE_WORK_M_PER_KJ). One life for both axles: this car's rears
+## do more work than its fronts (the ABS holds the fronts at the tyres'
+## limit, the driven axle's discs slow the engine too), and the metres of
+## work say so.
+# was BRAKE_WEAR_RATE, 1e-9 per joule of disc work - 46 stops per percent of
+# the rears -> the rated life (the user's 15:24 verdict).
+# read from the car's config (wear.brake_life_km, optional); the certified
 # value here is the fallback default a config without it gets.
-static var BRAKE_WEAR_RATE := 1.0e-9
+static var BRAKE_LIFE_KM := 50000.0
+
+## Metres of a pad set's life per kilojoule of its disc's work [m/kJ]: 1.
+## ESTIMATE (physics, from KE = 1/2 m v^2, range 100-300 m): a full ABS stop
+## from ~90 km/h is ~100-300 m of gentle-braking wear, the midpoint 200 m;
+## the stop is the car's kinetic energy through the discs, 1/2 x 1300 kg x
+## (25 m/s)^2 = 406 kJ over the two axles (measured 174 kJ on the fronts,
+## 216 kJ on the rears, tests/wear_test.gd), ~200 kJ an axle: 200 m / 200 kJ
+## = 1 m per kJ, a metre per kilojoule. Tunable.
+# read from the car's config (wear.brake_work_m_per_kj, optional); the
+# certified value here is the fallback default a config without it gets.
+static var BRAKE_WORK_M_PER_KJ := 1.0
 
 ## How many times faster a disc over the fade line wears per joule (1 or
 ## more): 3. Neglect - a string of hard stops without letting them cool.
+## ESTIMATE (the old model's, kept): fade-level repeated stops multiply.
 # read from the car's config (wear.brake_abuse, optional); the certified
 # value here is the fallback default a config without it gets.
 static var BRAKE_WEAR_ABUSE := 3.0
@@ -1071,19 +1126,39 @@ static var BRAKE_WEAR_ABUSE := 3.0
 # value here is the fallback default a config without it gets.
 static var BRAKE_WEAR_FLOOR := 0.75
 
-## A tyre's wear per joule of heat put into it [1/J]: 4e-10 is 1 % per 25 MJ.
-## Rolling at 72 km/h puts ~200 kJ/km into the four (COAST_DECEL's work), a
-## hard lap's sliding as much again: ~60 km of hard driving, ~130 km of
-## cruising, per percent; a 25 s donut puts ~480 kJ into the rears (measured,
-## tests/wear_test.gd states it), ~35 of them per percent with the abuse
-## multiplier on its last seconds; 2.5 GJ, ~13 000 km of cruising, to
-## WEAR_LIMIT - a sports tyre's life, short.
-# read from the car's config (wear.tyre_rate, optional); the certified value
-# here is the fallback default a config without it gets.
-static var TYRE_WEAR_RATE := 4.0e-10
+## The rear tyres' rated life [km]: 17 000. SOURCED (forum): a performance
+## summer rear on the street lasts 10 000-24 000 km; the midpoint. A gentle
+## cruise costs them exactly its metres (the rolling is the rated life's);
+## the slip work on top (TYRE_SLIP_M_PER_KJ).
+# was TYRE_WEAR_RATE, 4e-10 per joule of heat, both axles - 35 donuts per
+# percent of the rears -> the rated lives (the user's 15:24 verdict).
+# read from the car's config (wear.tyre_life_km_rear, optional); the
+# certified value here is the fallback default a config without it gets.
+static var REAR_TYRE_LIFE_KM := 17000.0
+
+## The front tyres' rated life [km]: 25 500. ESTIMATE (no number sourced):
+## the fronts of this mid-engined, rear-driven car last longer - they carry
+## less and drive nothing - taken as 1.5 x the rears'. Tunable.
+# read from the car's config (wear.tyre_life_km_front, optional); the
+# certified value here is the fallback default a config without it gets.
+static var FRONT_TYRE_LIFE_KM := 25500.0
+
+## Metres of a tyre's life per kilojoule of its slip work [m/kJ]: 0.5.
+## ESTIMATE (range 0.5-2 km): a donut is ~0.5-2 km of a rear's life, the
+## midpoint 1.25 km; the 25 s donut tests/wear_test.gd drives is 1574 kJ of
+## slip work against the rears' contact patches (measured), 384 kJ of it
+## with the rubber over its window and so TYRE_WEAR_ABUSE times over:
+## 1250 m / (1574 + 2 x 384) kJ = 0.53, rounded to 0.5 - ~1.26 km a donut
+## with its 89 m of way. Rubber goes by the frictional energy (the sliding
+## against the road), which is why the slip work and not the tyre's heat:
+## hard cornering is slip work too, and multiplies. Tunable.
+# read from the car's config (wear.tyre_slip_m_per_kj, optional); the
+# certified value here is the fallback default a config without it gets.
+static var TYRE_SLIP_M_PER_KJ := 0.5
 
 ## How many times faster a tyre over its window wears per joule (1 or more):
 ## 3. Neglect - a donut kept up after the rears have gone greasy.
+## ESTIMATE (the old model's, kept): greasy over-window rubber multiplies.
 # read from the car's config (wear.tyre_abuse, optional); the certified value
 # here is the fallback default a config without it gets.
 static var TYRE_WEAR_ABUSE := 3.0
@@ -1094,22 +1169,36 @@ static var TYRE_WEAR_ABUSE := 3.0
 # here is the fallback default a config without it gets.
 static var TYRE_WEAR_FLOOR := 0.85
 
-## The engine's wear per radian turned under load [1/rad]: 1e-8 is 1 % per
-## Mrad, ~160 000 turns under full load; flat out at 6000 rpm that is ~27
-## min, some 50 km of driving the engine flat out (8 s flat out from rest
-## costs ~30 ppm, measured, tests/wear_test.gd states it: the load weight
-## counts the launch's and the shifts' revolutions for less); 100 Mrad, ~45 h
-## or ~5000 km flat out, to WEAR_LIMIT - a race engine's rebuild interval; a
-## road engine's mixed life is many times longer, an idle or a cruise
-## counting for a small share of a turn.
-# read from the car's config (wear.engine_rate, optional); the certified
+## The engine's rated life [km]: 140 000. SOURCED (forum): ~130 000-150 000+
+## km before major work for an engine of this era; the midpoint. (The IMS
+## bearing is a separate failure mode of the 986's engine, not wear, and not
+## modelled.) The engine's metres are its own - its revolutions in top-gear
+## metres (TOP_GEAR_M_PER_RAD), a gentle cruise in top gear exactly the
+## road's; the load's style on top (ENGINE_FLAT_OUT).
+# was ENGINE_WEAR_RATE, 1e-8 per radian under load -> the rated life (the
+# user's 15:24 verdict).
+# read from the car's config (wear.engine_life_km, optional); the certified
 # value here is the fallback default a config without it gets.
-static var ENGINE_WEAR_RATE := 1.0e-8
+static var ENGINE_LIFE_KM := 140000.0
+
+## How many times faster the engine wears per metre flat out at the curve's
+## peak than on a gentle cruise (1 or more): 6. ESTIMATE (range 2-10x,
+## unknown precisely): sustained full throttle is ~2-10 x a gentle cruise's
+## wear per km; the midpoint. The style of a tick is 1 + (this - 1) x the
+## load share squared - the square is an estimate of the shape too: wear
+## climbs steeply towards full load (the combustion pressure and the oil
+## film's temperature both rise with it), and a light cruise, a tenth of the
+## peak on the crank (0.03-0.09 measured, 0.14 in 5th at 72 km/h), is ~1 by
+## it, which is what the rated life means; a straight line would make that
+## cruise 1.7x. Tunable.
+# read from the car's config (wear.engine_flat_out, optional); the certified
+# value here is the fallback default a config without it gets.
+static var ENGINE_FLAT_OUT := 6.0
 
 ## How many times faster an engine over OVERHEAT_FADE_START_C wears per
-## radian (1 or more), every radian counting in full up there: 10. Neglect -
-## an overheated engine driven on costs 1 % in ~3 min flat out, ~18 min
-## idling.
+## metre (1 or more), every revolution counting at full load up there: 10.
+## Neglect - an overheated engine driven on costs 1 % of its life in ~7 min
+## flat out, ~50 min idling. ESTIMATE (the old model's, kept).
 # read from the car's config (wear.engine_abuse, optional); the certified
 # value here is the fallback default a config without it gets.
 static var ENGINE_WEAR_ABUSE := 10.0
@@ -1134,6 +1223,14 @@ const WEAR_EFFECT_STEP := 0.01
 ## 245 Nm at 4500 rpm. What the engine's load is weighed against for the
 ## wear. Derived, never read (_derive_from_config).
 static var ENGINE_PEAK_TORQUE := 245.0
+
+## The road the car covers per radian of the engine in top gear, the clutch
+## locked [m/rad]: WHEEL_RADIUS over the top gear's ratio times the final
+## drive, 0.34 / (0.97 x 3.89) = 0.090. The engine's own odometer's unit
+## (see Wear and aging): a revolution is that much of the engine's life
+## whichever gear it turns in, and at a standstill. Derived, never read
+## (_derive_from_config).
+static var TOP_GEAR_M_PER_RAD := 0.0901
 
 # --- Gearbox -----------------------------------------------------------------
 
@@ -3093,6 +3190,20 @@ var _rear_tyre_heat_w := 0.0
 var _front_brake_heat_w := 0.0
 var _rear_brake_heat_w := 0.0
 
+## The slip work at each axle's contact patches this tick [W]: the drive's
+## work against the wheels' slip along and the sideways force's against the
+## slip across, the whole of it (the tyres' heat gets TYRE_SLIP_HEAT_SHARE of
+## it; the rubber is abraded by all of it) - the tyres' wear (see Wear and
+## aging) and the tests read it. 0 rolling straight and free.
+var _front_slip_w := 0.0
+var _rear_slip_w := 0.0
+
+## The way the odometer counted this tick [m]: the body's level distance
+## (_count_odometer), 0 where that was no finite number; the metres every
+## component wears by (see Wear and aging) - the odometer's own number, the
+## single source.
+var _wear_way_m := 0.0
+
 ## True while the car creeps (see CREEP_CLUTCH_ENGAGEMENT); on the way there,
 ## whether the brake has held the car at a standstill (what arms the creep) and
 ## how long it has stood with nothing asked of it since [s] (CREEP_DWELL).
@@ -3340,6 +3451,9 @@ func _read_config() -> void:
 	rear_tyre_wear = 0.0
 	engine_wear = 0.0
 	_clutch_slip_w = 0.0
+	_front_slip_w = 0.0
+	_rear_slip_w = 0.0
+	_wear_way_m = 0.0
 	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
 	rear_load_fraction = REAR_WEIGHT_FRACTION
 	driver_profile = DRIVER_PROFILES["test_driver"]
@@ -3443,15 +3557,23 @@ static func _apply_config(config: Dictionary) -> void:
 	BRAKE_COOLING_AIRFLOW = thermal.get("brake_cooling_airflow", BRAKE_COOLING_AIRFLOW)
 
 	var wear: Dictionary = config.get("wear", {})
-	CLUTCH_WEAR_RATE = wear.get("clutch_rate", CLUTCH_WEAR_RATE)
+	# was the rates per joule and per radian (wear.clutch_rate and the rest)
+	# -> the rated lives in kilometres and the driving's metres on top (the
+	# user's 15:24 verdict).
+	CLUTCH_LIFE_KM = wear.get("clutch_life_km", CLUTCH_LIFE_KM)
+	CLUTCH_SLIP_M_PER_KJ = wear.get("clutch_slip_m_per_kj", CLUTCH_SLIP_M_PER_KJ)
 	CLUTCH_WEAR_FLOOR = wear.get("clutch_floor", CLUTCH_WEAR_FLOOR)
-	BRAKE_WEAR_RATE = wear.get("brake_rate", BRAKE_WEAR_RATE)
+	BRAKE_LIFE_KM = wear.get("brake_life_km", BRAKE_LIFE_KM)
+	BRAKE_WORK_M_PER_KJ = wear.get("brake_work_m_per_kj", BRAKE_WORK_M_PER_KJ)
 	BRAKE_WEAR_ABUSE = wear.get("brake_abuse", BRAKE_WEAR_ABUSE)
 	BRAKE_WEAR_FLOOR = wear.get("brake_floor", BRAKE_WEAR_FLOOR)
-	TYRE_WEAR_RATE = wear.get("tyre_rate", TYRE_WEAR_RATE)
+	FRONT_TYRE_LIFE_KM = wear.get("tyre_life_km_front", FRONT_TYRE_LIFE_KM)
+	REAR_TYRE_LIFE_KM = wear.get("tyre_life_km_rear", REAR_TYRE_LIFE_KM)
+	TYRE_SLIP_M_PER_KJ = wear.get("tyre_slip_m_per_kj", TYRE_SLIP_M_PER_KJ)
 	TYRE_WEAR_ABUSE = wear.get("tyre_abuse", TYRE_WEAR_ABUSE)
 	TYRE_WEAR_FLOOR = wear.get("tyre_floor", TYRE_WEAR_FLOOR)
-	ENGINE_WEAR_RATE = wear.get("engine_rate", ENGINE_WEAR_RATE)
+	ENGINE_LIFE_KM = wear.get("engine_life_km", ENGINE_LIFE_KM)
+	ENGINE_FLAT_OUT = wear.get("engine_flat_out", ENGINE_FLAT_OUT)
 	ENGINE_WEAR_ABUSE = wear.get("engine_abuse", ENGINE_WEAR_ABUSE)
 	ENGINE_WEAR_FLOOR = wear.get("engine_floor", ENGINE_WEAR_FLOOR)
 
@@ -3553,6 +3675,7 @@ static func _derive_from_config() -> void:
 	ENGINE_PEAK_TORQUE = 0.0
 	for anchor: Vector2 in TORQUE_CURVE:
 		ENGINE_PEAK_TORQUE = maxf(ENGINE_PEAK_TORQUE, anchor.y)
+	TOP_GEAR_M_PER_RAD = WHEEL_RADIUS / (GEAR_RATIOS[GEAR_RATIOS.size() - 1] * FINAL_DRIVE)
 	# The ledger's sums, the plain loop CarConfigValidation._check_mass_ledger
 	# runs, in row order: the same f64 operations give the same bits.
 	LEDGER_KERB_MASS = 0.0
@@ -3841,13 +3964,19 @@ func _physics_process(delta: float) -> void:
 	var rolling_w := rolling_drag * absf(forward_speed)
 	var front_slip_w := absf(front_drive * (front_omega * WHEEL_RADIUS - front_along)) + absf(front_force * front_across)
 	var rear_slip_w := absf(rear_drive * (rear_omega * WHEEL_RADIUS - forward_speed)) + absf(rear_force * rear_lateral)
+	# Kept for the wear (the rubber goes by the whole of the slip work, see
+	# Wear and aging) and the tests.
+	_front_slip_w = front_slip_w
+	_rear_slip_w = rear_slip_w
 	_advance_tyres(rolling_w * front_load_fraction + TYRE_SLIP_HEAT_SHARE * front_slip_w, rolling_w * rear_load_fraction + TYRE_SLIP_HEAT_SHARE * rear_slip_w, absf(forward_speed), delta)
 	_advance_brakes(front_contact.get("brake_work_w", 0.0), rear_contact.get("brake_work_w", 0.0), absf(forward_speed), delta)
-	# The wear, now that the tick's slip energy, brake work, tyre heat and
-	# loaded revolutions are all known: bookkeeping over them (see Wear and
-	# aging). Nothing of it reaches this tick's physics; next tick's is exactly
-	# this tick's for as long as every share stays under a hundredth.
-	_advance_wear(delta)
+	# The wear comes after the move, once the odometer has counted the tick's
+	# way (_advance_wear, after _count_odometer below): the slip energy, the
+	# brake work, the slip work, the revolutions and the load are all this
+	# tick's by here and stay so through the move.
+	# was here, at the end of step 5, each share from the tick's joules and
+	# radians -> after the odometer, from the tick's metres (the user's
+	# 15:24 verdict).
 
 	# 6. Add it all up at the centre of mass, in the car's frame. The front
 	#    forces act along and across the steered wheels: the sideways force of
@@ -3940,6 +4069,12 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 
 	_count_odometer(delta)
+	# The wear, now that the tick's way is counted and its slip energy, brake
+	# work, slip work, revolutions and load are all known: bookkeeping over
+	# them (see Wear and aging). Nothing of it reaches this tick's physics;
+	# next tick's is exactly this tick's for as long as every share stays
+	# under a hundredth.
+	_advance_wear(delta)
 	_update_visuals(delta)
 
 
@@ -3951,8 +4086,10 @@ func _physics_process(delta: float) -> void:
 ## what the car has, and the wear as it was, which the reset left.
 func _count_odometer(delta: float) -> void:
 	var way := Vector2(global_position.x - _odometer_from.x, global_position.z - _odometer_from.z).length()
-	if is_finite(way):
-		odometer_m += way
+	# The wear's metres are these (see Wear and aging): the same number, or
+	# none where the odometer counts none.
+	_wear_way_m = way if is_finite(way) else 0.0
+	odometer_m += _wear_way_m
 	_odometer_from = global_position
 	if not _odometer_kept:
 		return
@@ -5441,38 +5578,54 @@ func _advance_brakes(front_w: float, rear_w: float, airflow: float, delta: float
 	rear_brake_temp += (rear_w - brake_cooling_w(rear_brake_temp, airflow)) * delta / capacity
 
 
-## One tick of the wear (see Wear and aging): each share grows by its rate
-## times the tick's own quantity - the clutch's slip energy (_clutch_slip_w x
-## delta [J]), each axle's brake work (_front/_rear_brake_heat_w x delta [J])
-## and tyre heat (_front/_rear_tyre_heat_w x delta [J]), the engine's
-## revolutions (engine_omega x delta [rad]) weighted by the load on the crank
-## (clutch_torque over ENGINE_PEAK_TORQUE, 0..1) - times the abuse multiplier
-## where the component is over its line: a disc over the fade line, a tyre
-## over its window, the coolant over OVERHEAT_FADE_START_C (up there every
-## revolution counts in full, loaded or not). A quantity that is not a
-## positive finite number (NaN heat, a tick that did no work) adds nothing:
-## the shares only ever grow, and the setters hold them under WEAR_LIMIT.
+## One tick of the wear (see Wear and aging): each share grows by the tick's
+## wear-equivalent metres over the component's rated life - the way the
+## odometer counted (_wear_way_m) plus what the tick's own quantities cost
+## over a gentle cruise, in metres of the life: the clutch's slip energy
+## (_clutch_slip_w x delta [J]) x CLUTCH_SLIP_M_PER_KJ; each axle's brake
+## work (_front/_rear_brake_heat_w x delta [J]) x BRAKE_WORK_M_PER_KJ, and
+## BRAKE_WEAR_ABUSE times that with the disc over the fade line; each axle's
+## slip work (_front/_rear_slip_w x delta [J]) x TYRE_SLIP_M_PER_KJ, and
+## TYRE_WEAR_ABUSE times that with the tyre over its window. The engine's
+## metres are its own: its revolutions (|engine_omega| x delta [rad]) in
+## top-gear metres (TOP_GEAR_M_PER_RAD) times the load's style, 1 +
+## (ENGINE_FLAT_OUT - 1) x the load share squared (clutch_torque over
+## ENGINE_PEAK_TORQUE, 0..1), and with the coolant over OVERHEAT_FADE_START_C
+## the load counts as full and ENGINE_WEAR_ABUSE times over. A quantity that
+## is not a positive finite number (NaN heat, a tick that did no work, no
+## way) adds nothing: the shares only ever grow, and the setters hold them
+## under WEAR_LIMIT.
+# was each share its rate times the tick's joules or loaded radians -> the
+# metres, and the driving's metres on top (the user's 15:24 verdict).
 func _advance_wear(delta: float) -> void:
-	var clutch_j := _clutch_slip_w * delta
-	if clutch_j > 0.0:
-		clutch_wear += CLUTCH_WEAR_RATE * clutch_j
-	var front_brake_j := _front_brake_heat_w * delta
-	if front_brake_j > 0.0:
-		front_brake_wear += BRAKE_WEAR_RATE * front_brake_j * (BRAKE_WEAR_ABUSE if brake_fade(front_brake_temp) < 1.0 else 1.0)
-	var rear_brake_j := _rear_brake_heat_w * delta
-	if rear_brake_j > 0.0:
-		rear_brake_wear += BRAKE_WEAR_RATE * rear_brake_j * (BRAKE_WEAR_ABUSE if brake_fade(rear_brake_temp) < 1.0 else 1.0)
-	var front_tyre_j := _front_tyre_heat_w * delta
-	if front_tyre_j > 0.0:
-		front_tyre_wear += TYRE_WEAR_RATE * front_tyre_j * (TYRE_WEAR_ABUSE if tyre_c_of(front_tyre_temp) > TYRE_WINDOW_HIGH_C else 1.0)
-	var rear_tyre_j := _rear_tyre_heat_w * delta
-	if rear_tyre_j > 0.0:
-		rear_tyre_wear += TYRE_WEAR_RATE * rear_tyre_j * (TYRE_WEAR_ABUSE if tyre_c_of(rear_tyre_temp) > TYRE_WINDOW_HIGH_C else 1.0)
+	var way := _wear_metres(_wear_way_m)
+	var clutch_m := way + _wear_metres(_clutch_slip_w * delta * CLUTCH_SLIP_M_PER_KJ * 0.001)
+	if clutch_m > 0.0:
+		clutch_wear += clutch_m / (CLUTCH_LIFE_KM * 1000.0)
+	var front_brake_m := way + _wear_metres(_front_brake_heat_w * delta * BRAKE_WORK_M_PER_KJ * 0.001) * (BRAKE_WEAR_ABUSE if brake_fade(front_brake_temp) < 1.0 else 1.0)
+	if front_brake_m > 0.0:
+		front_brake_wear += front_brake_m / (BRAKE_LIFE_KM * 1000.0)
+	var rear_brake_m := way + _wear_metres(_rear_brake_heat_w * delta * BRAKE_WORK_M_PER_KJ * 0.001) * (BRAKE_WEAR_ABUSE if brake_fade(rear_brake_temp) < 1.0 else 1.0)
+	if rear_brake_m > 0.0:
+		rear_brake_wear += rear_brake_m / (BRAKE_LIFE_KM * 1000.0)
+	var front_tyre_m := way + _wear_metres(_front_slip_w * delta * TYRE_SLIP_M_PER_KJ * 0.001) * (TYRE_WEAR_ABUSE if tyre_c_of(front_tyre_temp) > TYRE_WINDOW_HIGH_C else 1.0)
+	if front_tyre_m > 0.0:
+		front_tyre_wear += front_tyre_m / (FRONT_TYRE_LIFE_KM * 1000.0)
+	var rear_tyre_m := way + _wear_metres(_rear_slip_w * delta * TYRE_SLIP_M_PER_KJ * 0.001) * (TYRE_WEAR_ABUSE if tyre_c_of(rear_tyre_temp) > TYRE_WINDOW_HIGH_C else 1.0)
+	if rear_tyre_m > 0.0:
+		rear_tyre_wear += rear_tyre_m / (REAR_TYRE_LIFE_KM * 1000.0)
 	var hot := overheat_fade() < 1.0
 	var load_share := 1.0 if hot else clampf(clutch_torque / ENGINE_PEAK_TORQUE, 0.0, 1.0)
-	var engine_rad := absf(engine_omega) * delta * load_share
-	if engine_rad > 0.0:
-		engine_wear += ENGINE_WEAR_RATE * engine_rad * (ENGINE_WEAR_ABUSE if hot else 1.0)
+	var engine_m := _wear_metres(absf(engine_omega) * delta * TOP_GEAR_M_PER_RAD * (1.0 + (ENGINE_FLAT_OUT - 1.0) * load_share * load_share)) * (ENGINE_WEAR_ABUSE if hot else 1.0)
+	if engine_m > 0.0:
+		engine_wear += engine_m / (ENGINE_LIFE_KM * 1000.0)
+
+
+## A tick's metres of a life as they count: `metres` where that is a positive
+## finite number, none otherwise (NaN, inf, a negative, a tick that did
+## nothing).
+static func _wear_metres(metres: float) -> float:
+	return metres if is_finite(metres) and metres > 0.0 else 0.0
 
 
 ## What a component with `wear` of its life used up has left of itself

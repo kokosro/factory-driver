@@ -67,8 +67,9 @@ const OPTIONAL_NUMBERS := {
 	],
 	"creep": ["clutch_engagement", "free_speed", "engage_speed", "dwell", "max_speed"],
 	"wear": [
-		"clutch_rate", "clutch_floor", "brake_rate", "brake_abuse", "brake_floor", "tyre_rate", "tyre_abuse",
-		"tyre_floor", "engine_rate", "engine_abuse", "engine_floor",
+		"clutch_life_km", "clutch_slip_m_per_kj", "clutch_floor", "brake_life_km", "brake_work_m_per_kj", "brake_abuse",
+		"brake_floor", "tyre_life_km_front", "tyre_life_km_rear", "tyre_slip_m_per_kj", "tyre_abuse", "tyre_floor",
+		"engine_life_km", "engine_flat_out", "engine_abuse", "engine_floor",
 	],
 	"brakes": ["coast_decel"],
 	"suspension": ["bump_stop_rate", "bump_stop_progression"],
@@ -224,23 +225,33 @@ static func _check_mass_ledger(errors: PackedStringArray, car_name: String, ledg
 		errors.append("%s: mass_ledger's unsprung rows weigh %s kg of %s, some but not all of the car has to be unsprung" % [car_name, unsprung, total])
 
 
-## The wear table (3L, see ArcadeCar "Wear and aging"), every key optional:
-## a rate ("*_rate", wear per joule or per radian) is never negative - wear is
-## for good, nothing un-wears; an abuse multiplier ("*_abuse", how many times
-## faster a component over its line wears) is 1 or more - abuse never wears
-## slower than use; a floor ("*_floor", what a worn-out component keeps of
-## itself) is over 0 and no more than 1 - nothing here breaks, and a floor of
-## 1 is a component that wears without effect. The numbers themselves are
-## finite by the section check above; this is what a finite number still
-## cannot be.
+## The wear table (3L, rebased on the kilometres in 3AB - the user's 15:24
+## verdict; see ArcadeCar "Wear and aging"), every key optional: a rated life
+## ("*_life_km*", the kilometres of street driving that use a component up)
+## is over zero - a component that lasts no distance is no component, and the
+## metres are divided by it; a cost in metres of life per kilojoule
+## ("*_m_per_kj", what a launch's slip, a stop's disc work or a slide's slip
+## work costs over a gentle cruise) is never negative - wear is for good,
+## nothing un-wears; an abuse multiplier ("*_abuse", how many times faster a
+## component over its line wears) and the engine's flat-out multiplier
+## ("engine_flat_out", how many times a cruise's wear per metre full load
+## costs) are 1 or more - abuse never wears slower than use; a floor
+## ("*_floor", what a worn-out component keeps of itself) is over 0 and no
+## more than 1 - nothing here breaks, and a floor of 1 is a component that
+## wears without effect. The numbers themselves are finite by the section
+## check above; this is what a finite number still cannot be.
+# was a rate ("*_rate", per joule or radian) never negative -> the lives and
+# the costs per kilojoule (the user's 15:24 verdict).
 static func _check_wear(errors: PackedStringArray, car_name: String, wear: Dictionary) -> void:
 	for key: String in wear:
 		var value: Variant = wear[key]
 		if not _is_number(value) or not key in OPTIONAL_NUMBERS["wear"]:
 			continue
-		if key.ends_with("_rate") and value < 0.0:
-			errors.append("%s: wear.%s is %s, a rate under zero (wear never comes back)" % [car_name, key, value])
-		elif key.ends_with("_abuse") and value < 1.0:
+		if key.contains("_life_km") and value <= 0.0:
+			errors.append("%s: wear.%s is %s, a rated life of no distance (the metres are divided by it)" % [car_name, key, value])
+		elif key.ends_with("_m_per_kj") and value < 0.0:
+			errors.append("%s: wear.%s is %s, a cost under zero (wear never comes back)" % [car_name, key, value])
+		elif (key.ends_with("_abuse") or key == "engine_flat_out") and value < 1.0:
 			errors.append("%s: wear.%s is %s, an abuse multiplier under 1 (abuse never wears slower than use)" % [car_name, key, value])
 		elif key.ends_with("_floor") and (value <= 0.0 or value > 1.0):
 			errors.append("%s: wear.%s is %s, a floor outside 0 < floor <= 1 (nothing here breaks)" % [car_name, key, value])
