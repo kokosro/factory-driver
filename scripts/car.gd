@@ -90,6 +90,13 @@ extends CharacterBody3D
 ## road's slopes are gentle (RoadProfile.MAX_SLOPE), the springs push straight
 ## up and gravity never pulls the car downhill. Without a road_profile the
 ## ground is level (true for a bare car.tscn).
+##   The one hill that pulls: the road's licence ramp (RoadProfile.RAMP_X, the
+## hill start's 8 % hill). On it gravity's share along the slope pushes the car
+## down it, along and across the car (see step 6 of the tick, "the hill"): a
+## car left with nothing holding it rolls back, a handbrake or a brake holds
+## it, a clutch let in against it stalls the engine or pulls away. Off the
+## ramp that share is exactly 0 and nothing is added: every certified run's
+## physics is the bit it was; the swell stays as above.
 
 # =============================================================================
 #  DRIVING FEEL TUNING
@@ -2644,6 +2651,14 @@ var sc_on := true
 ## key). A reset starts it: reset_to puts a car there that is ready to drive.
 var engine_running := true
 
+## The licence gate (scripts/licence_manager.gd wires itself in here from
+## main.tscn): whoever it is, it is asked `allows(action)` for the clutch pedal
+## key and the three aid switches, the tick the key is read, and a "no" is the
+## end of it - the pedal stays up, the switch stays where it is. The car knows
+## nothing of licences, it asks. Null = no gate, everything allowed: a bare
+## car.tscn, every test scene, every certified run.
+var licence_gate: Object = null
+
 ## Engine speed [rad/s]: a state of its own, integrated from the torques on
 ## the crankshaft (see _engine_net_torque) against ENGINE_INERTIA.
 var engine_omega := IDLE_RPM * TAU / 60.0
@@ -3491,11 +3506,13 @@ func _physics_process(delta: float) -> void:
 			_:
 				gearbox_mode = GearboxMode.SPORT
 		set_driver_profile(DRIVER_PROFILES[MODE_DRIVERS[gearbox_mode]])
-	if Input.is_action_just_pressed("tcs_toggle"):
+	# The aid switches and, below, the clutch pedal go through the licence
+	# gate (licence_gate) when there is one: refused, a press does nothing.
+	if Input.is_action_just_pressed("tcs_toggle") and _gate_allows(&"tcs_toggle"):
 		tcs_on = not tcs_on
-	if Input.is_action_just_pressed("abs_toggle"):
+	if Input.is_action_just_pressed("abs_toggle") and _gate_allows(&"abs_toggle"):
 		abs_on = not abs_on
-	if Input.is_action_just_pressed("sc_toggle"):
+	if Input.is_action_just_pressed("sc_toggle") and _gate_allows(&"sc_toggle"):
 		sc_on = not sc_on
 	_starter_held = Input.is_action_pressed("starter")
 	if engine_running:
@@ -3546,7 +3563,7 @@ func _physics_process(delta: float) -> void:
 	# which is what the drivetrain works with.
 	_update_direction(forward_speed, accelerate_asked - brake_asked, accelerate_pressed, brake_pressed, delta)
 	_move_feet(accelerate_asked, brake_asked, delta)
-	_move_clutch_foot(Input.is_action_pressed("clutch_pedal"), delta)
+	_move_clutch_foot(Input.is_action_pressed("clutch_pedal") and _gate_allows(&"clutch_pedal"), delta)
 	var drive_input := (_brake_foot - _throttle_foot) if reverse_engaged else (_throttle_foot - _brake_foot)
 	if handbrake_held:
 		_handbrake_amount = 1.0
@@ -3730,6 +3747,16 @@ func _physics_process(delta: float) -> void:
 			pushing += force
 		else:
 			slowing += absf(force)
+	# The hill: on the road's licence ramp gravity's share along the slope
+	# pushes the car down it, m g x rise per metre, along the car and across
+	# it, at the centre of mass (no moment). A push, not a slowing: it moves a
+	# car that is standing. Off the ramp the gradient is exactly zero and
+	# nothing is added (see the road notes at the top).
+	var grade := _ramp_gradient()
+	if grade != Vector2.ZERO:
+		var pull := -total_mass() * _gravity
+		pushing += pull * (grade.x * forward_dir.x + grade.y * forward_dir.z)
+		right_force += pull * (grade.x * right_dir.x + grade.y * right_dir.z)
 	var speed_before := forward_speed
 	forward_speed += pushing / total_mass() * delta
 	forward_speed = move_toward(forward_speed, 0.0, slowing / total_mass() * delta)
@@ -4186,6 +4213,21 @@ func _settle_suspension(height := _stand_height) -> void:
 	rear_axle_load = wheel_loads[2] + wheel_loads[3]
 	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
 	rear_load_fraction = REAR_WEIGHT_FRACTION
+
+
+## The slope of the road's licence ramp under the car's centre: its rise per
+## metre along x and z (RoadProfile.ramp_gradient), Vector2.ZERO off the ramp
+## and without a road.
+func _ramp_gradient() -> Vector2:
+	if road_profile == null:
+		return Vector2.ZERO
+	return road_profile.ramp_gradient(global_position.x, global_position.z)
+
+
+## Whether the licence gate lets `action` (the clutch pedal key or an aid
+## switch) through this tick: yes without a gate.
+func _gate_allows(action: StringName) -> bool:
+	return licence_gate == null or licence_gate.allows(action)
 
 
 ## Height of the road under wheel `i`, every layer of the profile [m].
