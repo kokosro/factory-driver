@@ -2208,8 +2208,14 @@ const ATTITUDE_BLEND_END := 0.3
 ## x cos(roll)), 60 degrees over - the car's own tipping angle in roll,
 ## atan(HALF_TRACK / CG_HEIGHT) = 60.8 degrees, past which its weight is
 ## outside its wheels and it goes on over - while it rests on its shell
-## (shell_load > 0: not mid-tumble in the air).
+## (shell_load > 0: not mid-tumble in the air). The flip (flip_car, the
+## flip_car key) rights an overturned car that has come to rest, under
+## FLIP_MAX_SPEED [m/s] over the ground; upright, in the air or still sliding
+## it is refused.
+# (the user's 20:55 thought: honest landings leave a car on its roof; the flip
+# is how it gets back on its wheels, and does nothing else)
 const OVERTURN_COS := 0.5
+const FLIP_MAX_SPEED := 3.0
 
 ## A tyre carries in full leaned up to 50 degrees (cos 50 = 0.6428) and
 ## nothing past OVERTURN_COS (60 degrees): between the two it is going over
@@ -3806,6 +3812,8 @@ static func _derive_from_config() -> void:
 
 
 func _physics_process(delta: float) -> void:
+	if Input.is_action_just_pressed("flip_car"):
+		flip_car()
 	if Input.is_action_just_pressed("reset_car"):
 		reset_to_spawn()
 	if Input.is_action_just_pressed("shift_up"):
@@ -4760,6 +4768,44 @@ func _shell_forces(vertical_speed: float) -> void:
 ## from the world's (see OVERTURN_COS).
 func is_overturned() -> bool:
 	return shell_load > 0.0 and cos(body_pitch) * cos(body_roll) < OVERTURN_COS
+
+
+## Whether the flip is allowed right now: overturned and under FLIP_MAX_SPEED
+## over the ground.
+func can_flip() -> bool:
+	return is_overturned() and Vector2(forward_speed, lateral_speed).length() < FLIP_MAX_SPEED
+
+
+## Rights an overturned car: stands it on its wheels where it lies, heading as
+## it is, at rest on its springs (_settle_suspension) - the velocity, the yaw
+## rate, pitch and roll and their rates and the wheels' spin all taken to 0 -
+## and touches nothing else: the fuel, the wear, the heat, the battery, the
+## gear and the pedals, the switches, the odometer (the car does not move over
+## the ground) all stay as they are. Refused (false) unless can_flip(): an
+## upright car, a car mid-tumble in the air and a car still sliding on its
+## roof are left to the physics. What the flip_car key does.
+# (the user's 20:55 thought)
+func flip_car() -> bool:
+	if not can_flip():
+		return false
+	velocity = Vector3.ZERO
+	forward_speed = 0.0
+	lateral_speed = 0.0
+	yaw_rate = 0.0
+	slide_yaw_rate = 0.0
+	longitudinal_accel = 0.0
+	lateral_accel = 0.0
+	front_omega = 0.0
+	rear_omega = 0.0
+	for j in _shell_loads.size():
+		_shell_loads[j] = 0.0
+	shell_load = 0.0
+	_shell_friction_moment = Vector3.ZERO
+	_shell_lateral_slowing = 0.0
+	_settle_suspension(0.0)
+	_update_visuals(0.0)
+	reset_physics_interpolation()
+	return true
 
 
 ## One tick of the four corners: works out wheel_supported, wheel_travel and
