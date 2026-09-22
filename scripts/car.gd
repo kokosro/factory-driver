@@ -5643,12 +5643,21 @@ func _update_visuals(delta: float) -> void:
 
 	# Each wheel is drawn on the road (as far as its travel reaches), the body
 	# above it where its springs have it: pitched and rolled about the centre
-	# of mass, CG_OFFSET behind the body node.
+	# of mass, CG_OFFSET behind the body node. A wheel the road is out of
+	# reach of (wheel_supported, the physics' own word) hangs at full droop,
+	# MAX_WHEEL_VISUAL_TRAVEL under its seat, wherever the road is: in the air
+	# the wheels go with the body, at the end of their travel.
 	# The road as it lies under the wheel now, after the move, every bump of it:
 	# the springs feel it through the tyre (TYRE_ENVELOPE_RATE), the eye does not.
+	# was the clamp alone, the same place for a wheel in the air by arithmetic
+	# and a body that had the wheel's phantom load in it (the user's catch on
+	# the ramp jump, 2026-09-22: "the wheels and body fell apart... somehow the
+	# joints stretched") -> the wheel's reach, physics and drawing alike.
 	for i in _wheels.size():
 		var seat := _corner_height(i) + _corner_trim[i]
-		var drawn_travel := clampf(_road_height_under_wheel(i) - seat, -MAX_WHEEL_VISUAL_TRAVEL, MAX_WHEEL_VISUAL_TRAVEL)
+		var drawn_travel := -MAX_WHEEL_VISUAL_TRAVEL
+		if wheel_supported[i]:
+			drawn_travel = clampf(_road_height_under_wheel(i) - seat, -MAX_WHEEL_VISUAL_TRAVEL, MAX_WHEEL_VISUAL_TRAVEL)
 		_wheels[i].position.y = _wheel_rest_height + seat - global_position.y + drawn_travel
 	_body.rotation.x = body_pitch
 	_body.rotation.z = body_roll
