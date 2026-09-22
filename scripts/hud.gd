@@ -2,8 +2,9 @@ class_name HUD
 extends CanvasLayer
 ## Minimal driving HUD: speed, plus a tach line (engine RPM and gear), the two
 ## pedal bars so the driving feel can be checked, the fuel bar with the battery
-## bar under it, and a lamp each for the three driver aids. The mission line and
-## banner only show what they are handed (see scripts/mission_manager.gd).
+## bar under it and the coolant bar under that, and a lamp each for the three
+## driver aids. The mission line and banner only show what they are handed (see
+## scripts/mission_manager.gd).
 ## The odometer's line sits over the aid lamps (see set_odometer).
 
 ## Tach text colour normally and from ArcadeCar.SHIFT_LIGHT_RPM up.
@@ -29,6 +30,25 @@ const BATTERY_CRITICAL_COLOR := Color(1.0, 0.25, 0.2, 1)
 const BATTERY_LOW_FRACTION := 0.4
 const BATTERY_CRITICAL_FRACTION := 0.2
 
+## Coolant bar colour, on ArcadeCar.coolant_temp's scale (0 = the air at 15 C,
+## 1 = the operating 90 C): blue while the engine is cold, under
+## COOLANT_COLD_FRACTION (70 C, where the cold enrichment and the idle hunt end:
+## ArcadeCar.COOLANT_WARM_C), the fuel bar's grey warm, red from
+## COOLANT_HOT_FRACTION (110 C, where the power starts to fade:
+## ArcadeCar.OVERHEAT_FADE_START_C), a brighter red from
+## COOLANT_VERY_HOT_FRACTION (120 C, a fifth of the torque gone). The bar is
+## full at COOLANT_BAR_FULL (127.5 C): the operating temperature sits two
+## thirds along, as a gauge's 90 does. tests/thermal_test.gd holds the two
+## lines to the car's own numbers.
+const COOLANT_COLD_COLOR := Color(0.4, 0.6, 1.0, 1)
+const COOLANT_COLOR := Color(0.85, 0.85, 0.8, 1)
+const COOLANT_HOT_COLOR := Color(1.0, 0.25, 0.2, 1)
+const COOLANT_VERY_HOT_COLOR := Color(1.0, 0.55, 0.45, 1)
+const COOLANT_COLD_FRACTION := 55.0 / 75.0
+const COOLANT_HOT_FRACTION := 95.0 / 75.0
+const COOLANT_VERY_HOT_FRACTION := 105.0 / 75.0
+const COOLANT_BAR_FULL := 1.5
+
 ## The driver aids' lamps (SC, TCS, ABS): dim while the aid is on, which is how the
 ## car starts and nothing to look at; lit in the fuel bar's amber, with OFF
 ## behind the letters, once it has been switched off.
@@ -46,6 +66,7 @@ const AID_OFF_COLOR := Color(1.0, 0.7, 0.15, 1)
 @onready var _brake_bar: ColorRect = $BrakeBarBack/BrakeBar
 @onready var _fuel_bar: ColorRect = $FuelBarBack/FuelBar
 @onready var _battery_bar: ColorRect = $BatteryBarBack/BatteryBar
+@onready var _coolant_bar: ColorRect = $CoolantBarBack/CoolantBar
 @onready var _tcs_lamp: Label = $TcsLamp
 @onready var _abs_lamp: Label = $AbsLamp
 @onready var _sc_lamp: Label = $ScLamp
@@ -91,7 +112,8 @@ func _process(_delta: float) -> void:
 ## brake_pedal, what the drivetrain is given): a dab at a key is a bar that
 ## never gets to the top. The fuel bar follows the tank (ArcadeCar.fuel_fraction),
 ## the battery bar the charge (ArcadeCar.battery_charge), tick by tick and
-## unsmoothed: what a crank draws that tick is off the bar that tick.
+## unsmoothed: what a crank draws that tick is off the bar that tick. The
+## coolant bar follows the temperature (ArcadeCar.coolant_temp) the same way.
 func _physics_process(_delta: float) -> void:
 	if not car:
 		return
@@ -99,6 +121,7 @@ func _physics_process(_delta: float) -> void:
 	set_brake_bar(car.brake_pedal)
 	set_fuel_bar(car.fuel_fraction())
 	set_battery_bar(car.battery_charge)
+	set_coolant_bar(car.coolant_temp)
 
 
 ## How full the two pedal bars by the speed are, 0 (empty) .. 1 (full); out of
@@ -137,6 +160,23 @@ func set_battery_bar(value: float) -> void:
 		_battery_bar.color = BATTERY_LOW_COLOR
 	else:
 		_battery_bar.color = BATTERY_COLOR
+
+
+## How far along the coolant bar under the battery bar is: `temp` on
+## ArcadeCar.coolant_temp's scale, the bar full at COOLANT_BAR_FULL; out of
+## range is clamped, NaN is empty. The fuel bar's idiom, flat and filling from
+## the left: blue cold, grey warm, red hot and brighter red hotter
+## (COOLANT_COLD_FRACTION, COOLANT_HOT_FRACTION, COOLANT_VERY_HOT_FRACTION).
+func set_coolant_bar(temp: float) -> void:
+	_fill_bar(_coolant_bar, temp / COOLANT_BAR_FULL, true)
+	if temp >= COOLANT_VERY_HOT_FRACTION:
+		_coolant_bar.color = COOLANT_VERY_HOT_COLOR
+	elif temp >= COOLANT_HOT_FRACTION:
+		_coolant_bar.color = COOLANT_HOT_COLOR
+	elif temp < COOLANT_COLD_FRACTION:
+		_coolant_bar.color = COOLANT_COLD_COLOR
+	else:
+		_coolant_bar.color = COOLANT_COLOR
 
 
 ## The odometer line over the aid lamps, `metres` as "ODO 12.3 km": the tenths
