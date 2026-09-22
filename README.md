@@ -433,6 +433,11 @@ sags by what the crank takes, which on a 50 Ah battery is a ten-thousandth - the
 figure, and not one you will see move. A reset (`R`, a test starting) is a fresh car,
 battery and all: full and healthy, so the test pad never strands anyone; the running game
 keeps the charge and the wear from one session to the next (see The car's own file).
+The temperatures are the one thing a reset leaves alone: the coolant, the tyres and the
+brakes keep whatever heat they held and go on cooling (or warming) from the next tick by
+their own laws - the car cools as it cools; R does not turn back time on temperature. A
+test starting is the exception: it hands out the certified fresh car, warm coolant, warm
+tyres and cold brakes, so every certified run is the physics it always was.
 
 ### Tests
 
