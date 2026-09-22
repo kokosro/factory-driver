@@ -209,7 +209,7 @@ lives they add up to are held against what real parts last.
 
 | Key | Value | Unit | Reasoning |
 |---|---|---|---|
-| `clutch_rate` | 1e-8 | 1/J | 1 % per MJ of slip energy. 8 s flat out from rest (the launch and two upshifts) slips ~68 kJ: ~15 of them per percent, ~1500 to worn out. A donut under the automatic's hunting slips ~25 kW: that is abuse, and costs ~1 % a minute. |
+| `clutch_rate` | 1e-8 | 1/J | 1 % per MJ of slip energy. 8 s flat out from rest (the launch and two upshifts) slips ~68 kJ: ~15 of them per percent, ~1500 to worn out. A donut under the automatic's hunting slips ~25 kW: that is abuse, and costs ~1 % in 40 s. |
 | `clutch_floor` | 0.7 | share | A worn-out clutch still passes 350 Nm, over what the engine makes; what goes is the margin - it slips longer on a launch and through a shift (6 ticks more over 8 s, measured). |
 | `brake_rate` | 1e-9 | 1/J | 1 % per 10 MJ of disc work. A full stop from 90 km/h is ~390 kJ, ~174 kJ on the front discs and ~216 kJ on the rears (the ABS holds the fronts at the tyres' limit; the driven axle's discs slow the engine too): ~45 such stops per percent of the rears, ~5000 to worn out - a set of racing pads' life on a circuit, far longer on the road. |
 | `brake_abuse` | 3 | x | A disc over the fade line wears three times as fast per joule: a string of hard stops without letting them cool. |

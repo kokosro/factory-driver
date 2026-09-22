@@ -464,8 +464,8 @@ own numbers:
 The rates, the abuse multipliers and the floors are the config's (`wear`, optional: see
 `configs/README.md`); with them a flat-out 8 s launch costs the clutch ~0.07 %, a full
 stop from 90 km/h the discs ~0.02 %, a 25 s donut the rears ~0.03 %, 8 s flat out the
-engine ~0.003 %, and 2 s idling overheated as much as a launch (`tests/wear_test.gd`
-states every one of these). Gentle by design: the car is a test instrument, and a
+engine ~0.003 %, and 2 s idling overheated more than half of what that launch does
+(`tests/wear_test.gd` states every one of these). Gentle by design: the car is a test instrument, and a
 session on the pad wears it measurably in the ledger, not visibly at the wheel.
 
 What wear does, each a multiplier on something that already exists: a worn clutch passes
