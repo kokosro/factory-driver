@@ -327,6 +327,11 @@ func _first_tick_of_lock(car: ArcadeCar) -> float:
 ## lifts; returns the speed it got to [m/s].
 func _reach_speed(car: ArcadeCar, speed: float) -> float:
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning), and the steady corners are compared against
+	# numbers measured on the certified fresh car - warm coolant, warm tyres,
+	# cold brakes; every drive-up starts from it.
+	_fresh_heat(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	for frame in 2400:
@@ -335,6 +340,27 @@ func _reach_speed(car: ArcadeCar, speed: float) -> float:
 		await physics_frame
 	Input.action_release("accelerate")
 	return car.forward_speed
+
+
+## The certified fresh car's thermal state, set by hand: the coolant at
+## operating with the fan off, the tyres at operating, the brakes at the
+## air's, the tick's heat trackers and the idle hunt's phase at 0 - what
+## reset_to set until the reset stopped touching the heat (the user's report,
+## 2026-09-22 morning), and what HandlingTests._start sets for a certified
+## run.
+func _fresh_heat(car: ArcadeCar) -> void:
+	car.coolant_temp = 1.0
+	car.coolant_fan_on = false
+	car._combustion_heat_w = 0.0
+	car._idle_wobble_phase = 0.0
+	car.front_tyre_temp = 1.0
+	car.rear_tyre_temp = 1.0
+	car.front_brake_temp = 0.0
+	car.rear_brake_temp = 0.0
+	car._front_tyre_heat_w = 0.0
+	car._rear_tyre_heat_w = 0.0
+	car._front_brake_heat_w = 0.0
+	car._rear_brake_heat_w = 0.0
 
 
 func _step(frames: int) -> void:

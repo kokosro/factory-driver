@@ -1047,7 +1047,7 @@ func _run() -> void:
 	Input.action_release("accelerate")
 
 	# Reset puts the car back on the start line.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	_check(car.global_position.length() < 0.1, "reset returns the car to spawn")
 
@@ -1088,7 +1088,7 @@ func _run() -> void:
 	_check(braked_turn < free_turn * 0.8, "braking while turning costs turn-in (%.2f vs %.2f rad in 0.75 s)" % [braked_turn, free_turn])
 	_check(braked_turn > free_turn * 0.2, "the car still steers on the brakes (%.2f vs %.2f rad in 0.75 s)" % [braked_turn, free_turn])
 
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	_check(car.global_position.length() < 0.1 and car.slide_yaw_rate == 0.0, "reset also clears the slide")
 
@@ -1133,7 +1133,7 @@ func _check_drivetrain(car: ArcadeCar, rpm_label: Label) -> void:
 	var static_front := 1.0 - static_rear
 	var stats := _new_stats()
 
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	_check(rpm_label != null, "HUD with tach label exists")
 	if rpm_label == null:
@@ -1188,7 +1188,7 @@ func _check_drivetrain(car: ArcadeCar, rpm_label: Label) -> void:
 
 	# The skidpad complaint: ~60 km/h in 4th has no pull; dropping to 2nd
 	# brings the revs and the acceleration back.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	for frame in 600:
@@ -1223,7 +1223,7 @@ func _check_drivetrain(car: ArcadeCar, rpm_label: Label) -> void:
 	_check(stats.max_step < 1.5, "no teleporting while driving the gears (largest step %.2f m)" % stats.max_step)
 	_check(stats.min_rpm >= ArcadeCar.IDLE_RPM - 1.0 and stats.max_rpm <= ArcadeCar.REDLINE_RPM + 100.0, "RPM stays between idle and the limiter (%d..%d rpm)" % [stats.min_rpm, stats.max_rpm])
 	_check(stats.min_load > 0.1 and stats.max_load < 0.9, "axle loads stay sane (%.2f..%.2f)" % [stats.min_load, stats.max_load])
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -1240,7 +1240,7 @@ func _check_drivetrain_dynamics(car: ArcadeCar, rpm_label: Label) -> void:
 	# (1) Neutral: the throttle revs the engine, not the car. It runs up to the
 	# limiter, the limiter cuts the fuel and the revs bounce against it; let go,
 	# friction and the idle controller bring it back to idle.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	await _tap("shift_down")
 	await _step(roundi(ArcadeCar.SHIFT_TIME * 60.0) + 3)
@@ -1330,7 +1330,7 @@ func _check_drivetrain_dynamics(car: ArcadeCar, rpm_label: Label) -> void:
 	# LAUNCH_RPM on the slipping clutch while the road speed is still nothing,
 	# and the rear wheels run ahead of the road, worked right up to the tyres'
 	# peak, until the car has caught up and the clutch locks.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	var flare_rpm := 0.0
@@ -1367,7 +1367,7 @@ func _check_drivetrain_dynamics(car: ArcadeCar, rpm_label: Label) -> void:
 	# engine is on its own and drifts down on its friction; then the clutch
 	# catches it, dragging it down to the new gear's speed with more torque
 	# than the engine makes, which goes into the car.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	for frame in 600:
@@ -1430,7 +1430,7 @@ func _check_drivetrain_dynamics(car: ArcadeCar, rpm_label: Label) -> void:
 	# roll on.
 	var front_spinner := car.get_node("Wheels/FrontLeft/Spin") as Node3D
 	var rear_spinner := car.get_node("Wheels/RearLeft/Spin") as Node3D
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	var front_turned := 0.0
@@ -1460,7 +1460,7 @@ func _check_drivetrain_dynamics(car: ArcadeCar, rpm_label: Label) -> void:
 
 	_check(stats.finite and stats.max_step < 1.5, "no NaN / inf / teleporting through the drivetrain checks (largest step %.2f m)" % stats.max_step)
 	_check(stats.min_rpm >= ArcadeCar.IDLE_RPM - 1.0 and stats.max_rpm <= ArcadeCar.REDLINE_RPM + 100.0, "RPM stays between idle and the limiter through all of it (%d..%d rpm)" % [stats.min_rpm, stats.max_rpm])
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -1495,7 +1495,7 @@ func _turned_about_x(before: Basis, after: Basis) -> float:
 ## not wander, and a steering jab at speed must settle at once, never getting
 ## near the slip angle where the stability assist lets go.
 func _check_high_speed_stability(car: ArcadeCar) -> void:
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	await _step(900)
@@ -1605,7 +1605,7 @@ func _check_force_dynamics(car: ArcadeCar) -> void:
 
 	# Downforce: at speed the axles carry more than the car weighs, the rear
 	# more so than the front.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	await _step(900)
@@ -1624,7 +1624,7 @@ func _check_force_dynamics(car: ArcadeCar) -> void:
 		carried += (car.front_axle_load + car.rear_axle_load) / DOWNFORCE_AVERAGE_FRAMES
 		expected += ArcadeCar.DOWNFORCE_COEFF * car.forward_speed * car.forward_speed / DOWNFORCE_AVERAGE_FRAMES
 	_check(absf(carried - weight - expected) < DOWNFORCE_TOLERANCE and expected > 0.04 * weight, "downforce adds to the axle loads at speed (+%.0f N at %.0f km/h, the car weighs %.0f N)" % [carried - weight, car.speed_kmh, weight])
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -1632,7 +1632,7 @@ func _check_force_dynamics(car: ArcadeCar) -> void:
 ## brake with the wheels turned, reverse still takes a fresh press, and there
 ## is no step in the steering on the way up through the blend.
 func _check_low_speed_blend(car: ArcadeCar) -> void:
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	for frame in 120:
@@ -1669,7 +1669,7 @@ func _check_low_speed_blend(car: ArcadeCar) -> void:
 
 	# Up through the blend with the steering held: geometry hands over to the
 	# tyres without a step in the yaw rate.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("steer_left")
 	Input.action_press("accelerate")
@@ -1685,7 +1685,7 @@ func _check_low_speed_blend(car: ArcadeCar) -> void:
 	Input.action_release("steer_left")
 	_check(car.forward_speed > ArcadeCar.LOW_SPEED_BLEND_END + 2.0, "accelerated up through the blend and out of it (%.1f m/s)" % car.forward_speed)
 	_check(largest_yaw_step < 0.06 and finite, "no step in the yaw rate on the way through the blend (largest change %.3f rad/s in a tick)" % largest_yaw_step)
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -1826,7 +1826,7 @@ func _check_raw_steering(car: ArcadeCar) -> void:
 
 	# (4) Rolling backwards the wheels stand at the same angle for the same
 	# key: it is the car that answers the other way round, not the steering.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("brake")
 	for frame in 600:
@@ -1848,7 +1848,7 @@ func _check_raw_steering(car: ArcadeCar) -> void:
 	await _step(RAW_STEER_SWAP_FRAMES)
 	_check(car.forward_speed < -1.0 and car.wheel_angle == -lock and car.yaw_rate > 0.05, "... the same with the other key: the wheels point where they are steered, the car answers the other way round (%.2f rad, yaw %.2f rad/s)" % [car.wheel_angle, car.yaw_rate])
 	Input.action_release("steer_right")
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -1901,6 +1901,7 @@ func _check_course(pad: TestPad, car: ArcadeCar) -> void:
 	var cone := slalom[0]
 	var spawn := car.get_spawn_transform()
 	car.reset_to(Transform3D(spawn.basis, Vector3(cone.x, spawn.origin.y, cone.z + 40.0)))
+	_fresh_heat(car)
 	pad.reset_cones()
 	await _step(10)
 	Input.action_press("accelerate")
@@ -1921,7 +1922,7 @@ func _check_course(pad: TestPad, car: ArcadeCar) -> void:
 	_check(pad.is_cone_toppled(TestPad.GROUP_SLALOM, cone) and pad.get_toppled_count(TestPad.GROUP_SLALOM) == 1, "the cone it hit topples (and only that one)")
 	pad.reset_cones()
 	_check(pad.get_toppled_count(TestPad.GROUP_SLALOM) == 0, "resetting stands the cones back up")
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -2054,7 +2055,7 @@ func _check_tyre_curve(car: ArcadeCar) -> void:
 ## their mean, the body rides the elevation on its springs.
 func _check_road_feel(pad: TestPad, car: ArcadeCar) -> void:
 	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	# was ArcadeCar.CAR_MASS x gravity, worked out before the reset -> the weight
 	# of the car as the reset leaves it (total_mass(), the tank full): the static
 	# shares are held to the hundredth of a Newton standing (ten ticks of idling
@@ -2111,7 +2112,7 @@ func _check_road_feel(pad: TestPad, car: ArcadeCar) -> void:
 	_check(ground_gap - lowest_gap > RIDE_HEIGHT_MIN_MOTION, "... and really on springs: its height over the ground moves (by %.4f m over the run)" % (ground_gap - lowest_gap))
 	_check(absf(car.global_position.x) < 0.01 and absf(car.global_rotation.y) < 0.001, "bumps and swell do not pull the car off line (x = %.4f m)" % car.global_position.x)
 
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	var reset_clean := true
 	for i in 4:
 		reset_clean = reset_clean and car.wheel_loads[i] == static_loads[i / 2]
@@ -2130,6 +2131,7 @@ func _check_crest(car: ArcadeCar) -> void:
 	var dip := RoadProfile.TEST_DIP_CENTRE
 	var spawn := car.get_spawn_transform()
 	car.reset_to(Transform3D(spawn.basis, Vector3(dip.x, spawn.origin.y, dip.y + CREST_RUN_UP)))
+	_fresh_heat(car)
 	await _step(10)
 	var stats := _new_stats()
 	var lowest: Array[float] = [INF, INF, INF, INF]
@@ -2177,7 +2179,7 @@ func _check_crest(car: ArcadeCar) -> void:
 	_check(least_rise > CREST_MIN_RISE and dip_first, "the bottom of the dip loads every wheel up again, after the dip in load (front left up to %.2f, %.1f m past the middle; least rise %.2f, floor %.2f)" % [highest[0], highest_at[0], least_rise, CREST_MIN_RISE])
 	_check(worst_settled < CREST_SETTLED_TOLERANCE, "past the dip the wheel loads settle back on their baseline (mean off by %.3f at most, limit %.2f)" % [worst_settled, CREST_SETTLED_TOLERANCE])
 	_check(stats.finite and stats.max_step < 1.5, "no NaN / inf / teleporting through the dip (largest step %.2f m)" % stats.max_step)
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -2195,6 +2197,7 @@ func _check_suspension(pad: TestPad, car: ArcadeCar) -> void:
 	# its springs and bounces. Half a period between the first two turning
 	# points of its height.
 	car.reset_to(Transform3D(spawn.basis, spawn.origin + Vector3.UP * SUSPENSION_DROP_HEIGHT))
+	_fresh_heat(car)
 	var turning_frames: Array[int] = []
 	var speed_before := 0.0
 	var lowest_load := INF
@@ -2224,7 +2227,7 @@ func _check_suspension(pad: TestPad, car: ArcadeCar) -> void:
 	_check(dive_statics > 1000.0 and absf(dive_moved - dive_statics) < SUSPENSION_STATICS_TOLERANCE * dive_statics, "... and the weight that moves onto the front axle comes out of the springs as statics has it (%.0f N, acceleration x mass x CG height / wheelbase says %.0f)" % [dive_moved, dive_statics])
 
 	# Squat: a launch pitches the nose up.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	await _drive(car, SUSPENSION_SETTLE_IN_FRAMES, stats)
@@ -2259,7 +2262,7 @@ func _check_suspension(pad: TestPad, car: ArcadeCar) -> void:
 	_check(most_travel < ArcadeCar.SUSPENSION_TRAVEL, "full braking, a launch and a corner all stay inside the suspension's travel (%.1f cm of %.0f)" % [most_travel * 100.0, ArcadeCar.SUSPENSION_TRAVEL * 100.0])
 	_check(stats.finite and stats.max_step < 1.5, "no NaN / inf / teleporting through the suspension checks (largest step %.2f m)" % stats.max_step)
 
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	_check(car.pitch_rate == 0.0 and car.roll_rate == 0.0 and car.velocity.y == 0.0 and _largest_travel(car) == 0.0 and absf(body.rotation.z - car.body_roll) < 0.00001 and absf(car.body_pitch) < 0.005 and absf(car.body_roll) < 0.005, "reset stands the body at rest on the road, in the plane of its four wheels (pitch %.5f, roll %.5f rad)" % [car.body_pitch, car.body_roll])
 	await _step(5)
 
@@ -2422,7 +2425,7 @@ func _check_run_clock(pad: TestPad, car: ArcadeCar) -> void:
 			"%s: crossing the line a second time does not start the clock anew (%.3f s)" % [label, run.run_time()],
 		)
 		run.abort()
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	pad.reset_cones()
 
 
@@ -2463,7 +2466,7 @@ func _check_mirrored_spin(pad: TestPad, car: ArcadeCar) -> void:
 ## set_driver_input asks the driver for the same things the keys do, and the
 ## HUD's two bars show the pedals.
 func _check_pedals(car: ArcadeCar, hud: HUD) -> void:
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(20)
 	_check(car.driver_profile == ArcadeCar.DRIVER_PROFILES["test_driver"], "pedals: the test driver is in the seat unless somebody else is put there")
 	_check(car.throttle_pedal == 0.0 and car.brake_pedal == 0.0, "pedals: both at rest with no key down (throttle %.2f, brake %.2f)" % [car.throttle_pedal, car.brake_pedal])
@@ -2474,7 +2477,7 @@ func _check_pedals(car: ArcadeCar, hud: HUD) -> void:
 	_check(tap.end_throttle == 0.0 and tap.peak_brake == 0.0, "pedals: the tap comes back to nothing, the brake never moved (throttle %.2f, brake peak %.2f)" % [tap.end_throttle, tap.peak_brake])
 
 	# A held key: up to the floor, tick by tick, and exactly there.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(20)
 	var hold := await _press_and_watch(car, "accelerate", PEDAL_HOLD_FRAMES, PEDAL_RELEASE_FRAMES)
 	_check(hold.peak_throttle == 1.0 and hold.rising, "pedals: a held accelerate key reaches full throttle, never easing on the way (1.0 after %d ticks)" % hold.ticks_to_full)
@@ -2489,7 +2492,7 @@ func _check_pedals(car: ArcadeCar, hud: HUD) -> void:
 
 	# Another driver, other feet: the chauffeur's take longer to the floor.
 	car.set_driver_profile(ArcadeCar.DRIVER_PROFILES["chauffeur"])
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(20)
 	var chauffeur := await _press_and_watch(car, "accelerate", PEDAL_HOLD_FRAMES, PEDAL_RELEASE_FRAMES)
 	_check(chauffeur.peak_throttle == 1.0 and chauffeur.ticks_to_full >= hold.ticks_to_full * PEDAL_PROFILE_MIN_RATIO, "pedals: the chauffeur profile presses the throttle measurably slower (%d ticks to the floor, the test driver %d)" % [chauffeur.ticks_to_full, hold.ticks_to_full])
@@ -2501,14 +2504,14 @@ func _check_pedals(car: ArcadeCar, hud: HUD) -> void:
 
 	# The same launch twice: by the key, and through set_driver_input with no
 	# key down. One driver either way, so the same car to the last bit.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(20)
 	Input.action_press("accelerate")
 	await _step(DRIVER_INPUT_LAUNCH_FRAMES)
 	Input.action_release("accelerate")
 	var key_speed := car.forward_speed
 	var key_z := car.global_position.z
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(20)
 	var keys_up := true
 	for action: String in ["accelerate", "brake", "steer_left", "steer_right", "handbrake"]:
@@ -2563,7 +2566,7 @@ func _check_pedals(car: ArcadeCar, hud: HUD) -> void:
 	_check(not throttle_bar.visible and is_finite(throttle_bar.scale.y), "HUD: NaN is an empty bar")
 	await _step(2)
 	_check(not throttle_bar.visible and not brake_bar.visible, "HUD: the bars are the car's pedals again the next tick (both empty, no key down)")
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -2571,7 +2574,7 @@ func _check_pedals(car: ArcadeCar, hud: HUD) -> void:
 func _check_fuel_and_exhaust(car: ArcadeCar, hud: HUD) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	var capacity := ArcadeCar.FUEL_TANK_CAPACITY_L
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	_check(car.fuel_l == capacity and car.fuel_fraction() == 1.0, "fuel: a reset car has a full tank (%.1f L of %.0f)" % [car.fuel_l, capacity])
 
 	# Idling: a little fuel, three firings for every turn of the crankshaft.
@@ -2647,7 +2650,7 @@ func _check_fuel_and_exhaust(car: ArcadeCar, hud: HUD) -> void:
 
 	# Dry: the engine runs down and stays down, throttle or not; nothing goes
 	# negative or NaN; a reset fills the tank and the engine idles again.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car.fuel_l = 0.0
 	await _step(FUEL_DRY_RUN_DOWN_FRAMES)
 	var ran_down := car.engine_rpm
@@ -2662,9 +2665,10 @@ func _check_fuel_and_exhaust(car: ArcadeCar, hud: HUD) -> void:
 	_check(not fuel_bar.visible, "HUD: the fuel bar is empty with the tank")
 	var spawn := car.get_spawn_transform()
 	car.reset_to(spawn)
+	_fresh_heat(car)
 	var refilled := car.fuel_l == capacity and car.exhaust_events == 0.0
 	car.fuel_l = 1.0
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	_check(refilled and car.fuel_fraction() > 0.9999 and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < 1.0 and car.exhaust_events > 0.0, "fuel: reset_to and reset_to_spawn fill the tank, and the engine idles again (%.4f of a tank, %.0f rpm)" % [car.fuel_fraction(), car.engine_rpm])
 
@@ -2703,7 +2707,7 @@ func _check_car_config() -> void:
 ## The one mass of the car: fuel and payload are in it.
 func _check_mass_and_payload(pad: TestPad, car: ArcadeCar) -> void:
 	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	var full_tank := ArcadeCar.FUEL_TANK_CAPACITY_L * ArcadeCar.FUEL_DENSITY
 	_check(is_equal_approx(car.total_mass(), ArcadeCar.KERB_MASS) and is_equal_approx(car.fuel_mass, full_tank) and car.payload_mass == 0.0, "mass: on a full tank, nothing loaded, the car weighs its kerb mass (%.2f kg, %.2f of it fuel)" % [car.total_mass(), car.fuel_mass])
 
@@ -2721,7 +2725,7 @@ func _check_mass_and_payload(pad: TestPad, car: ArcadeCar) -> void:
 
 	# Loaded: heavier, level on its springs, every wheel carrying its share, and
 	# slower over the same 5 s.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car.payload_mass = PAYLOAD_KG
 	await _step(20)
 	var weight := car.total_mass() * gravity
@@ -2741,7 +2745,7 @@ func _check_mass_and_payload(pad: TestPad, car: ArcadeCar) -> void:
 	car.payload_mass = NAN
 	_check(never_negative and car.payload_mass == 0.0 and is_finite(car.total_mass()), "payload: never negative, NaN is nothing loaded")
 	car.payload_mass = PAYLOAD_KG
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	_check(car.payload_mass == 0.0 and is_equal_approx(car.total_mass(), ArcadeCar.KERB_MASS), "payload: a reset unloads the car (%.2f kg)" % car.total_mass())
 
 	# A test's payload_kg is loaded at its start; a test without one runs empty.
@@ -2756,7 +2760,7 @@ func _check_mass_and_payload(pad: TestPad, car: ArcadeCar) -> void:
 	var empty_run := HandlingTests.begin(HandlingTests.stop_box_test(), car, pad, false)
 	_check(loaded == 40.0 and car.payload_mass == 0.0 and certified_empty, "payload: a test's payload_kg is on board from its start (%.0f kg), the next test starts empty, no certified test carries any" % loaded)
 	empty_run.abort()
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -2764,7 +2768,7 @@ func _check_mass_and_payload(pad: TestPad, car: ArcadeCar) -> void:
 func _check_creep(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	# A car nobody has touched stands where it was put.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	var start := car.global_position
 	await _step(CREEP_UNTOUCHED_FRAMES)
 	_check(absf(car.forward_speed) < 0.01 and car.global_position.distance_to(start) < 0.01, "creep: a car nobody has touched stands still (%.3f m/s after %.0f s)" % [car.forward_speed, CREEP_UNTOUCHED_FRAMES * tick])
@@ -2819,13 +2823,13 @@ func _check_creep(car: ArcadeCar) -> void:
 	_check(car.reverse_engaged and car.forward_speed < 0.0, "creep: the brake pressed anew selects reverse from the crawl as from rest (%.1f m/s)" % car.forward_speed)
 
 	# Manual: the same stop, the same release, and the car stands.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car.automatic = false
 	stopped = await _brake_to_a_stop(car)
 	Input.action_release("brake")
 	await _step(CREEP_UNTOUCHED_FRAMES)
 	_check(stopped and not car.automatic and car.gear == 1 and absf(car.forward_speed) < 0.01, "creep: none in manual mode (%.3f m/s, %.0f s after the brake was let go in 1st)" % [car.forward_speed, CREEP_UNTOUCHED_FRAMES * tick])
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -2840,7 +2844,7 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 
 	# (1) The switches: on, on and sport unless somebody flips them, a key each,
 	# a lamp for each aid, and a reset leaves them alone.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	_check(car.tcs_on and car.abs_on and car.gearbox_mode == ArcadeCar.GearboxMode.SPORT and car.engine_running and car.clutch_pedal == 0.0, "controls: the car starts with TCS and ABS on, in the sport program, the engine running, the clutch pedal up")
 	_check(tcs_lamp != null and abs_lamp != null and tcs_lamp.text == "TCS" and abs_lamp.text == "ABS" and tcs_lamp.get_theme_color("font_color") == HUD.AID_ON_COLOR, "controls: the HUD's two aid lamps are quiet while the aids are on ('%s', '%s', dim)" % [tcs_lamp.text if tcs_lamp else "?", abs_lamp.text if abs_lamp else "?"])
@@ -2850,7 +2854,7 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 	await _step(2)
 	_check(not car.tcs_on and not car.abs_on and car.gearbox_mode == ArcadeCar.GearboxMode.COMFORT, "controls: the TCS, ABS and gearbox mode keys flip their switches (TCS %s, ABS %s, comfort %s)" % [car.tcs_on, car.abs_on, car.gearbox_mode == ArcadeCar.GearboxMode.COMFORT])
 	_check(tcs_lamp.text == "TCS OFF" and abs_lamp.text == "ABS OFF" and abs_lamp.get_theme_color("font_color") == HUD.AID_OFF_COLOR and rpm_label.text.ends_with("G1 comfort"), "controls: the lamps light up and say OFF, the tach names the comfort program ('%s', '%s', '%s')" % [tcs_lamp.text, abs_lamp.text, rpm_label.text])
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	_check(not car.tcs_on and not car.abs_on and car.gearbox_mode == ArcadeCar.GearboxMode.COMFORT and car.automatic, "controls: a reset leaves the switches as the driver has them (it puts the car back, not the dashboard)")
 	_check(car.driver_profile == ArcadeCar.DRIVER_PROFILES["comfort_driver"] and car.driver_profile.throttle_attack == 4.5 and car.driver_profile.brake_attack == 5.0, "controls: the gearbox mode key seated the comfort driver with the program, and the reset left them in the seat (throttle attack %.1f / s, brake %.1f / s)" % [car.driver_profile.throttle_attack, car.driver_profile.brake_attack])
@@ -2865,13 +2869,13 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 	# stood.
 	_check(car.gearbox_mode == ArcadeCar.GearboxMode.ECO and rpm_label.text.ends_with("G1 eco"), "controls: the second press of the gearbox mode key is the eco program, and the tach names it ('%s')" % rpm_label.text)
 	_check(car.driver_profile == ArcadeCar.DRIVER_PROFILES["eco_driver"] and car.driver_profile.throttle_attack == 3.5 and car.driver_profile.brake_attack == 4.5, "controls: ... with the eco driver in the seat (throttle attack %.1f / s, brake %.1f / s)" % [car.driver_profile.throttle_attack, car.driver_profile.brake_attack])
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	_check(car.gearbox_mode == ArcadeCar.GearboxMode.ECO and car.driver_profile == ArcadeCar.DRIVER_PROFILES["eco_driver"] and rpm_label.text.ends_with("G1 eco"), "controls: eco and its driver are still there after a reset ('%s')" % rpm_label.text)
 	# A driver seated by hand has the seat until the key is pressed again: not
 	# a reset, not a program set from code puts the program's own driver back.
 	car.set_driver_profile(ArcadeCar.DRIVER_PROFILES["chauffeur"])
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car.gearbox_mode = ArcadeCar.GearboxMode.COMFORT
 	await _step(5)
 	var by_hand_kept: bool = car.driver_profile == ArcadeCar.DRIVER_PROFILES["chauffeur"]
@@ -2915,7 +2919,7 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 
 	# (4) The clutch pedal: manual mode, the left foot. Held, the clutch is open
 	# whatever the throttle does; let go on a revving engine it is a dump.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car.automatic = false
 	await _step(5)
 	Input.action_press("clutch_pedal")
@@ -2942,7 +2946,7 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 		in_range = in_range and car.clutch_pedal >= 0.0 and car.clutch_pedal <= 1.0
 	Input.action_release("accelerate")
 	_check(car.tcs_on and dump_slip > without_tcs.peak_slip and car.forward_speed > 5.0 and car.engine_running and dump_finite, "controls: let go at the limiter it is a clutch dump, TCS or not: the driver's foot wins over the car's feathering (peak slip ratio %.1f, %.1f m/s after %.0f s)" % [dump_slip, car.forward_speed, CONTROLS_LAUNCH_FRAMES * tick])
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	Input.action_press("clutch_pedal")
 	await _step(CONTROLS_CLUTCH_FRAMES)
@@ -2958,7 +2962,7 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 	# (5) The stall: the pedal let go on an idling engine with the throttle only
 	# just going down. The clutch is in before the revs are up and drags the
 	# engine under STALL_RPM. Nothing burns, nothing fires, the tach falls to 0.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car.automatic = false
 	await _step(5)
 	Input.action_press("clutch_pedal")
@@ -3029,7 +3033,7 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 	car.fuel_l = 0.0
 	await _step(FUEL_DRY_RUN_DOWN_FRAMES)
 	var dead := not car.engine_running
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(CONTROLS_STALLED_FRAMES)
 	_check(dead and car.engine_running and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < CONTROLS_IDLE_TOLERANCE, "controls: a reset starts a stopped engine: the car is put there ready to drive (%d rpm)" % car.engine_rpm)
 
@@ -3049,7 +3053,7 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 	await _tap("shift_up")
 	await _step(roundi(ArcadeCar.SHIFT_TIME * 60.0) + 3)
 	_check(car.gear == 0 and not car.reverse_engaged and rpm_label.text.ends_with("N M"), "controls: shift-up out of reverse is neutral ('%s', still rolling back at %.1f m/s)" % [rpm_label.text, car.forward_speed])
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	Input.action_press("accelerate")
 	await _step(CREEP_RUN_UP_FRAMES)
@@ -3114,7 +3118,7 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 	# of the pedal under the comfort driver's and the eco driver's.
 	var taps := {}
 	for who: String in ["test_driver", "comfort_driver", "eco_driver"]:
-		car.reset_to_spawn()
+		_reset_fresh(car)
 		car.set_driver_profile(ArcadeCar.DRIVER_PROFILES[who])
 		await _step(10)
 		taps[who] = await _press_and_watch(car, "accelerate", CONTROLS_FOOT_TAP_FRAMES, PEDAL_RELEASE_FRAMES)
@@ -3176,7 +3180,7 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 	if _check(recorder != null and not recorder.recording, "controls: the telemetry recorder is there and idle"):
 		if FileAccess.file_exists(_controls_telemetry_file):
 			DirAccess.remove_absolute(_controls_telemetry_file)
-		car.reset_to_spawn()
+		_reset_fresh(car)
 		await _step(5)
 		recorder.record_to_file(_controls_telemetry_file)
 		car.set_driver_input(0.5, 0.0, 0.0)
@@ -3200,7 +3204,7 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 		_check(samples >= 3 and throttle_was == 0.5 and absf(brake_was - 0.5) < 0.001 and absf(peak_throttle - 0.5) < 0.001 and absf(peak_brake - 0.5) < 0.001 and not Input.is_action_pressed("accelerate"), "controls: the telemetry's throttle and brake are the pedals: half a pedal with no key down reads %.3f and %.3f (%d samples)" % [peak_throttle, peak_brake, samples])
 
 	_check(in_range and car.clutch_pedal == 0.0 and car.tcs_on and car.abs_on, "controls: the clutch pedal stayed inside 0..1 throughout, and the aids are back on")
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -3208,7 +3212,7 @@ func _check_driver_controls(main: Node, car: ArcadeCar) -> void:
 ## the driven rears, the speed at the end, when the clutch locked [s], the rev
 ## range, whether the engine was still running and everything stayed finite.
 func _controls_launch(car: ArcadeCar) -> Dictionary:
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	var seen := {"peak_slip": 0.0, "speed": 0.0, "locked_at": -1.0, "min_rpm": INF, "max_rpm": 0.0, "running": true, "finite": true}
 	Input.action_press("accelerate")
@@ -3278,7 +3282,7 @@ func _controls_stop(car: ArcadeCar, steer_left: float) -> Dictionary:
 ## never did), the gear and speed at the end, the highest engine speed seen.
 ## Leaves the car on the sport program.
 func _controls_shift_program(car: ArcadeCar, mode: ArcadeCar.GearboxMode, automatic: bool) -> Dictionary:
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car.gearbox_mode = mode
 	car.automatic = automatic
 	await _step(10)
@@ -3306,7 +3310,7 @@ func _controls_shift_program(car: ArcadeCar, mode: ArcadeCar.GearboxMode, automa
 ## was given, the speed at the end, whether everything stayed finite and the
 ## throttle inside 0..1. Leaves the car on sport, automatic, on the keys.
 func _controls_pedal_in_program(car: ArcadeCar, mode: ArcadeCar.GearboxMode, automatic: bool, asked: float) -> Dictionary:
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car.gearbox_mode = mode
 	car.automatic = automatic
 	await _step(10)
@@ -3328,7 +3332,7 @@ func _controls_pedal_in_program(car: ArcadeCar, mode: ArcadeCar.GearboxMode, aut
 ## the end, the rev range, whether the car got there, the engine still running
 ## and everything finite. Leaves the car on sport.
 func _controls_trip(car: ArcadeCar, mode: ArcadeCar.GearboxMode) -> Dictionary:
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car.gearbox_mode = mode
 	await _step(10)
 	var seen := {"fuel_l": 0.0, "ticks": 0, "gear": 0, "min_rpm": INF, "peak_rpm": 0.0, "arrived": false, "running": true, "finite": true}
@@ -3358,7 +3362,7 @@ func _controls_trip(car: ArcadeCar, mode: ArcadeCar.GearboxMode) -> Dictionary:
 ## open and the clutch locked, whether the engine ran throughout and everything
 ## stayed finite. Leaves the car on sport.
 func _controls_eco_cycle(car: ArcadeCar) -> Dictionary:
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car.gearbox_mode = ArcadeCar.GearboxMode.ECO
 	await _step(10)
 	var seen := {"upshifts": 0, "downshifts": 0, "soonest_downshift": 1000000, "min_rpm": INF, "lowest_gear_under_load_rpm": INF, "running": true, "finite": true}
@@ -3473,7 +3477,7 @@ func _check_telemetry(main: Node, car: ArcadeCar) -> void:
 	DirAccess.make_dir_recursive_absolute(_telemetry_dir)
 	if FileAccess.file_exists(_telemetry_file):
 		DirAccess.remove_absolute(_telemetry_file)
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	recorder.record_to_file(_telemetry_file)
 	# was: "... records to the fixed tmp file (/tmp/fd-3E-telemetry/smoke.jsonl)" ->
@@ -3497,7 +3501,7 @@ func _check_telemetry(main: Node, car: ArcadeCar) -> void:
 	manager.abort_mission()
 	await _step(2)
 	_check(not recorder.recording, "aborting the run closes the file and ends the recording")
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	(main.get_node("TestPad") as TestPad).reset_cones()
 
 	# Read it back.
@@ -3631,7 +3635,7 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 	)
 	_check(material != null and material.vertex_color_use_as_albedo and material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA, "marks: the material takes colour and alpha per mark (vertex colour as albedo, alpha blended)")
 	_check(TyreMarks.MARK_LIFETIME >= 20.0 and TyreMarks.MARK_LIFETIME <= 40.0, "marks: a mark lives 20..40 s (%.0f s)" % TyreMarks.MARK_LIFETIME)
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	_check(marks.mark_count == 0 and _marks_empty_places(marks) == TyreMarks.MAX_MARKS, "marks: nothing on the pad after a reset (%d marks, %d of %d places empty)" % [marks.mark_count, _marks_empty_places(marks), TyreMarks.MAX_MARKS])
 	_check(
@@ -3770,11 +3774,12 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 	# (6) A reset clears the marks: reset_to_spawn, reset_to and the key alike.
 	marks.lay_mark(Vector3(5.0, 0.0, 5.0), Vector3(5.5, 0.0, 5.0))
 	var before_reset := marks.mark_count
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(2)
 	var after_spawn_reset := marks.mark_count
 	marks.lay_mark(Vector3(5.0, 0.0, 5.0), Vector3(5.5, 0.0, 5.0))
 	car.reset_to(car.get_spawn_transform().translated(Vector3(3.0, 0.0, 0.0)))
+	_fresh_heat(car)
 	await _step(2)
 	var after_reset_to := marks.mark_count
 	marks.lay_mark(Vector3(5.0, 0.0, 5.0), Vector3(5.5, 0.0, 5.0))
@@ -3788,7 +3793,7 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 	# marks are, end to end, the way the car went on spinning rears, twice (two
 	# wheels), in the two rear wheel tracks.
 	car.tcs_on = false
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	var spin := await _marks_watch(car, CONTROLS_LAUNCH_FRAMES, false)
@@ -3826,7 +3831,7 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 
 	# (9) The pool is bounded: one mark more than it holds goes where the oldest
 	# was, and the count stands.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(2)
 	for i in TyreMarks.MAX_MARKS:
 		marks.lay_mark(Vector3(i, 0.0, 50.0), Vector3(i + 0.5, 0.0, 50.0))
@@ -3848,7 +3853,7 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 
 	# (10) The end of the fade frees the place: three marks, a fourth
 	# MARKS_LATE_FRAMES later, and physics time to the early ones' lifetime.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(2)
 	for i in 3:
 		marks.lay_mark(Vector3(i, 0.0, 50.0), Vector3(i + 0.5, 0.0, 50.0))
@@ -3897,7 +3902,7 @@ func _check_tyre_marks(main: Node, car: ArcadeCar) -> void:
 	)
 
 	_check(finite and _marks_finite(marks), "marks: no NaN / inf in any mark's transform, age or severity throughout")
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(2)
 
 
@@ -4028,7 +4033,7 @@ func _check_stability_switch(main: Node, car: ArcadeCar) -> void:
 	var sc_lamp := main.get_node_or_null("HUD/ScLamp") as Label
 	var abs_lamp := main.get_node_or_null("HUD/AbsLamp") as Label
 	var tcs_lamp := main.get_node_or_null("HUD/TcsLamp") as Label
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	_check(InputMap.has_action("sc_toggle") and car.sc_on, "stability: the car starts with the stability assist on, and there is a key for it")
 	if not _check(sc_lamp != null and sc_lamp.text == "SC" and sc_lamp.get_theme_color("font_color") == HUD.AID_ON_COLOR, "stability: the HUD's third aid lamp is quiet while the assist is on ('%s', dim)" % (sc_lamp.text if sc_lamp else "?")):
@@ -4054,7 +4059,7 @@ func _check_stability_switch(main: Node, car: ArcadeCar) -> void:
 		damping_on == ArcadeCar.SLIDE_YAW_DAMPING and damping_on_reverse == ArcadeCar.SPIN_YAW_DAMPING and damping_off == 0.0 and damping_off_slow == 0.0 and damping_off_sideways == 0.0 and damping_off_reverse == 0.0,
 		"stability: switched off, the assist has no strength on any branch - rolling straight %.1f -> %.1f 1/s, and none at a crawl, sideways or in reverse (%.1f with it on)" % [damping_on, damping_off, damping_on_reverse],
 	)
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	_check(not car.sc_on and not car.reverse_engaged and sc_lamp.text == "SC OFF", "stability: a reset leaves the switch as the driver has it (SC %s, '%s')" % [car.sc_on, sc_lamp.text])
 
@@ -4078,7 +4083,7 @@ func _check_stability_switch(main: Node, car: ArcadeCar) -> void:
 	# The low-speed blend is numerics, not an aid: with the assist off a car
 	# creeping round at full lock is still eased onto its rolling circle.
 	car.sc_on = false
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	await _brake_to_a_stop(car)
 	await _step(CREEP_HOLD_FRAMES)
@@ -4094,7 +4099,7 @@ func _check_stability_switch(main: Node, car: ArcadeCar) -> void:
 		creep_speed > 0.1 and creep_speed < ArcadeCar.LOW_SPEED_BLEND_END and rolling_yaw_rate > 0.0 and absf(creep_yaw_rate - rolling_yaw_rate) < rolling_yaw_rate * SC_ROLLING_TOLERANCE,
 		"stability: the low-speed blend has no switch - assist off, creeping at %.2f m/s on full lock the car turns at %.4f rad/s, its rolling circle's %.4f" % [creep_speed, creep_yaw_rate, rolling_yaw_rate],
 	)
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	_check(car.sc_on and sc_lamp.text == "SC", "stability: switched back on, the lamp is quiet again ('%s')" % sc_lamp.text)
 
@@ -4110,7 +4115,7 @@ func _check_starter_cycle(main: Node, car: ArcadeCar) -> void:
 
 	# (1) Stalled as the controls phase stalls it (the clutch pedal let go on an
 	# idling engine), fuel in the tank: one tap, a tick long, and hands off.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car.automatic = false
 	await _step(5)
 	Input.action_press("clutch_pedal")
@@ -4189,7 +4194,7 @@ func _check_starter_cycle(main: Node, car: ArcadeCar) -> void:
 	await _step(CONTROLS_STALLED_FRAMES)
 	await _tap("starter")
 	var mid_cycle := car.cranking()
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(CONTROLS_STALLED_FRAMES)
 	_check(mid_cycle and car.engine_running and not car.cranking() and car._crank_timer == 0.0 and absf(car.engine_rpm - ArcadeCar.IDLE_RPM) < CONTROLS_IDLE_TOLERANCE, "starter: a reset in the middle of a cycle starts the engine as ever and ends the cycle (%d rpm)" % car.engine_rpm)
 
@@ -4201,7 +4206,7 @@ func _check_wheel_strobe(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	var front_spinner := car.get_node("Wheels/FrontLeft/Spin") as Node3D
 	var rear_spinner := car.get_node("Wheels/RearRight/Spin") as Node3D
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	for frame in STROBE_RUN_UP_FRAMES:
@@ -4229,7 +4234,7 @@ func _check_wheel_strobe(car: ArcadeCar) -> void:
 	_check(ArcadeCar.WHEEL_DRAW_PERIOD == PI and slowest_omega * tick > ArcadeCar.WHEEL_DRAW_PERIOD * 0.5 and slowest_omega * tick < ArcadeCar.WHEEL_DRAW_PERIOD, "strobe: at %.0f km/h the wheels turn more than a quarter turn a tick (%.1f rad/s, %.2f rad a tick; the bar across the rim looks the same every half turn)" % [car.speed_kmh, slowest_omega, slowest_omega * tick])
 	_check(largest_step <= ArcadeCar.WHEEL_DRAW_PERIOD * 0.5 + 0.0001 and worst_residual < 0.0001, "strobe: they are drawn the real step less a half turn, never more than a quarter turn a tick (%.3f rad at most, %.6f rad off the real picture)" % [largest_step, worst_residual])
 	_check(backwards, "strobe: ... which is a wheel turning backwards, every tick: the wagon-wheel effect (was a cap of 100 rad/s on the drawn spin, 95 degrees a tick and a shimmer at any speed over 122 km/h)")
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -4243,7 +4248,7 @@ func _check_odometer(main: Node, car: ArcadeCar) -> void:
 
 	# (1) Flat out and back to a stop, dead straight: the odometer's gain is the
 	# way the car went tick by tick, and the distance between the two ends.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	var start := car.global_position
 	var before := car.odometer_m
@@ -4265,9 +4270,10 @@ func _check_odometer(main: Node, car: ArcadeCar) -> void:
 	# (2) A reset is not driven: the jump back to the start is not on it, the
 	# metres stay; nor is a jump to anywhere else.
 	before = car.odometer_m
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	var after_spawn_reset := car.odometer_m
 	car.reset_to(car.get_spawn_transform().translated(Vector3(30.0, 0.0, -40.0)))
+	_fresh_heat(car)
 	var after_reset_to := car.odometer_m
 	await _step(60)
 	var at_rest := car.odometer_m - before
@@ -4307,7 +4313,7 @@ func _check_odometer(main: Node, car: ArcadeCar) -> void:
 
 	# (5) A way that is not a number is no way: the place the odometer counts
 	# from made NaN for a tick, it stands, and counts on from the tick after.
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	Input.action_press("accelerate")
 	await _step(60)
@@ -4388,7 +4394,7 @@ func _check_odometer(main: Node, car: ArcadeCar) -> void:
 	var kept: bool = stored is Dictionary and stored.get("version") == 1.0 and stored.get("garage") == "4A" and stored["cars"][ArcadeCar.CAR_ID].get("paint") == "red" and stored["cars"][ArcadeCar.CAR_ID].get("odometer_m") == 250.25 and stored["cars"].has("bad_car")
 	_check(loaded == 100.5 and negative == 0.0 and kept, "odometer: a save touches its car's metres and nothing else in the file (version 1, the garage's own fields and the other cars as they were; a negative odometer reads 0)")
 	DirAccess.remove_absolute(_odometer_test_file)
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 
 
@@ -4460,7 +4466,7 @@ func _check_fuel_store(hud: HUD, car: ArcadeCar) -> void:
 	# verb it always was - without a word to the file.
 	OdometerStore.save_car(ArcadeCar.CAR_ID, 1000.0, FUEL_STORE_LOW_LEVEL, _odometer_test_file)
 	var file_before := FileAccess.get_file_as_string(_odometer_test_file)
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car._load_stored_fuel(_odometer_test_file)
 	var loaded_l := car.fuel_l
 	var loaded_mass := car.fuel_mass
@@ -4469,7 +4475,7 @@ func _check_fuel_store(hud: HUD, car: ArcadeCar) -> void:
 	var red := fuel_bar.visible and fuel_bar.color == HUD.FUEL_LOW_COLOR and is_equal_approx(fuel_bar.scale.x, car.fuel_fraction())
 	var burning := car.fuel_l < loaded_l and car.fuel_l > loaded_l - 0.01 and car.engine_running
 	var weighs := is_equal_approx(car.total_mass(), ArcadeCar.BASE_MASS + car.fuel_l * ArcadeCar.FUEL_DENSITY)
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	_check(
 		loaded_l == FUEL_STORE_LOW_LEVEL and loaded_mass == FUEL_STORE_LOW_LEVEL * ArcadeCar.FUEL_DENSITY and red and burning and weighs
 			and car.fuel_l == capacity and FileAccess.get_file_as_string(_odometer_test_file) == file_before and not car._odometer_kept,
@@ -4582,14 +4588,14 @@ func _check_driver_store(camera: Camera3D, car: ArcadeCar) -> void:
 	# and leaves every other setting standing, without a word to the file.
 	OdometerStore.save_car(ArcadeCar.CAR_ID, 1000.0, FUEL_STORE_LOW_LEVEL, _odometer_test_file, DRIVER_STORE_SETTINGS)
 	var file_before := FileAccess.get_file_as_string(_odometer_test_file)
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car._load_stored_driver(_odometer_test_file)
 	await _step(5)
 	var loaded_view: int = car.camera_view
 	var seated: bool = car.driver_profile == ArcadeCar.DRIVER_PROFILES[ArcadeCar.MODE_DRIVERS[ArcadeCar.GearboxMode.ECO]]
 	var comes_up_in: String = camera.MODE_NAMES[camera._stored_mode()]
 	var loaded := car.driver_settings()
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(5)
 	var kept := true
 	for field: String in OdometerStore.DRIVER_DEFAULTS:
@@ -4641,7 +4647,7 @@ func _odometer_watch(car: ArcadeCar, frames: int, until_rest: bool) -> Dictionar
 # the rears at their ABS limit, honestly so). The checks that start from here
 # are about ~60 km/h in 2nd, so that is what the driver delivers.
 func _get_up_to_speed(car: ArcadeCar) -> void:
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	for frame in 600:
@@ -4735,7 +4741,7 @@ func _check_handbrake_release(car: ArcadeCar) -> void:
 	# see the launch and stall checks in _check_driver_controls.)
 	for action: String in ["accelerate", "brake", "steer_left", "steer_right", "handbrake", "clutch_pedal"]:
 		Input.action_release(action)
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	car.automatic = false
 	await _step(10)
 	Input.action_press("handbrake")
@@ -4757,7 +4763,7 @@ func _check_handbrake_release(car: ArcadeCar) -> void:
 	)
 	Input.action_release("handbrake")
 	car.automatic = true
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 
 
@@ -4765,7 +4771,7 @@ func _check_handbrake_release(car: ArcadeCar) -> void:
 func _handbrake_entry(car: ArcadeCar) -> void:
 	for action: String in ["accelerate", "brake", "steer_left", "steer_right", "handbrake", "clutch_pedal"]:
 		Input.action_release(action)
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	for frame in 600:
@@ -4950,7 +4956,7 @@ func _turn_in_trace(car: ArcadeCar, entry_speed: float) -> Dictionary:
 ## Full throttle from rest for 2 s on `layout`; returns the speed reached and
 ## the load on the driven axle at the end.
 func _launch(car: ArcadeCar, layout: ArcadeCar.DrivenWheels) -> Dictionary:
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	car.driven_wheels = layout
 	Input.action_press("accelerate")
@@ -4966,7 +4972,7 @@ func _launch(car: ArcadeCar, layout: ArcadeCar.DrivenWheels) -> Dictionary:
 
 ## Resets the car and accelerates it in a straight line to `speed`, then lifts.
 func _reach_speed(car: ArcadeCar, speed: float) -> void:
-	car.reset_to_spawn()
+	_reset_fresh(car)
 	await _step(10)
 	Input.action_press("accelerate")
 	for frame in 600:
@@ -5039,6 +5045,37 @@ func _drive(car: ArcadeCar, frames: int, stats: Dictionary) -> void:
 		stats.max_rpm = maxf(stats.max_rpm, car.engine_rpm)
 		stats.min_load = minf(stats.min_load, minf(car.front_load_fraction, car.rear_load_fraction))
 		stats.max_load = maxf(stats.max_load, maxf(car.front_load_fraction, car.rear_load_fraction))
+
+
+## A reset and the certified fresh car's thermal state after it: the coolant
+## at operating with the fan off, the tyres at operating, the brakes at the
+## air's, the tick's heat trackers and the idle hunt's phase at 0.
+# was car.reset_to_spawn() alone at every segment's start -> the reset keeps
+# the heat now (the user's report, 2026-09-22 morning: R does not turn back
+# time on temperature), and every segment here was written for the certified
+# fresh car - its numbers to the bit, its two runs of the same corner
+# identical - so the reset that starts a segment is followed by that state,
+# set by hand: what reset_to set until then, and what HandlingTests._start
+# sets for a certified run. The reset checks themselves (the tank, the marks,
+# the odometer) go through the same real reset.
+func _reset_fresh(car: ArcadeCar) -> void:
+	car.reset_to_spawn()
+	_fresh_heat(car)
+
+
+func _fresh_heat(car: ArcadeCar) -> void:
+	car.coolant_temp = 1.0
+	car.coolant_fan_on = false
+	car._combustion_heat_w = 0.0
+	car._idle_wobble_phase = 0.0
+	car.front_tyre_temp = 1.0
+	car.rear_tyre_temp = 1.0
+	car.front_brake_temp = 0.0
+	car.rear_brake_temp = 0.0
+	car._front_tyre_heat_w = 0.0
+	car._rear_tyre_heat_w = 0.0
+	car._front_brake_heat_w = 0.0
+	car._rear_brake_heat_w = 0.0
 
 
 func _step(frames: int) -> void:
