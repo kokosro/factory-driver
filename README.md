@@ -81,6 +81,23 @@ are how you ask for less. Countersteer is wound on the same way, in proportion: 
 slide early, by as much as it needs, because opposite lock is two thirds of a second
 away.
 
+Three things sit between the hands and the wheels besides the rack. The steering is
+power-assisted the way a road car's is, lighter the slower you go: the hands have their
+full speed up to 65 km/h (`STEERING_ASSIST_FULL_SPEED`), so parking is light and quick,
+and from there the wheel gets heavier with speed, easing to 0.6 of the hand speed at
+137 km/h and above (`STEERING_ASSIST_HIGHWAY`: centre to lock in 0.58 s instead of
+0.35, and the same for whoever is driving - the assist multiplies the driver's own
+hands). There is 0.75 degrees of play in the rack at centre (`STEERING_PLAY_DEG`): the
+hands' motion about dead centre goes into the play before the rack moves, adds up (a
+slow steady turn still comes, on the tick it is through) and leaves no standing offset;
+a held key is through it on its first tick, so nothing certified changes. And the front
+wheels hang on bushings: they trail what the rack asks (`rack_angle`) by a lag of
+0.02 s, 0.04 with the front tyres loaded sideways (`STEERING_COMPLIANCE_TAU_MIN` /
+`_MAX`; 2.5 degrees behind the test driver's hands at their fastest), and stand on it
+exactly once close, so a corner held ends on the rigid rack's radius and yaw rate and
+only the turn-in is softer (`wheel_angle` is what the wheels have and what the tyres
+and the drawn wheels use).
+
 - **Drivetrain** - engine, clutch and wheels each turn at their own speed, tied together
   by torque, not by road speed. The engine speed is integrated from its torque against
   `ENGINE_INERTIA`: in neutral (`Q` from 1st) the throttle free-revs it to the limiter,
@@ -623,8 +640,8 @@ spins, the stop box and the reverse 180 - which crosses it tail-first - and a wh
 of its own across the slalom's lane (z = -24), since the slalom starts further down the
 pad. There is one timed window per run: going back over the line and crossing it again
 does not restart the clock, and a run that finishes without ever crossing its line fails.
-The scripted driver is timed the same way, so its certified times (slalom 28.75 s,
-180 15.83 s, 360 18.23 s, stop box 8.67 s, reverse 180 7.70 s) are what the medals are
+The scripted driver is timed the same way, so its certified times (slalom 28.82 s,
+180 15.95 s, 360 18.07 s, stop box 8.72 s, reverse 180 7.72 s) are what the medals are
 set against. The time limit is the one thing still counted from the moment the test
 began, so a run nobody drives still ends by itself.
 <!-- was: one clock from the moment the test began to the end of the run, the 1 - 2 s
