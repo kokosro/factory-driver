@@ -96,6 +96,11 @@ const BRAKE_HOT_FRACTION := 1.0
 const BRAKE_VERY_HOT_FRACTION := 385.0 / 235.0
 const BRAKE_BAR_FULL := 585.0 / 235.0
 
+## The mission banner's letters [px]: their size, and the smallest they
+## shrink to for a headline too wide for the screen (see show_mission_banner).
+const BANNER_FONT_SIZE := 64
+const BANNER_MIN_FONT_SIZE := 40
+
 ## The driver aids' lamps (SC, TCS, ABS): dim while the aid is on, which is how the
 ## car starts and nothing to look at; lit in the fuel bar's amber, with OFF
 ## behind the letters, once it has been switched off.
@@ -396,6 +401,11 @@ func set_mission_line(text: String, color: Color) -> void:
 ## The big banner across the screen (headline in `color`, small print under it).
 func show_mission_banner(headline: String, detail: String, color: Color) -> void:
 	_mission_banner.text = headline
+	# was: 64 px letters whatever the headline ("LESSON ENDED  DRIVE MODES:
+	# SPORT, COMFORT, ECO" 1675 px wide on a 1280 px screen, off both edges)
+	# -> the letters shrink until the headline fits the banner's width, never
+	# under BANNER_MIN_FONT_SIZE (the user's report, 2026-09-22 16:15).
+	_mission_banner.add_theme_font_size_override("font_size", banner_font_size(headline, _mission_banner))
 	_mission_banner.add_theme_color_override("font_color", color)
 	_mission_banner_detail.text = detail
 	_mission_banner.visible = true
@@ -405,6 +415,18 @@ func show_mission_banner(headline: String, detail: String, color: Color) -> void
 func hide_mission_banner() -> void:
 	_mission_banner.visible = false
 	_mission_banner_detail.visible = false
+
+
+## The largest letters, BANNER_FONT_SIZE down to BANNER_MIN_FONT_SIZE two
+## pixels at a time, at which `headline` and its outline fit `banner`'s
+## width: the banner's own font, measured the way the label lays it out.
+static func banner_font_size(headline: String, banner: Label) -> int:
+	var font := banner.get_theme_font("font")
+	var room := banner.size.x - 2.0 * banner.get_theme_constant("outline_size")
+	var size := BANNER_FONT_SIZE
+	while size > BANNER_MIN_FONT_SIZE and font.get_string_size(headline, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x > room:
+		size -= 2
+	return size
 
 
 # =============================================================================
