@@ -37,6 +37,17 @@ extends RefCounted
 ##   "rotation_deg_below"  the same, at most this (for turns to the right),
 ##   "goal_distance_below" distance left to the goal [m]; at most this.
 ## A step with `mark` is the start of the manoeuvre: spin metrics count from it.
+## Besides pressing and releasing keys a step can hold the steering wheel near
+## an angle ("steer_deg", left positive: the steering keys tapped so the wheel
+## hovers within a tick of the hands of it, _hold_steering - "steer_deg": 0.0
+## is the driver steering back to straight and holding it there) until a
+## step presses or releases a steering key or lets go ("steer_free": the
+## hands off the wheel, the caster's).
+# was: a driver straightened up by letting the key go, the hands bringing
+# the wheel back to centre by themselves -> the hands let go turn nothing
+# (ArcadeCar CASTER_RETURN_RATE_MAX: the caster brings the wheel back, on the
+# move only; the user's verdict, 15:24), so every driver steers back
+# actively, the way LicenceExams' drivers hold an angle.
 ##
 ## The spins and the reverse 180 are a manoeuvre and a destination: do the 180
 ## and return to the start, do the 360 and drive on to the goal, do the J-turn
@@ -300,6 +311,8 @@ var _step_index := 0
 var _since_step := 0.0
 var _all_steps_done_at := -1.0
 var _pressed: Dictionary[StringName, bool] = {}
+var _steer_hold := false  # A "steer_deg" step's hold is on (see _hold_steering).
+var _steer_target_deg := 0.0  # ... at this steering wheel angle [degrees, left positive].
 
 var _start_position: Vector3
 var _start_forward: Vector3
@@ -357,13 +370,17 @@ static func slalom_test() -> Dictionary:
 		var lock: StringName = &"steer_left" if left else &"steer_right"
 		var heading_reached := {"rotation_deg": SLALOM_SWING_DEG} if left else {"rotation_deg_below": -SLALOM_SWING_DEG}
 		steps.append({"when": {"travelled": turn_at}, "press": [lock]})
-		steps.append({"when": heading_reached, "release": [lock]})
+		# was "release": [lock], the hands bringing the wheel back by themselves
+		# -> the driver steers back to straight and holds it (the caster alone
+		# would take 1.4 s from full lock at this speed and the next turn-in
+		# is 1.8 s on; the user's verdict, 15:24).
+		steps.append({"when": heading_reached, "steer_deg": 0.0})
 	# Past the last cone: straighten up.
 	var last_left := (cones.size() - 1) % 2 == 0
 	var straighten: StringName = &"steer_right" if last_left else &"steer_left"
 	var straight := {"rotation_deg_below": 0.0} if last_left else {"rotation_deg": 0.0}
 	steps.append({"when": {"travelled": run_in + cones.size() * spacing - SLALOM_STEER_LEAD}, "press": [straighten]})
-	steps.append({"when": straight, "release": [straighten]})
+	steps.append({"when": straight, "steer_deg": 0.0})
 	return {
 		"name": "SLALOM_TEST",
 		"kind": KIND_SLALOM,
@@ -403,6 +420,9 @@ static func slalom_test() -> Dictionary:
 		# 31.0 / 36.0 / 43.0 stay - the steering feel (the power assist, the
 		# rack's play, the bushings; ArcadeCar STEERING_ASSIST_FULL_SPEED) moved
 		# the certified run 28.77 -> 28.82 s at 3781c8a, +0.17 %: +8 % to gold.
+		# 31.0 / 36.0 / 43.0 stay - the caster return and the driver steering
+		# back actively (the user's verdict, 15:24) moved the certified run
+		# 28.82 -> 28.65 s, -0.59 %: +8 % to gold.
 		"gold_time_s": 31.0,
 		"silver_time_s": 36.0,
 		"bronze_time_s": 43.0,
@@ -432,10 +452,12 @@ static func spin_180_test() -> Dictionary:
 		"steps": [
 			{"when": {}, "press": [&"accelerate"]},
 			{"when": {"speed_above": SPIN_180_ENTRY_SPEED}, "release": [&"accelerate"], "press": [&"steer_left", &"handbrake"], "mark": true},
-			# Round and rolling backwards: centre the steering and let the car line
-			# itself up, then hit the brakes. The brake stops the car whichever way
-			# it rolls, and holds it.
-			{"when": {"rotation_deg": SPIN_180_CATCH_DEG}, "release": [&"steer_left"]},
+			# Round and rolling backwards: steer back to straight (the car is
+			# rolling backwards: the caster does nothing there, the hands have
+			# to) and let the car line itself up, then hit the brakes. The
+			# brake stops the car whichever way it rolls, and holds it.
+			# was "release": [&"steer_left"] -> steered back (the user's verdict, 15:24).
+			{"when": {"rotation_deg": SPIN_180_CATCH_DEG}, "steer_deg": 0.0},
 			{"when": {"after": SPIN_180_SETTLE_TIME}, "press": [&"brake"]},
 			# was the end of the script -> stopped, facing the start: off the brakes
 			# and back up the road, a touch of lock to point the nose at the start
@@ -443,7 +465,8 @@ static func spin_180_test() -> Dictionary:
 			# brakes in time to pull up on the start point.
 			{"when": {"speed_below": STOPPED_SPEED}, "release": [&"brake", &"handbrake"], "press": [&"accelerate"]},
 			{"when": {"speed_above": SPIN_180_LINE_UP_SPEED}, "press": [&"steer_right"]},
-			{"when": {"after": SPIN_180_LINE_UP_TAP}, "release": [&"steer_right"]},
+			# was "release": [&"steer_right"] -> steered back (the user's verdict, 15:24).
+			{"when": {"after": SPIN_180_LINE_UP_TAP}, "steer_deg": 0.0},
 			{"when": {"goal_distance_below": SPIN_180_RETURN_BRAKE_DISTANCE}, "release": [&"accelerate"], "press": [&"brake"]},
 			{"when": {"goal_distance_below": GOAL_RADIUS}},
 		],
@@ -464,6 +487,9 @@ static func spin_180_test() -> Dictionary:
 		# longer on it: +7 %, +23 %, +52 %.
 		# 17.0 / 19.5 / 24.0 stay - the steering feel moved the certified run
 		# 15.92 -> 15.95 s at 3781c8a, +0.19 %: +7 % to gold.
+		# 17.0 / 19.5 / 24.0 stay - the caster return and the driver steering
+		# back actively (the user's verdict, 15:24) left the certified run at
+		# 15.95 s (the spin settles at 182.2 degrees for 183.5): +7 % to gold.
 		"gold_time_s": 17.0,
 		"silver_time_s": 19.5,
 		"bronze_time_s": 24.0,
@@ -496,14 +522,16 @@ static func spin_360_test() -> Dictionary:
 			{"when": {"rotation_deg": 120.0}, "release": [&"steer_left"], "press": [&"steer_right"]},
 			{"when": {"rotation_deg": 160.0}, "release": [&"handbrake"]},
 			{"when": {"rotation_deg": 270.0}, "release": [&"steer_right"], "press": [&"steer_left"]},
-			{"when": {"rotation_deg": 350.0}, "release": [&"steer_left"]},
+			# was "release": [&"steer_left"] -> steered back (the user's verdict, 15:24).
+			{"when": {"rotation_deg": 350.0}, "steer_deg": 0.0},
 			# was the end of the script, the car left rolling -> nose-first again:
 			# back on the power, a touch of lock to point the nose at the goal (the
 			# spin leaves the car to the left of the line, heading further left),
 			# and on the brakes over the goal line.
 			{"when": {"after": SPIN_360_DRIVE_ON_DELAY}, "press": [&"accelerate"]},
 			{"when": {"after": SPIN_360_DRIVE_ON_DELAY}, "press": [&"steer_right"]},
-			{"when": {"after": SPIN_360_LINE_UP_TAP}, "release": [&"steer_right"]},
+			# was "release": [&"steer_right"] -> steered back (the user's verdict, 15:24).
+			{"when": {"after": SPIN_360_LINE_UP_TAP}, "steer_deg": 0.0},
 			{"when": {"goal_distance_below": 0.0}, "release": [&"accelerate"], "press": [&"brake"]},
 		],
 		"settle": 2.0,
@@ -523,6 +551,9 @@ static func spin_360_test() -> Dictionary:
 		# longer on it: +7 %, +26 %, +48 %.
 		# 19.5 / 23.0 / 27.0 stay - the steering feel moved the certified run
 		# 18.13 -> 18.07 s at 3781c8a, -0.33 %: +8 % to gold.
+		# 19.5 / 23.0 / 27.0 stay - the caster return and the driver steering
+		# back actively (the user's verdict, 15:24) left the certified run at
+		# 18.07 s: +8 % to gold.
 		"gold_time_s": 19.5,
 		"silver_time_s": 23.0,
 		"bronze_time_s": 27.0,
@@ -564,6 +595,8 @@ static func stop_box_test() -> Dictionary:
 		# longer on it: +7 %, +25 %, +50 %.
 		# 9.3 / 10.8 / 13.0 stay - the steering feel left the certified run at
 		# 8.72 s at 3781c8a, no steering in it: +7 % to gold.
+		# 9.3 / 10.8 / 13.0 stay - the caster return (the user's verdict,
+		# 15:24) left it at 8.72 s, no steering in it: +7 % to gold.
 		"gold_time_s": 9.3,
 		"silver_time_s": 10.8,
 		"bronze_time_s": 13.0,
@@ -603,12 +636,14 @@ static func reverse_180_test() -> Dictionary:
 			# Rolling nose-first now: select forward, and steer against the
 			# rotation to stop it.
 			{"when": {"rotation_deg_below": -REVERSE_180_CATCH_DEG}, "release": [&"steer_left"], "press": [&"steer_right", &"accelerate"]},
-			{"when": {"rotation_deg_below": -170.0}, "release": [&"steer_right"]},
+			# was "release": [&"steer_right"] -> steered back (the user's verdict, 15:24).
+			{"when": {"rotation_deg_below": -170.0}, "steer_deg": 0.0},
 			# was the end of the script -> up to speed: a touch of lock to point the
 			# nose at the goal (the flick leaves the car to the right of the line,
 			# heading further right), and over the goal line on the power.
 			{"when": {"speed_above": REVERSE_180_DRIVE_AWAY_SPEED}, "press": [&"steer_left"]},
-			{"when": {"after": REVERSE_180_LINE_UP_TAP}, "release": [&"steer_left"]},
+			# was "release": [&"steer_left"] -> steered back (the user's verdict, 15:24).
+			{"when": {"after": REVERSE_180_LINE_UP_TAP}, "steer_deg": 0.0},
 			{"when": {"goal_distance_below": 0.0}},
 		],
 		"settle": 1.0,
@@ -627,6 +662,9 @@ static func reverse_180_test() -> Dictionary:
 		# longer on it: +8 %, +26 %, +49 %.
 		# 8.3 / 9.7 / 11.5 stay - the steering feel moved the certified run
 		# 7.68 -> 7.72 s at 3781c8a, +0.52 %: +8 % to gold.
+		# 8.3 / 9.7 / 11.5 stay - the caster return and the driver steering
+		# back actively (the user's verdict, 15:24) left the certified run at
+		# 7.72 s: +8 % to gold.
 		"gold_time_s": 8.3,
 		"silver_time_s": 9.7,
 		"bronze_time_s": 11.5,
@@ -912,8 +950,19 @@ func _drive() -> void:
 		var step: Dictionary = steps[_step_index]
 		for action: StringName in step.get("release", []):
 			_set_action(action, false)
+			if action == &"steer_left" or action == &"steer_right":
+				_steer_hold = false
 		for action: StringName in step.get("press", []):
 			_set_action(action, true)
+			if action == &"steer_left" or action == &"steer_right":
+				_steer_hold = false
+		if step.has("steer_deg"):
+			_steer_hold = true
+			_steer_target_deg = step.steer_deg
+		if step.get("steer_free", false):
+			_steer_hold = false
+			_set_action(&"steer_left", false)
+			_set_action(&"steer_right", false)
 		if step.get("mark", false):
 			_mark_position = car.global_position
 			_marked = true
@@ -925,6 +974,37 @@ func _drive() -> void:
 		_set_action(&"accelerate", car.forward_speed < test.hold_speed)
 	elif test.has("hold_speed"):
 		_set_action(&"accelerate", false)
+	if _steer_hold:
+		_hold_steering()
+
+
+## Taps the steering keys so the wheel hovers at _steer_target_deg, within a
+## tick of the driver's hands of it (21.7 degrees for the test driver's,
+## 1.3 at the front wheels), where a held key would overshoot by more than
+## the wheel is off: at centre, the key towards it while the wheel is more
+## than a tick off either way; at an angle, the key towards it while the
+## wheel is short of it and the key back once it is more than a tick past
+## it. On the move the caster closes the rest towards centre, at a
+## standstill or in reverse the wheel stays where the hands leave it.
+func _hold_steering() -> void:
+	var band: float = car.driver_profile.steering_hand_speed / Engine.physics_ticks_per_second
+	var side := signf(_steer_target_deg)
+	if side == 0.0:
+		# Centre: the key towards it while the wheel is more than a tick off
+		# it either way, none within - on the move the caster closes the rest.
+		_set_action(&"steer_left", car.steering_wheel_deg < -band)
+		_set_action(&"steer_right", car.steering_wheel_deg > band)
+		return
+	# An angle: the key towards it while the wheel is short of it (the caster
+	# pulls the wheel back from it all the while), the key back only once the
+	# wheel is more than a tick past it, none between - the caster eases it
+	# back down to the angle on its own.
+	var along := side * car.steering_wheel_deg
+	var wanted := side * _steer_target_deg
+	var outward: StringName = &"steer_left" if side > 0.0 else &"steer_right"
+	var inward: StringName = &"steer_right" if side > 0.0 else &"steer_left"
+	_set_action(outward, along < wanted)
+	_set_action(inward, along > wanted + band)
 
 
 func _conditions_met(when: Dictionary) -> bool:
@@ -972,6 +1052,7 @@ func _release_all() -> void:
 	for action in ACTIONS:
 		Input.action_release(action)
 	_pressed.clear()
+	_steer_hold = false
 
 
 func _finish() -> void:
