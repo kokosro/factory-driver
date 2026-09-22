@@ -48,12 +48,16 @@ const RUN_SETTLE_FRAMES := 20
 
 ## The certified run times [s] (scripts/handling_tests.gd's tests in their
 ## order), as certified at 3040705: the runs here have to come out at them.
+# was 28.77 / 15.92 / 18.13 / 8.72 / 7.68 -> 28.82 / 15.95 / 18.07 / 8.72 /
+# 7.72 - the steering feel (the power assist, the rack's play, the bushings'
+# compliance; see ArcadeCar STEERING_ASSIST_FULL_SPEED): +0.17 %, +0.19 %,
+# -0.33 %, 0, +0.52 %, measured at 3781c8a with the three in.
 const CERTIFIED_RUN_TIMES := {
-	"SLALOM_TEST": 28.77,
-	"SPIN_180": 15.92,
-	"SPIN_360": 18.13,
+	"SLALOM_TEST": 28.82,
+	"SPIN_180": 15.95,
+	"SPIN_360": 18.07,
 	"STOP_BOX": 8.72,
-	"REVERSE_180": 7.68,
+	"REVERSE_180": 7.72,
 }
 
 ## The speed the stops are made from [km/h] (25 m/s, the stop box's entry).

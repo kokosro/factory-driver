@@ -400,6 +400,9 @@ static func slalom_test() -> Dictionary:
 		# 28.75 s at HEAD (f4652eb), was 31.3 s from begin() to 1 s after the last
 		# cone: +8 %, +25 %, +50 %. Bronze is SLALOM_TIME_LIMIT (43.0), so every
 		# pass is still inside bronze.
+		# 31.0 / 36.0 / 43.0 stay - the steering feel (the power assist, the
+		# rack's play, the bushings; ArcadeCar STEERING_ASSIST_FULL_SPEED) moved
+		# the certified run 28.77 -> 28.82 s at 3781c8a, +0.17 %: +8 % to gold.
 		"gold_time_s": 31.0,
 		"silver_time_s": 36.0,
 		"bronze_time_s": 43.0,
@@ -459,6 +462,8 @@ static func spin_180_test() -> Dictionary:
 		# was 20.5 / 23.5 / 28.5 -> 17.0 / 19.5 / 24.0 - the run clock: certified
 		# 15.83 s at HEAD (f4652eb), the 1.57 s to the line and the 1.5 s settle no
 		# longer on it: +7 %, +23 %, +52 %.
+		# 17.0 / 19.5 / 24.0 stay - the steering feel moved the certified run
+		# 15.92 -> 15.95 s at 3781c8a, +0.19 %: +7 % to gold.
 		"gold_time_s": 17.0,
 		"silver_time_s": 19.5,
 		"bronze_time_s": 24.0,
@@ -516,6 +521,8 @@ static func spin_360_test() -> Dictionary:
 		# was 23.5 / 27.5 / 32.5 -> 19.5 / 23.0 / 27.0 - the run clock: certified
 		# 18.23 s at HEAD (f4652eb), the 1.57 s to the line and the 2 s settle no
 		# longer on it: +7 %, +26 %, +48 %.
+		# 19.5 / 23.0 / 27.0 stay - the steering feel moved the certified run
+		# 18.13 -> 18.07 s at 3781c8a, -0.33 %: +8 % to gold.
 		"gold_time_s": 19.5,
 		"silver_time_s": 23.0,
 		"bronze_time_s": 27.0,
@@ -555,6 +562,8 @@ static func stop_box_test() -> Dictionary:
 		# was 12.5 / 14.5 / 17.5 -> 9.3 / 10.8 / 13.0 - the run clock: certified
 		# 8.67 s at HEAD (f4652eb), the 1.55 s to the line and the 1.5 s settle no
 		# longer on it: +7 %, +25 %, +50 %.
+		# 9.3 / 10.8 / 13.0 stay - the steering feel left the certified run at
+		# 8.72 s at 3781c8a, no steering in it: +7 % to gold.
 		"gold_time_s": 9.3,
 		"silver_time_s": 10.8,
 		"bronze_time_s": 13.0,
@@ -616,6 +625,8 @@ static func reverse_180_test() -> Dictionary:
 		# was 11.0 / 13.0 / 15.5 -> 8.3 / 9.7 / 11.5 - the run clock: certified
 		# 7.70 s at HEAD (f4652eb), the 1.63 s to the line and the 1 s settle no
 		# longer on it: +8 %, +26 %, +49 %.
+		# 8.3 / 9.7 / 11.5 stay - the steering feel moved the certified run
+		# 7.68 -> 7.72 s at 3781c8a, +0.52 %: +8 % to gold.
 		"gold_time_s": 8.3,
 		"silver_time_s": 9.7,
 		"bronze_time_s": 11.5,
