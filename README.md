@@ -37,6 +37,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Start handling test 1 - 5 (mission mode) | `1` - `5`      |
 | Abort the running test / close its result | `Esc` (`R` also aborts) |
 | Licence book open / close (`1` sits the L0 exam, `2` the skid pad test while it is open; digits answer the theory) | `L` |
+| Garage open / close: the pause menu - drive, the study, car, licence, settings (`Esc` also opens it when nothing at all is running, and closes it); inside: `Left` / `Right` tabs, `Up` / `Down` rows, `Enter` go, `PgUp` / `PgDn` scroll, or the mouse | `Tab` |
 
 Look left / right are on `,` and `.` (the `<` / `>` pair, under the right hand's reach from the arrows and next to `B`'s row): `Q` / `E` are the gearbox, `B` is look back. Hold to glance to that side, let go and the view comes back: the chase camera swings ~65 degrees round the car, in the cockpit and the bonnet view the head turns ~60 degrees; the overhead and wheel views have no side to look to. It is a glance, not a view of its own (`C` still cycles the same five), both keys at once look straight ahead, and look back wins over either.
 
@@ -719,6 +720,36 @@ read as what they earn, 14 non-levels and non-lists refused with the reason; and
 ramp: 8 % up, level, 8 % down, exactly zero at 13 certified points, straight between the
 mesh's 5 m points along its axis (0.23 mm).
 
+And the garage (`tests/menu_test.gd`, see [Garage](#garage), [The study](#the-study) and
+[Data location](#data-location)): the garage opens on `Tab` and on an `Esc` pressed with
+nothing at all up, never on the `Esc` that closes a banner or the book, and refuses to
+open over a running test; open, the tree is paused and the car frozen - the same drive
+with the garage open for 60 ticks in the middle ends identical to the bit to the same
+drive without it (position, velocity, engine, gear, fuel, heat, steering, odometer), and
+nothing moves while it is open; the DRIVE page lists the one map there is, the five
+tests in order, the L0 sitting and the skid pad, and each row starts its run through the
+mission manager or the licence manager (a human run, the theory card up), free driving
+closing the door and starting nothing; the study's catalogue is sound (every lesson a
+title, an objective, a group and a pilot that is found, or an honest coming-soon flag;
+the reused pilots equal to the test and exam definitions in every field; the lesson
+pilots' steps only conditions the runner knows and keys the map has; the captions on
+steps their pilots have); lessons run for real - the steering lesson through the
+garage's row on a car left in manual, eco, TCS off, with the gate taken off and the
+managers stood down for it and everything handed back after, the display having shown
+both full locks, the throttle and the brake and the captions having followed the steps;
+the stall lesson flashing `STALL` and `RUNNING AGAIN` with the engine running at the
+end; the TCS lesson flashing `TCS OFF`, `WHEEL SPIN` and `TCS ON`; the donuts lesson
+ended on `Esc` with the aids back on; a coming-soon lesson and a lesson over a running
+test refused; the STOP BOX walkthrough passing the test's own checks on the certified
+pilot; the input display reading the car's steer, pedals, handbrake, gear and aids, and
+its events as pure functions of a snapshot; the CAR page reading a whole entry back from
+a store file of the test's own and the live car into the same shape; the data folder
+resolved from the variable, the bootstrap file or the default, a relative or a Godot
+path refused by name, the bootstrap file written, refused and cleared, and the one-time
+seed copying byte for byte, never over a file, never touching the source, never twice,
+the autoload having seeded nothing with no window; the bar legend naming every bar; every
+key the controls text names in the map, `Tab` among them; and no folder dialog ever made.
+
 ### Handling tests
 
 The fourth step of `tests/run_tests.sh` runs `tests/handling_test.gd`: a scripted driver
@@ -912,6 +943,155 @@ comes up and saved on every pass, behind the same switch as the rest of the stor
 running game keeps it, the headless suite writes nothing. The future garage (4A) reads
 it there; nothing of it is built here.
 
+### Garage
+
+`Tab` opens the garage: the game's menu, a pause overlay over the pad
+(`scripts/garage.gd`, the `Garage` layer of `scenes/main.tscn`, built from plain
+Controls, no assets). It opens when nothing is running - not over a handling test, a
+licence sitting or a lesson - and `Esc` opens it too, but only when nothing at all is up:
+no run, no banner, no book. During a run `Esc` keeps its meaning (abort); with a banner
+or the book up it closes that first, and the next `Esc` opens the garage. `Tab` or `Esc`
+close it. While it is open the scene tree is paused (`SceneTree.paused`): the car, the
+managers, the HUD and the telemetry recorder stand still, the driving keys reach nothing,
+and when the door closes the pad runs on from exactly where it stood - the same ticks
+after the same ticks, to the bit, whether the garage was open in between or not
+(`tests/menu_test.gd` holds it there). No time scale, no delta of its own, nothing in the
+car knows the garage exists.
+
+Five pages, tabs across the top; `Left` / `Right` change tabs, `Up` / `Down` move the
+cursor down the rows, `Enter` goes, `PgUp` / `PgDn` scroll a long page, and the mouse
+does all of it too:
+
+- **DRIVE** - free drive on a map (the list holds exactly the maps there are: one, the
+  Factory test pad, which is this scene - free drive simply closes the door; `R` puts
+  the car back on the start line), the five handling tests with their objective, gold
+  time and your stored best, the L0 licence sitting and the skid pad exam. Every row
+  starts its run through the mission manager's or the licence manager's own start path
+  (`start_mission`, `start_l0_sitting`, `start_skid_pad_test`): nothing is duplicated,
+  and a run started here is the same run the keys start.
+- **THE STUDY** - the driving school's lessons, see [The study](#the-study).
+- **CAR** - the car's condition as it stands: the odometer, the tank, the battery's
+  charge and health, the wear of every component as a bar (clutch, front and rear
+  brakes, front and rear tyres, engine: each its share of its life used, under 1 % as
+  new to the physics), the dashboard (aids, program, automatic or manual, camera view)
+  and the licence held - the same fields the store keeps per car (`Garage.condition_text`
+  reads a store-shaped entry: the live car's, or a file's, which is what the menu test
+  reads it from), and where the car's file is kept this run. Read-only.
+- **LICENCE** - the licence held, the rank it is (`TEST DRIVER` from L1; the ranks
+  beyond are named as not yet playable), every pass recorded, what the next level still
+  takes, and the licence book's own text under it - the same book `L` opens.
+- **SETTINGS** - the data folder (see [Data location](#data-location): where it is this
+  run and why, the folder chosen, a native folder dialog to choose another, a row to go
+  back to the default), the HUD bar legend (every bar and lamp on the HUD, on the
+  study's input display and on the CAR page, with the temperatures and shares their
+  colours turn at: `HUD.bar_legend`), and the controls.
+
+The garage reads and never writes: the one thing it changes is the bootstrap file when
+a folder is chosen. Nothing of it runs in the headless suite unless the test opens it.
+
+### The study
+
+The heart of the garage: a driving school where the scripted driver drives the real car
+in front of you with every input on show (`scripts/study.gd`, the lessons as data in
+`scripts/study_lessons.gd`). Optional, any lesson any time nothing else is running, as
+often as you like; nothing is judged, recorded or unlocked by a lesson. Pick one on THE
+STUDY page: the door closes, the driver takes the wheel, and the input display comes up
+bottom left - the steering wheel as a marker on a bar (the left end full left lock, the
+right end full right), the throttle, brake and clutch pedals as three pedal bars, the
+gear and the program (or `manual`), the engine (`running`, `STALLED`, `CRANKING`), the
+handbrake, the clutch pedal's depth, the three aids, a wear readout, and the caption of
+the step the driver is on ("Off the throttle, full left lock and the handbrake together:
+the locked rears let the tail step out."). Events flash over it as they happen: `STALL`,
+`RUNNING AGAIN`, `WHEEL SPIN` (an axle over 0.35 slip, where a tyre lays rubber),
+`WHEELS LOCKED`, `OVERHEAT`, `BRAKE FADE`, `TYRES HOT`, an aid switched (`TCS OFF`),
+`SHIFT G2`, `REVERSE`. `Esc` (or `R`) ends a lesson early; a `LESSON OVER` banner ends
+one that ran out, and `Tab` takes you back to the list to watch it again.
+
+The handling tests' and the exam elements' definitions **are** lesson scripts: a
+walkthrough of the 180 spin is the certified 180 driven in front of you by its own
+scripted driver, the very dictionary `HandlingTests.spin_180_test()` returns, with a
+caption overlay keyed to its steps and nothing copied or changed - a change to a test is
+a change to its lesson. The lessons that had no pilot got one written in the same
+tests-as-data idiom (`LicenceExams.KIND_LESSON`: a scripted drive on the exam runner
+with nothing to judge, whose steps carry a `say` line each), every one probed headless
+and its captions written from what was measured. The catalogue:
+
+| Group | Lesson | Pilot |
+| --- | --- | --- |
+| BASICS | Steering | the study's own: at a walk, full left lock held, let go, full right, let go, stop |
+| | Manual gear changes | the study's own: 1st to 3rd at the shift light (14.8 and 26.0 m/s), off the throttle, on the brake, down into 2nd at 14 m/s, stop |
+| | Stall and recovery | the study's own: manual, the clutch let up as the throttle goes down (the smoke test's stall), clutch down, starter, revs up, clutch, away |
+| | Drive modes: sport, comfort, eco | the study's own: full throttle to 72 km/h in each program, `N` between them (sport changes up at 6800 rpm, comfort at ~2800, eco at ~1800 - 2000) |
+| | How tyres wear | the study's own: the wear test's donut for 22 s, TCS and SC off (the rears at 116 C and 225 ppm of wear at the end) |
+| AIDS ON AND OFF | TCS on / off | the study's own: the same launch twice, `T` between them (the rears held under 0.25 slip, then spinning at 2.6) |
+| | ABS on / off | the study's own: the same full stop from 80 km/h twice, `G` between them (the fronts held at 0.15 slip, then locked at -1.0) |
+| | SC on / off | the study's own: the same flick of lock and handbrake at 60 km/h twice, `K` between them (79 degrees and straight again; 153 degrees and backwards) |
+| MANOEUVRES | Slalom | `SLALOM_TEST`'s driver |
+| | Parallel parking, Bay parking, Hill start, Three-point turn, Reversing a lane, Emergency stop, Skid pad circle | the L0 elements' and the skid pad test's drivers |
+| | Donuts | the study's own: TCS and SC off, full lock and full throttle from rest for 9 s (698 degrees round) |
+| | Drifting | **coming soon**: a held powerslide with countersteer needs a pilot that reads the slide tick by tick; the on / off keys of the idiom are not enough yet |
+| | Quick turn | **coming soon**: which manoeuvre it is (an evasive swerve, a U-turn under power) is not settled, so there is no honest demonstration to give |
+| TEST WALKTHROUGHS | 180 spin, 360 spin, Stop box, Reverse 180: the J-turn | `SPIN_180`, `SPIN_360`, `STOP_BOX`, `REVERSE_180`'s drivers, captioned step by step |
+| THE WORLD | Traffic rules, Traffic lights | **coming soon**: need the roads, junctions and traffic of the 4C world |
+
+The instructor's car: for the length of a lesson the licence gate is taken off the car
+(`ArcadeCar.licence_gate = null`, everything allowed, as in a sitting - the stall and
+hill start lessons need the clutch key, the aid lessons the switches), the dashboard is
+set to what the lesson wants (the aids on, sport, automatic, then the lesson's own
+`dashboard`: the donuts and tyre-wear lessons switch TCS and SC off), the licence
+manager's keys stand down and the mission keys are held. When the lesson ends, by
+itself or on `Esc` or `R`, all of it goes back as it was - the gate, the switches, the
+program and its driver, automatic or manual - and every key the driver may have pressed
+is released. The car stays where the driver left it, and the tank, the heat and the wear
+are whatever the lesson's drive made of them: a handling test's walkthrough starts on the
+fresh car as a mission does (its start hands out the full tank and new components), an
+exam element's or a study pilot's does not. Hands off the keys while the driver drives:
+the keys still reach the car, and a key of yours over the driver's is a different drive.
+Nothing is recorded from a lesson in the mission summary (no run starts through the
+mission manager), and the free-driving telemetry file simply records what the car did.
+
+### Data location
+
+Everything the game keeps - the car's file `cars.json` (odometer, fuel, dashboard,
+battery, wear, licence: see [Odometer](#odometer)), the telemetry under `telemetry/`
+(see [Telemetry](#telemetry)) and whatever saves come later - lives in one data folder,
+and every one of them still names its files under `user://`: `scripts/data_dir.gd`
+says where `user://` really is for this run and resolves each path as it is read or
+written (`DataDir.resolve`), nothing else touches a path. The folder is settled once
+at startup, before the car reads its store, by the `DataBootstrap` autoload
+(`scripts/data_bootstrap.gd`), from two places, the first that says anything winning:
+
+1. the environment variable `FD_DATA_DIR` - an absolute folder;
+2. the bootstrap file `user://data_dir.txt` in the default location, one line, an
+   absolute folder - what the garage's SETTINGS page writes when a folder is chosen
+   there ("Use the default folder" removes it).
+
+Neither set, the default: `user://` itself, which since this iteration is a folder of
+the game's own, `factory-driver` under the OS's data dir (`use_custom_user_dir` in
+`project.godot`: `~/Library/Application Support/factory-driver` on macOS,
+`~/.local/share/factory-driver` on Linux, `%APPDATA%\factory-driver` on Windows),
+instead of Godot's generic `Godot/app_userdata/Factory Driver`. A value that is no
+absolute folder (a relative path, a `res://` or `user://` path) is reported in the log
+and the default is used, never a guess. A folder chosen in the settings takes effect at
+the next start: the run that chose it keeps the folder it read. A custom folder is used
+*as* the data folder: `cars.json` and `telemetry/` go straight into it.
+
+**The first run in a folder copies.** A data folder without the marker file
+`.factory-driver-data` is new to the game and is seeded once, in the running game only,
+with a **copy** of what the previous location holds: the default `factory-driver` folder
+when a custom folder is used, or the pre-4A Godot default
+(`<OS data dir>/Godot/app_userdata/Factory Driver`, where everything was kept before this
+iteration) - the first of the two that holds any data. `cars.json` and the whole of
+`telemetry/` are copied file by file, never over a file the new folder already has, and
+nothing in the old location is moved or deleted: it is left exactly as it was, a backup.
+The marker is then written (its text says where the seed came from) and the folder is
+never seeded again, whatever the old location holds later. So the first start after
+this iteration finds your odometer, fuel, licence and telemetry where they always were,
+copied into the new folder, and the SETTINGS page says so. All of it sits behind the
+store's own switch (`OdometerStore.enabled`, the telemetry's `should_record`): the
+headless suite resolves the folder the same way but seeds nothing and writes nothing;
+its own checks run the seed on folders of the test's own.
+
 ### Telemetry
 
 Every drive is written down. `scripts/telemetry.gd` (a `TelemetryRecorder` the mission
@@ -922,6 +1102,9 @@ JSON object per line - JSON-lines, `.jsonl` - to
 user://telemetry/<YYYY-MM-DD>/<session>_<HHMMSS>_<context>.jsonl   e.g. 0007_103245_free.jsonl
 user://telemetry/index.json
 ```
+
+(`user://` is the game's data folder, see [Data location](#data-location); the paths are
+resolved through it as they are opened.)
 
 Free driving gets one file for the session, sampled every 30 ticks (2 Hz); each mission
 gets a file of its own, sampled every 5 ticks (12 Hz), and the free file pauses while it
@@ -1046,8 +1229,9 @@ with the car, the metres stay. A way that is not a finite number is not counted.
 bookkeeping, a plain add at the end of the tick: nothing in the car reads it, and the
 HUD only makes its text anew when the shown tenth of a kilometre changes.
 
-Between sessions the metres live in `user://cars.json` (`scripts/odometer_store.gd`), an
-entry per car so the garage can add its own:
+Between sessions the metres live in `user://cars.json` (`scripts/odometer_store.gd`; in
+the data folder, see [Data location](#data-location)), an entry per car so the garage
+can add its own:
 
 ```json
 {"version": 1, "cars": {"boxster_986": {"odometer_m": 123.4}}}
