@@ -30,6 +30,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Clutch pedal (hold; manual mode only)   | `Left Shift`    |
 | Starter (press to crank; hold to keep cranking) | `I`     |
 | Reset the car to the start line         | `R`             |
+| Flip an overturned car back on to its wheels (only overturned, and at rest) | `F` |
 | Cycle camera: cockpit, front, overhead, wheel, chase (it starts where the car was left) | `C` |
 | Look back (hold)                        | `B`             |
 | Look left / right (hold)                | `,` / `.`       |
@@ -329,6 +330,49 @@ that hangs at full droop and carries nothing, with all four off the car flies ba
 rolling resistance, no hill), and it comes down with a thud in the springs - measured in
 `tests/airborne_test.gd`, and nothing of it on the ground (the user's catch, 2026-09-22:
 "the wheels and body fell apart... somehow the joints stretched").
+
+What it comes down on is honest too (the user's 20:35 retest: "every jump ends up on all
+4 wheels, like a cat... now there is definitely a bug in the physics simulation"). Past
+the small angles (`ATTITUDE_BLEND_START`, 0.1 rad; every certified run stays under 0.06
+and keeps its arithmetic to the bit) the wheels' seats are carried round the centre of
+mass with the body's real pitch and roll - and drawn so: the wheels go round with the
+body, they do not hang on the vertical under a tumbling one - and the body has a
+**shell**: the collision box's eight corners, each meeting the road under itself as a
+stiff damped stop (`SHELL_RATE` 200 kN/m and `SHELL_DAMPING` 6 kN s/m a corner, inside
+the integrator's stability bound) with sliding friction (`SHELL_FRICTION` 0.5) that holds
+rather than pushes at rest. With the wheels under the car the shell never touches: the
+reference jump's tail hop (3.4 m/s of sink) goes through the springs and stops, fronts
+first against the slope, no wheel deeper than 2.6 cm into its stop, the body lying along
+the 8 % tail within 0.02 rad by its foot, no bounce, no tumble; the foot of the tail (the
+flat catching a body still descending along the slope) is the deepest of it, all four in
+their stops and still 2 cm clear of the shell. The shell is for the big jump. Taken
+across the ramp's 32 % flank at 30 m/s (the user's own jump, sessions 78 and 79) the car
+leaves 0.42 rad nose-up pitching down, flies clean (the pitch rate constant, nothing
+touching, 5 m of apex), comes down nose-first at 8.5 m/s of sink on to its two nose
+corners (169 kN, the nose ~0.4 m into the road and back out: the shell yields like a
+spring, it does not crumple for good), pole-vaults on to its rear wheels and rolls on;
+taken across the flank at 50 degrees it comes down on the wheels of one side rolled past
+its tipping angle (atan(`HALF_TRACK` / `CG_HEIGHT`) = 60.8 degrees), goes over to 110
+degrees, comes back on to its side and stays there, its weight on the shell, no wheel on
+the road, nothing driving. Which it is - on the wheels, on its side, on the roof - is the
+numbers' call, not a rule's, and deterministic: the flank jump twice from the same state
+is the same run to the bit. A wheel's stop is counted to `GROUND_CLEARANCE` deep (5 cm
+into the rubber, where the shell's underside is on the road) and no further: no wheel
+carries more than ~35 kN plus its damper, whatever the tumble. (At c5ee9c3 it was 266 kN
+on one wheel, a rear seat 1.2 m under a body pitched 1.2 rad by the small-angle formula:
+the catapult that flung the car into a tumbling second and third flight over four wheels
+hanging straight down and let the springs pull it flat - the cat.) The one place the
+shell shows on the reference jump is the ramp's knee at 87 km/h: the front lip, with the
+fronts 9 cm into their stops, kisses the 8 % rise for two ticks (3.5 kN). The collision
+box and the level ground plane under the car's centre stay what they were, the backstop
+for a level body 5 cm into all four stops; the airborne test holds that neither ever
+touches on any of its landings. Leaned past 60 degrees a tyre is on its sidewall and
+carries nothing (faded out from 50), the car is `is_overturned` and drives nowhere - so
+honest landings can leave you on your roof or your side, and `F` (`flip_car`) rights an
+overturned car that has come to rest (under 3 m/s) where it lies, heading kept, on its
+wheels at ride height, at rest, and changes nothing else: not the fuel, not the wear, not
+the heat, not the gear, not the odometer. Upright, in the air or still sliding it is
+refused; `R` remains the reset it always was.
 
 The wheels are drawn turning at their axle's real speed, a tick's step at a time, folded
 into a quarter turn either way (`WHEEL_DRAW_PERIOD`: the one bar across the rim looks the
