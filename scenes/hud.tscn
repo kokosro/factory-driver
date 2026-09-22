@@ -179,6 +179,98 @@ grow_vertical = 2
 mouse_filter = 2
 color = Color(0.85, 0.85, 0.8, 1)
 
+[node name="TyreBarBack" type="ColorRect" parent="."]
+custom_minimum_size = Vector2(140, 4)
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -300.0
+offset_top = -12.0
+offset_right = -160.0
+offset_bottom = -8.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+color = Color(0, 0, 0, 0.45)
+
+[node name="TyreBar" type="ColorRect" parent="TyreBarBack"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.85, 0.85, 0.8, 1)
+
+[node name="BrakeHeatBarBack" type="ColorRect" parent="."]
+custom_minimum_size = Vector2(140, 4)
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -300.0
+offset_top = -6.0
+offset_right = -160.0
+offset_bottom = -2.0
+grow_horizontal = 0
+grow_vertical = 0
+mouse_filter = 2
+color = Color(0, 0, 0, 0.45)
+
+[node name="BrakeHeatBar" type="ColorRect" parent="BrakeHeatBarBack"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.85, 0.85, 0.8, 1)
+
+[node name="TyreBarLabel" type="Label" parent="."]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -360.0
+offset_top = -18.0
+offset_right = -306.0
+offset_bottom = -6.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 9
+text = "TYRES"
+horizontal_alignment = 2
+vertical_alignment = 1
+
+[node name="BrakeHeatBarLabel" type="Label" parent="."]
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -360.0
+offset_top = -12.0
+offset_right = -306.0
+offset_bottom = 0.0
+grow_horizontal = 0
+grow_vertical = 0
+theme_override_colors/font_color = Color(1, 1, 1, 0.6)
+theme_override_colors/font_outline_color = Color(0, 0, 0, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 9
+text = "BRAKES"
+horizontal_alignment = 2
+vertical_alignment = 1
+
 [node name="TcsLamp" type="Label" parent="."]
 anchors_preset = 3
 anchor_left = 1.0

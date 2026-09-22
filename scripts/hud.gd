@@ -2,9 +2,10 @@ class_name HUD
 extends CanvasLayer
 ## Minimal driving HUD: speed, plus a tach line (engine RPM and gear), the two
 ## pedal bars so the driving feel can be checked, the fuel bar with the battery
-## bar under it and the coolant bar under that, and a lamp each for the three
-## driver aids. The mission line and banner only show what they are handed (see
-## scripts/mission_manager.gd).
+## bar under it and the coolant bar under that, to the left of those the tyre
+## bar with the brake bar under it (the hotter axle each, labelled), and a lamp
+## each for the three driver aids. The mission line and banner only show what
+## they are handed (see scripts/mission_manager.gd).
 ## The odometer's line sits over the aid lamps (see set_odometer).
 
 ## Tach text colour normally and from ArcadeCar.SHIFT_LIGHT_RPM up.
@@ -49,6 +50,40 @@ const COOLANT_HOT_FRACTION := 95.0 / 75.0
 const COOLANT_VERY_HOT_FRACTION := 105.0 / 75.0
 const COOLANT_BAR_FULL := 1.5
 
+## Tyre bar colour, on ArcadeCar.front_tyre_temp's scale (0 = the air at 15 C,
+## 1 = the operating 75 C), the hotter axle: blue while the tyres are cold,
+## under TYRE_COLD_FRACTION (45 C, the window's lower edge, under which the
+## grip is down: ArcadeCar.TYRE_WINDOW_LOW_C), the fuel bar's grey in the
+## window, red from TYRE_HOT_FRACTION (110 C, the upper edge, from which the
+## grip fades: ArcadeCar.TYRE_WINDOW_HIGH_C), a brighter red from
+## TYRE_VERY_HOT_FRACTION (135 C, an eighth of the grip gone). The bar is full
+## at TYRE_BAR_FULL (165 C, where the model stops: ArcadeCar.TYRE_MAX_C).
+## tests/tyre_brake_thermal_test.gd holds the lines to the car's own numbers.
+const TYRE_COLD_COLOR := Color(0.4, 0.6, 1.0, 1)
+const TYRE_COLOR := Color(0.85, 0.85, 0.8, 1)
+const TYRE_HOT_COLOR := Color(1.0, 0.25, 0.2, 1)
+const TYRE_VERY_HOT_COLOR := Color(1.0, 0.55, 0.45, 1)
+const TYRE_COLD_FRACTION := 30.0 / 60.0
+const TYRE_HOT_FRACTION := 95.0 / 60.0
+const TYRE_VERY_HOT_FRACTION := 120.0 / 60.0
+const TYRE_BAR_FULL := 150.0 / 60.0
+
+## Brake bar colour, on ArcadeCar.front_brake_temp's scale (0 = the air at
+## 15 C, 1 = the fade line at 250 C), the hotter axle: the fuel bar's grey
+## under BRAKE_HOT_FRACTION (the fade line itself, ArcadeCar.BRAKE_FADE_START_C,
+## from which the pedal gives less), red from it, a brighter red from
+## BRAKE_VERY_HOT_FRACTION (400 C, red hot: ArcadeCar.BRAKE_RED_HOT_C, a
+## third of the torque gone). The bar is full at BRAKE_BAR_FULL (600 C, where
+## the model stops: ArcadeCar.BRAKE_MAX_C). No cold colour: a brake works
+## from cold. tests/tyre_brake_thermal_test.gd holds the lines to the car's
+## own numbers.
+const BRAKE_HEAT_COLOR := Color(0.85, 0.85, 0.8, 1)
+const BRAKE_HOT_COLOR := Color(1.0, 0.25, 0.2, 1)
+const BRAKE_VERY_HOT_COLOR := Color(1.0, 0.55, 0.45, 1)
+const BRAKE_HOT_FRACTION := 1.0
+const BRAKE_VERY_HOT_FRACTION := 385.0 / 235.0
+const BRAKE_BAR_FULL := 585.0 / 235.0
+
 ## The driver aids' lamps (SC, TCS, ABS): dim while the aid is on, which is how the
 ## car starts and nothing to look at; lit in the fuel bar's amber, with OFF
 ## behind the letters, once it has been switched off.
@@ -67,6 +102,8 @@ const AID_OFF_COLOR := Color(1.0, 0.7, 0.15, 1)
 @onready var _fuel_bar: ColorRect = $FuelBarBack/FuelBar
 @onready var _battery_bar: ColorRect = $BatteryBarBack/BatteryBar
 @onready var _coolant_bar: ColorRect = $CoolantBarBack/CoolantBar
+@onready var _tyre_bar: ColorRect = $TyreBarBack/TyreBar
+@onready var _brake_heat_bar: ColorRect = $BrakeHeatBarBack/BrakeHeatBar
 @onready var _tcs_lamp: Label = $TcsLamp
 @onready var _abs_lamp: Label = $AbsLamp
 @onready var _sc_lamp: Label = $ScLamp
@@ -113,7 +150,9 @@ func _process(_delta: float) -> void:
 ## never gets to the top. The fuel bar follows the tank (ArcadeCar.fuel_fraction),
 ## the battery bar the charge (ArcadeCar.battery_charge), tick by tick and
 ## unsmoothed: what a crank draws that tick is off the bar that tick. The
-## coolant bar follows the temperature (ArcadeCar.coolant_temp) the same way.
+## coolant bar follows the temperature (ArcadeCar.coolant_temp) the same way,
+## the tyre bar and the brake bar the hotter axle's (ArcadeCar.front_tyre_temp
+## / rear_tyre_temp, front_brake_temp / rear_brake_temp).
 func _physics_process(_delta: float) -> void:
 	if not car:
 		return
@@ -122,6 +161,8 @@ func _physics_process(_delta: float) -> void:
 	set_fuel_bar(car.fuel_fraction())
 	set_battery_bar(car.battery_charge)
 	set_coolant_bar(car.coolant_temp)
+	set_tyre_bar(maxf(car.front_tyre_temp, car.rear_tyre_temp))
+	set_brake_heat_bar(maxf(car.front_brake_temp, car.rear_brake_temp))
 
 
 ## How full the two pedal bars by the speed are, 0 (empty) .. 1 (full); out of
@@ -177,6 +218,40 @@ func set_coolant_bar(temp: float) -> void:
 		_coolant_bar.color = COOLANT_COLD_COLOR
 	else:
 		_coolant_bar.color = COOLANT_COLOR
+
+
+## How far along the tyre bar to the left of the battery bar is: `temp` on
+## ArcadeCar.front_tyre_temp's scale (the hotter axle's, from
+## _physics_process), the bar full at TYRE_BAR_FULL; out of range is clamped,
+## NaN is empty. The coolant bar's idiom: blue cold, grey in the window, red
+## over it and brighter red hotter (TYRE_COLD_FRACTION, TYRE_HOT_FRACTION,
+## TYRE_VERY_HOT_FRACTION).
+func set_tyre_bar(temp: float) -> void:
+	_fill_bar(_tyre_bar, temp / TYRE_BAR_FULL, true)
+	if temp >= TYRE_VERY_HOT_FRACTION:
+		_tyre_bar.color = TYRE_VERY_HOT_COLOR
+	elif temp >= TYRE_HOT_FRACTION:
+		_tyre_bar.color = TYRE_HOT_COLOR
+	elif temp < TYRE_COLD_FRACTION:
+		_tyre_bar.color = TYRE_COLD_COLOR
+	else:
+		_tyre_bar.color = TYRE_COLOR
+
+
+## How far along the brake bar under the tyre bar is: `temp` on
+## ArcadeCar.front_brake_temp's scale (the hotter axle's, from
+## _physics_process), the bar full at BRAKE_BAR_FULL; out of range is clamped,
+## NaN is empty. Grey under the fade line, red from it, brighter red from red
+## hot (BRAKE_HOT_FRACTION, BRAKE_VERY_HOT_FRACTION). Cold brakes are an
+## empty bar: nothing to look at, as a cold brake is.
+func set_brake_heat_bar(temp: float) -> void:
+	_fill_bar(_brake_heat_bar, temp / BRAKE_BAR_FULL, true)
+	if temp >= BRAKE_VERY_HOT_FRACTION:
+		_brake_heat_bar.color = BRAKE_VERY_HOT_COLOR
+	elif temp >= BRAKE_HOT_FRACTION:
+		_brake_heat_bar.color = BRAKE_HOT_COLOR
+	else:
+		_brake_heat_bar.color = BRAKE_HEAT_COLOR
 
 
 ## The odometer line over the aid lamps, `metres` as "ODO 12.3 km": the tenths
