@@ -1,0 +1,100 @@
+thought: 
+brain dump, not a structural document
+
+* Economy - outline
+i would like an economy based on troc,
+- goods for goods
+- services for services
+- services for vouchers
+- vouchers for services
+- even if it's service for voucher for a car 
+- materials and car components
+- or tuna for the cat
+- or the new fuel formula that makes the car go faster for longer trips etc.
+this would give the drivers always something to do, including the player-driver.
+Because the telemetry of player-driver is also training data for the other drivers in the world,
+the demand created by the user would have ripples throughout all the other drivers.
+ the drivers themselves can earn a voucher for a specific workshop that is of diverse sizes in different locations on the world map, some that have more drivers, others not, depending on the natural growth of the world.
+ The world should be discoverable, the player driver must go through it with the car to make it alive, the map "unlocks" the first time the player-driver visits. If the player found a cat, they can teleport where they want on the globe.
+ As there are many unconnected land portions on the globe, we will have a teleport, bridge that starts from one of the roads towards the sea, the bridge should bifurcate in a tree shape road like chosing the the gate of your departure, this should be a full building probably that makes more sense, with its own demand of services and goods, the teleport car bridge requires a voucher or a property near the other side of the teleport bridge.
+ Once you have a cat, you can explore or teleport to the green hell, set a fastest lap and win a voucher, chose to not teleport but drive home while exploring and picking up jobs moving things along the way. a driver can do multiple jobs at once, but of course each has its own ETA, realistic ETAs that can be achieved even in eco mode and the most reduced wear with time to spare. of course if you get there earlier you get bonus, maybe 10 vouchers for fuel, maybe a the new workshop you've been dreaming of on cote d'azur, or the garage that was needed need the green hell. or maybe a new job that takes you to places where you've never been.
+
+ in their workshops drivers try different materials in different components which can give in exchange for a service like - they need their new components shipped to another workshop or another good / raw material that they can use to create a new component.
+ workshops can order materials which other drivers bring over getting something in return, even if it's cat tuna which you can gat for free on 10% of the gas stations that are social gas stations, giving fuel away for free if you have a cat with you.
+
+ NEW CARS CAN BE CREATED IN WORKSHOPS.
+ 
+
+* on cats and not only:
+They are the ticket to green hell.
+ While on green hell , their tolerance for adrenaline gets strengthened.
+ Cats never die on green hell. that is the spirit of nurburgring, the car lands on its feet and the cat never dies,
+ only learns a lesson and becomes less stressed during non-circuit bumpy or more sportish rides.
+
+1. Rescue locations / cadence. There should be a decent amount of stray cats, we can calculate the population growth, use the natural observed behaviour, which we might see stabilizing during game. cats can be killed in traffic as it's unavoidable.
+   Cats appear random, cadence is based on probability of current population of cats in the world. As we're using open street maps as data for the skeleton of the world, we can safely guestimate the population start. The certification doesn't teach you the difference between rescue or road killing a cat. Cats also die of starvation, any cat that is not a drivers rescue, has a lesser timespan. dying of starvation takes away 9 lives. so a stray cat isn't protected by the 9 lives if they haven't found a driver to feed them constantly. i think we can let a gene mutation algorithm to make the cats appear when
+   they are more likely to be rescued and are less likely to be killed, and more likely to multiply, and less likely to kill each other.
+2. zero lives, cat dies and it's gone forever.
+   driver will have the opportunity to rescue a new cat,
+   as per cat population at 1. A cat has a scare level, a
+   nd when the wheels are not on the ground or the g force inside the car is too intense
+   the cat scare level increases. the cat also accomodates with the stress level,
+   so if the driver keeps the scare level within certain limits,
+   the cat becomes less bothered by that kind of driving,
+   but the driver must not make any accidents,
+   the driving must be fluid, which i think the g force telemetry would suffice. 
+3. Having a cat, does fuel up the tank, but only 10% of the gas stations are social gas stations that give away tuna 5 per visit. and fuel for free. oil , , 10 % of the gas stations are public social services for drivers with cats, they do require   materials to make fuel. user can change their way into owning a gas station.
+   user can hire drivers and assign jobs, distribution of goods generated by workshops, gas stations that user has.
+   cars can be traded, user can have the same car multiple times.
+    having a cat gives you fuel, you must take the tuna fillet for the cat and the cat pays for the gas, otherwise, some public social gas station exists, but are rare, all the other gas stations need you to have a cat with you to get gas, maybe 10% social free gas stations, where you can get cat tuna for free as well. a nice experiment is to see if the stray cats will gather more on the social gas stations while the populations evolve. every place where a cat died must be marked and remember forever on map. every time a cat is rescued on a map must be marked and persisted forever, whenever a scare level is triggered a more verbose telemetry is saved, wheel position, g foces, information that can reconstruct exactly the state of the world.
+4. whenever the calculated trajectory is landing on the roof in 3 heights of a car, the car rotation stops , its automatically rotated so that it lands on its wheels, cat life gone and you've lended. no cinematics for now.
+5. always
+6. yes, the cat doesn't change, lives are her state.
+
+* traffic:
+ traffic evolves over time, more drivers become active in the economy as the game progresses,
+ a driver dies if they remain without a functional car ( unless they have a cat )
+ so if a driver remains without fuel or totals their car, they are dead. new drivers enter driving school, the driving school lisence must become more rigurous if drivers or cat death (the whole 9 lives) occur, also when times they remain without fuel.
+this way telemetry meets ai meets traffic.
+
+car models:
+home made, think we can do a 911 carrera,
+a boxster, turbo for posches,
+and we can for the other non porsche cars we can add as many as we can,
+all home made, all driveable. Each mission can give the driver materials, components,
+or a voucher for any car at a certain dealership - multiple dealerships exists,
+driver must go to the dealership which is exactly positioned on the world map.
+need to pay any money for the car, because we have vouchers.
+you can rent for free for 1 hour if you don't own a car
+(which is the first time the user gets in the world after passing certification,
+certification also gets them a voucher for a car, a non porsche car, the branding
+is less important though). with the rented car,
+which is a porsche even if you are not a chief test driver,
+but has a liver with the dealership name and that is a rental,
+only eco mode available, can't turn tcs, sc or abs off.
+there are two types of dealerships, one is for porsches and one is for regular cars.
+multiple dealerships exists, a normal distribution density.
+user can own the same model of car multiple times - but they are different cars.
+Cars should have a registration number.
+
+Map Pipeline, i would rather stat working the Open streets map skeleton world,
+so that we can introduce types of buildings: Workshops (owned or not) (different capacities),
+Dealearships ( Porsche or General), Gas Stations (Public or Cat required refueling).
+drivers can own any of the typed version if they can drive their way from troc to troc exchanging tuna for a dealership where all user owned cars go on market and other drivers can come and troc for them.
+one thing can be exchange for multiple things.
+multiple things can be exchanged for one thing.
+a service can be exchange to one or multiple things.
+a next job can be the "tip" for a job well done, which can give a more rare type of material, a voucher for a dealership or some tuna.
+
+
+
+--- hopefully i have contradicted too much and made some sense. isn't complete, but hope we get some opened question covered.
+
+the sound: real sim data, also, it matters in which environment the car is, if it's in a tunel, within the buildings or in open nature, the sound is different.
+
+cars - some variation on what we have in real life, anything non porsche, and suggested porsches.
+
+if there is any type of building that i might have missed but would work well in economy, please make suggestions.
+
+i prefer the traffic density to be natural, growin from economy.
+
