@@ -1,8 +1,8 @@
 # Tests
 
 `tests/run_tests.sh` is the gate: a headless import, then the config, smoke, handling,
-camera, mission and battery tests, all on the tick clock (`--fixed-fps 60`), about half
-a minute. `tests/run_tests.sh --parallel` runs the six tests side by side after the
+camera, mission, battery and thermal tests, all on the tick clock (`--fixed-fps 60`), about half
+a minute. `tests/run_tests.sh --parallel` runs the seven tests side by side after the
 import and prints the same lines in the same order. What each test checks is in the
 main `README.md`.
 
