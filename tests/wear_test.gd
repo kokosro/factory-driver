@@ -5,33 +5,45 @@ extends SceneTree
 ##   godot --headless --fixed-fps 60 --path . --script res://tests/wear_test.gd
 ##
 ## Loads the main scene and puts the car's wear (ArcadeCar, "Wear and aging")
-## through what usage and neglect do. First the gate: the car comes out of
-## _ready with nothing worn - every share exactly 0 and every multiplier
-## exactly 1 - and idles so through the settle; and the model's own numbers:
-## the multipliers are exactly 1 under a hundredth of wear, step once a
-## percent in a line to the floor and never under it, the config's rates are
-## the car's, and a rate under zero, an abuse under 1 and a floor outside its
-## range are refused by name. Then each share from its own activity, wired to
-## the tick's own quantity to the bit: the clutch from a flat-out launch's
-## slips (its slip energy times the rate, the brakes untouched); the brakes
-## from a full stop (each disc's work times the rate, the fronts more by the
-## bias, the engine untouched on the overrun); the tyres from a donut (the
-## rears' heat times the rate, three times over once they are over the
-## window, the fronts hardly, the brakes untouched); the engine from
-## revolutions under load (flat out from rest), none at all free-revving at
-## the limiter in neutral, and every revolution ten times over idling on an
-## overheated engine. Then the worn car, measurably and boundedly different:
-## worn brakes stop the car longer, a worn clutch bites softer and slips
-## longer, worn tyres hold less in the same corner, a worn engine makes less
-## torque, and past worn-out nothing gets worse - the floor holds. Then the
-## store: the six shares go through a file of the test's own and come back
-## to the bit in the one entry beside the rest, in the one write, an old file
-## without them is a new car's and rounds through untouched, what is no
-## share of a life is refused with the reason naming the car and the field,
-## and a car that loads worn components starts with them. Then the reset: it
-## keeps the wear to the bit (R does not un-wear) and tells the
-## file nothing; a handling test's start hands out the new car. Last, nothing
-## of it is ever NaN.
+## through what the kilometres and the driving do. First the gate: the car
+## comes out of _ready with nothing worn - every share exactly 0 and every
+## multiplier exactly 1 - and idles so through the settle; and the model's
+## own numbers: the multipliers are exactly 1 under a hundredth of wear, step
+## once a percent in a line to the floor and never under it, the config's
+## rated lives, costs per kilojoule, multipliers and floors are the car's,
+## and a life of no distance, a cost under zero, a multiplier under 1 and a
+## floor outside its range are refused by name. Then each share from its own
+## activity, wired to the tick's own quantities to the bit - the way the
+## odometer counted plus what the driving cost over a gentle cruise, over
+## the rated life: the clutch from a flat-out launch (its metres plus the
+## slip energy's, the brakes their metres alone); the brakes from a full
+## stop (each disc's work on top of the metres, the rears more on this car;
+## the engine its revolutions at no load on the overrun); the tyres from a
+## donut (the rears' slip work, three times over once they are over the
+## window, the fronts a fraction); the engine from its own metres (the
+## revolutions in top-gear metres times the load's style: flat out from
+## rest, at the limiter in neutral at no load, idling warm, and idling
+## overheated at full load and ten times over). Then the cruise: 1.5 km in
+## top gear at 72 km/h wears every component its rated share - the style
+## multiplier exactly 1 for the clutch, the brakes and the fronts, a hair
+## over for the driven rears and the lightly loaded engine - and the second
+## 750 m the same as the first (twice the kilometres, twice the wear). Then
+## the worn car, measurably and boundedly different: worn brakes stop the
+## car longer, a worn clutch bites softer and slips longer, worn tyres hold
+## less in the same corner, a worn engine makes less torque, and past
+## worn-out nothing gets worse - the floor holds. Then the store: the six
+## shares go through a file of the test's own and come back to the bit in
+## the one entry beside the rest, in the one write, an old file without them
+## is a new car's and rounds through untouched, what is no share of a life
+## is refused with the reason naming the car and the field, and a car that
+## loads worn components starts with them. Then the reset: it keeps the wear
+## to the bit (R does not un-wear) and tells the file nothing; a handling
+## test's start hands out the new car. Last, nothing of it is ever NaN.
+# was every share its rate times the tick's joules or radians, 15 launches
+# or 46 stops to a percent -> the kilometres, and the driving on top (the
+# user's 15:24 verdict, 2026-09-22: "the measurement is more in kilometers
+# driven and how they were driven rather than how many times i can start
+# the car from a hill").
 ## Exits 0 on success, 1 on any failed check.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -62,6 +74,30 @@ const HOT_IDLE_FRAMES := 120
 ## line (the thermal test's).
 const HOT_C := 120.0
 
+## The cruise: the speed held [km/h] in top gear (5th at 72 km/h is ~1900
+## rpm), the ticks the hold settles for before the count starts (5 s), the
+## metres counted (1.5 km, the pad's straight and the flat beyond it: a
+## modest distance, the suite stays fast) and how many halves it is read in
+## (the linearity: each half the same wear). The speed is held by a plain
+## proportional throttle (CRUISE_THROTTLE_BASE plus CRUISE_THROTTLE_GAIN per
+## km/h under the mark).
+const CRUISE_KMH := 72.0
+const CRUISE_SETTLE_FRAMES := 300
+const CRUISE_M := 1500.0
+const CRUISE_HALVES := 2
+const CRUISE_THROTTLE_BASE := 0.15
+const CRUISE_THROTTLE_GAIN := 0.1
+
+## How far a cruise's style multiplier may sit over 1 where the physics puts
+## a little on top of the metres: the driven rears' slip (a per-mille), the
+## engine's light load and its wheels' slip (a fifth); and how far the two
+## halves of the cruise may differ for those two (the road's swells shift the
+## load), where the others' halves are the same metres to a tick.
+const CRUISE_REAR_TYRE_TOLERANCE := 0.01
+const CRUISE_ENGINE_TOLERANCE := 0.2
+const CRUISE_HALVES_TOLERANCE := 0.1
+const CRUISE_METRES_TOLERANCE := 0.005
+
 ## The corner the fresh and the worn grip are compared in (the tyre/brake
 ## thermal test's): the steer held at this share of the lock from 60 km/h with
 ## this much throttle for this many ticks (4 s), the peak lateral acceleration
@@ -70,6 +106,11 @@ const CORNER_STEER := 0.5
 const CORNER_THROTTLE := 0.3
 const CORNER_FROM_KMH := 60.0
 const CORNER_FRAMES := 240
+
+## The most the engine's own metres come to a second at idle [m/s]: a
+## generous bound on IDLE_RPM in top-gear metres (900 rpm x TAU / 60 x
+## TOP_GEAR_M_PER_RAD is ~8.5 m/s), what an idling car's engine wears by.
+const IDLE_M_PER_S := 10.0
 
 ## The wear the worn car is tried at (0..1): half, and worn out; and far past
 ## worn out, which the setters hold at WEAR_LIMIT.
@@ -87,7 +128,7 @@ const WIRING_TOLERANCE := 1.0e-9
 
 ## Where the store is tried out: a file of the test's own, in a tmp dir of the
 ## run's own, never the game's user://cars.json.
-const TMP_DIR_PREFIX := "/tmp/fd-3L-wear-"
+const TMP_DIR_PREFIX := "/tmp/fd-3AB-wear-"
 var _store_dir := TMP_DIR_PREFIX + str(OS.get_process_id())
 var _store_file := _store_dir + "/cars.json"
 
@@ -144,6 +185,7 @@ func _run() -> void:
 	await _check_brakes(car)
 	await _check_tyres(car)
 	await _check_engine(car)
+	await _check_cruise(car)
 	await _check_worn_brakes(car)
 	await _check_worn_clutch(car)
 	await _check_worn_tyres(car)
@@ -160,22 +202,29 @@ func _run() -> void:
 
 ## Nothing worn: the car came out of _ready with every share exactly 0 and
 ## every multiplier exactly 1, the store off, and idled so through the settle
-## - an idling car wears nothing.
+## - an idling car moves nothing and wears nothing but its engine, which
+## runs: its idle's revolutions in top-gear metres, a second of them.
+# was "an idling car wears nothing", the engine's share exactly 0 too -> the
+# engine by its revolutions (the user's 15:24 verdict).
 func _check_suite_gate(car: ArcadeCar) -> void:
 	var zero_at_start := _wear_at_start.size() == WEAR_FIELDS.size() and _all_equal(_wear_at_start, 0.0)
 	var one_at_start := _factors_at_start.size() == 6 and _all_equal(_factors_at_start, 1.0)
-	var still_zero := _all_equal(_shares(car), 0.0) and _all_equal(_factors(car), 1.0) and car._clutch_slip_w == 0.0
+	var shares := _shares(car)
+	var idle_m := IDLE_M_PER_S * SETTLE_FRAMES / Engine.physics_ticks_per_second
+	var still_zero := shares[0] == 0.0 and shares[1] == 0.0 and shares[2] == 0.0 and shares[3] == 0.0 and shares[4] == 0.0 and _all_equal(_factors(car), 1.0) and car._clutch_slip_w == 0.0
+	var idled := shares[5] > 0.0 and shares[5] < 2.0 * idle_m / (ArcadeCar.ENGINE_LIFE_KM * 1000.0)
 	_check(
-		zero_at_start and one_at_start and still_zero and not OdometerStore.enabled() and not car._odometer_kept,
-		"suite: the car came out of _ready with nothing worn - all six shares exactly 0, the clutch's, the brakes', the tyres' and the engine's multipliers exactly 1 - the store off whatever %s holds, and after %d idling ticks still nothing" % [OdometerStore.PATH, SETTLE_FRAMES],
+		zero_at_start and one_at_start and still_zero and idled and not OdometerStore.enabled() and not car._odometer_kept,
+		"suite: the car came out of _ready with nothing worn - all six shares exactly 0, the clutch's, the brakes', the tyres' and the engine's multipliers exactly 1 - the store off whatever %s holds, and after %d idling ticks still nothing but the engine's %.3f ppm of idling (under %.0f m of its own metres, the multipliers still exactly 1)" % [OdometerStore.PATH, SETTLE_FRAMES, shares[5] * 1.0e6, 2.0 * idle_m],
 	)
 
 
 ## The model's own numbers: a multiplier is exactly 1 under a hundredth of
 ## wear, one step down per hundredth from there, in a line to the floor at
-## worn out and never under it past that; the config's rates, multipliers and
-## floors are the car's; and the curve's peak is what the engine's load is
-## weighed against.
+## worn out and never under it past that; the config's rated lives, costs
+## per kilojoule, multipliers and floors are the car's; the curve's peak is
+## what the engine's load is weighed against, and the top gear's metres per
+## radian are what its revolutions count in.
 func _check_model_numbers() -> void:
 	var step := ArcadeCar.WEAR_EFFECT_STEP
 	var floors := [ArcadeCar.CLUTCH_WEAR_FLOOR, ArcadeCar.BRAKE_WEAR_FLOOR, ArcadeCar.TYRE_WEAR_FLOOR, ArcadeCar.ENGINE_WEAR_FLOOR]
@@ -201,11 +250,14 @@ func _check_model_numbers() -> void:
 	)
 	var config: Variant = JSON.parse_string(FileAccess.get_file_as_string(CAR_CONFIG))
 	var wear: Dictionary = config.get("wear", {}) if config is Dictionary else {}
+	# was the eleven rates, multipliers and floors -> the sixteen lives, costs
+	# per kilojoule, multipliers and floors (the user's 15:24 verdict).
 	var statics := {
-		"clutch_rate": ArcadeCar.CLUTCH_WEAR_RATE, "clutch_floor": ArcadeCar.CLUTCH_WEAR_FLOOR,
-		"brake_rate": ArcadeCar.BRAKE_WEAR_RATE, "brake_abuse": ArcadeCar.BRAKE_WEAR_ABUSE, "brake_floor": ArcadeCar.BRAKE_WEAR_FLOOR,
-		"tyre_rate": ArcadeCar.TYRE_WEAR_RATE, "tyre_abuse": ArcadeCar.TYRE_WEAR_ABUSE, "tyre_floor": ArcadeCar.TYRE_WEAR_FLOOR,
-		"engine_rate": ArcadeCar.ENGINE_WEAR_RATE, "engine_abuse": ArcadeCar.ENGINE_WEAR_ABUSE, "engine_floor": ArcadeCar.ENGINE_WEAR_FLOOR,
+		"clutch_life_km": ArcadeCar.CLUTCH_LIFE_KM, "clutch_slip_m_per_kj": ArcadeCar.CLUTCH_SLIP_M_PER_KJ, "clutch_floor": ArcadeCar.CLUTCH_WEAR_FLOOR,
+		"brake_life_km": ArcadeCar.BRAKE_LIFE_KM, "brake_work_m_per_kj": ArcadeCar.BRAKE_WORK_M_PER_KJ, "brake_abuse": ArcadeCar.BRAKE_WEAR_ABUSE, "brake_floor": ArcadeCar.BRAKE_WEAR_FLOOR,
+		"tyre_life_km_front": ArcadeCar.FRONT_TYRE_LIFE_KM, "tyre_life_km_rear": ArcadeCar.REAR_TYRE_LIFE_KM, "tyre_slip_m_per_kj": ArcadeCar.TYRE_SLIP_M_PER_KJ,
+		"tyre_abuse": ArcadeCar.TYRE_WEAR_ABUSE, "tyre_floor": ArcadeCar.TYRE_WEAR_FLOOR,
+		"engine_life_km": ArcadeCar.ENGINE_LIFE_KM, "engine_flat_out": ArcadeCar.ENGINE_FLAT_OUT, "engine_abuse": ArcadeCar.ENGINE_WEAR_ABUSE, "engine_floor": ArcadeCar.ENGINE_WEAR_FLOOR,
 	}
 	var read := 0
 	for key: String in statics:
@@ -214,17 +266,23 @@ func _check_model_numbers() -> void:
 	var peak := 0.0
 	for anchor: Vector2 in ArcadeCar.TORQUE_CURVE:
 		peak = maxf(peak, anchor.y)
+	var top_gear_m_per_rad: float = ArcadeCar.WHEEL_RADIUS / (ArcadeCar.GEAR_RATIOS[ArcadeCar.GEAR_RATIOS.size() - 1] * ArcadeCar.FINAL_DRIVE)
 	_check(
 		read == statics.size() and wear.size() == statics.size() and ArcadeCar.ENGINE_PEAK_TORQUE == peak and peak > 0.0
-			and ArcadeCar.BRAKE_WEAR_ABUSE >= 1.0 and ArcadeCar.TYRE_WEAR_ABUSE >= 1.0 and ArcadeCar.ENGINE_WEAR_ABUSE >= 1.0,
-		"model: all %d numbers of the config's wear table are the car's to the bit (clutch %.1f %% per GJ of slip, brakes %.1f %% per GJ of work and x%.0f over the fade line, tyres %.1f %% per GJ of heat and x%.0f over the window, engine %.1f %% per Grad under load and x%.0f overheated), and the engine's load is weighed against the curve's %.0f Nm peak" % [statics.size(), ArcadeCar.CLUTCH_WEAR_RATE * 1.0e11, ArcadeCar.BRAKE_WEAR_RATE * 1.0e11, ArcadeCar.BRAKE_WEAR_ABUSE, ArcadeCar.TYRE_WEAR_RATE * 1.0e11, ArcadeCar.TYRE_WEAR_ABUSE, ArcadeCar.ENGINE_WEAR_RATE * 1.0e11, ArcadeCar.ENGINE_WEAR_ABUSE, ArcadeCar.ENGINE_PEAK_TORQUE],
+			and ArcadeCar.TOP_GEAR_M_PER_RAD == top_gear_m_per_rad and top_gear_m_per_rad > 0.0
+			and ArcadeCar.CLUTCH_LIFE_KM > 0.0 and ArcadeCar.BRAKE_LIFE_KM > 0.0 and ArcadeCar.FRONT_TYRE_LIFE_KM > 0.0 and ArcadeCar.REAR_TYRE_LIFE_KM > 0.0 and ArcadeCar.ENGINE_LIFE_KM > 0.0
+			and ArcadeCar.BRAKE_WEAR_ABUSE >= 1.0 and ArcadeCar.TYRE_WEAR_ABUSE >= 1.0 and ArcadeCar.ENGINE_WEAR_ABUSE >= 1.0 and ArcadeCar.ENGINE_FLAT_OUT >= 1.0,
+		"model: all %d numbers of the config's wear table are the car's to the bit (the clutch's life %.0f km and %.1f m of it per kJ of slip; the pads' %.0f km and %.1f m per kJ of disc work, x%.0f over the fade line; the tyres' %.0f km front and %.0f km rear and %.1f m per kJ of slip work, x%.0f over the window; the engine's %.0f km, x%.0f flat out and x%.0f overheated); the engine's load is weighed against the curve's %.0f Nm peak and its revolutions count %.4f m each in top gear (the wheel's radius over the top ratio times the final drive)" % [statics.size(), ArcadeCar.CLUTCH_LIFE_KM, ArcadeCar.CLUTCH_SLIP_M_PER_KJ, ArcadeCar.BRAKE_LIFE_KM, ArcadeCar.BRAKE_WORK_M_PER_KJ, ArcadeCar.BRAKE_WEAR_ABUSE, ArcadeCar.FRONT_TYRE_LIFE_KM, ArcadeCar.REAR_TYRE_LIFE_KM, ArcadeCar.TYRE_SLIP_M_PER_KJ, ArcadeCar.TYRE_WEAR_ABUSE, ArcadeCar.ENGINE_LIFE_KM, ArcadeCar.ENGINE_FLAT_OUT, ArcadeCar.ENGINE_WEAR_ABUSE, ArcadeCar.ENGINE_PEAK_TORQUE, ArcadeCar.TOP_GEAR_M_PER_RAD],
 	)
 
 
 ## The validation: a config without a wear table is a car, one with an empty
-## table is a car, and a rate under zero, an abuse multiplier under 1, a floor
-## of 0 or over 1 and a key the schema does not know are each refused by name
-## - by the validation's functions alone, never read into the running car.
+## table is a car, and a life of no distance, a cost under zero, an abuse
+## multiplier under 1, a flat-out multiplier under 1, a floor of 0 or over 1
+## and a key the schema does not know are each refused by name - by the
+## validation's functions alone, never read into the running car.
+# was a rate under zero -> a life of no distance and a cost under zero (the
+# user's 15:24 verdict).
 func _check_validation() -> void:
 	var config: Variant = JSON.parse_string(FileAccess.get_file_as_string(CAR_CONFIG))
 	if not _check(config is Dictionary and CarConfigValidation.validate(config, "boxster_986").is_empty(), "validation: the car's config passes with its wear table"):
@@ -236,78 +294,102 @@ func _check_validation() -> void:
 	var one_floor: Dictionary = config.duplicate(true)
 	one_floor.wear.tyre_floor = 1.0
 	var bad: Dictionary = config.duplicate(true)
-	bad.wear.clutch_rate = -1.0e-8
+	bad.wear.clutch_life_km = 0.0
+	bad.wear.tyre_slip_m_per_kj = -0.5
 	bad.wear.brake_abuse = 0.5
+	bad.wear.engine_flat_out = 0.5
 	bad.wear.tyre_floor = 0.0
 	bad.wear.engine_floor = 1.5
 	bad.wear.clutch_abuse = 2.0
 	var faults := CarConfigValidation.validate(bad, "worn")
 	var named := 0
 	for fault: String in faults:
-		if fault.begins_with("worn: wear.clutch_rate is") or fault.begins_with("worn: wear.brake_abuse is") or fault.begins_with("worn: wear.tyre_floor is") \
+		if fault.begins_with("worn: wear.clutch_life_km is") or fault.begins_with("worn: wear.tyre_slip_m_per_kj is") or fault.begins_with("worn: wear.brake_abuse is") \
+				or fault.begins_with("worn: wear.engine_flat_out is") or fault.begins_with("worn: wear.tyre_floor is") \
 				or fault.begins_with("worn: wear.engine_floor is") or fault == "worn: wear.clutch_abuse is not in the schema":
 			named += 1
-	var nan_rate: Dictionary = config.duplicate(true)
-	nan_rate.wear.engine_rate = NAN
-	var nan_faults := CarConfigValidation.validate(nan_rate, "nan")
+	var nan_life: Dictionary = config.duplicate(true)
+	nan_life.wear.engine_life_km = NAN
+	var nan_faults := CarConfigValidation.validate(nan_life, "nan")
 	_check(
 		CarConfigValidation.validate(without, "bare").is_empty() and CarConfigValidation.validate(empty, "empty").is_empty() and CarConfigValidation.validate(one_floor, "one").is_empty()
-			and faults.size() == 5 and named == 5 and nan_faults.size() == 1 and nan_faults[0] == "nan: wear.engine_rate is not a finite number"
-			and ArcadeCar.CLUTCH_WEAR_RATE > 0.0 and ArcadeCar.BRAKE_WEAR_ABUSE >= 1.0 and ArcadeCar.TYRE_WEAR_FLOOR > 0.0,
-		"validation: a config without a wear table is a car, so is one with an empty table and one with a floor of 1; a rate under zero, an abuse under 1, a floor of 0, a floor over 1 and a key the schema does not know are refused by name (%d faults: %s); a NaN rate is not a finite number; the running car kept its own" % [faults.size(), "; ".join(faults)],
+			and faults.size() == 7 and named == 7 and nan_faults.size() == 1 and nan_faults[0] == "nan: wear.engine_life_km is not a finite number"
+			and ArcadeCar.CLUTCH_LIFE_KM > 0.0 and ArcadeCar.TYRE_SLIP_M_PER_KJ >= 0.0 and ArcadeCar.BRAKE_WEAR_ABUSE >= 1.0 and ArcadeCar.ENGINE_FLAT_OUT >= 1.0 and ArcadeCar.TYRE_WEAR_FLOOR > 0.0,
+		"validation: a config without a wear table is a car, so is one with an empty table and one with a floor of 1; a life of no distance, a cost under zero, an abuse under 1, a flat-out multiplier under 1, a floor of 0, a floor over 1 and a key the schema does not know are refused by name (%d faults: %s); a NaN life is not a finite number; the running car kept its own" % [faults.size(), "; ".join(faults)],
 	)
 
 
-## The clutch wears from its slips: a flat-out launch from rest through the
-## upshifts costs it exactly its rate times the slip energy the tick's own
-## tracker adds up to, and nothing while it is locked; the brakes, untouched,
-## wear exactly nothing; the tyres roll and the engine turns under load, so
-## they wear a little (their own checks below).
+## The clutch wears by the metres and by its slips: a flat-out launch from
+## rest through the upshifts costs it exactly the way the odometer counted
+## plus the slip energy's metres of its life (CLUTCH_SLIP_M_PER_KJ), over its
+## rated life; on a locked tick exactly the metres alone; the brakes, the
+## pedal up, exactly their metres over theirs; the tyres roll and the engine
+## turns under load, so they wear a little more (their own checks below). The
+## launch's style multiplier - its metres of life over its metres of road -
+## is well over 1.
+# was exactly its rate times the slip energy, nothing while locked, the
+# brakes exactly 0: 15 launches to a percent -> the metres and the slips over
+# the rated life (the user's 15:24 verdict).
 func _check_clutch(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	_fresh(car)
 	await _step(SETTLE_FRAMES)
 	var slip_j := 0.0
+	var slip_m := 0.0
+	var way_m := 0.0
+	var expected := 0.0
+	var brakes_expected := 0.0
+	var locked_expected := 0.0
+	var locked_wear := 0.0
 	var slipping_ticks := 0
-	var locked_ticks_wore := 0
-	var wear_grew_while_locked := false
 	var last := car.clutch_wear
 	var shifts := 0
 	var last_gear := car.gear
 	car.set_driver_input(1.0, 0.0, 0.0)
 	for frame in LAUNCH_FRAMES:
 		await physics_frame
+		var tick_slip_m := car._clutch_slip_w * tick * ArcadeCar.CLUTCH_SLIP_M_PER_KJ * 0.001
 		slip_j += car._clutch_slip_w * tick
+		slip_m += tick_slip_m
+		way_m += car._wear_way_m
+		expected += (car._wear_way_m + tick_slip_m) / (ArcadeCar.CLUTCH_LIFE_KM * 1000.0)
+		brakes_expected += car._wear_way_m / (ArcadeCar.BRAKE_LIFE_KM * 1000.0)
 		if car._clutch_slip_w > 0.0:
 			slipping_ticks += 1
-		elif car.clutch_wear != last:
-			locked_ticks_wore += 1
+		else:
+			locked_expected += car._wear_way_m / (ArcadeCar.CLUTCH_LIFE_KM * 1000.0)
+			locked_wear += car.clutch_wear - last
 		if car.gear != last_gear:
 			shifts += 1
 			last_gear = car.gear
 		last = car.clutch_wear
-	var expected := ArcadeCar.CLUTCH_WEAR_RATE * slip_j
 	var speed := car.speed_kmh
 	var others := _shares(car)
+	var style := (way_m + slip_m) / way_m
 	car.clear_driver_input()
 	_fresh(car)
 	await _step(5)
 	_check(
-		slip_j > 0.0 and slipping_ticks > 0 and slipping_ticks < LAUNCH_FRAMES and locked_ticks_wore == 0 and last > 0.0
-			and absf(last / expected - 1.0) < WIRING_TOLERANCE and shifts >= 2
-			and others[1] == 0.0 and others[2] == 0.0 and others[3] > 0.0 and others[4] > 0.0 and others[5] > 0.0
+		slip_j > 0.0 and slipping_ticks > 0 and slipping_ticks < LAUNCH_FRAMES and last > 0.0 and way_m > 0.0
+			and absf(last / expected - 1.0) < WIRING_TOLERANCE and absf(locked_wear / locked_expected - 1.0) < WIRING_TOLERANCE and shifts >= 2
+			and absf(others[1] / brakes_expected - 1.0) < WIRING_TOLERANCE and absf(others[2] / brakes_expected - 1.0) < WIRING_TOLERANCE
+			and others[3] > 0.0 and others[4] > 0.0 and others[5] > 0.0 and style > 2.0
 			and last < ArcadeCar.WEAR_EFFECT_STEP,
-		"clutch: %.0f s flat out from rest (%d upshifts, %.0f km/h) slips the clutch %.1f kJ over %d ticks and wears it %.1f ppm - the rate times the slip energy to the bit, nothing on the %d locked ticks, %.0f such launches to the first hundredth; the brakes wore exactly 0, the tyres %.2f and %.2f ppm and the engine %.2f ppm meanwhile (rolling, turning under load)" % [LAUNCH_FRAMES * tick, shifts, speed, slip_j / 1000.0, slipping_ticks, last * 1.0e6, LAUNCH_FRAMES - slipping_ticks, ArcadeCar.WEAR_EFFECT_STEP / last, others[3] * 1.0e6, others[4] * 1.0e6, others[5] * 1.0e6],
+		"clutch: %.0f s flat out from rest (%d upshifts, %.0f km/h, %.0f m) slips the clutch %.1f kJ over %d ticks - %.0f m of its life on top of the %.0f m driven, a style of %.1f - and wears it %.2f ppm, the metres plus the slip's metres over its %.0f km life to the bit, the metres alone on the %d locked ticks; %.0f such launches to the first hundredth (was 15); the brakes wore exactly their %.2f ppm of metres, the tyres %.2f and %.2f ppm and the engine %.2f ppm meanwhile (rolling, turning under load)" % [LAUNCH_FRAMES * tick, shifts, speed, way_m, slip_j / 1000.0, slipping_ticks, slip_m, way_m, style, last * 1.0e6, ArcadeCar.CLUTCH_LIFE_KM, LAUNCH_FRAMES - slipping_ticks, ArcadeCar.WEAR_EFFECT_STEP / last, others[1] * 1.0e6, others[3] * 1.0e6, others[4] * 1.0e6, others[5] * 1.0e6],
 	)
 
 
-## The brakes wear from their work: a full stop from 90 km/h costs each axle's
-## discs exactly the rate times the work they were given (the rears' more on
-## this car: the ABS holds the fronts at the tyres' limit, and the driven
-## axle's discs slow the engine too); the engine wears exactly the rate times
-## the radians the clutch had a load on the crank - the flywheel unloading
-## into the braked driveline, the downshifts' catches - a small share of a
-## launch's.
+## The brakes wear by the metres and by their work: a full stop from 90 km/h
+## costs each axle's pads exactly the way the odometer counted plus the
+## work's metres of their life (BRAKE_WORK_M_PER_KJ; the rears' more on this
+## car: the ABS holds the fronts at the tyres' limit, and the driven axle's
+## discs slow the engine too), over the rated life; the engine wears exactly
+## its own metres - the revolutions in top-gear metres times the load's
+## style, the load all but gone on the overrun (the flywheel unloading into
+## the braked driveline, the downshifts' catches) - a small share of the
+## drive up to speed. The stop's style multiplier is well over 1.
+# was exactly the rate times the work, 46 stops to a percent of the rears ->
+# the metres and the work over the rated life (the user's 15:24 verdict).
 func _check_brakes(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	_fresh(car)
@@ -319,7 +401,10 @@ func _check_brakes(car: ArcadeCar) -> void:
 	var from_kmh := car.speed_kmh
 	var front_j := 0.0
 	var rear_j := 0.0
+	var way_m := 0.0
 	var fade_ticks := 0
+	var front_expected := 0.0
+	var rear_expected := 0.0
 	var engine_expected := 0.0
 	var loaded_ticks := 0
 	car.set_driver_input(0.0, 1.0, 0.0)
@@ -329,37 +414,45 @@ func _check_brakes(car: ArcadeCar) -> void:
 		ticks += 1
 		front_j += car._front_brake_heat_w * tick
 		rear_j += car._rear_brake_heat_w * tick
+		way_m += car._wear_way_m
 		if ArcadeCar.brake_fade(car.front_brake_temp) < 1.0 or ArcadeCar.brake_fade(car.rear_brake_temp) < 1.0:
 			fade_ticks += 1
+		front_expected += (car._wear_way_m + car._front_brake_heat_w * tick * ArcadeCar.BRAKE_WORK_M_PER_KJ * 0.001) / (ArcadeCar.BRAKE_LIFE_KM * 1000.0)
+		rear_expected += (car._wear_way_m + car._rear_brake_heat_w * tick * ArcadeCar.BRAKE_WORK_M_PER_KJ * 0.001) / (ArcadeCar.BRAKE_LIFE_KM * 1000.0)
 		var load_share := clampf(car.clutch_torque / ArcadeCar.ENGINE_PEAK_TORQUE, 0.0, 1.0)
 		if load_share > 0.0:
 			loaded_ticks += 1
-		engine_expected += ArcadeCar.ENGINE_WEAR_RATE * absf(car.engine_omega) * tick * load_share
+		engine_expected += _engine_metres(car, tick, load_share) / (ArcadeCar.ENGINE_LIFE_KM * 1000.0)
 	var after := _shares(car)
 	var front_wear := after[1] - before[1]
 	var rear_wear := after[2] - before[2]
-	var front_expected := ArcadeCar.BRAKE_WEAR_RATE * front_j
-	var rear_expected := ArcadeCar.BRAKE_WEAR_RATE * rear_j
 	var engine_wear := after[5] - before[5]
 	var clutch_wear := after[0] - before[0]
+	var rear_style := rear_wear * ArcadeCar.BRAKE_LIFE_KM * 1000.0 / way_m
 	car.clear_driver_input()
 	_fresh(car)
 	await _step(5)
 	_check(
-		car.speed_kmh <= STOPPED_KMH + 1.0 and front_j > 0.0 and rear_j > 0.0 and fade_ticks == 0
+		car.speed_kmh <= STOPPED_KMH + 1.0 and front_j > 0.0 and rear_j > 0.0 and fade_ticks == 0 and way_m > 0.0
 			and front_wear > 0.0 and rear_wear > 0.0 and absf(front_wear / front_expected - 1.0) < WIRING_TOLERANCE and absf(rear_wear / rear_expected - 1.0) < WIRING_TOLERANCE
-			and loaded_ticks < ticks and (engine_wear == engine_expected or absf(engine_wear / engine_expected - 1.0) < WIRING_TOLERANCE) and engine_wear < 0.1 * before[5]
-			and rear_wear < ArcadeCar.WEAR_EFFECT_STEP,
-		"brakes: a stop from %.0f km/h (%d ticks, the discs under the fade line throughout) gives the front discs %.0f kJ of work and the rears %.0f kJ (the driven axle's slow the engine too, the ABS holds the fronts at the tyres' limit) and wears them %.1f and %.1f ppm - the rate times the work to the bit each, %.0f such stops to the rears' first hundredth; the engine wore %.2f ppm - exactly the rate times the radians of the %d ticks the clutch had a load on the crank (the flywheel unloading into the braked driveline, the downshifts' catches), nothing on the other %d, under a tenth of the %.1f ppm the drive up to speed cost; the clutch %.2f ppm through those downshifts" % [from_kmh, ticks, front_j / 1000.0, rear_j / 1000.0, front_wear * 1.0e6, rear_wear * 1.0e6, ArcadeCar.WEAR_EFFECT_STEP / rear_wear, engine_wear * 1.0e6, loaded_ticks, ticks - loaded_ticks, before[5] * 1.0e6, clutch_wear * 1.0e6],
+			and loaded_ticks < ticks and absf(engine_wear / engine_expected - 1.0) < WIRING_TOLERANCE and engine_wear < 0.1 * before[5]
+			and rear_style > 2.0 and rear_wear < ArcadeCar.WEAR_EFFECT_STEP,
+		"brakes: a stop from %.0f km/h (%d ticks, %.0f m, the discs under the fade line throughout) gives the front discs %.0f kJ of work and the rears %.0f kJ (the driven axle's slow the engine too, the ABS holds the fronts at the tyres' limit) and wears them %.2f and %.2f ppm - the metres plus the work's metres over the pads' %.0f km life to the bit each, the rears' style %.1f; %.0f such stops to the rears' first hundredth (was 46); the engine wore %.3f ppm - exactly its revolutions in top-gear metres times the load's style, the crank loaded on %d of the ticks (the flywheel unloading into the braked driveline, the downshifts' catches) and free on the other %d, under a tenth of the %.2f ppm the drive up to speed cost; the clutch %.3f ppm through those downshifts" % [from_kmh, ticks, way_m, front_j / 1000.0, rear_j / 1000.0, front_wear * 1.0e6, rear_wear * 1.0e6, ArcadeCar.BRAKE_LIFE_KM, rear_style, ArcadeCar.WEAR_EFFECT_STEP / rear_wear, engine_wear * 1.0e6, loaded_ticks, ticks - loaded_ticks, before[5] * 1.0e6, clutch_wear * 1.0e6],
 	)
 
 
-## The tyres wear from their heat: a donut (full throttle, full lock, the aids
-## off) costs the rears exactly the rate times the heat they were given, three
-## times over on every tick they are over the window, the fronts a small
-## fraction of it; the brakes do no work on any tick the pedal is off (the
-## spinning car rolls backwards for a few ticks, where the throttle key is the
-## brake: the driver's rule, and those ticks alone wear them).
+## The tyres wear by the metres and by their slip work: a donut (full
+## throttle, full lock, the aids off) costs the rears exactly the way the
+## odometer counted plus the slip work's metres of their life
+## (TYRE_SLIP_M_PER_KJ), three times over on every tick they are over the
+## window, over their rated life; the fronts a fraction of it over theirs;
+## the brakes do no work on any tick the pedal is off (the spinning car rolls
+## backwards for a few ticks, where the throttle key is the brake: the
+## driver's rule, and those ticks alone give them work) and wear exactly
+## their metres plus that. The donut's style multiplier is well over 1.
+# was exactly the rate times the tyres' heat, 35 donuts to a percent of the
+# rears -> the metres and the slip work over the rated lives (the user's
+# 15:24 verdict).
 func _check_tyres(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	_fresh(car)
@@ -369,7 +462,11 @@ func _check_tyres(car: ArcadeCar) -> void:
 	car.set_driver_input(1.0, 0.0, 1.0)
 	var rear_expected := 0.0
 	var front_expected := 0.0
+	var front_brake_expected := 0.0
+	var rear_brake_expected := 0.0
 	var rear_j := 0.0
+	var rear_m := 0.0
+	var way_m := 0.0
 	var hot_j := 0.0
 	var hot_ticks := 0
 	var pedal_ticks := 0
@@ -385,14 +482,21 @@ func _check_tyres(car: ArcadeCar) -> void:
 			backwards_ticks += 1
 		var rear_hot := ArcadeCar.tyre_c_of(car.rear_tyre_temp) > ArcadeCar.TYRE_WINDOW_HIGH_C
 		var front_hot := ArcadeCar.tyre_c_of(car.front_tyre_temp) > ArcadeCar.TYRE_WINDOW_HIGH_C
-		rear_expected += ArcadeCar.TYRE_WEAR_RATE * car._rear_tyre_heat_w * tick * (ArcadeCar.TYRE_WEAR_ABUSE if rear_hot else 1.0)
-		front_expected += ArcadeCar.TYRE_WEAR_RATE * car._front_tyre_heat_w * tick * (ArcadeCar.TYRE_WEAR_ABUSE if front_hot else 1.0)
-		rear_j += car._rear_tyre_heat_w * tick
+		var rear_slip_m := car._rear_slip_w * tick * ArcadeCar.TYRE_SLIP_M_PER_KJ * 0.001 * (ArcadeCar.TYRE_WEAR_ABUSE if rear_hot else 1.0)
+		var front_slip_m := car._front_slip_w * tick * ArcadeCar.TYRE_SLIP_M_PER_KJ * 0.001 * (ArcadeCar.TYRE_WEAR_ABUSE if front_hot else 1.0)
+		rear_expected += (car._wear_way_m + rear_slip_m) / (ArcadeCar.REAR_TYRE_LIFE_KM * 1000.0)
+		front_expected += (car._wear_way_m + front_slip_m) / (ArcadeCar.FRONT_TYRE_LIFE_KM * 1000.0)
+		front_brake_expected += (car._wear_way_m + car._front_brake_heat_w * tick * ArcadeCar.BRAKE_WORK_M_PER_KJ * 0.001 * (ArcadeCar.BRAKE_WEAR_ABUSE if ArcadeCar.brake_fade(car.front_brake_temp) < 1.0 else 1.0)) / (ArcadeCar.BRAKE_LIFE_KM * 1000.0)
+		rear_brake_expected += (car._wear_way_m + car._rear_brake_heat_w * tick * ArcadeCar.BRAKE_WORK_M_PER_KJ * 0.001 * (ArcadeCar.BRAKE_WEAR_ABUSE if ArcadeCar.brake_fade(car.rear_brake_temp) < 1.0 else 1.0)) / (ArcadeCar.BRAKE_LIFE_KM * 1000.0)
+		rear_j += car._rear_slip_w * tick
+		rear_m += rear_slip_m
+		way_m += car._wear_way_m
 		if rear_hot:
 			hot_ticks += 1
-			hot_j += car._rear_tyre_heat_w * tick
+			hot_j += car._rear_slip_w * tick
 	var shares := _shares(car)
 	var rear_c := ArcadeCar.tyre_c_of(car.rear_tyre_temp)
+	var style := (way_m + rear_m) / way_m
 	car.clear_driver_input()
 	car.tcs_on = true
 	car.sc_on = true
@@ -400,34 +504,46 @@ func _check_tyres(car: ArcadeCar) -> void:
 	await _step(5)
 	_check(
 		shares[4] > 0.0 and absf(shares[4] / rear_expected - 1.0) < WIRING_TOLERANCE and absf(shares[3] / front_expected - 1.0) < WIRING_TOLERANCE
-			and shares[4] > 5.0 * shares[3] and hot_ticks > 0 and hot_ticks < DONUT_FRAMES and hot_j > 0.0
-			and off_pedal_brake_j == 0.0 and pedal_ticks < DONUT_FRAMES / 4 and (pedal_ticks > 0 or (shares[1] == 0.0 and shares[2] == 0.0))
+			and shares[4] > 5.0 * shares[3] and hot_ticks > 0 and hot_ticks < DONUT_FRAMES and hot_j > 0.0 and way_m > 0.0 and style > 2.0
+			and off_pedal_brake_j == 0.0 and pedal_ticks < DONUT_FRAMES / 4
+			and absf(shares[1] / front_brake_expected - 1.0) < WIRING_TOLERANCE and absf(shares[2] / rear_brake_expected - 1.0) < WIRING_TOLERANCE
 			and shares[4] < ArcadeCar.WEAR_EFFECT_STEP and shares[0] < ArcadeCar.WEAR_EFFECT_STEP,
-		"tyres: a %.0f s donut puts %.0f kJ into the rears (%.0f kJ of it on the %d ticks they are over the window, %.0f C at the end) and wears them %.1f ppm - the rate times the heat to the bit, %.0f times over on the hot ticks - and the fronts %.2f ppm, %.0f times less; the brakes did exactly no work on the %d ticks the pedal was off (%.1f and %.1f ppm on the %d ticks it was on: the spinning car rolled backwards on %d ticks, where the throttle key is the brake); the clutch %.0f ppm, slipping under the automatic's hunting; %.0f such donuts to the rears' first hundredth" % [DONUT_FRAMES * tick, rear_j / 1000.0, hot_j / 1000.0, hot_ticks, rear_c, shares[4] * 1.0e6, ArcadeCar.TYRE_WEAR_ABUSE, shares[3] * 1.0e6, shares[4] / shares[3], DONUT_FRAMES - pedal_ticks, shares[1] * 1.0e6, shares[2] * 1.0e6, pedal_ticks, backwards_ticks, shares[0] * 1.0e6, ArcadeCar.WEAR_EFFECT_STEP / shares[4]],
+		"tyres: a %.0f s donut (%.0f m of way) is %.0f kJ of slip work against the rears (%.0f kJ of it on the %d ticks they are over the window, %.0f C at the end) - %.0f m of their life, x%.0f on the hot ticks, a style of %.1f - and wears them %.1f ppm, the metres plus the slip's metres over their %.0f km life to the bit, and the fronts %.2f ppm over theirs, %.0f times less; the brakes did exactly no work on the %d ticks the pedal was off and wore their metres plus the %d ticks it was on (%.2f and %.2f ppm: the spinning car rolled backwards on %d ticks, where the throttle key is the brake); the clutch %.1f ppm, slipping under the automatic's hunting; %.0f such donuts to the rears' first hundredth (was 35)" % [DONUT_FRAMES * tick, way_m, rear_j / 1000.0, hot_j / 1000.0, hot_ticks, rear_c, rear_m, ArcadeCar.TYRE_WEAR_ABUSE, style, shares[4] * 1.0e6, ArcadeCar.REAR_TYRE_LIFE_KM, shares[3] * 1.0e6, shares[4] / shares[3], DONUT_FRAMES - pedal_ticks, pedal_ticks, shares[1] * 1.0e6, shares[2] * 1.0e6, backwards_ticks, shares[0] * 1.0e6, ArcadeCar.WEAR_EFFECT_STEP / shares[4]],
 	)
 
 
-## The engine wears from its revolutions under load: flat out from rest it
-## wears exactly the rate times the radians turned weighted by the load on the
-## crank; free-revving at the limiter in neutral, under no load, it wears
-## exactly nothing (and nor does anything else); idling overheated in neutral
-## every revolution counts in full and ten times over, where the same warm
-## idle costs exactly nothing.
+## The engine wears by its own metres - its revolutions in top-gear metres
+## (TOP_GEAR_M_PER_RAD) times the load's style, 1 + (ENGINE_FLAT_OUT - 1) x
+## the load share squared: flat out from rest exactly so, the style well
+## over 1; free-revving at the limiter in neutral exactly its revolutions at
+## no load (a style of 1: an engine that runs ages, ~27 km/h of it idling),
+## everything else exactly 0 at the standstill; idling warm in neutral the
+## same, by its revolutions; idling overheated every revolution at full load
+## and ten times over.
+# was exactly the rate times the radians weighted by the load, and exactly 0
+# at the limiter in neutral and idling -> its revolutions in top-gear
+# metres, running or driving (the user's 15:24 verdict: "how many kilometers
+# would the engine run on average").
 func _check_engine(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	_fresh(car)
 	await _step(SETTLE_FRAMES)
+	var loaded_from := car.engine_wear
 	car.set_driver_input(1.0, 0.0, 0.0)
 	var expected := 0.0
-	var loaded_rad := 0.0
+	var engine_m := 0.0
+	var way_m := 0.0
 	var rad := 0.0
 	for frame in LAUNCH_FRAMES:
 		await physics_frame
 		var load_share := clampf(car.clutch_torque / ArcadeCar.ENGINE_PEAK_TORQUE, 0.0, 1.0)
-		expected += ArcadeCar.ENGINE_WEAR_RATE * absf(car.engine_omega) * tick * load_share
-		loaded_rad += absf(car.engine_omega) * tick * load_share
+		var metres := _engine_metres(car, tick, load_share)
+		expected += metres / (ArcadeCar.ENGINE_LIFE_KM * 1000.0)
+		engine_m += metres
+		way_m += car._wear_way_m
 		rad += absf(car.engine_omega) * tick
-	var loaded_wear := car.engine_wear
+	var loaded_wear := car.engine_wear - loaded_from
+	var style := engine_m / way_m
 	car.clear_driver_input()
 
 	# Neutral, full throttle: the limiter, no load.
@@ -435,12 +551,21 @@ func _check_engine(car: ArcadeCar) -> void:
 	await _step(SETTLE_FRAMES)
 	car.automatic = false
 	car.shift_down()
+	var free_from := car.engine_wear
 	car.set_driver_input(1.0, 0.0, 0.0)
 	var limited := false
+	var free_expected := 0.0
+	var free_rad := 0.0
+	var free_loaded := 0
 	for frame in NEUTRAL_REV_FRAMES:
 		await physics_frame
 		limited = limited or car.limiter_cutting
+		free_expected += _engine_metres(car, tick, 0.0) / (ArcadeCar.ENGINE_LIFE_KM * 1000.0)
+		free_rad += absf(car.engine_omega) * tick
+		if car.clutch_torque != 0.0:
+			free_loaded += 1
 	var free := _shares(car)
+	var free_engine := free[5] - free_from
 	var in_neutral := car.gear == 0
 	car.clear_driver_input()
 
@@ -449,26 +574,148 @@ func _check_engine(car: ArcadeCar) -> void:
 	await _step(SETTLE_FRAMES)
 	car.automatic = false
 	car.shift_down()
-	await _step(HOT_IDLE_FRAMES)
-	var warm_idle := car.engine_wear
+	var warm_from := car.engine_wear
+	var warm_expected := 0.0
+	var warm_rad := 0.0
+	for frame in HOT_IDLE_FRAMES:
+		await physics_frame
+		warm_expected += _engine_metres(car, tick, 0.0) / (ArcadeCar.ENGINE_LIFE_KM * 1000.0)
+		warm_rad += absf(car.engine_omega) * tick
+	var warm_idle := car.engine_wear - warm_from
 	var hot_expected := 0.0
 	var hot_rad := 0.0
 	var hot := ArcadeCar.coolant_temp_of_c(HOT_C)
 	for frame in HOT_IDLE_FRAMES:
 		car.coolant_temp = hot
 		await physics_frame
-		hot_expected += ArcadeCar.ENGINE_WEAR_RATE * ArcadeCar.ENGINE_WEAR_ABUSE * absf(car.engine_omega) * tick
+		hot_expected += _engine_metres(car, tick, 1.0) * ArcadeCar.ENGINE_WEAR_ABUSE / (ArcadeCar.ENGINE_LIFE_KM * 1000.0)
 		hot_rad += absf(car.engine_omega) * tick
-	var hot_idle := car.engine_wear
+	var hot_idle := car.engine_wear - warm_from - warm_idle
 	var idle_rpm := car.engine_rpm
+	var idle_kmh := idle_rpm * TAU / 60.0 * ArcadeCar.TOP_GEAR_M_PER_RAD * 3.6
 	_fresh(car)
 	await _step(5)
 	_check(
-		loaded_wear > 0.0 and absf(loaded_wear / expected - 1.0) < WIRING_TOLERANCE and loaded_rad > 0.0 and loaded_rad < rad
-			and limited and in_neutral and _all_equal(free, 0.0)
-			and warm_idle == 0.0 and hot_idle > 0.0 and absf(hot_idle / hot_expected - 1.0) < WIRING_TOLERANCE and loaded_wear < ArcadeCar.WEAR_EFFECT_STEP,
-		"engine: %.0f s flat out from rest turns it %.0f krad, %.0f krad of them weighted under load, and wears it %.2f ppm - the rate times the loaded radians to the bit, %.0f such runs to the first hundredth; %.0f s at the limiter in neutral wears it, and everything else, exactly 0; %.0f s idling warm in neutral exactly 0, the same idling at %.0f C (%.0f rpm, %.0f rad) %.2f ppm - every radian in full and %.0f times over" % [LAUNCH_FRAMES * tick, rad / 1000.0, loaded_rad / 1000.0, loaded_wear * 1.0e6, ArcadeCar.WEAR_EFFECT_STEP / loaded_wear, NEUTRAL_REV_FRAMES * tick, HOT_IDLE_FRAMES * tick, HOT_C, idle_rpm, hot_rad, hot_idle * 1.0e6, ArcadeCar.ENGINE_WEAR_ABUSE],
+		loaded_wear > 0.0 and absf(loaded_wear / expected - 1.0) < WIRING_TOLERANCE and engine_m > way_m and style > 2.0
+			and limited and in_neutral and free_loaded == 0 and free_engine > 0.0 and absf(free_engine / free_expected - 1.0) < WIRING_TOLERANCE
+			and free[0] == 0.0 and free[1] == 0.0 and free[2] == 0.0 and free[3] == 0.0 and free[4] == 0.0
+			and warm_idle > 0.0 and absf(warm_idle / warm_expected - 1.0) < WIRING_TOLERANCE
+			and hot_idle > 0.0 and absf(hot_idle / hot_expected - 1.0) < WIRING_TOLERANCE and hot_idle > 10.0 * warm_idle and loaded_wear < ArcadeCar.WEAR_EFFECT_STEP,
+		"engine: %.0f s flat out from rest turns it %.0f krad - %.0f m of its life for %.0f m of road, a style of %.1f - and wears it %.2f ppm, its revolutions in top-gear metres times the load's style over its %.0f km life to the bit, %.0f such runs to the first hundredth (was 306); %.0f s at the limiter in neutral (%.0f rad, the crank never loaded) wears it %.3f ppm - exactly its revolutions at a style of 1 (was exactly 0) - and everything else exactly 0; %.0f s idling warm in neutral %.3f ppm the same way (%.0f rpm is %.0f km/h of the engine's own metres), the same idling at %.0f C (%.0f rad) %.2f ppm - every revolution at full load, x%.0f, and %.0f times over" % [LAUNCH_FRAMES * tick, rad / 1000.0, engine_m, way_m, style, loaded_wear * 1.0e6, ArcadeCar.ENGINE_LIFE_KM, ArcadeCar.WEAR_EFFECT_STEP / loaded_wear, NEUTRAL_REV_FRAMES * tick, free_rad, free_engine * 1.0e6, HOT_IDLE_FRAMES * tick, warm_idle * 1.0e6, idle_rpm, idle_kmh, HOT_C, hot_rad, hot_idle * 1.0e6, ArcadeCar.ENGINE_FLAT_OUT, ArcadeCar.ENGINE_WEAR_ABUSE],
 	)
+
+
+## The cruise: CRUISE_M in top gear at CRUISE_KMH, straight down the pad,
+## wears every component its rated share of the metres - the style
+## multiplier (the wear over the metres' share of the life) exactly 1 for
+## the clutch (locked), the brakes (the pedal up) and the fronts (rolling
+## free), a hair over for the driven rears (their drive slip) and the engine
+## (its light load, its wheels' slip) - each wired to the tick's quantities
+## to the bit; and the second half of the way wears the same as the first,
+## twice the kilometres twice the wear.
+func _check_cruise(car: ArcadeCar) -> void:
+	var tick := 1.0 / Engine.physics_ticks_per_second
+	_fresh(car)
+	await _step(SETTLE_FRAMES)
+	car.set_driver_input(1.0, 0.0, 0.0)
+	while car.speed_kmh < CRUISE_KMH:
+		await physics_frame
+	var top_gear := ArcadeCar.GEAR_RATIOS.size() - 1
+	var shift_ticks := 0
+	while car.gear < top_gear and shift_ticks < 1200:
+		if not car.is_shifting:
+			car.shift_up()
+		await physics_frame
+		shift_ticks += 1
+	for frame in CRUISE_SETTLE_FRAMES:
+		car.set_driver_input(_cruise_throttle(car), 0.0, 0.0)
+		await physics_frame
+	var gear_held := car.gear == top_gear and not car.is_shifting
+	var from := _shares(car)
+	var expected: Array[float] = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+	var half_wear: Array[Array] = []
+	var half_way: Array[float] = []
+	var way_m := 0.0
+	var slip_ticks := 0
+	var brake_ticks := 0
+	var rpm_sum := 0.0
+	var load_sum := 0.0
+	var ticks := 0
+	var next_half := CRUISE_M / CRUISE_HALVES
+	var half_from := from
+	var half_from_way := 0.0
+	while way_m < CRUISE_M and ticks < 20000:
+		car.set_driver_input(_cruise_throttle(car), 0.0, 0.0)
+		await physics_frame
+		ticks += 1
+		way_m += car._wear_way_m
+		rpm_sum += car.engine_rpm
+		var load_share := clampf(car.clutch_torque / ArcadeCar.ENGINE_PEAK_TORQUE, 0.0, 1.0)
+		load_sum += load_share
+		if car._clutch_slip_w > 0.0:
+			slip_ticks += 1
+		if car._front_brake_heat_w > 0.0 or car._rear_brake_heat_w > 0.0:
+			brake_ticks += 1
+		expected[0] += (car._wear_way_m + car._clutch_slip_w * tick * ArcadeCar.CLUTCH_SLIP_M_PER_KJ * 0.001) / (ArcadeCar.CLUTCH_LIFE_KM * 1000.0)
+		expected[1] += (car._wear_way_m + car._front_brake_heat_w * tick * ArcadeCar.BRAKE_WORK_M_PER_KJ * 0.001 * (ArcadeCar.BRAKE_WEAR_ABUSE if ArcadeCar.brake_fade(car.front_brake_temp) < 1.0 else 1.0)) / (ArcadeCar.BRAKE_LIFE_KM * 1000.0)
+		expected[2] += (car._wear_way_m + car._rear_brake_heat_w * tick * ArcadeCar.BRAKE_WORK_M_PER_KJ * 0.001 * (ArcadeCar.BRAKE_WEAR_ABUSE if ArcadeCar.brake_fade(car.rear_brake_temp) < 1.0 else 1.0)) / (ArcadeCar.BRAKE_LIFE_KM * 1000.0)
+		expected[3] += (car._wear_way_m + car._front_slip_w * tick * ArcadeCar.TYRE_SLIP_M_PER_KJ * 0.001 * (ArcadeCar.TYRE_WEAR_ABUSE if ArcadeCar.tyre_c_of(car.front_tyre_temp) > ArcadeCar.TYRE_WINDOW_HIGH_C else 1.0)) / (ArcadeCar.FRONT_TYRE_LIFE_KM * 1000.0)
+		expected[4] += (car._wear_way_m + car._rear_slip_w * tick * ArcadeCar.TYRE_SLIP_M_PER_KJ * 0.001 * (ArcadeCar.TYRE_WEAR_ABUSE if ArcadeCar.tyre_c_of(car.rear_tyre_temp) > ArcadeCar.TYRE_WINDOW_HIGH_C else 1.0)) / (ArcadeCar.REAR_TYRE_LIFE_KM * 1000.0)
+		expected[5] += _engine_metres(car, tick, load_share) / (ArcadeCar.ENGINE_LIFE_KM * 1000.0)
+		if way_m >= next_half and half_wear.size() < CRUISE_HALVES - 1:
+			var now := _shares(car)
+			var grown: Array[float] = []
+			for i in now.size():
+				grown.append(now[i] - half_from[i])
+			half_wear.append(grown)
+			half_way.append(way_m - half_from_way)
+			half_from = now
+			half_from_way = way_m
+			next_half += CRUISE_M / CRUISE_HALVES
+	var to := _shares(car)
+	var last_half: Array[float] = []
+	for i in to.size():
+		last_half.append(to[i] - half_from[i])
+	half_wear.append(last_half)
+	half_way.append(way_m - half_from_way)
+	var speed := car.speed_kmh
+	var still_top := car.gear == top_gear and not car.is_shifting
+	car.clear_driver_input()
+	_fresh(car)
+	await _step(5)
+	var lives: Array[float] = [ArcadeCar.CLUTCH_LIFE_KM, ArcadeCar.BRAKE_LIFE_KM, ArcadeCar.BRAKE_LIFE_KM, ArcadeCar.FRONT_TYRE_LIFE_KM, ArcadeCar.REAR_TYRE_LIFE_KM, ArcadeCar.ENGINE_LIFE_KM]
+	var styles: Array[float] = []
+	var wired := true
+	var rated := true
+	var linear := true
+	for i in to.size():
+		var wear := to[i] - from[i]
+		wired = wired and wear > 0.0 and absf(wear / expected[i] - 1.0) < WIRING_TOLERANCE
+		var style := wear * lives[i] * 1000.0 / way_m
+		styles.append(style)
+		var tolerance := CRUISE_ENGINE_TOLERANCE if i == 5 else (CRUISE_REAR_TYRE_TOLERANCE if i == 4 else WIRING_TOLERANCE)
+		rated = rated and style >= 1.0 - WIRING_TOLERANCE and style <= 1.0 + tolerance
+		var halves_tolerance := CRUISE_HALVES_TOLERANCE if i >= 4 else CRUISE_METRES_TOLERANCE
+		for half: Array in half_wear:
+			linear = linear and absf(half[i] * CRUISE_HALVES / wear - 1.0) < halves_tolerance
+	var halves_ok := half_wear.size() == CRUISE_HALVES and half_way.size() == CRUISE_HALVES and absf(half_way[0] / half_way[CRUISE_HALVES - 1] - 1.0) < CRUISE_METRES_TOLERANCE
+	_check(
+		gear_held and still_top and way_m >= CRUISE_M and ticks < 20000 and slip_ticks == 0 and brake_ticks == 0 and wired and rated and linear and halves_ok
+			and absf(speed - CRUISE_KMH) < 5.0,
+		"cruise: %.0f m in %dth gear at %.0f km/h (%.0f rpm, %d ticks, the clutch locked and the pedal up throughout, the crank loaded %.2f of its peak) wears the clutch %.2f ppm, the pads %.2f and %.2f, the tyres %.2f and %.2f, the engine %.2f - each the tick's metres over its life to the bit - at styles of %.4f, %.4f, %.4f, %.4f (exactly 1: the rated life is the gentle cruise), %.4f for the driven rears (their drive slip's %.1f m) and %.3f for the engine (its light load and its wheels' slip); the first %.0f m wore each of them the same as the second %.0f m to within %.1f %% (the rears and the engine within %.0f %%): twice the kilometres, twice the wear" % [way_m, top_gear, CRUISE_KMH, rpm_sum / ticks, ticks, load_sum / ticks, (to[0] - from[0]) * 1.0e6, (to[1] - from[1]) * 1.0e6, (to[2] - from[2]) * 1.0e6, (to[3] - from[3]) * 1.0e6, (to[4] - from[4]) * 1.0e6, (to[5] - from[5]) * 1.0e6, styles[0], styles[1], styles[2], styles[3], styles[4], (styles[4] - 1.0) * way_m, styles[5], half_way[0], half_way[CRUISE_HALVES - 1], CRUISE_METRES_TOLERANCE * 100.0, CRUISE_HALVES_TOLERANCE * 100.0],
+	)
+
+
+## The cruise's throttle: a plain proportional hold on CRUISE_KMH.
+func _cruise_throttle(car: ArcadeCar) -> float:
+	return clampf(CRUISE_THROTTLE_BASE + CRUISE_THROTTLE_GAIN * (CRUISE_KMH - car.speed_kmh), 0.0, 1.0)
+
+
+## The engine's own metres this tick, as _advance_wear counts them: the
+## revolutions in top-gear metres times the load's style, 1 +
+## (ENGINE_FLAT_OUT - 1) x `load_share` squared.
+func _engine_metres(car: ArcadeCar, tick: float, load_share: float) -> float:
+	return absf(car.engine_omega) * tick * ArcadeCar.TOP_GEAR_M_PER_RAD * (1.0 + (ArcadeCar.ENGINE_FLAT_OUT - 1.0) * load_share * load_share)
 
 
 ## Worn brakes stop the car measurably longer, worn-out ones longer again,
@@ -652,9 +899,10 @@ func _check_car_loads(car: ArcadeCar) -> void:
 	for i in WEAR_FIELDS.size():
 		grew_only = grew_only and still[i] >= loaded[i]
 	_fresh(car)
+	var renewed := _all_equal(_shares(car), 0.0)
 	await _step(5)
 	_check(
-		loaded_ok and under_one and settings_ok and grew_only and _all_equal(_shares(car), 0.0),
+		loaded_ok and under_one and settings_ok and grew_only and renewed,
 		"store: a car that loads a clutch %.0f %% worn, brakes %.0f/%.0f %%, tyres %.0f/%.0f %% and an engine %.0f %% starts exactly so, every multiplier under 1 (clutch %.3f, engine %.4f), wear_settings hands the six back, and two ticks later none of them is less" % [STORE_WORN.clutch * 100.0, STORE_WORN.brakes_front * 100.0, STORE_WORN.brakes_rear * 100.0, STORE_WORN.tyres_front * 100.0, STORE_WORN.tyres_rear * 100.0, STORE_WORN.engine * 100.0, factors[0], factors[5]],
 	)
 
@@ -698,8 +946,9 @@ func _check_reset(car: ArcadeCar, pad: TestPad) -> void:
 
 
 ## Nothing of it is ever NaN: a NaN share is none, inf worn out, -inf none; a
-## tick's NaN or negative quantity adds nothing and takes nothing; and after
-## everything above the whole state is finite.
+## tick's NaN, infinite or negative quantity - the way among them - adds
+## nothing and takes nothing; and after everything above the whole state is
+## finite.
 func _check_no_nan(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	car.clutch_wear = NAN
@@ -715,14 +964,19 @@ func _check_no_nan(car: ArcadeCar) -> void:
 	for i in WEAR_PROPERTIES.size():
 		car.set(WEAR_PROPERTIES[i], 0.1 * (i + 1))
 	var before := _shares(car)
+	car._wear_way_m = NAN
 	car._clutch_slip_w = NAN
 	car._front_brake_heat_w = NAN
 	car._rear_brake_heat_w = -1000.0
-	car._front_tyre_heat_w = -INF
-	car._rear_tyre_heat_w = NAN
+	car._front_slip_w = -INF
+	car._rear_slip_w = NAN
 	car.engine_omega = NAN
 	car._advance_wear(tick)
 	var unchanged := _shares(car) == before
+	car._wear_way_m = INF
+	car._front_slip_w = INF
+	car._advance_wear(tick)
+	var inf_none := _shares(car) == before
 	car.engine_omega = ArcadeCar.IDLE_RPM * TAU / 60.0
 	_fresh(car)
 	await _step(2)
@@ -731,7 +985,7 @@ func _check_no_nan(car: ArcadeCar) -> void:
 		finite = finite and is_finite(share)
 	for factor: float in _factors(car):
 		finite = finite and is_finite(factor)
-	_check(nan_none and inf_out and neg_inf_none and unchanged and finite, "no NaN: a NaN share is none (the multiplier 1), inf is worn out (the multiplier the floor), -inf none; NaN, -inf and negative tick quantities add nothing and take nothing (six shares unchanged to the bit); and the whole state is finite after the run")
+	_check(nan_none and inf_out and neg_inf_none and unchanged and inf_none and finite, "no NaN: a NaN share is none (the multiplier 1), inf is worn out (the multiplier the floor), -inf none; NaN, inf, -inf and negative tick quantities - the way among them - add nothing and take nothing (six shares unchanged to the bit); and the whole state is finite after the run")
 
 
 ## A reset, the car driven up to STOP_FROM_KMH on new brakes, both axles'
@@ -856,6 +1110,9 @@ func _fresh(car: ArcadeCar) -> void:
 	car.rear_tyre_wear = 0.0
 	car.engine_wear = 0.0
 	car._clutch_slip_w = 0.0
+	car._front_slip_w = 0.0
+	car._rear_slip_w = 0.0
+	car._wear_way_m = 0.0
 
 
 ## And the certified fresh car's tank: full, its mass with it.
