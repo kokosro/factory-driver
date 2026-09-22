@@ -7,6 +7,7 @@
 [ext_resource type="Script" path="res://scripts/mission_manager.gd" id="5_missions"]
 [ext_resource type="Script" path="res://scripts/road_profile.gd" id="6_road"]
 [ext_resource type="Script" path="res://scripts/tyre_marks.gd" id="7_marks"]
+[ext_resource type="Script" path="res://scripts/licence_manager.gd" id="8_licence"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_material"]
 sky_top_color = Color(0.22, 0.42, 0.75, 1)
@@ -67,6 +68,13 @@ script = ExtResource("5_missions")
 car = NodePath("../Car")
 pad = NodePath("../TestPad")
 hud = NodePath("../HUD")
+
+[node name="LicenceManager" type="Node" parent="." node_paths=PackedStringArray("car", "pad", "hud", "missions")]
+script = ExtResource("8_licence")
+car = NodePath("../Car")
+pad = NodePath("../TestPad")
+hud = NodePath("../HUD")
+missions = NodePath("../MissionManager")
 
 [node name="TyreMarks" type="MultiMeshInstance3D" parent="." node_paths=PackedStringArray("car", "pad")]
 script = ExtResource("7_marks")

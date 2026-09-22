@@ -102,6 +102,12 @@ var run: HandlingTests
 ## HandlingTests.result()). Empty while a run is active and after an abort.
 var last_result: Dictionary = {}
 
+## True while the number keys belong to somebody else: the licence manager
+## sets it while its book is open or a sitting is on (the same keys pick the
+## exam and answer the theory there, scripts/licence_manager.gd). Nothing
+## starts from here then; a run already on is not touched.
+var start_keys_locked := false
+
 ## Writes the driving down (scripts/telemetry.gd) and holds the stored summary
 ## of earlier runs the HUD shows. Made here, listening to this node's signals.
 ## It records nothing with no window, so the test suite writes no files.
@@ -152,10 +158,11 @@ func _physics_process(delta: float) -> void:
 			_show_progress()
 		return
 
-	for index in START_ACTIONS.size():
-		if Input.is_action_just_pressed(START_ACTIONS[index]):
-			start_mission(index)
-			return
+	if not start_keys_locked:
+		for index in START_ACTIONS.size():
+			if Input.is_action_just_pressed(START_ACTIONS[index]):
+				start_mission(index)
+				return
 	if state == State.RESULT:
 		_banner_left -= delta
 		if _banner_left <= 0.0 or Input.is_action_just_pressed("abort_mission"):
