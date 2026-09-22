@@ -72,15 +72,25 @@ floor). The forces act along and across each wheel's heading; their sum accelera
 tied together only by the tyres: the steering sets the front wheel angle and nothing
 else. There is a real steering wheel in between: 900 degrees lock to lock
 (`steering_wheel_deg`, +/- 450), turned by the driver's hands at `STEERING_HAND_SPEED`
-(1300 degrees a second: centre to lock in 0.35 s, lock to lock in 0.7 s) towards what
-the keys ask for, and back to centre when you let go. The front wheels are that angle
+(1300 degrees a second: centre to lock in 0.35 s) towards what the keys ask for. Let
+go and the hands turn nothing: it is the caster that brings the wheel back, like a real
+car's (`CASTER_RETURN_RATE_MAX`, `CASTER_FULL_SPEED`) - the rolling front tyres' sideways
+force acts behind the steering axis and turns the wheel straight, up to 600 degrees a
+second at the tyres' peak (103 degrees of wheel) from 9 m/s up, easing in over the last
+degrees (full lock to centre in 1.4 s, a lane change's 100 degrees in 0.8 s), less at a
+walk (the same full lock in 5 s at 3 m/s), and standing still not at all: a parked
+car's wheel stays where you leave it, and so does a reversing car's (the trail is the
+wrong way round backwards; nothing centres the wheel in reverse but you). Unwinding
+with the keys the caster helps the hands (full lock to centre in 15 ticks for the 21 it
+takes to wind on, so lock to lock is 0.6 s), winding on the assist carries its load. To
+straighten up quickly, steer back: the hands are faster. The front wheels are that angle
 through the rack (`STEERING_RATIO` 16.4 : 1, which is what 450 degrees for
 `MAX_STEER_LOCK`, ~27 degrees, comes to), at any speed, in any slide; nothing but you
 turns the wheels, and the cockpit's wheel shows every degree (the yellow mark is 12
 o'clock). A held key at speed winds on far more lock than the front tyres can use, so
 they scrub and the car pushes wide: that is the tyres' honest answer, and short presses
 are how you ask for less. Countersteer is wound on the same way, in proportion: catch a
-slide early, by as much as it needs, because opposite lock is two thirds of a second
+slide early, by as much as it needs, because opposite lock is well over half a second
 away.
 
 Three things sit between the hands and the wheels besides the rack. The steering is
@@ -175,7 +185,8 @@ released the tail is pulled back into line, the sliding tyres scrub the speed of
 car rolls on straight or comes to rest, held back by the engine whichever way it rolls.
 A tap of handbrake with steering gives a drift
 that comes back on its own; holding both from ~90 km/h until the car is nearly round,
-then centring the steering and braking once it has lined up, gives a 180; from ~125 km/h,
+then steering back to straight (rolling backwards nothing centres the wheel for you)
+and braking once it has lined up, gives a 180; from ~125 km/h,
 steering the other way while the car travels backwards and releasing the handbrake past
 half way completes a 360. In reverse there is no assist: a flick of the steering at
 ~40 km/h swings the nose round (J-turn).
@@ -533,7 +544,9 @@ the bottom, and cones, board posts and pylons stand on the ground; round the
 suspension: a drop test for the ride frequency, dive, squat and roll held against
 rigid-body statics, travel inside its limits, the wheels drawn on the road; round the
 steering: the 900-degree wheel wound on at hand speed, the rack, 0.35 s centre to lock
-and 0.7 s lock to lock; and the shape of the tyre curve; and the driver: a tap of the
+and 0.6 s lock to lock (the caster helping the first half), the wheel let go on the
+move waited for at centre wherever a check lets go, and left at its lock rolling
+backwards; and the shape of the tyre curve; and the driver: a tap of the
 key is a partial press, a held one reaches exactly 1.0 and a lift decays to 0, the
 chauffeur's foot is measurably slower than the test driver's, `set_driver_input`
 launches the car with no key down exactly as the key does, holds half a pedal, clamps
@@ -768,7 +781,11 @@ nothing reaching past the screen and every row landing inside the scroll area.
 The fourth step of `tests/run_tests.sh` runs `tests/handling_test.gd`: a scripted driver
 takes the real car through five tests on the pad, one after the other from a fresh
 start, and prints `PASS name` / `FAIL name` plus a metrics line for each. If a test
-cannot be passed, either the driver or the car is not set up properly.
+cannot be passed, either the driver or the car is not set up properly. The drivers
+steer back actively, the way a real driver does: a step's `"steer_deg": 0.0` taps the
+keys until the wheel is within a tick of the hands of straight and holds it there
+(letting the key go leaves the wheel to the caster, which is slow at a walk, nothing
+rolling backwards and nothing standing still).
 
 | Test          | Course                                                       | Passes when                                                              |
 | ------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------ |
@@ -815,7 +832,7 @@ spins, the stop box and the reverse 180 - which crosses it tail-first - and a wh
 of its own across the slalom's lane (z = -24), since the slalom starts further down the
 pad. There is one timed window per run: going back over the line and crossing it again
 does not restart the clock, and a run that finishes without ever crossing its line fails.
-The scripted driver is timed the same way, so its certified times (slalom 28.82 s,
+The scripted driver is timed the same way, so its certified times (slalom 28.65 s,
 180 15.95 s, 360 18.07 s, stop box 8.72 s, reverse 180 7.72 s) are what the medals are
 set against. The time limit is the one thing still counted from the moment the test
 began, so a run nobody drives still ends by itself.
@@ -1056,7 +1073,7 @@ and its captions written from what was measured. The catalogue:
 
 | Group | Lesson | Pilot |
 | --- | --- | --- |
-| BASICS | Steering | the study's own: at a walk, full left lock held, let go, full right, let go, stop |
+| BASICS | Steering | the study's own: at a walk, full left lock held, let go (the caster brings it back, slowly at a walk), full right, let go, stop (what is left on the wheel stays there) |
 | | Manual gear changes | the study's own: 1st to 3rd at the shift light (14.8 and 26.0 m/s), off the throttle, on the brake, down into 2nd at 14 m/s, stop |
 | | Stall and recovery | the study's own: manual, the clutch let up as the throttle goes down (the smoke test's stall), clutch down, starter, revs up, clutch, away |
 | | Drive modes: sport, comfort, eco | the study's own: full throttle to 72 km/h in each program, `N` between them (sport changes up at 6800 rpm, comfort at ~2800, eco at ~1800 - 2000) |
