@@ -58,6 +58,13 @@ const KIND_REVERSE_COURSE := &"reverse_course"
 const KIND_EMERGENCY_STOP := &"emergency_stop"
 const KIND_SKID_PAD := &"skid_pad"
 
+## A lesson of THE STUDY (scripts/study_lessons.gd): a scripted drive on
+## this runner with nothing to judge - no course, no checks but the time
+## limit - so a lesson's steps can carry a "say" line each (the caption the
+## study shows as the step fires). Nothing of the exams changes for it: the
+## kind has no branch in any tracker or verdict, and no exam is of it.
+const KIND_LESSON := &"lesson"
+
 # --- Licences, exams and ranks (data) --------------------------------------------
 
 ## The licence levels: none, L0 citizen, L1 factory entry.
@@ -678,6 +685,12 @@ func abort() -> void:
 	_finish()
 
 
+## How many of the script's steps have fired so far (the next to fire is
+## steps[step_index()]); read-only, for THE STUDY's captions.
+func step_index() -> int:
+	return _step_index
+
+
 ## One line on where the run stands, for tracing an element while tuning it.
 func describe_state() -> String:
 	return "t=%5.2f step=%d pos=(%7.2f, %7.2f) fwd=%6.2f rot=%7.1f rev=%5.1f changes=%d bounds=%s" % [
@@ -716,6 +729,9 @@ func card_text() -> String:
 
 func _progress_text() -> String:
 	match test.kind:
+		KIND_LESSON:
+			var steps: Array = test.steps
+			return "STEP %d/%d" % [mini(_step_index, steps.size()), steps.size()]
 		KIND_QUIZ:
 			var questions: Array = test.questions
 			return "QUESTION %d/%d — digits answer" % [mini(_question_index + 1, questions.size()), questions.size()]

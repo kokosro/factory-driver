@@ -838,6 +838,13 @@ func abort() -> void:
 	_finish()
 
 
+## How many of the script's steps have fired so far (the next to fire is
+## steps[step_index()]); read-only, for THE STUDY's captions. Nothing in a
+## run reads it.
+func step_index() -> int:
+	return _step_index
+
+
 ## Where the run is headed once the manoeuvre is done: the start point, or the
 ## goal point down the line. Vector3.INF for a test without a goal_mode.
 func goal_position() -> Vector3:
