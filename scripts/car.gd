@@ -2109,17 +2109,23 @@ static var MAX_STEER_LOCK := 0.48
 static var STEERING_WHEEL_LOCK_DEG := 450.0
 
 ## How fast the driver's hands turn the steering wheel [degrees per second],
-## towards where the steer input asks for it and back to centre on release
-## (times the power assist's share at speed, STEERING_ASSIST_FULL_SPEED):
-## 1300 is a quick pair of hands (900 degrees lock to lock in 0.69 s, centre to
-## lock in 0.35 s), about what a driver manages catching a slide. The keys are
-## on / off, the hands are not: a tap is a few degrees of wheel, a held key
-## winds lock on at this pace, and countersteer is wound on the same way: a
-## slide is caught by steering against it early and in proportion, as far as
-## the hands get in the time, not by flicking to opposite lock. The stability
-## assist (see Slides) is what it always was and keeps that catchable.
+## towards where the steer input asks for it (times the power assist's share
+## at speed, STEERING_ASSIST_FULL_SPEED): 1300 is a quick pair of hands (900
+## degrees lock to lock in 0.69 s, centre to lock in 0.35 s), about what a
+## driver manages catching a slide. The keys are on / off, the hands are not:
+## a tap is a few degrees of wheel, a held key winds lock on at this pace, and
+## countersteer is wound on the same way: a slide is caught by steering
+## against it early and in proportion, as far as the hands get in the time,
+## not by flicking to opposite lock. The stability assist (see Slides) is
+## what it always was and keeps that catchable. Unwinding, the caster turns
+## the wheel with the hands (CASTER_RETURN_RATE_MAX); with the hands off it
+## is the caster alone that brings the wheel back, and only on the move.
 ## The test driver's hands: every driver brings a pair (steering_hand_speed in
 ## DRIVER_PROFILES).
+# was "... and back to centre on release" at this same speed -> the hands
+# let go turn nothing: the caster brings the wheel back (the user's verdict,
+# 15:24: "like a real car ... while standing still in a real car the wheel
+# doesn't center by itself, it only happens when the car moves").
 # was STEER_RESPONSE 5.0 [1/s], the steer input easing to the key in 0.2 s
 # centre to lock (a wheel spun at 2250 degrees per second, had there been one)
 # -> the wheel is a state (steering_wheel_deg) turned at a hand's speed: 0.35 s
@@ -2149,10 +2155,63 @@ static var STEERING_RATIO := STEERING_WHEEL_LOCK_DEG / (MAX_STEER_LOCK * 180.0 /
 ## 0.89 of the hand speed, at 35 m/s (the 360's entry) 0.62, at 38 m/s and
 ## above 0.6: centre to lock 0.35 s parking, 0.39 s at 25 m/s, 0.58 s at
 ## highway speed. Multiplies whatever hand speed the driver in the seat has
-## (steering_hand_speed in DRIVER_PROFILES), on and back to centre alike.
+## (steering_hand_speed in DRIVER_PROFILES), winding on and unwinding alike
+## (unwinding, the caster's rate comes on top, CASTER_RETURN_RATE_MAX).
+# was "on and back to centre alike" -> the hands off the wheel are no hands:
+# the caster brings it back (the user's verdict, 15:24).
 const STEERING_ASSIST_FULL_SPEED := 18.0
 const STEERING_ASSIST_HIGHWAY_SPEED := 38.0
 const STEERING_ASSIST_HIGHWAY := 0.6
+
+## Caster return: a steered front wheel rolling along is pulled back to
+## straight by its own tyre - the sideways force acts behind the wheel's
+## steering axis (the caster angle's mechanical trail plus the contact
+## patch's pneumatic trail), so it makes an aligning torque back through the
+## rack to the steering wheel. Modelled as the rate the caster turns the
+## steering wheel back towards centre at (_caster_return_rate) [degrees per
+## second]: CASTER_RETURN_RATE_MAX times the torque's share, which grows with
+## the wheel's angle (the sideways force does, with the slip angle) up to the
+## front tyres' peak slip angle through the rack (FRONT_PEAK_SLIP_ANGLE x
+## STEERING_RATIO, 103 degrees of steering wheel on the certified car: the
+## aligning torque peaks about where the tyre's grip does, and past it the
+## scrubbing tyre pulls no harder), times a share for the road speed
+## (smoothstep from 0 at a standstill to 1 at CASTER_FULL_SPEED [m/s] and
+## above: the sideways load a wheel angle makes grows with the square of the
+## speed, which the smoothstep's start is, until the tyre's grip and the
+## rack's damping cap it). THE STANDSTILL RULE: zero at a standstill, to the
+## bit - a standing tyre has no aligning torque and its patch's friction
+## holds the wheels where they were left; the wheel is the hands' alone
+## until the car rolls (the user's verdict, 15:24: "while standing still in
+## a real car the wheel doesn't center by itself, it only happens when the
+## car moves"). And zero in reverse, to the bit: rolling backwards the trail
+## is ahead of the steering axis and the aligning torque flips to a
+## diverging one - the wheels of a reversing car want to flop to lock, not
+## to centre (a trolley's castor pushed backwards), which the hands on the
+## wheel hold and the patch's friction eats at parking pace; nothing brings
+## the wheel back but the hands. What the hands do with it: hands off, the
+## caster alone turns the wheel, and within the rack's play of centre
+## (STEERING_PLAY_DEG) it stands on centre; hands on, winding lock on, the
+## assist carries the caster's load and the hands have their certified
+## speed; unwinding, the caster turns the wheel with the hands (the rates
+## add: a driver lets the wheel run back through loose hands faster than
+## the hands alone turn it). Worked out on the certified car at 9 m/s and
+## above, hands off: full lock (450 degrees) to centre in 1.43 s (0.58 s at
+## the 600 to the tyres' peak, then the last 103 degrees easing in, a tenth
+## of what is left each tick's 1/60 s); a 100-degree motorway lane change
+## back in 0.85 s. At 3 m/s (a walk, the steering lesson's pace) the share
+## is 0.26 and the same full lock takes 5.2 s. Measured, see
+## tests/steering_feel_test.gd.
+## Not the 3v-caster-return branch's: that proposal (24e27e5) returned at
+## 150 degrees a second at a standstill, easing to 800 at 38 m/s - against
+## the standstill rule - and its scripted drivers still straightened by
+## letting the key go, so at its rates the slalom passed 1 gate of 14
+## (29.13 s), the 180 never got back to the start (43.45 s), the 360
+## overshot (381 degrees, 20.15 s) and the J-turn took 8.95 s for 7.72 (its
+## commit's own measurements). Here the drivers steer back actively
+## (HandlingTests "steer_deg"; the user's verdict, 15:24) and the saturation
+## speed is the tyre's, not the drivers' need.
+const CASTER_RETURN_RATE_MAX := 600.0
+const CASTER_FULL_SPEED := 9.0
 
 ## Play in the rack at centre [degrees of steering wheel]: the hands' motion
 ## about dead centre goes into the play before the rack moves. Not a dead
@@ -2380,8 +2439,9 @@ static var REAR_LOCK_RECOVERY_RATE := 3.0
 ##   throttle_release    throttle pedal coming back up [1/s]
 ##   brake_attack        brake pedal going down [1/s]
 ##   brake_release       brake pedal coming back up [1/s]
-##   steering_hand_speed steering wheel [degrees per second], on and back to
-##                       centre (see STEERING_HAND_SPEED)
+##   steering_hand_speed steering wheel [degrees per second], winding on and
+##                       unwinding (see STEERING_HAND_SPEED; let go, the
+##                       caster brings it back, CASTER_RETURN_RATE_MAX)
 ## Linear, as the hands are: a rate, no easing, a pedal is fully down exactly
 ## 1 / attack seconds after the key. "test_driver" is who drives unless somebody
 ## else is put in the seat (set_driver_profile): the driver the handling tests
@@ -2432,6 +2492,9 @@ static var REAR_LOCK_RECOVERY_RATE := 3.0
 # The steering feel (the power assist, the rack's play, the bushings; see
 # STEERING_ASSIST_FULL_SPEED) moved them from 28.77 / 15.92 / 18.13 / 8.72 /
 # 7.68 at 3781c8a to 28.82 / 15.95 / 18.07 / 8.72 / 7.72 s, 0.5 % at most.
+# The caster return (CASTER_RETURN_RATE_MAX; the user's verdict, 15:24) with
+# the drivers steering back actively moved them to 28.65 / 15.95 / 18.07 /
+# 8.72 / 7.72 s: the slalom -0.59 %, the rest the same to the hundredth.
 # was a const -> read from the car's config (driver_profiles, required); the
 # certified value stays here as the fallback default.
 static var DRIVER_PROFILES := {
@@ -2554,8 +2617,13 @@ var slide_yaw_rate := 0.0
 
 ## Angle of the driver's steering wheel [degrees], positive = turned left,
 ## within +/- STEERING_WHEEL_LOCK_DEG. A state: the hands turn it towards what
-## the steer input asks for, and back to centre, at STEERING_HAND_SPEED x the
-## power assist's share (_steering_assist). What the cockpit shows.
+## the steer input asks for at STEERING_HAND_SPEED x the power assist's share
+## (_steering_assist), the caster helping them unwind, and with the hands off
+## the caster alone brings it back to centre, on the move (_caster_return_rate;
+## at a standstill and in reverse it stays where it was left). What the
+## cockpit shows.
+# was "... and back to centre, at STEERING_HAND_SPEED x the power assist's
+# share" -> the caster's (the user's verdict, 15:24).
 var steering_wheel_deg := 0.0
 
 ## The hands' motion about dead centre that has gone into the rack's play
@@ -3627,13 +3695,28 @@ func _physics_process(delta: float) -> void:
 	#    for (a share of its 450 degrees each way) at the driver's hand speed
 	#    (STEERING_HAND_SPEED for the test driver) times the power assist's
 	#    share at this road speed (_steering_assist: all of it up to 65 km/h,
-	#    0.6 on the motorway), and back to centre the same way. About
+	#    0.6 on the motorway), the caster's rate on top of it when they
+	#    unwind. No input is no hands: the caster alone brings the wheel
+	#    back to centre, at its own rate for the wheel's angle and the road
+	#    speed (_caster_return_rate: nothing at a standstill or in reverse),
+	#    and within the rack's play of centre it stands on centre. About
 	#    dead centre the hands' motion goes into the rack's play first
 	#    (STEERING_PLAY_DEG). The rack turns the wheel's angle into the
 	#    front wheel angle it asks for; the bushings let the wheels trail
 	#    that (_steering_compliance_tau), and stand on it exactly once close.
-	var hand_rate: float = driver_profile.steering_hand_speed * _steering_assist(absf(forward_speed))
-	var hands_deg := move_toward(steering_wheel_deg, steer_input * STEERING_WHEEL_LOCK_DEG, hand_rate * delta)
+	# was "... and back to centre the same way", the hands' rate towards
+	# centre with no key down -> the caster's (the user's verdict, 15:24).
+	var caster_rate := _caster_return_rate(steering_wheel_deg, forward_speed)
+	var hands_deg: float
+	if steer_input == 0.0:
+		hands_deg = move_toward(steering_wheel_deg, 0.0, caster_rate * delta)
+		if hands_deg != steering_wheel_deg and absf(hands_deg) <= STEERING_PLAY_DEG:
+			hands_deg = 0.0
+	else:
+		var asked_deg := steer_input * STEERING_WHEEL_LOCK_DEG
+		var unwinding := steering_wheel_deg != 0.0 and signf(asked_deg - steering_wheel_deg) == -signf(steering_wheel_deg)
+		var hand_rate: float = driver_profile.steering_hand_speed * _steering_assist(absf(forward_speed))
+		hands_deg = move_toward(steering_wheel_deg, asked_deg, (hand_rate + (caster_rate if unwinding else 0.0)) * delta)
 	if steering_wheel_deg == 0.0 and hands_deg != 0.0:
 		_steering_play_deg += hands_deg
 		if absf(_steering_play_deg) <= STEERING_PLAY_DEG:
@@ -5436,6 +5519,23 @@ func _steering_assist(road_speed: float) -> float:
 	if road_speed >= STEERING_ASSIST_HIGHWAY_SPEED:
 		return STEERING_ASSIST_HIGHWAY
 	return lerpf(1.0, STEERING_ASSIST_HIGHWAY, smoothstep(STEERING_ASSIST_FULL_SPEED, STEERING_ASSIST_HIGHWAY_SPEED, road_speed))
+
+
+## The rate the caster turns the steering wheel back towards centre at
+## [degrees per second], for a steering wheel at `wheel_deg` [degrees] and
+## the car going `forward_speed` [m/s] (see CASTER_RETURN_RATE_MAX):
+## the rate at the tyres' peak times the aligning torque's share of it -
+## the wheel's angle over the front tyres' peak slip angle through the rack,
+## 1 from there up - times smoothstep(0, CASTER_FULL_SPEED, speed). Exactly
+## 0 at a standstill (the standstill rule), exactly 0 rolling backwards
+## (the trail is the wrong way round), exactly CASTER_RETURN_RATE_MAX at
+## full lock from CASTER_FULL_SPEED up. A NaN angle or speed is 0.
+func _caster_return_rate(wheel_deg: float, speed: float) -> float:
+	if is_nan(wheel_deg) or is_nan(speed) or speed <= 0.0 or wheel_deg == 0.0:
+		return 0.0
+	var peak_deg := rad_to_deg(FRONT_PEAK_SLIP_ANGLE) * STEERING_RATIO
+	var torque_share := minf(absf(wheel_deg) / peak_deg, 1.0)
+	return CASTER_RETURN_RATE_MAX * torque_share * smoothstep(0.0, CASTER_FULL_SPEED, speed)
 
 
 ## Time constant of the front wheels trailing the rack [s]:
