@@ -18,6 +18,8 @@
 | 3AC | Airborne honesty: unsupported wheels carry nothing (phantom force removed), ballistic flight, no drive/grip/rolling/hill in the air, full-droop wheels, honest landing; airborne_test step | 1db32ba | 1db32ba |
 | 3AB | Wear measured in kilometres: rated lives (clutch 175k, pads 50k, tyres 25.5k/17k, engine 140k km, sourced/labelled estimates) + driving style as metres-of-life on top; equivalences measured (launch ~474 m clutch, stop ~252 m pads, donut ~1.26 km rear, idle ~31 km/h-equiv) | c5ee9c3 | c5ee9c3 |
 | 3AD | Landing honesty: premise corrected by measurement — the bug was large-attitude seat extrapolation (266 kN catapult -> tumbling -> springs-flat "cat landing"), NOT the tail hop; exact rigid-body seat geometry above 0.1 rad, the shell as contact (bounded stops + friction), deterministic topple, no guaranteed four-down; the flip (F) rights an overturned car at rest, orientation only | 74aaef5 | 74aaef5 |
+| 3AE | Flip visual fix: the level draw now writes the whole wheel/body transform (was: x/z kept the overturned carried picture — side-rest buried the wheels in the body, roof-rest mirrored them); fixed at the draw site so flip, reset and every settle-then-render path are covered; drawn layout asserted to the bit against car.tscn | b0ce888 | e5441d4+ |
+| 3AF | Rollover momentum: overturned shell friction capped at ROLL_FRICTION_COEFF 0.45 x weight (kinetic friction of a car on its roof/side) — the CoM decelerates at <= 0.45 g while the roll continues about the moving contact; the wall-pivot is gone (worst per-tick CoM drop 1.15 m/s -> 0.075 m/s; the roll travels 17.4 m, rests on its wheels 43 m on, deterministically); upright shell contact untouched, 3AD numbers held byte-for-byte | 41189fa | 7d642ac |
 
 Certified times at shift end (byte-locked): SLALOM 28.65 (was 28.82 before 3AA's caster; moved honestly, cited) / SPIN_180 15.95 / SPIN_360 18.07 / STOP_BOX 8.72 / REVERSE_180 7.72. Suite: 1281 ok across 13 headless steps.
 
@@ -30,6 +32,11 @@ Certified times at shift end (byte-locked): SLALOM 28.65 (was 28.82 before 3AA's
 ## IN FLIGHT AT SHIFT CLOSE (honest state)
 - 3AE + 3AF (the two catches above): external job editing scripts/car.gd (uncommitted), gates pending — it pushes itself when green. Certs byte-locked throughout.
 - Design synthesis draft (art canon x gameplay, the driver's brain dump folded in) filed at docs/design/design-synthesis-draft.md — DRAFT, awaiting the driver's verdict before 4B.
+
+## SHIFT-CLOSE ADDENDUM (00:40, after the user went to bed): 3AE + 3AF LANDED
+Both fixes verified (double gate + independent re-run: suite 1292 ok across 3 runs byte-identical modulo the documented pid-path artifact, zero errors, certs byte-locked 28.65/15.95/18.07/8.72/7.72, pushed, HEAD == origin/main == 7d642ac):
+- The flip's picture (3AE): the level-draw branch now writes whole transforms — side-rest flip shows all four wheels at their own corners (was: buried in the body, "no tires"), roof-rest flip shows left wheels left and right wheels right (was: mirrored). Fixed at the draw site, so flip, reset and any settle-then-render path are covered at once; asserted to the bit against the scene's layout.
+- The roll's momentum (3AF): overturned, the shell's friction is the car's kinetic friction on the road at most (ROLL_FRICTION_COEFF 0.45 — reconstruction practice 0.4-0.5 g), so the centre of mass keeps travelling (decelerated <= 0.45 g) while the roll goes on about a contact that moves with it. The user's exact handbrake maneuver measured: was 1.15 m/s taken off the CoM in one tick (the wall), now 0.075 m/s worst tick; the roll travels 17.4 m while over (physics floor 15.5 m), ends on its wheels 43 m on; the diagonal rollover now slides ~15 m further on its side before resting. Where a roll ends is still the numbers' call — honest.
 
 ## DESIGN CANON REGISTERED THIS SHIFT
 - docs/art-direction.md — the visual canon (verbatim driver brief; Porsche Unleashed PC 2000 aesthetic; road-is-the-composition; asset priority 1-4).
