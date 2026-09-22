@@ -361,6 +361,20 @@ func _fresh_heat(car: ArcadeCar) -> void:
 	car._rear_tyre_heat_w = 0.0
 	car._front_brake_heat_w = 0.0
 	car._rear_brake_heat_w = 0.0
+	_fresh_wear(car)
+
+
+## And the certified fresh car's components, new: the six wear shares and the
+## clutch's slip tracker at 0 - a reset keeps the wear (R refuels, it does not
+## un-wear), what HandlingTests._start sets for a certified run.
+func _fresh_wear(car: ArcadeCar) -> void:
+	car.clutch_wear = 0.0
+	car.front_brake_wear = 0.0
+	car.rear_brake_wear = 0.0
+	car.front_tyre_wear = 0.0
+	car.rear_tyre_wear = 0.0
+	car.engine_wear = 0.0
+	car._clutch_slip_w = 0.0
 
 
 func _step(frames: int) -> void:

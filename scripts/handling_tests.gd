@@ -686,6 +686,17 @@ func _start() -> void:
 	car._rear_tyre_heat_w = 0.0
 	car._front_brake_heat_w = 0.0
 	car._rear_brake_heat_w = 0.0
+	# And the certified fresh car's components: new, nothing worn, the clutch's
+	# slip tracker at 0 - a reset keeps the wear (R refuels, it does not
+	# un-wear: the user's wear-and-aging thought, 2026-09-22 07:55), a test
+	# starting hands out the new car, before any physics frame.
+	car.clutch_wear = 0.0
+	car.front_brake_wear = 0.0
+	car.rear_brake_wear = 0.0
+	car.front_tyre_wear = 0.0
+	car.rear_tyre_wear = 0.0
+	car.engine_wear = 0.0
+	car._clutch_slip_w = 0.0
 	# The reset unloads the car; the test's payload goes on after it.
 	car.payload_mass = float(test.get("payload_kg", 0.0))
 	if pad != null and pad.has_method("reset_cones"):
