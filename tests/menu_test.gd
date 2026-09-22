@@ -132,6 +132,7 @@ func _run() -> void:
 	_check_legend_and_keys()
 	print("-- the LICENCE page")
 	_check_licence_panel()
+	_check_licence_checklist()
 
 	_car.clear_driver_input()
 	_car.reset_to_spawn()
@@ -776,6 +777,38 @@ func _check_licence_panel() -> void:
 	_licence.record_pass(LicenceExams.EXAM_SKID_PAD)
 	text = _garage.licence_text()
 	_check(_licence.level() == LicenceExams.LICENCE_L1 and text.contains("LICENCE HELD:  L1 FACTORY ENTRY") and text.contains("RANK:  TEST DRIVER") and text.contains("RACE DRIVER"), "all seven recorded: L1 FACTORY ENTRY, the TEST DRIVER rank, the next rank named as not yet playable")
+
+
+## The L0 checklist on the panel (the user's verdict, 2026-09-22 14:56 +
+## 15:02: each element passed is kept): the manager seeded from a file of
+## the test's own with three of the seven, the panel and the page ticking
+## exactly those; a fresh record all dashes; the manager's record put back.
+func _check_licence_checklist() -> void:
+	var path := _tmp_dir.path_join("checklist.json")
+	var held := _licence.licence.duplicate(true)
+	var names := LicenceExams.l0_element_names()
+	OdometerStore.save_licence(ArcadeCar.CAR_ID, {"elements": [names[0], names[1], names[3]]}, path)
+	_licence._store_path = path
+	_licence._load_licence()
+	var text := _garage.licence_text()
+	var checklist := "L0 ELEMENTS:  Theory: PASSED   PARALLEL PARK [PASSED]   BAY PARK [ - ]   HILL START [PASSED]   THREE-POINT TURN [ - ]   REVERSING [ - ]   EMERGENCY STOP [ - ]"
+	_check(
+		_licence.level() == LicenceExams.LICENCE_NONE and text.contains(checklist) and text.contains("NEXT, L0 CITIZEN") and text.contains("resumes at the first not yet passed") and text.contains("PASSED:  nothing yet"),
+		"seeded with the theory, the parallel park and the hill start: the panel's checklist ticks exactly those, in the sitting's order, the L0 sitting next and resumable",
+	)
+	_garage.open()
+	_garage.show_page(Garage.Page.LICENCE)
+	var page := _garage.page_text()
+	_check(page.contains(checklist) and page.contains("Theory: PASSED   PARALLEL PARK [PASSED]   BAY PARK [ - ]   HILL START [PASSED]") and page.contains("THREE-POINT TURN [ - ]   REVERSING [ - ]   EMERGENCY STOP [ - ]"), "the LICENCE page shows the checklist on the panel and in the book")
+	_garage.close()
+	OdometerStore.save_licence(ArcadeCar.CAR_ID, {}, path)
+	_licence._load_licence()
+	text = _garage.licence_text()
+	_check(text.contains("L0 ELEMENTS:  Theory: —   PARALLEL PARK [ - ]") and not text.contains("[PASSED]"), "a fresh record: the checklist is all dashes")
+	OdometerStore.save_licence(ArcadeCar.CAR_ID, held, path)
+	_licence._load_licence()
+	_licence._store_path = OdometerStore.PATH
+	_check(_licence.licence == held and _licence.level() == LicenceExams.LICENCE_L1, "the manager's record is back as it was")
 
 
 # =============================================================================

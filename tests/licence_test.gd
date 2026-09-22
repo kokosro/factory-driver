@@ -144,8 +144,13 @@ func _run() -> void:
 	await _sit_wrong_answer()
 	await _check_roll_back_failure()
 	await _sit_skid_pad()
-	_check_l1_grant()
+	# was `_check_l1_grant()` unawaited: a coroutine (it taps the book), whose
+	# continuation ran under whatever came after it - harmless while that was
+	# the synchronous store check and the exit, wrong once the per-element
+	# section taps keys of its own after it.
+	await _check_l1_grant()
 	_check_store()
+	await _check_per_element_memory()
 
 	if DirAccess.dir_exists_absolute(_store_dir):
 		if FileAccess.file_exists(_store_file):
@@ -343,6 +348,11 @@ func _check_book_and_keys() -> void:
 func _drive_sitting(pilot_for: Callable) -> Dictionary:
 	var verdicts := {}
 	var seen := {"card_up_for_quiz": false, "clutch_moved_on_hill": false, "manual_on_hill": false, "line_ok": true, "card_down_off_quiz": true, "bad_line": ""}
+	# Frames each element was seen in manual and in automatic, by name (the
+	# instructor's car: manual through the first three practical elements,
+	# automatic from the fourth).
+	seen["manual_frames"] = {}
+	seen["automatic_frames"] = {}
 	var pilot: LicenceExams = null
 	var pilot_index := -1
 	var frames := 0
@@ -386,6 +396,8 @@ func _drive_sitting(pilot_for: Callable) -> Dictionary:
 		if element.kind == LicenceExams.KIND_HILL_START:
 			seen.clutch_moved_on_hill = seen.clutch_moved_on_hill or _car.clutch_pedal > 0.5
 			seen.manual_on_hill = seen.manual_on_hill or not _car.automatic
+		var mode_frames: Dictionary = seen.automatic_frames if _car.automatic else seen.manual_frames
+		mode_frames[element.name] = mode_frames.get(element.name, 0) + 1
 	if pilot != null:
 		pilot.abort()
 	if not _manager.last_result.is_empty():
@@ -668,6 +680,186 @@ func _check_store() -> void:
 		# verdict, 2026-09-22 14:56 + 15:02); a rank is no fourth.
 		"store: %d non-levels and non-lists refused with a reason, the levels -1 .. 1 and lists of names accepted, no fourth field; a level of 7 beside a good list reads as the list's L0 with one problem naming the car and the field" % refused,
 	)
+
+
+# =============================================================================
+#  Per-element memory
+# =============================================================================
+
+## The L0 sitting remembers (the user's verdict, 2026-09-22 14:56 + 15:02):
+## the elements passed ride the record as its third field on the test's own
+## file (an old licence object without it reads clean, a malformed one is
+## reported), the level is what they earn, a sitting on a record the manager
+## is seeded with resumes at the first element not yet passed (the theory
+## skipped), the instructor's car is manual through the parks and the hill
+## start and automatic from the turn, a failed element leaves the passed
+## ones in the record and on the file and the retake resumes at it, and a
+## practice run on a complete record changes nothing. The manager keeps the
+## record on the test's file for this: the store's switch is turned on with
+## the path pointed there, and both are put back after.
+func _check_per_element_memory() -> void:
+	print("-- per-element memory")
+	var car_id := ArcadeCar.CAR_ID
+	var names := LicenceExams.l0_element_names()
+	var all: Array = Array(names)
+	var held := _manager.licence.duplicate(true)
+
+	# The store's third field: to the bit, the level from it, an old licence
+	# object without it, a malformed one.
+	OdometerStore.save_licence(car_id, {"passed": [], "elements": [names[0], names[1], names[1]]}, _store_file)
+	var two := OdometerStore.load_licence(car_id, _store_file)
+	var raw := JSON.parse_string(FileAccess.get_file_as_string(_store_file)) as Dictionary
+	var raw_licence: Dictionary = raw["cars"][car_id]["licence"]
+	_check(
+		two.elements == [names[0], names[1]] and two.level == LicenceExams.LICENCE_NONE and (two.passed as Array).is_empty() and (two.problems as Array).is_empty()
+		and raw_licence.has("elements") and raw_licence.elements == [names[0], names[1]] and raw_licence.level == -1 and raw_licence.keys().size() == 3,
+		"store: the elements passed ride the licence object as its third field, come back to the bit (a duplicate dropped), two of seven earn no level (%s)" % [two.elements],
+	)
+	OdometerStore.save_licence(car_id, {"passed": [], "elements": names}, _store_file)
+	var seven := OdometerStore.load_licence(car_id, _store_file)
+	raw = JSON.parse_string(FileAccess.get_file_as_string(_store_file)) as Dictionary
+	_check(seven.elements == all and seven.level == LicenceExams.LICENCE_L0 and (seven.passed as Array).is_empty() and raw["cars"][car_id]["licence"]["level"] == 0, "store: all seven elements earn L0, the level written and read from them with no exam-level pass in the list")
+	raw["cars"][car_id]["licence"] = {"level": 0, "passed": [LicenceExams.EXAM_L0]}
+	_write_raw(raw)
+	var old := OdometerStore.load_licence(car_id, _store_file)
+	_check(
+		(old.elements as Array).is_empty() and (old.problems as Array).is_empty() and old.level == LicenceExams.LICENCE_L0 and old.passed == [LicenceExams.EXAM_L0],
+		"store: a licence object written before there were elements (no 'elements' key) reads as a clean element slate, nothing reported, its L0 kept by the exam-level pass",
+	)
+	raw["cars"][car_id]["licence"] = {"level": 0, "passed": [LicenceExams.EXAM_L0], "elements": names[0]}
+	_write_raw(raw)
+	var bad := OdometerStore.load_licence(car_id, _store_file)
+	var bad_problems: Array = bad.problems
+	_check(
+		(bad.elements as Array).is_empty() and bad_problems.size() == 1 and bad_problems[0].contains(car_id) and bad_problems[0].contains("elements") and bad.level == LicenceExams.LICENCE_L0 and bad.passed == [LicenceExams.EXAM_L0]
+		and OdometerStore.licence_problem("elements", [1]) != "" and OdometerStore.licence_problem("elements", "x") != "" and OdometerStore.licence_problem("elements", names) == "",
+		"store: an elements field that is no list of names reads as [] with one problem naming the car and the field ('%s'), the rest of the record still loads" % bad_problems[0] if not bad_problems.is_empty() else "store: an elements field that is no list of names is reported",
+	)
+
+	# The level from the elements: all seven, or the exam-level pass alone.
+	var six: Array = all.slice(0, 6)
+	var l1_rest: Array = []
+	l1_rest.append_array(LicenceExams.L1_HANDLING_TESTS)
+	l1_rest.append(LicenceExams.EXAM_SKID_PAD)
+	_check(
+		LicenceExams.level_for([], all) == LicenceExams.LICENCE_L0 and LicenceExams.level_for([], six) == LicenceExams.LICENCE_NONE and LicenceExams.level_for([], []) == LicenceExams.LICENCE_NONE
+		and LicenceExams.level_for([LicenceExams.EXAM_L0], []) == LicenceExams.LICENCE_L0 and LicenceExams.level_for(l1_rest, []) == LicenceExams.LICENCE_NONE
+		and LicenceExams.level_for(l1_rest, all) == LicenceExams.LICENCE_L1 and LicenceExams.level_for(LicenceExams.l1_requirements(), []) == LicenceExams.LICENCE_L1
+		and LicenceExams.sitting_complete(all) and not LicenceExams.sitting_complete(six) and LicenceExams.l0_resume_index([]) == 0 and LicenceExams.l0_resume_index(six) == 6 and LicenceExams.l0_resume_index(all) == 0,
+		"level_for: all seven elements are L0, six are nothing, the exam-level pass alone is L0 (an old record keeps its licence), the L1 set on either route is L1; a sitting resumes at the first element missing, a complete one at the theory",
+	)
+
+	# A resumed sitting: the theory passed alone, seeded from the file, the
+	# manager's record kept there from here on.
+	_manager._store_path = _store_file
+	_manager._store_kept = true
+	OdometerStore.save_licence(car_id, {"elements": [names[0]]}, _store_file)
+	_manager._load_licence()
+	_check(_manager.level() == LicenceExams.LICENCE_NONE and _manager.has_passed_element(names[0]) and not _manager.has_passed_element(names[1]) and not _manager.has_passed(LicenceExams.EXAM_L0), "seeded from the file: the theory passed, nothing else, unlicensed")
+	await _tap(LicenceManager.ACTION_BOOK)
+	_check(_card.text.contains("Theory: PASSED") and _card.text.contains("PARALLEL PARK [ - ]") and _card.text.contains("EMERGENCY STOP [ - ]") and _card.text.contains("resumes"), "the book's checklist: Theory: PASSED, the six practical elements dashed, the rule in words")
+	_fresh_fuel(_car)
+	await _tap(LicenceManager.ACTION_SIT_L0)
+	_check(
+		_manager.is_running() and _manager.element_index == 1 and _manager.elements[1].name == names[1] and not _manager.practice and not _card.visible and _mission_label.text.contains("ELEMENT 2/7") and not _car.automatic,
+		"1 resumes the sitting at element 2/7, the parallel park: the theory skipped, no card, the line says ELEMENT 2/7, the instructor's car in manual",
+	)
+	var seen := await _drive_sitting(func(element: Dictionary) -> Dictionary: return element)
+	var verdicts: Dictionary = seen.verdicts
+	for name: String in verdicts:
+		for line in HandlingTests.format_result(verdicts[name]):
+			print("  ", line)
+	var all_passed := verdicts.size() == 6 and not verdicts.has(names[0])
+	for name: String in verdicts:
+		all_passed = all_passed and verdicts[name].passed
+	_check(_manager.state == LicenceManager.State.RESULT and _manager.last_sitting_passed and all_passed, "the six practical elements were sat and PASSED, the theory never again (%d verdicts, %d frames)" % [verdicts.size(), seen.frames])
+	var manual_frames: Dictionary = seen.manual_frames
+	var automatic_frames: Dictionary = seen.automatic_frames
+	var manual_through := true
+	for name in ["PARALLEL_PARK", "BAY_PARK", "HILL_START"]:
+		manual_through = manual_through and manual_frames.get(name, 0) > 0 and automatic_frames.get(name, 0) == 0
+	var automatic_from := true
+	for name in ["TURN_IN_ROAD", "REVERSING_COURSE", "EMERGENCY_STOP"]:
+		automatic_from = automatic_from and automatic_frames.get(name, 0) > 0 and manual_frames.get(name, 0) == 0
+	_check(
+		manual_through and automatic_from,
+		"the instructor's car: manual through the parallel park, the bay park and the hill start (%d, %d, %d frames, never automatic), automatic from the three-point turn on (%d, %d, %d frames, never manual)" % [
+			manual_frames.get("PARALLEL_PARK", 0), manual_frames.get("BAY_PARK", 0), manual_frames.get("HILL_START", 0),
+			automatic_frames.get("TURN_IN_ROAD", 0), automatic_frames.get("REVERSING_COURSE", 0), automatic_frames.get("EMERGENCY_STOP", 0),
+		],
+	)
+	_check(_manager.licence.elements == all and _manager.has_passed(LicenceExams.EXAM_L0) and _manager.level() == LicenceExams.LICENCE_L0 and _banner.text == "PASSED  L0 EXAM", "every element in the record in the sitting's order, the sitting itself recorded once, L0 granted, the banner says PASSED")
+	var on_file := OdometerStore.load_licence(car_id, _store_file)
+	_check(on_file.elements == all and on_file.passed == [LicenceExams.EXAM_L0] and on_file.level == LicenceExams.LICENCE_L0 and (on_file.problems as Array).is_empty(), "... and on the file, saved as each was passed")
+	await _tap(&"abort_mission")
+
+	# A failed element leaves the passed ones: three seeded, the hill start
+	# stalled, and the retake from the banner resumes at the hill start.
+	OdometerStore.save_licence(car_id, {"elements": all.slice(0, 3)}, _store_file)
+	_manager._load_licence()
+	await _tap(LicenceManager.ACTION_BOOK)
+	_fresh_fuel(_car)
+	await _tap(LicenceManager.ACTION_SIT_L0)
+	_check(_manager.is_running() and _manager.element_index == 3 and _mission_label.text.contains("ELEMENT 4/7") and not _car.automatic, "three elements passed: 1 resumes at the hill start, ELEMENT 4/7, in manual")
+	seen = await _drive_sitting(func(element: Dictionary) -> Dictionary:
+		if element.kind != LicenceExams.KIND_HILL_START:
+			return element
+		var stalling := element.duplicate(true)
+		var steps: Array = stalling.steps
+		steps[5] = {"when": {"after": LicenceExams.HILL_REV_TIME}, "release": [&"clutch_pedal"]}
+		steps[6] = {"when": {"after": 3.0}, "release": [&"accelerate", &"handbrake"]}
+		return stalling
+	)
+	verdicts = seen.verdicts
+	for name: String in verdicts:
+		for line in HandlingTests.format_result(verdicts[name]):
+			print("  ", line)
+	var hill: Dictionary = verdicts.get("HILL_START", {"passed": true, "metrics": {}})
+	_check(_manager.state == LicenceManager.State.RESULT and not _manager.last_sitting_passed and _manager.element_index == 3 and verdicts.size() == 1 and not hill.passed and hill.metrics.get("stalled", false), "the hill start stalls: the sitting FAILED at 4/7, nothing after it sat")
+	on_file = OdometerStore.load_licence(car_id, _store_file)
+	_check(
+		_manager.licence.elements == all.slice(0, 3) and _manager.level() == LicenceExams.LICENCE_NONE and not _manager.has_passed(LicenceExams.EXAM_L0) and on_file.elements == all.slice(0, 3) and on_file.level == LicenceExams.LICENCE_NONE,
+		"the theory, the parallel park and the bay park are still in the record and on the file; nothing earned yet",
+	)
+	_fresh_fuel(_car)
+	await _tap(LicenceManager.ACTION_SIT_L0)
+	_check(_manager.is_running() and _manager.element_index == 3 and not _manager.practice and not _car.automatic, "1 under the FAILED banner retakes from the hill start, not the theory")
+	_manager.abort_sitting()
+	await _step(int(LicenceManager.ABORT_BANNER_TIME * Engine.physics_ticks_per_second) + 5)
+	_check(_manager.state == LicenceManager.State.IDLE and _manager.licence.elements == all.slice(0, 3), "aborted: the three stay")
+
+	# A practice run on a complete record changes nothing.
+	OdometerStore.save_licence(car_id, {"passed": [LicenceExams.EXAM_L0], "elements": names}, _store_file)
+	_manager._load_licence()
+	var file_before := FileAccess.get_file_as_string(_store_file)
+	await _tap(LicenceManager.ACTION_BOOK)
+	_fresh_fuel(_car)
+	await _tap(LicenceManager.ACTION_SIT_L0)
+	_check(_manager.is_running() and _manager.practice and _manager.element_index == 0 and _card.visible, "a complete record: 1 sits the exam again from the theory as a practice run")
+	var first: Dictionary = LicenceExams.quiz_questions()[0]
+	var wrong: int = 1 if first.correct != 1 else 2
+	await _tap(LicenceExams.ANSWER_ACTIONS[wrong - 1])
+	await _step(int(0.5 * Engine.physics_ticks_per_second) + 5)
+	_check(
+		_manager.state == LicenceManager.State.RESULT and not _manager.last_sitting_passed and _manager.licence.elements == all and _manager.has_passed(LicenceExams.EXAM_L0) and _manager.level() == LicenceExams.LICENCE_L0
+		and FileAccess.get_file_as_string(_store_file) == file_before,
+		"a wrong answer fails the practice run; the record and the file are unchanged, nothing un-passes",
+	)
+	await _tap(&"abort_mission")
+
+	# The manager's own record back, the store off again.
+	OdometerStore.save_licence(car_id, held, _store_file)
+	_manager._load_licence()
+	_manager._store_kept = false
+	_manager._store_path = OdometerStore.PATH
+	_check(_manager.licence == held and _manager.level() == LicenceExams.LICENCE_L1 and not _manager._store_kept, "the manager's L1 record is back, with its seven elements, and the store is off again")
+
+
+## Writes `data` as the test's file, as it is.
+func _write_raw(data: Dictionary) -> void:
+	var file := FileAccess.open(_store_file, FileAccess.WRITE)
+	file.store_string(JSON.stringify(data))
+	file.close()
 
 
 func _tap(action: StringName) -> void:
