@@ -33,8 +33,13 @@ extends SceneTree
 ## ceiling still stop the car - nothing dies; and the handbrake is the lever's,
 ## the same slide to the bit with the rear discs at the ceiling. Then the
 ## HUD's two bars: they follow the hotter axle, blue cold, grey in the window,
-## red over it, brighter red hotter, their lines the car's own. Last, nothing
-## of it is ever NaN, after the limiter, a stall, handbrake slides and resets.
+## red over it, brighter red hotter, their lines the car's own. Then the
+## reset: it keeps the heat - cold tyres and cold brakes are cold to the bit
+## after it and still at the air's after the settle, hot ones hot to the bit
+## and cooling from the next tick by their own laws - and a handling test's
+## start is the one thing that hands out the certified fresh car. Last,
+## nothing of it is ever NaN, after the limiter, a stall, handbrake slides
+## and resets.
 ## Exits 0 on success, 1 on any failed check.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -184,6 +189,7 @@ func _run() -> void:
 	await _check_brake_fade(car)
 	await _check_handbrake_untouched(car)
 	await _check_hud_bars(car, hud, tyre_bar, brake_bar)
+	await _check_reset_keeps_heat(car, pad)
 	await _check_no_nan(car)
 
 	car.reset_to_spawn()
@@ -342,6 +348,9 @@ func _check_certified_runs(car: ArcadeCar, pad: TestPad) -> void:
 func _check_tyre_heat(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning); the donut starts from operating.
+	_fresh_heat(car)
 	await _step(SETTLE_FRAMES)
 	car.tcs_on = false
 	car.sc_on = false
@@ -374,6 +383,10 @@ func _check_tyre_heat(car: ArcadeCar) -> void:
 	car.sc_on = true
 	# The handbrake slide.
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning), and the donut left the rears over the
+	# window; the slide is from warm tyres and cold brakes.
+	_fresh_heat(car)
 	await _step(SETTLE_FRAMES)
 	car.set_driver_input(1.0, 0.0, 0.0)
 	while car.speed_kmh < 100.0:
@@ -490,12 +503,17 @@ func _check_warm_up(car: ArcadeCar) -> void:
 	var front_minutes := front_tick * tick / 60.0
 	var rear_minutes := rear_tick * tick / 60.0
 	car.reset_to_spawn()
+	# was car.front_tyre_temp == 1.0 and car.rear_tyre_temp == 1.0, "a reset
+	# is the warm tyres again" -> the reset leaves the tyres where the cruise
+	# settled them (the user's report, 2026-09-22 morning: R does not turn
+	# back time on temperature).
+	var kept := car.front_tyre_temp == settled_front and car.rear_tyre_temp == settled_rear
 	_check(
 		monotonic and front_tick > 0 and rear_tick > 0 and front_minutes <= WARM_UP_MAX_MINUTES and rear_minutes <= WARM_UP_MAX_MINUTES
 			and settled_front > low and settled_front < high and settled_rear > low and settled_rear < high and settled_rear > settled_front
 			and absf(settled_front - a_minute_ago.x) < SETTLED_TOLERANCE and absf(settled_rear - a_minute_ago.y) < SETTLED_TOLERANCE
-			and car.front_tyre_temp == 1.0 and car.rear_tyre_temp == 1.0,
-		"warm-up: at a steady %.0f m/s (%.1f kW of rolling heat, %.2f kW of it on the fronts, %.2f on the rears) both axles climb from %.0f C without a dip, the rears are in the window (%.0f C) after %.1f min and the fronts after %.1f min (at most %.0f), and they settle at %.1f C (front) and %.1f C (rear), inside it; a reset is the warm tyres again" % [CRUISE_SPEED, rolling_w / 1000.0, front_w / 1000.0, rear_w / 1000.0, ArcadeCar.COOLANT_AMBIENT_C, ArcadeCar.TYRE_WINDOW_LOW_C, rear_minutes, front_minutes, WARM_UP_MAX_MINUTES, ArcadeCar.tyre_c_of(settled_front), ArcadeCar.tyre_c_of(settled_rear)],
+			and kept,
+		"warm-up: at a steady %.0f m/s (%.1f kW of rolling heat, %.2f kW of it on the fronts, %.2f on the rears) both axles climb from %.0f C without a dip, the rears are in the window (%.0f C) after %.1f min and the fronts after %.1f min (at most %.0f), and they settle at %.1f C (front) and %.1f C (rear), inside it; a reset leaves them there" % [CRUISE_SPEED, rolling_w / 1000.0, front_w / 1000.0, rear_w / 1000.0, ArcadeCar.COOLANT_AMBIENT_C, ArcadeCar.TYRE_WINDOW_LOW_C, rear_minutes, front_minutes, WARM_UP_MAX_MINUTES, ArcadeCar.tyre_c_of(settled_front), ArcadeCar.tyre_c_of(settled_rear)],
 	)
 
 
@@ -580,6 +598,9 @@ func _check_grip(car: ArcadeCar) -> void:
 func _check_brake_heat(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning); the stop's rise is counted from the air's.
+	_fresh_heat(car)
 	await _step(SETTLE_FRAMES)
 	car.set_driver_input(1.0, 0.0, 0.0)
 	while car.speed_kmh < STOP_FROM_KMH:
@@ -650,6 +671,10 @@ func _check_brake_fade(car: ArcadeCar) -> void:
 		and ceiling.distance_m < cold.distance_m / ArcadeCar.BRAKE_FADE_FLOOR * 1.2
 	# The string of stops: back up to speed straight after each one.
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning), and the stop before this left the discs at
+	# the ceiling; the string starts on cold discs, the fade exactly 1.
+	_fresh_heat(car)
 	await _step(SETTLE_FRAMES)
 	var first_fade := -1.0
 	var last_fade := 1.0
@@ -715,6 +740,10 @@ func _check_hud_bars(car: ArcadeCar, hud: HUD, tyre_bar: ColorRect, brake_bar: C
 	var battery_bar := hud.get_node("BatteryBarBack/BatteryBar") as ColorRect
 	var coolant_bar := hud.get_node("CoolantBarBack/CoolantBar") as ColorRect
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning), and the handbrake check leaves the rear
+	# discs at the ceiling; the bars' fresh look is read on the fresh car.
+	_fresh_heat(car)
 	await _step(2)
 	var start_ok := tyre_bar.visible and is_equal_approx(tyre_bar.scale.x, maxf(car.front_tyre_temp, car.rear_tyre_temp) / HUD.TYRE_BAR_FULL) and tyre_bar.color == HUD.TYRE_COLOR \
 		and not brake_bar.visible
@@ -765,17 +794,115 @@ func _check_hud_bars(car: ArcadeCar, hud: HUD, tyre_bar: ColorRect, brake_bar: C
 		and is_equal_approx(HUD.BRAKE_BAR_FULL, ArcadeCar.BRAKE_MAX_TEMP)
 	car.reset_to_spawn()
 	await _step(2)
+	# was tyre_bar.color == HUD.TYRE_COLOR and not brake_bar.visible, "they
+	# are the car's again after a reset" (the reset put the tyres at operating
+	# and the brakes at the air's) -> the reset keeps the heat (the user's
+	# report, 2026-09-22 morning): the bars are the car's again after it, and
+	# the car is still on a very hot rear tyre and a red-hot front disc.
+	var after_reset := tyre_bar.visible and is_equal_approx(tyre_bar.scale.x, car.rear_tyre_temp / HUD.TYRE_BAR_FULL) and tyre_bar.color == HUD.TYRE_VERY_HOT_COLOR \
+		and car.rear_tyre_temp > HUD.TYRE_VERY_HOT_FRACTION \
+		and brake_bar.visible and is_equal_approx(brake_bar.scale.x, car.front_brake_temp / HUD.BRAKE_BAR_FULL) and brake_bar.color == HUD.BRAKE_VERY_HOT_COLOR \
+		and car.front_brake_temp > HUD.BRAKE_VERY_HOT_FRACTION
 	_check(
-		start_ok and followed == tyre_levels.size() + brake_levels.size() and hidden and clamped and lines_ok and tyre_bar.visible and tyre_bar.color == HUD.TYRE_COLOR and not brake_bar.visible,
-		"HUD: the tyre bar and the brake bar follow the hotter axle (%d of %d levels to the bit: the tyres blue at 30 C, red at %.0f, brighter red at %.0f; the brakes grey at 100 C, red at %.0f, brighter red at %.0f), grey warm and empty cold respectively, hidden at 0 and for NaN, clamped at their ends (%.0f and %.0f C, the ceilings), the fuel, battery and coolant bars untouched; the tyre bar's lines are the window's edges and the brake bar's the fade line and red hot; and they are the car's again after a reset" % [followed, tyre_levels.size() + brake_levels.size(), ArcadeCar.TYRE_WINDOW_HIGH_C + 2.0, ArcadeCar.tyre_c_of(tyre_levels["very hot"]), ArcadeCar.BRAKE_FADE_START_C + 2.0, ArcadeCar.BRAKE_RED_HOT_C + 1.0, ArcadeCar.tyre_c_of(HUD.TYRE_BAR_FULL), ArcadeCar.brake_c_of(HUD.BRAKE_BAR_FULL)],
+		start_ok and followed == tyre_levels.size() + brake_levels.size() and hidden and clamped and lines_ok and after_reset,
+		"HUD: the tyre bar and the brake bar follow the hotter axle (%d of %d levels to the bit: the tyres blue at 30 C, red at %.0f, brighter red at %.0f; the brakes grey at 100 C, red at %.0f, brighter red at %.0f), grey warm and empty cold respectively, hidden at 0 and for NaN, clamped at their ends (%.0f and %.0f C, the ceilings), the fuel, battery and coolant bars untouched; the tyre bar's lines are the window's edges and the brake bar's the fade line and red hot; and they are the car's again after a reset - the very hot rear tyre (%.1f C) and the red-hot front disc (%.1f C) the reset kept" % [followed, tyre_levels.size() + brake_levels.size(), ArcadeCar.TYRE_WINDOW_HIGH_C + 2.0, ArcadeCar.tyre_c_of(tyre_levels["very hot"]), ArcadeCar.BRAKE_FADE_START_C + 2.0, ArcadeCar.BRAKE_RED_HOT_C + 1.0, ArcadeCar.tyre_c_of(HUD.TYRE_BAR_FULL), ArcadeCar.brake_c_of(HUD.BRAKE_BAR_FULL), ArcadeCar.tyre_c_of(car.rear_tyre_temp), ArcadeCar.brake_c_of(car.front_brake_temp)],
+	)
+
+
+## A reset keeps the heat (the user's report, 2026-09-22 morning: "the bar
+## filled 100%, but when i did an R it took the tyres bar to middle ... i was
+## expecting the temperature to not reset all of a sudden, but to respect the
+## time it takes for the tires to cooldown"). Cold tyres and cold brakes are
+## cold to the bit after a reset and still at the air's after the settle
+## (nothing warms a standing tyre or an untouched disc); hot tyres and hot
+## brakes are hot to the bit after a reset and cool from the next tick by
+## their own laws - each tick's fall the cooling less the heat in over the
+## lump (tyre_cooling_w, brake_cooling_w), standing. And a handling test's
+## start, on a car hot everywhere with the fan running, hands out the
+## certified fresh car before its first tick: the tyres exactly at operating,
+## the brakes exactly at the air's, the coolant exactly at operating, the
+## fan off - the run is never ticked and is dropped, the car reset after.
+func _check_reset_keeps_heat(car: ArcadeCar, pad: TestPad) -> void:
+	var tick := 1.0 / Engine.physics_ticks_per_second
+	var tyre_capacity := ArcadeCar.TYRE_HEAT_CAPACITY * ArcadeCar.TYRE_SPAN_K
+	var brake_capacity := ArcadeCar.BRAKE_HEAT_CAPACITY * ArcadeCar.BRAKE_SPAN_K
+	# Cold: both axles' tyres and discs at the air's for a tick, the reset,
+	# then the settle.
+	car.reset_to_spawn()
+	_fresh_heat(car)
+	await _step(5)
+	car.front_tyre_temp = 0.0
+	car.rear_tyre_temp = 0.0
+	car.front_brake_temp = 0.0
+	car.rear_brake_temp = 0.0
+	await _step(1)
+	var cold_before: Array[float] = [car.front_tyre_temp, car.rear_tyre_temp, car.front_brake_temp, car.rear_brake_temp]
+	car.reset_to_spawn()
+	var cold_kept := car.front_tyre_temp == cold_before[0] and car.rear_tyre_temp == cold_before[1] \
+		and car.front_brake_temp == cold_before[2] and car.rear_brake_temp == cold_before[3]
+	await _step(SETTLE_FRAMES)
+	var still_cold := car.front_tyre_temp * ArcadeCar.TYRE_SPAN_K < 1.0 and car.rear_tyre_temp * ArcadeCar.TYRE_SPAN_K < 1.0 \
+		and car.front_brake_temp == 0.0 and car.rear_brake_temp == 0.0 and ArcadeCar.tyre_grip_factor(car.front_tyre_temp) < 1.0
+	var cold_after: Array[float] = [ArcadeCar.tyre_c_of(car.front_tyre_temp), ArcadeCar.tyre_c_of(car.rear_tyre_temp)]
+	# Hot: the tyres at HOT_TYRE_C and the discs at HOT_BRAKE_C for a tick,
+	# the reset, then ticks at a standstill against the two models.
+	var hot_tyre := ArcadeCar.tyre_temp_of_c(HOT_TYRE_C)
+	var hot_brake := ArcadeCar.brake_temp_of_c(HOT_BRAKE_C)
+	car.front_tyre_temp = hot_tyre
+	car.rear_tyre_temp = hot_tyre
+	car.front_brake_temp = hot_brake
+	car.rear_brake_temp = hot_brake
+	await _step(1)
+	var hot_before: Array[float] = [car.front_tyre_temp, car.rear_tyre_temp, car.front_brake_temp, car.rear_brake_temp]
+	car.reset_to_spawn()
+	var hot_kept := car.front_tyre_temp == hot_before[0] and car.rear_tyre_temp == hot_before[1] \
+		and car.front_brake_temp == hot_before[2] and car.rear_brake_temp == hot_before[3] \
+		and ArcadeCar.tyre_grip_factor(car.rear_tyre_temp) < 1.0 and ArcadeCar.brake_fade(car.front_brake_temp) < 1.0
+	var tyres_wired := true
+	var brakes_wired := true
+	var falls := true
+	for frame in SETTLE_FRAMES:
+		var tyre_before := car.rear_tyre_temp
+		var brake_before := car.front_brake_temp
+		var airflow := absf(car.forward_speed)
+		await physics_frame
+		var tyre_expected := tyre_before + (car._rear_tyre_heat_w - ArcadeCar.tyre_cooling_w(tyre_before, airflow)) * tick / tyre_capacity
+		var brake_expected := brake_before + (car._front_brake_heat_w - ArcadeCar.brake_cooling_w(brake_before, airflow)) * tick / brake_capacity
+		tyres_wired = tyres_wired and absf(car.rear_tyre_temp - tyre_expected) < WIRING_TOLERANCE
+		brakes_wired = brakes_wired and absf(car.front_brake_temp - brake_expected) < WIRING_TOLERANCE
+		falls = falls and car.rear_tyre_temp < tyre_before and car.front_brake_temp < brake_before
+	var tyre_fell_k := (hot_before[1] - car.rear_tyre_temp) * ArcadeCar.TYRE_SPAN_K
+	var brake_fell_k := (hot_before[2] - car.front_brake_temp) * ArcadeCar.BRAKE_SPAN_K
+	# A handling test's start on a car hot everywhere: the fresh car, before
+	# its first tick.
+	car.front_tyre_temp = hot_tyre
+	car.rear_tyre_temp = hot_tyre
+	car.front_brake_temp = hot_brake
+	car.rear_brake_temp = hot_brake
+	car.coolant_temp = ArcadeCar.coolant_temp_of_c(ArcadeCar.COOLANT_FAN_ON_C + 1.0)
+	await _step(1)
+	var hot_everywhere := car.coolant_fan_on and car.front_tyre_temp > 1.0 and car.front_brake_temp > 1.0 and car.coolant_temp > 1.0
+	var run := HandlingTests.begin(HandlingTests.all_tests()[0], car, pad)
+	var fresh := run != null and not run.finished \
+		and car.front_tyre_temp == 1.0 and car.rear_tyre_temp == 1.0 and car.front_brake_temp == 0.0 and car.rear_brake_temp == 0.0 \
+		and car.coolant_temp == 1.0 and not car.coolant_fan_on \
+		and car._front_tyre_heat_w == 0.0 and car._rear_tyre_heat_w == 0.0 and car._front_brake_heat_w == 0.0 and car._rear_brake_heat_w == 0.0 \
+		and car._combustion_heat_w == 0.0 and car._idle_wobble_phase == 0.0
+	car.reset_to_spawn()
+	pad.reset_cones()
+	_fresh_heat(car)
+	await _step(5)
+	_check(
+		cold_kept and still_cold and hot_kept and tyres_wired and brakes_wired and falls and hot_everywhere and fresh,
+		"reset keeps the heat: tyres and discs at the air's temperature are there to the bit after a reset and still at it after %d standing ticks (the tyres %.2f and %.2f C, the grip under its own; the discs at the air's); tyres at %.0f C and discs at %.0f C are there to the bit after a reset, the grip and the fade still under 1, and fall every one of the next %d standing ticks by their own laws (the cooling less the heat in over the lump, to 0.006 K: the rear tyre %.3f K, the front disc %.3f K); a handling test's start on a car hot everywhere, the fan running, hands out the fresh car before its first tick - the tyres exactly at operating, the brakes exactly at the air's, the coolant exactly at operating, the fan off" % [SETTLE_FRAMES, cold_after[0], cold_after[1], HOT_TYRE_C, HOT_BRAKE_C, SETTLE_FRAMES, tyre_fell_k, brake_fell_k],
 	)
 
 
 ## Nothing of it is ever NaN: a NaN tyre temperature is operating, a NaN brake
 ## temperature the air, inf the ceilings, -inf the air; NaN heat into a tick
 ## leaves them where they were; and after the limiter, a dry-tank stall, a
-## handbrake slide and resets the whole state is finite and the car is in its
-## certified thermal state again.
+## handbrake slide and resets the whole state is finite and the car is still
+## hot everywhere, as the slide left it (a reset keeps the heat).
 func _check_no_nan(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	car.front_tyre_temp = NAN
@@ -836,13 +963,17 @@ func _check_no_nan(car: ArcadeCar) -> void:
 		and is_finite(ArcadeCar.tyre_grip_factor(car.front_tyre_temp)) and is_finite(ArcadeCar.brake_fade(car.front_brake_temp)) \
 		and is_finite(ArcadeCar.tyre_cooling_w(car.rear_tyre_temp, car.forward_speed)) and is_finite(ArcadeCar.brake_cooling_w(car.rear_brake_temp, car.forward_speed)) \
 		and is_finite(car.forward_speed) and is_finite(car.engine_rpm)
+	# was the tyres a hair under operating and the brakes at the air's two
+	# ticks after the reset, "on warm tyres and cold brakes again" (the reset
+	# put them there) -> the reset keeps the heat (the user's report,
+	# 2026-09-22 morning): the tyres are still over the window and the discs
+	# still over the fade line, as the slide left them.
+	var window_high := ArcadeCar.tyre_temp_of_c(ArcadeCar.TYRE_WINDOW_HIGH_C)
 	_check(
 		nan_ok and inf_ok and neg_inf_ok and nan_heat and limited and stalled and abused_finite and finite
-			# Two ticks standing after the reset: the tyres a hair under
-			# operating, in the window; the brakes at the air's.
-			and car.front_tyre_temp > 0.999 and car.front_tyre_temp <= 1.0 and car.rear_tyre_temp == car.front_tyre_temp
-			and car.front_brake_temp == 0.0 and car.rear_brake_temp == 0.0 and car.engine_running,
-		"no NaN: a NaN tyre temperature is operating and a NaN brake temperature the air, inf the ceilings, -inf the air, NaN heat leaves them where they were; after %.0f s on the limiter, a dry-tank stall on cold tyres and hot brakes, a handbrake slide with everything at its ceiling and resets the whole state is finite and the car is on warm tyres and cold brakes again (tyres %.4f, brakes %.1f, %.0f rpm)" % [LIMITER_FRAMES * tick, car.front_tyre_temp, car.front_brake_temp, car.engine_rpm],
+			and car.front_tyre_temp > window_high and car.rear_tyre_temp > window_high
+			and car.front_brake_temp > 1.0 and car.rear_brake_temp > 1.0 and car.engine_running,
+		"no NaN: a NaN tyre temperature is operating and a NaN brake temperature the air, inf the ceilings, -inf the air, NaN heat leaves them where they were; after %.0f s on the limiter, a dry-tank stall on cold tyres and hot brakes, a handbrake slide with everything at its ceiling and resets the whole state is finite and the car is still hot everywhere, as the slide left it (tyres %.4f, brakes %.3f, %.0f rpm)" % [LIMITER_FRAMES * tick, car.front_tyre_temp, car.front_brake_temp, car.engine_rpm],
 	)
 
 
@@ -851,6 +982,11 @@ func _check_no_nan(car: ArcadeCar) -> void:
 ## { distance_m, ticks, from_ms, stopped, front_c: the front discs after }.
 func _stop(car: ArcadeCar, tyre_temp: float, brake_temp: float) -> Dictionary:
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning); the drive up to speed is on the same warm
+	# tyres, cold brakes and warm coolant every time, the temperatures
+	# measured then set.
+	_fresh_heat(car)
 	await _step(SETTLE_FRAMES)
 	car.set_driver_input(1.0, 0.0, 0.0)
 	while car.speed_kmh < STOP_FROM_KMH:
@@ -884,6 +1020,10 @@ func _stop(car: ArcadeCar, tyre_temp: float, brake_temp: float) -> Dictionary:
 ## tick: { lateral_g: the peak lateral acceleration [g] }.
 func _corner(car: ArcadeCar, tyre_temp: float) -> Dictionary:
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning); the drive up to speed is on the same warm
+	# tyres, cold brakes and warm coolant every time.
+	_fresh_heat(car)
 	await _step(SETTLE_FRAMES)
 	car.set_driver_input(1.0, 0.0, 0.0)
 	while car.speed_kmh < CORNER_FROM_KMH:
@@ -907,6 +1047,10 @@ func _corner(car: ArcadeCar, tyre_temp: float) -> Dictionary:
 ## tick state, hold_seen: the lever's hold seen letting go, end_kmh }.
 func _handbrake_slide(car: ArcadeCar, brake_temp: float) -> Dictionary:
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning); the two slides compared to the bit are
+	# driven up on the same warm tyres and warm coolant, the discs then set.
+	_fresh_heat(car)
 	await _step(SETTLE_FRAMES)
 	car.set_driver_input(1.0, 0.0, 0.0)
 	while car.speed_kmh < 100.0:
@@ -929,6 +1073,27 @@ func _handbrake_slide(car: ArcadeCar, brake_temp: float) -> Dictionary:
 	car.reset_to_spawn()
 	await _step(5)
 	return seen
+
+
+## The certified fresh car's thermal state, set by hand: the coolant at
+## operating with the fan off, the tyres at operating, the brakes at the
+## air's, the tick's heat trackers and the idle hunt's phase at 0 - what
+## reset_to set until the reset stopped touching the heat (the user's report,
+## 2026-09-22 morning), and what HandlingTests._start sets for a certified
+## run. The checks whose premise is the fresh car call it after their reset.
+func _fresh_heat(car: ArcadeCar) -> void:
+	car.coolant_temp = 1.0
+	car.coolant_fan_on = false
+	car._combustion_heat_w = 0.0
+	car._idle_wobble_phase = 0.0
+	car.front_tyre_temp = 1.0
+	car.rear_tyre_temp = 1.0
+	car.front_brake_temp = 0.0
+	car.rear_brake_temp = 0.0
+	car._front_tyre_heat_w = 0.0
+	car._rear_tyre_heat_w = 0.0
+	car._front_brake_heat_w = 0.0
+	car._rear_brake_heat_w = 0.0
 
 
 func _step(frames: int) -> void:

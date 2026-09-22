@@ -27,7 +27,10 @@ extends SceneTree
 ## it is the only cooling there is, it adds nothing at speed, and it switches
 ## on and off where documented. Then the HUD's bar: it follows the temperature,
 ## blue cold, grey warm, red hot, brighter red hotter, its two lines the car's
-## own. Last, nothing of it is ever NaN, after the limiter, a stall and resets.
+## own. Then the reset: it keeps the heat - a cold engine is cold to the bit
+## after it and idles cold, a hot one hot to the bit, cooling from the next
+## tick by the radiator law with the fan running until its off line. Last,
+## nothing of it is ever NaN, after the limiter, a stall and resets.
 ## Exits 0 on success, 1 on any failed check.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -131,6 +134,7 @@ func _run() -> void:
 	await _check_fan(car)
 	await _check_cold_idle(car)
 	await _check_hud_bar(car, hud, bar)
+	await _check_reset_keeps_heat(car)
 	await _check_no_nan(car)
 
 	car.reset_to_spawn()
@@ -175,6 +179,9 @@ func _check_suite_gate(car: ArcadeCar) -> void:
 func _check_certified_untouched(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning); this check's premise is the warm fresh car.
+	_fresh_heat(car)
 	await _step(SETTLE_FRAMES)
 	var to_the_bit := 0
 	for anchor: Vector2 in ArcadeCar.TORQUE_CURVE:
@@ -269,11 +276,15 @@ func _check_warm_up(car: ArcadeCar) -> void:
 	var warm_minutes := warm_tick * tick / 60.0
 	var thermostat_minutes := thermostat_tick * tick / 60.0
 	car.reset_to_spawn()
+	# was car.coolant_temp == 1.0, "a reset is the warm car again" -> the reset
+	# leaves the coolant where the cruise settled it (the user's report,
+	# 2026-09-22 morning: R does not turn back time on temperature).
+	var kept := car.coolant_temp == settled
 	_check(
 		monotonic and warm_tick > 0 and thermostat_tick > warm_tick
 			and thermostat_minutes >= WARM_UP_MIN_MINUTES and thermostat_minutes <= WARM_UP_MAX_MINUTES
-			and settled > thermostat and settled < 1.0 and absf(settled - a_minute_ago) < 1.0e-4 and car.coolant_temp == 1.0,
-		"warm-up: at a steady %.0f m/s in %dth (%.1f kW of combustion: %.0f N of drag and rolling resistance at %.0f rpm, %.1f kW of it into the coolant) the coolant climbs from %.0f C without a dip, is over the %.0f C warm line after %.1f min and at the %.0f C thermostat after %.1f min (calibrated to %.0f..%.0f), and settles at %.1f C - under operating, where the thermostat holds a cruise; a reset is the warm car again" % [CRUISE_SPEED, CRUISE_GEAR, cruise.power_w / 1000.0, cruise.road_force_n, cruise.rpm, heat_w / 1000.0, ArcadeCar.COOLANT_AMBIENT_C, ArcadeCar.COOLANT_WARM_C, warm_minutes, ArcadeCar.THERMOSTAT_C, thermostat_minutes, WARM_UP_MIN_MINUTES, WARM_UP_MAX_MINUTES, settled_c],
+			and settled > thermostat and settled < 1.0 and absf(settled - a_minute_ago) < 1.0e-4 and kept,
+		"warm-up: at a steady %.0f m/s in %dth (%.1f kW of combustion: %.0f N of drag and rolling resistance at %.0f rpm, %.1f kW of it into the coolant) the coolant climbs from %.0f C without a dip, is over the %.0f C warm line after %.1f min and at the %.0f C thermostat after %.1f min (calibrated to %.0f..%.0f), and settles at %.1f C - under operating, where the thermostat holds a cruise; a reset leaves it there" % [CRUISE_SPEED, CRUISE_GEAR, cruise.power_w / 1000.0, cruise.road_force_n, cruise.rpm, heat_w / 1000.0, ArcadeCar.COOLANT_AMBIENT_C, ArcadeCar.COOLANT_WARM_C, warm_minutes, ArcadeCar.THERMOSTAT_C, thermostat_minutes, WARM_UP_MIN_MINUTES, WARM_UP_MAX_MINUTES, settled_c],
 	)
 
 
@@ -389,6 +400,11 @@ func _check_fan(car: ArcadeCar) -> void:
 	var at_speed_on := ArcadeCar.coolant_cooling_w(hot, CRUISE_SPEED, true)
 	var fan_expected := ArcadeCar.COOLANT_RADIATOR_COOLING * ArcadeCar.COOLANT_FAN_AIRFLOW * ArcadeCar.COOLANT_FAN_AIRFLOW * (ArcadeCar.COOLANT_FAN_ON_C - ArcadeCar.COOLANT_AMBIENT_C)
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning), and the overheat check before this one
+	# leaves the engine hot with the fan running; the fan check starts from
+	# the warm car, the fan off.
+	_fresh_heat(car)
 	await _step(SETTLE_FRAMES)
 	# Between the two lines from below: off, and the idle's heat warms it.
 	car.coolant_temp = ArcadeCar.coolant_temp_of_c((ArcadeCar.COOLANT_FAN_OFF_C + ArcadeCar.COOLANT_FAN_ON_C) / 2.0)
@@ -425,6 +441,9 @@ func _check_fan(car: ArcadeCar) -> void:
 func _check_cold_idle(car: ArcadeCar) -> void:
 	var tick := 1.0 / Engine.physics_ticks_per_second
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning); the warm idle is measured on the warm car.
+	_fresh_heat(car)
 	await _step(SETTLE_FRAMES)
 	var warm_low := INF
 	var warm_high := 0.0
@@ -468,6 +487,10 @@ func _check_hud_bar(car: ArcadeCar, hud: HUD, bar: ColorRect) -> void:
 	var fuel_bar := hud.get_node("FuelBarBack/FuelBar") as ColorRect
 	var battery_bar := hud.get_node("BatteryBarBack/BatteryBar") as ColorRect
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning), and the cold idle check leaves the engine
+	# cold; the bar's warm grey is read on the warm car.
+	_fresh_heat(car)
 	await _step(2)
 	var warm_ok := bar.visible and is_equal_approx(bar.scale.x, car.coolant_temp / HUD.COOLANT_BAR_FULL) and bar.color == HUD.COOLANT_COLOR
 	var levels := {
@@ -495,9 +518,90 @@ func _check_hud_bar(car: ArcadeCar, hud: HUD, bar: ColorRect) -> void:
 		and HUD.COOLANT_BAR_FULL <= ArcadeCar.COOLANT_MAX_TEMP
 	car.reset_to_spawn()
 	await _step(2)
+	# was bar.color == HUD.COOLANT_COLOR, "it is the car's again after a
+	# reset" (the reset put the coolant back at operating) -> the reset keeps
+	# the heat (the user's report, 2026-09-22 morning): the bar is the car's
+	# again after it, and the car is still very hot.
+	var after_reset := bar.visible and is_equal_approx(bar.scale.x, car.coolant_temp / HUD.COOLANT_BAR_FULL) and bar.color == HUD.COOLANT_VERY_HOT_COLOR \
+		and car.coolant_temp > HUD.COOLANT_VERY_HOT_FRACTION
 	_check(
-		warm_ok and followed == levels.size() and hidden and clamped and lines_ok and bar.visible and bar.color == HUD.COOLANT_COLOR,
-		"HUD: the coolant bar follows the temperature (%d of %d levels to the bit: blue at 40 C, red at %.0f, brighter red at %.0f), grey warm, hidden at 0 and for NaN, clamped at its end (%.1f C), the fuel and battery bars untouched; its cold line is the car's %.0f C warm line and its hot line the car's %.0f C fade line; and it is the car's again after a reset" % [followed, levels.size(), ArcadeCar.OVERHEAT_FADE_START_C + 2.0, HOT_C + 1.0, ArcadeCar.coolant_c_of(HUD.COOLANT_BAR_FULL), ArcadeCar.COOLANT_WARM_C, ArcadeCar.OVERHEAT_FADE_START_C],
+		warm_ok and followed == levels.size() and hidden and clamped and lines_ok and after_reset,
+		"HUD: the coolant bar follows the temperature (%d of %d levels to the bit: blue at 40 C, red at %.0f, brighter red at %.0f), grey warm, hidden at 0 and for NaN, clamped at its end (%.1f C), the fuel and battery bars untouched; its cold line is the car's %.0f C warm line and its hot line the car's %.0f C fade line; and it is the car's again after a reset - the very hot coolant the reset kept (%.1f C)" % [followed, levels.size(), ArcadeCar.OVERHEAT_FADE_START_C + 2.0, HOT_C + 1.0, ArcadeCar.coolant_c_of(HUD.COOLANT_BAR_FULL), ArcadeCar.COOLANT_WARM_C, ArcadeCar.OVERHEAT_FADE_START_C, car.coolant_c()],
+	)
+
+
+## A reset keeps the heat (the user's report, 2026-09-22 morning: "i was
+## expecting the temperature to not reset all of a sudden, but to respect the
+## time it takes ... to cooldown ... same with all the other temperatures").
+## A cold engine is cold to the bit after a reset, the fan as it was, and
+## idles cold after the settle - under the warm line, running rich, the idle
+## warming it a little; a hot engine is hot to the bit after a reset, the fan
+## still running, and cools from the next tick by the radiator law - each
+## tick's fall the cooling less the burn's heat over the lump, at a
+## standstill the fan's airflow the only cooling - and the fan runs on until
+## its off line, going off the tick the coolant is under it.
+func _check_reset_keeps_heat(car: ArcadeCar) -> void:
+	var tick := 1.0 / Engine.physics_ticks_per_second
+	var capacity := ArcadeCar.COOLANT_HEAT_CAPACITY * ArcadeCar.COOLANT_SPAN_K
+	var warm_line := ArcadeCar.coolant_temp_of_c(ArcadeCar.COOLANT_WARM_C)
+	# Cold: the engine at the air's temperature for a tick, then the reset.
+	car.reset_to_spawn()
+	_fresh_heat(car)
+	await _step(5)
+	car.coolant_temp = 0.0
+	await _step(1)
+	var cold_before := car.coolant_temp
+	var cold_fan_before := car.coolant_fan_on
+	car.reset_to_spawn()
+	var cold_kept := car.coolant_temp == cold_before and car.coolant_fan_on == cold_fan_before and not cold_fan_before
+	await _step(SETTLE_FRAMES)
+	var still_cold := car.coolant_temp > cold_before and car.coolant_temp < warm_line and car.fuel_richness() > 1.0 and car.engine_running
+	var cold_after_c := car.coolant_c()
+	# Hot: the engine at HOT_C with the fan running, then the reset, then
+	# ticks at a standstill against the model.
+	car.coolant_temp = ArcadeCar.coolant_temp_of_c(HOT_C)
+	await _step(1)
+	var hot_before := car.coolant_temp
+	var hot_fan_before := car.coolant_fan_on
+	car.reset_to_spawn()
+	var hot_kept := car.coolant_temp == hot_before and car.coolant_fan_on == hot_fan_before and hot_fan_before
+	var wired := true
+	var falls := true
+	var fan_stayed_on := true
+	for frame in IDLE_SETTLE_FRAMES:
+		var before := car.coolant_temp
+		var fan := car.coolant_fan_on
+		var airflow := absf(car.forward_speed)
+		await physics_frame
+		var expected := before + (car._combustion_heat_w - ArcadeCar.coolant_cooling_w(before, airflow, fan)) * tick / capacity
+		wired = wired and absf(car.coolant_temp - expected) < 1.0e-9
+		falls = falls and car.coolant_temp < before
+		fan_stayed_on = fan_stayed_on and car.coolant_fan_on
+	var fell_k := (hot_before - car.coolant_temp) * ArcadeCar.COOLANT_SPAN_K
+	# The fan runs on until its off line: the coolant put a kelvin over it
+	# with the fan on, the reset, then ticks until the fan goes off.
+	car.coolant_temp = ArcadeCar.coolant_temp_of_c(ArcadeCar.COOLANT_FAN_OFF_C + 1.0)
+	await _step(1)
+	var over_before := car.coolant_temp
+	car.reset_to_spawn()
+	var over_kept := car.coolant_temp == over_before and car.coolant_fan_on
+	var off_tick := -1
+	var on_until_off := true
+	var under_line_when_off := false
+	for frame in WARM_UP_WATCH_FRAMES:
+		var was_over := car.coolant_c() >= ArcadeCar.COOLANT_FAN_OFF_C
+		await physics_frame
+		if not car.coolant_fan_on:
+			off_tick = frame + 1
+			under_line_when_off = not was_over
+			break
+		on_until_off = on_until_off and was_over
+	car.reset_to_spawn()
+	_fresh_heat(car)
+	await _step(5)
+	_check(
+		cold_kept and still_cold and hot_kept and wired and falls and fan_stayed_on and over_kept and off_tick > 0 and on_until_off and under_line_when_off,
+		"reset keeps the heat: an engine at the air's temperature is there to the bit after a reset, the fan off, and idles cold after %d ticks (%.1f C, under the %.0f C warm line, running rich); one at %.0f C is there to the bit after a reset, the fan still running, and falls every one of the next %d ticks at a standstill by the radiator law (the fan's airflow less the idle's heat over the lump, %.2f K in all); a kelvin over the fan's %.0f C off line it holds the fan on through the reset and until the tick the coolant is under the line (%.1f s)" % [SETTLE_FRAMES, cold_after_c, ArcadeCar.COOLANT_WARM_C, HOT_C, IDLE_SETTLE_FRAMES, fell_k, ArcadeCar.COOLANT_FAN_OFF_C, off_tick * tick],
 	)
 
 
@@ -540,10 +644,14 @@ func _check_no_nan(car: ArcadeCar) -> void:
 	var finite := is_finite(car.coolant_temp) and is_finite(car.coolant_c()) and is_finite(car.fuel_richness()) and is_finite(car.overheat_fade()) \
 		and is_finite(car.idle_target_rpm()) and is_finite(car.coolant_cold_share()) and is_finite(car._combustion_heat_w) and is_finite(car._idle_wobble_phase) \
 		and is_finite(ArcadeCar.coolant_cooling_w(car.coolant_temp, car.forward_speed, car.coolant_fan_on)) and is_finite(car.fuel_l) and is_finite(car.engine_rpm)
+	# was car.coolant_temp >= 1.0 and < 1.001, "the car is warm and running"
+	# (the reset put the coolant back at operating) -> the reset keeps the heat
+	# (the user's report, 2026-09-22 morning): the coolant stays where the
+	# stall left it, cold, and the restarted engine runs rich on it.
+	var warm_line := ArcadeCar.coolant_temp_of_c(ArcadeCar.COOLANT_WARM_C)
 	_check(
-		# Two ticks of idle at a standstill, no airflow: a hair over operating.
-		nan_temp and inf_temp and neg_inf_temp and nan_heat and limited and stalled and finite and car.coolant_temp >= 1.0 and car.coolant_temp < 1.001 and car.engine_running,
-		"no NaN: a NaN temperature is operating, inf the ceiling, -inf the air, NaN heat leaves it at operating; after %.0f s on the limiter, a dry-tank stall from cold and resets the whole state is finite and the car is warm and running (coolant %.3f, %.0f rpm)" % [LIMITER_FRAMES * tick, car.coolant_temp, car.engine_rpm],
+		nan_temp and inf_temp and neg_inf_temp and nan_heat and limited and stalled and finite and car.coolant_temp < warm_line and car.fuel_richness() > 1.0 and car.engine_running,
+		"no NaN: a NaN temperature is operating, inf the ceiling, -inf the air, NaN heat leaves it at operating; after %.0f s on the limiter, a dry-tank stall from cold and resets the whole state is finite and the car is running, cold as the stall left it (coolant %.3f, %.1f C, running rich, %.0f rpm)" % [LIMITER_FRAMES * tick, car.coolant_temp, car.coolant_c(), car.engine_rpm],
 	)
 
 
@@ -569,6 +677,10 @@ func _cruise_combustion_w(car: ArcadeCar) -> Dictionary:
 ## [m/s] }.
 func _flat_out(car: ArcadeCar, temp: float, frames := BURN_FRAMES) -> Dictionary:
 	car.reset_to_spawn()
+	# was the reset's own -> set by hand: a reset keeps the heat (the user's
+	# report, 2026-09-22 morning); the two runs compared are driven on the
+	# same warm tyres, cold brakes and fan state, the coolant then set.
+	_fresh_heat(car)
 	await _step(SETTLE_FRAMES)
 	car.coolant_temp = temp
 	var fuel_before := car.fuel_l
@@ -579,6 +691,27 @@ func _flat_out(car: ArcadeCar, temp: float, frames := BURN_FRAMES) -> Dictionary
 	car.reset_to_spawn()
 	await _step(5)
 	return seen
+
+
+## The certified fresh car's thermal state, set by hand: the coolant at
+## operating with the fan off, the tyres at operating, the brakes at the
+## air's, the tick's heat trackers and the idle hunt's phase at 0 - what
+## reset_to set until the reset stopped touching the heat (the user's report,
+## 2026-09-22 morning), and what HandlingTests._start sets for a certified
+## run. The checks whose premise is the warm car call it after their reset.
+func _fresh_heat(car: ArcadeCar) -> void:
+	car.coolant_temp = 1.0
+	car.coolant_fan_on = false
+	car._combustion_heat_w = 0.0
+	car._idle_wobble_phase = 0.0
+	car.front_tyre_temp = 1.0
+	car.rear_tyre_temp = 1.0
+	car.front_brake_temp = 0.0
+	car.rear_brake_temp = 0.0
+	car._front_tyre_heat_w = 0.0
+	car._rear_tyre_heat_w = 0.0
+	car._front_brake_heat_w = 0.0
+	car._rear_brake_heat_w = 0.0
 
 
 func _step(frames: int) -> void:
