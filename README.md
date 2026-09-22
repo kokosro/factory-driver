@@ -36,6 +36,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | X-ray view on / off                     | `X`             |
 | Start handling test 1 - 5 (mission mode) | `1` - `5`      |
 | Abort the running test / close its result | `Esc` (`R` also aborts) |
+| Licence book open / close (`1` sits the L0 exam, `2` the skid pad test while it is open; digits answer the theory) | `L` |
 
 Look left / right are on `,` and `.` (the `<` / `>` pair, under the right hand's reach from the arrows and next to `B`'s row): `Q` / `E` are the gearbox, `B` is look back. Hold to glance to that side, let go and the view comes back: the chase camera swings ~65 degrees round the car, in the cockpit and the bonnet view the head turns ~60 degrees; the overhead and wheel views have no side to look to. It is a glance, not a view of its own (`C` still cycles the same five), both keys at once look straight ahead, and look back wins over either.
 
@@ -281,6 +282,18 @@ high the tarmac is at every point, in three layers:
 - **A test dip** - one 6 cm deep, 10 m long smooth dip right of the straight past the
   slalom (x = 25, z = -450, a yellow bar painted at either lip): a test fixture, so the
   crest test has a known crest to drive over. Felt, not drawn.
+- **The licence ramp** - the hill start's hill in the yard behind the gantry (x = -30,
+  its foot at z = 95, the crest at 75, level to 60, back down to 40): a straight 8 % rise
+  of 1.6 m, a level top, a straight fall, 10 m wide with 5 m flanks, every knee on the
+  ground mesh's 5 m lattice so the mesh is the ramp along its axis and across its top
+  (at the four corners where a flank crosses a rise the two triangles of a mesh cell cut
+  the bilinear height straight: 0.10 m off at worst, nowhere the car is driven). Drawn,
+  stood on, ridden - and, unlike the swell, felt as a hill: on it gravity's share along
+  the slope pushes the car down it (`ArcadeCar`, "the hill" in the tick), so a car with
+  nothing holding it rolls back, the handbrake holds it (the locked rears creep 7 mm/s),
+  and a clutch let in against it stalls the engine or pulls away. Off the ramp that share
+  is exactly zero: every certified run's physics is the bit it was, and the swell stays
+  the gentle, non-pulling approximation it always was.
 
 The car rides it on its suspension (see *Suspension and weight* above); the tyre model
 itself knows nothing of the road. Every wheel follows the road under it in full, behind a
@@ -671,6 +684,31 @@ them; a reset keeps six shares set by hand to the bit and tells the file nothing
 handling test's start hands out the new car before its first tick; and NaN, inf and
 -inf shares read none, worn out and none, NaN and negative tick quantities add nothing.
 
+And the licence ladder (`tests/licence_test.gd`, see [Licence ladder](#licence-ladder)):
+the L0 exam sat through the `LicenceManager` the way a player sits it - the book opened
+with `L`, the sitting started with `1`, every element driven by a scripted pilot on the
+input actions, the theory answered on the digit keys - and every element judged PASSED
+on its measured checks (the parallel park 0.24 m inside the side lines and 1.19 m inside
+the ends, 1.1 degrees off, 8.3 m reversed; the bay park 0.3 m inside, 0.8 degrees off;
+the hill start rolled back 0.6 cm of the 15 allowed, no stall, over the crest at
+10.6 m/s; the turn in the road in 2 direction changes, 6.1 m of it reversed, never
+outside the lane, 3.4 degrees from facing back; 30.7 m reversed between the lines into
+the end box by 0.7 m; 54 km/h at the bar and stopped 13.1 m on, 0.9 m inside the zone;
+8 of 8 answered); the gate before, during and after (unlicensed the clutch key leaves
+the pedal at 0 and `T`, `G`, `K` are refused with the hint by the lamps; in the sitting
+the hill start is driven on the pedal in manual; licensed the pedal moves and the
+switches flip); the book holds the number keys and frees them; a retake that dumps the
+clutch on the locked axle stalls and fails the sitting at once at element 4/7 with the
+three before it passed; a wrong first answer fails it at 1/7 before a wheel turns; the
+handbrake let go before the bite rolls back 15.6 cm and fails the element the moment it
+does, no stall; the skid pad test (2.04 laps in 31.4 s, every wheel between the rings,
+no cone down); L1 only on the seventh of seven passes, a FAILED handling test never
+recorded; the record to the bit through the store beside the odometer, the fuel and the
+wear, an old file untouched at version 1, a level the passes do not earn written and
+read as what they earn, 14 non-levels and non-lists refused with the reason; and the
+ramp: 8 % up, level, 8 % down, exactly zero at 13 certified points, straight between the
+mesh's 5 m points along its axis (0.23 mm).
+
 ### Handling tests
 
 The fourth step of `tests/run_tests.sh` runs `tests/handling_test.gd`: a scripted driver
@@ -759,6 +797,110 @@ behind comes back on the HUD: the idle mission line ends with your last medal an
 best time on that test (`| last: GOLD, best: 28.8 s`) and a `PASSED` banner shows your
 standing best under the medal times (`BEST 28.8 s GOLD — your 4 run(s)`). Before your
 first run there is nothing stored and nothing is shown.
+
+### Licence ladder
+
+Rigorous, real-licence-shaped certifications (the user's design, 2026-09-22 23:20):
+cartoon world, serious rules. Press `L` for the licence book, an overlay listing the
+ladder, what the car's driver has passed, the rules and the keys; `L` or `Esc` closes it.
+While it is open, `1` sits the L0 exam and `2` the skid pad test, and the number keys are
+the book's - no handling test starts (`scripts/mission_manager.gd` is told,
+`start_keys_locked`); with the book closed, `1`-`5` are the free training they always
+were. During a sitting the line under the controls text reads e.g.
+`L0 EXAM  ELEMENT 4/7  HILL START — BITE AND AWAY — rolled back 1 cm, crest 12 m  8.3 s`
+with the element's objective under it; `Esc` or `R` abandon the sitting (no verdict). A
+banner then says `PASSED  L0 EXAM` with the licence now held, or `FAILED  L0 EXAM` with
+the element it failed on, its measured numbers and the checks missed; `1` under it
+retakes, `Esc` closes it. `scripts/licence_manager.gd` only picks the exam, moves it
+through idle, running, result shown and hands the HUD its strings; the elements and
+their checks are the data in `scripts/licence_exams.gd`, run with the scripted driver
+off, the human's driving through the same checks the headless test drives. Every
+verdict is measured: the car's 1.8 x 4.2 m footprint against painted lines, the pad's
+own cones toppled, real roll-back, a real stall, the real handbrake and clutch pedal,
+the real speed at the cue. Nothing is a timer.
+
+**L0 CITIZEN** is one sitting, all or nothing: the theory first, then six practical
+elements in a fixed order, and any element failed - a wrong answer, a cone down, a wheel
+over a line, a stall - fails the whole sitting at once; the elements after it are not
+sat. Passing all seven in the one sitting grants L0. A retake is a new sitting from the
+theory. The elements, in the licence yard behind the start gantry (positive z, driven
+towards the gantry like everything else on the pad):
+
+1. **Theory** - 8 question cards on the HUD overlay, three answers each, fixed order,
+   digits `1`-`3` answer, 20 s a question. Every question is a rule the sim itself proves
+   (what TCS off does to a launch, what ABS holds the fronts at, which wheels the
+   handbrake locks, what the clutch let up on a held handbrake does to the engine, when
+   the run clock starts, what SC off leaves to the driver, what `R` does to wear, what a
+   fresh brake press at a standstill selects). One wrong answer fails the sitting.
+2. **Parallel park** - a 2.4 x 7.0 m bay on the right (x = 12, z = 50; the car is
+   1.8 x 4.2, so 0.3 m a side and 1.4 m an end), the kerb its right edge, a bumper cone
+   0.5 m beyond either end line. Drive past it, reverse in, stop: the whole footprint
+   inside the lines (the clearance to the sides and the ends is measured and shown),
+   within 10 degrees of the bay's axis, at least 3 m of it reversed, no cone down.
+3. **Bay park** - a 2.6 x 5.2 m bay (x = 22, z = 80) off an aisle, painted neighbours
+   either side, a cone on either back corner. Nose-first in from the aisle: whole car
+   inside the lines, within 10 degrees, no cone down.
+4. **Hill start** - up the 8 % ramp, stop with the whole car inside the 3.6 x 8 m hold
+   box painted on the rise, hold on the handbrake with the foot off the brake, the clutch
+   pedal (`Left Shift`) to the floor, revs up, bite and away over the crest line at
+   1.5 m/s or more. Roll-back is measured from where the car stopped, at every tick until
+   the crest: 15 cm at most (the handbrake itself lets the locked rears creep 7 mm/s, so
+   a driver ten seconds on the lever has 7 cm before the clutch has done anything; the
+   clean pull-away - lever and clutch key let go together, revs up - rolls back 0.7 to
+   1.1 cm). A stall fails the element on the spot, and the sitting with it (the clutch
+   let up to the floor on the locked axle with the throttle open lugs the engine under
+   450 rpm; letting the lever go with the pedal still down rolls the car back 16 cm in a
+   second). The instructor's car is a manual for this element: the element puts the
+   gearbox in manual (`M` undoes it, and then there is no pedal to floor). Mind the car's
+   own rule: a fresh press of the brake at a standstill is reverse, so the lever goes on
+   before the foot comes off the brake.
+5. **Three-point turn** - on the straight between two white bars (z = -12 and -48),
+   from the right-hand side of the lane: turn to face back the way you came, every
+   corner of the car inside the lane's edge lines (6 m either side) and between the bars
+   the whole time, 2 to 4 direction changes (three- to five-point), at least 1 m of it
+   reversed, within 20 degrees of facing back, stopped. The 12 m lane is narrower than
+   the car's 13.6 m wall-to-wall turning circle, so it takes the three points.
+6. **Reversing course** - a 3.2 m wide, 34 m long lane (x = -14, z = 38 to 72, 0.7 m a
+   side) with a cone pair at two gates (4 m apart): reverse up it from its near end, at
+   least 25 m, every corner between the lines the whole way, no cone down, stop with the
+   whole car inside the 8 m end box.
+7. **Emergency stop** - down the yard's middle lane from z = 100: 50 km/h or more at the
+   red bar with the STOP board (z = 58; the line says `STOP!`), then stop as hard as the
+   car will, the whole car inside the 3.6 x 16 m zone beyond it (z = 33 to 49), no cone
+   down at its far corners. From 54 km/h the car stops 13 m past the bar; the zone leaves
+   about half a second of reaction either way.
+
+**L1 FACTORY ENTRY** is L0, a recorded PASSED on each of the five handling tests (the
+free training on `1`-`5` is exactly what counts: every mission PASSED goes into the
+record) and the **skid pad discipline** test, 2A's circle finally judged: from a standing
+start on the ring's east side, two full laps between the two cone rings (radii 22 and
+34 m round (-70, -90)) with every corner of the car between them the whole way, no cone
+down, the laps done inside 50 s. The scripted driver holds a 28 m radius at 43 km/h (the
+geometric wheel angle for the radius plus a correction on the radius error and its rate,
+the keys tapped so the wheel hovers there) and does the two laps in 31.4 s, never off the
+ring; a driver has 19 s in hand.
+
+**The gate.** This is what the licence is for: a driver who holds no L0 cannot work the
+clutch pedal key (the pedal stays up, the car works its own clutch as ever) and cannot
+switch TCS, ABS or SC off (`T`, `G`, `K` are refused, `LICENSED ONLY — L  licence book`
+flashes by the aid lamps for 1.5 s). L0 unlocks both, for good. During a sitting both are
+allowed - the instructor's dual-control car, so the hill start can be sat. The car knows
+nothing of licences: it holds a gate reference (`ArcadeCar.licence_gate`, null by
+default = everything allowed, which is every test scene and every certified run) that
+the licence manager wires up from `main.tscn`, and asks it the tick a gated key is read.
+The smoke test's driver is granted L0 through the manager's record before it tests the
+switches and the clutch; the gate itself is the licence test's to check.
+
+**Ranks** - data only, not yet playable (`LicenceExams.RANKS`): test driver (= an L1
+holder) -> race driver -> chief test driver, each rank a certification set; the sets for
+the second and third are to be written when their content is, and Porsche ownership
+stays the North Star's reward. Nothing here builds them.
+
+**The record** lives per car in `user://cars.json` (see [Odometer](#odometer)), under
+`licence`: the level held and the exams passed, loaded by the manager when the scene
+comes up and saved on every pass, behind the same switch as the rest of the store - the
+running game keeps it, the headless suite writes nothing. The future garage (4A) reads
+it there; nothing of it is built here.
 
 ### Telemetry
 
@@ -993,3 +1135,32 @@ nothing: the next save on the 45 s cadence writes the wear as it then stands. Th
 version stays 1: an entry written before there was wear has no `wear` object, reads as
 a new car's, and is written back with everything else it holds. The headless suite and
 the certified runs read nothing: every car there starts new.
+
+The licence lives in the same entry too, under `licence` (see
+[Licence ladder](#licence-ladder)): the level held (`level`: -1 none, 0 L0, 1 L1) and
+the exams passed at this car's wheel (`passed`: the L0 sitting, the skid pad, the five
+handling tests by name). The licence manager, not the car, reads it once when the scene
+comes up and writes it on every pass, its own save; the car's saves write the entry's
+other fields round it:
+
+```json
+{"version": 1, "cars": {"boxster_986": {"odometer_m": 123.4, "fuel_l": 31.5,
+  "driver": {"tcs_on": true, "abs_on": true, "sc_on": true,
+    "gearbox_mode": "sport", "automatic": true, "camera_view": 1},
+  "battery": {"charge": 0.93, "capacity_wear": 0.0},
+  "wear": {"clutch": 0.012, "brakes_front": 0.03, "brakes_rear": 0.02,
+    "tyres_front": 0.05, "tyres_rear": 0.08, "engine": 0.004},
+  "licence": {"level": 0, "passed": ["L0_CITIZEN", "SLALOM_TEST"]}}}}
+```
+
+Per car, riding this file, because this store is the one per-car ledger there is: the
+garage of 4A reads the entry as one thing, the car and who may drive it how. The passes
+are the record; the level is written from them and read back from them (a level in the
+file that says more than the passes earn is not believed), a convenience for a reader
+without the exam data. No entry is an unlicensed driver; a level that is no whole number
+in -1 .. 1, or a `passed` that is no list of names, is an error in the log and that one
+default, the other still loads. The version stays 1: an entry written before there were
+licences has no `licence` object, reads as unlicensed, and is written back with
+everything else it holds. The headless suite writes nothing: every driver there starts
+unlicensed, and the tests that need the switches and the clutch are granted L0 through
+the manager's record.
