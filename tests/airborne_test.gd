@@ -113,6 +113,35 @@ const REST_LOAD_TOLERANCE := 0.01
 ## the road [m], and given this many ticks to settle.
 const DROP_HEIGHT := 0.05
 const DROP_FRAMES := 300
+## The car's scene: the wheels' and the body's places in it are what the
+## level picture draws (the user's flip catches; see _check_flip_draws).
+const CAR_SCENE := "res://scenes/car.tscn"
+## A drawn wheel's bottom is on the road within this [m]: the node's place is
+## single precision at a metre or two.
+const DRAWN_ON_ROAD_TOLERANCE := 0.00001
+## The user's handbrake roll (the 3AF catch: session 82, 23:33, t = 37 s):
+## along the hill's lateral, heading -90 degrees (facing +x) at z = ROLL_Z
+## (the user's 61: the body over the end of the ramp's level top), flat out
+## from ROLL_RUN_UP m west of the axis, and from ROLL_PULL_X on (20 m short
+## of the west flank's foot at RAMP_X - RAMP_HALF_WIDTH - RAMP_FLANK; the
+## user's between x = -65 and -50 at 29 - 31 m/s) the throttle off, the
+## handbrake on and the wheel ROLL_STEER to the right (the user's -0.78 ..
+## -0.87), held to the end: the user let go after 0.6 s, but in the roll no
+## wheel is on the road and neither matters, and on the wheels again the held
+## handbrake stops the car where the idle creep would take it away.
+const ROLL_Z := 61.0
+const ROLL_RUN_UP := 180.0
+const ROLL_PULL_X := RoadProfile.RAMP_X - 30.0
+const ROLL_STEER := -0.8
+## The roll is followed to rest (ROLL_REST_FRAMES ticks under ROLL_REST_SPEED
+## m/s over the ground and rad/s of roll), at most ROLL_MAX_FRAMES in all.
+const ROLL_REST_FRAMES := 60
+const ROLL_REST_SPEED := 0.01
+const ROLL_MAX_FRAMES := 2400
+## Slack on the friction cap's tick-by-tick bound [m/s]: the yaw rate's
+## change over a tick swings the car's origin about its centre of mass by a
+## few mm/s, and the tick's air drag is taken at the speed it began with.
+const ROLL_CAP_SLACK := 0.002
 ## The state the two flank runs start from, restored between them so the
 ## second is the first to the bit: what HandlingTests._start hands out fresh,
 ## the odometer and the battery with it.
@@ -149,6 +178,11 @@ func _run() -> void:
 	# On the ground nothing of it shows: the car stood at its spawn, on the flat.
 	_check(not car.is_airborne and car.airborne_frames == 0 and car.wheel_supported.all(func(s: bool) -> bool: return s) and car.wheel_loads.min() > 0.0,
 		"stood on the flat: every wheel on the road and loaded, not airborne, 0 airborne frames")
+	# The level picture draws the whole transform now, and what it draws for
+	# the wheels' and the body's places across and along the car is the
+	# scene's own layout to the bit: every certified tick draws what it drew.
+	# (the user's flip catches; see _check_flip_draws)
+	_check(_drawn_at_layout(car), "level, the wheels and the body are drawn at the scene's places across and along the car to the bit (%s): the level picture writes them every tick and changes nothing" % _layout_text(car))
 
 	# The reference jump: throttle held through the flights, no steering.
 	var run: Dictionary = await _jump(car, 0.0)
@@ -202,6 +236,20 @@ func _run() -> void:
 
 	# Let go leaning: the car's own tipping angle, and the roof.
 	await _check_drops(car)
+
+	# The flip and the reset off the side and off the roof redraw the wheels
+	# where they are (the user's two catches on the flip).
+	await _check_flip_draws(car)
+
+	# The user's handbrake roll on the hill's lateral, twice from the same
+	# state: the tumble carries its momentum, the contact no wall.
+	var carried_roll := _capture(car)
+	var roll_a: Dictionary = await _handbrake_roll(car)
+	_restore(car, carried_roll)
+	var roll_b: Dictionary = await _handbrake_roll(car)
+	_check_handbrake_roll(roll_a)
+	_check_finite(roll_a, "the handbrake roll")
+	_check_same(roll_a, roll_b, "the handbrake roll twice from the same state")
 
 	car.clear_driver_input()
 	car.reset_to_spawn()
@@ -787,6 +835,11 @@ func _check_same(a: Dictionary, b: Dictionary, name: String) -> void:
 ## of roll on the left wheels at 7.2 m/s of sink, rolled to 2.18 rad (125
 ## degrees) at the furthest, at rest on its side at 1.56 rad; the flip refused
 ## every tick of the slide.
+# was 212 refusals of the flip on the slide and the car at rest at x -94.87,
+# z 8.73 -> 266 and x -106.08, z -0.84: on its side the car is slowed at
+# ROLL_FRICTION_COEFF x g now, not by SHELL_FRICTION x the tick's shell load,
+# and slides 15 m further before it rests (the user's 3AF catch: "like the
+# car hit a wall"). The roll itself is the same to 0.003 rad.
 func _check_rollover(car: ArcadeCar, run: Dictionary) -> void:
 	var snapshots: Array[Dictionary] = run.snapshots
 	var flights: Array = run.flights
@@ -857,18 +910,7 @@ func _check_flip(car: ArcadeCar) -> void:
 ## flip rights it. Every drop from DROP_HEIGHT over the road, at rest.
 func _check_drops(car: ArcadeCar) -> void:
 	for roll0: float in [0.9, 1.2, PI]:
-		car.reset_to_spawn()
-		await _step(5)
-		car.body_roll = roll0
-		car.body_pitch = 0.0
-		car.roll_rate = 0.0
-		car.pitch_rate = 0.0
-		var lowest := INF
-		for j in 8:
-			lowest = minf(lowest, (car._body_basis() * car._shell_corner(j)).y)
-		car.global_position.y = car.road_profile.sample_height(car.global_position.x, car.global_position.z) - ArcadeCar.CG_HEIGHT - lowest + DROP_HEIGHT
-		car.velocity = Vector3.ZERO
-		await _step(DROP_FRAMES)
+		await _let_go(car, roll0)
 		var weight := car.total_mass() * car._gravity
 		var up := cos(car.body_pitch) * cos(car.body_roll)
 		var at_rest := absf(car.roll_rate) < 0.001 and absf(car.velocity.y) < 0.001
@@ -884,6 +926,240 @@ func _check_drops(car: ArcadeCar) -> void:
 			var flipped := car.flip_car()
 			_check(flipped and absf(car.body_roll) < 0.01 and not car.is_overturned() and car.wheel_loads.min() > 0.0,
 				"and the flip rights it off its roof: roll %.4f rad, on its wheels" % car.body_roll)
+
+
+## Lets the car go at its spawn rolled `roll0` rad, at rest, its lowest shell
+## corner DROP_HEIGHT over the road, and gives it DROP_FRAMES to settle.
+func _let_go(car: ArcadeCar, roll0: float) -> void:
+	car.reset_to_spawn()
+	await _step(5)
+	car.body_roll = roll0
+	car.body_pitch = 0.0
+	car.roll_rate = 0.0
+	car.pitch_rate = 0.0
+	var lowest := INF
+	for j in 8:
+		lowest = minf(lowest, (car._body_basis() * car._shell_corner(j)).y)
+	car.global_position.y = car.road_profile.sample_height(car.global_position.x, car.global_position.z) - ArcadeCar.CG_HEIGHT - lowest + DROP_HEIGHT
+	car.velocity = Vector3.ZERO
+	await _step(DROP_FRAMES)
+
+
+## The wheels' and the body's places in the car's scene, as car.tscn has them
+## (the scene instantiated and never entered: nothing drawn over them): the
+## four wheel nodes' positions in the order of wheel_loads, then the body's.
+func _scene_layout() -> Array[Vector3]:
+	var scene: Node = (load(CAR_SCENE) as PackedScene).instantiate()
+	var layout: Array[Vector3] = []
+	for name in ["FrontLeft", "FrontRight", "RearLeft", "RearRight"]:
+		layout.append((scene.get_node("Wheels/" + name) as Node3D).position)
+	layout.append((scene.get_node("Body") as Node3D).position)
+	scene.free()
+	return layout
+
+
+## Whether every wheel node and the body node are drawn at the scene's place
+## across and along the car (x and z to the bit; the heights are the springs').
+func _drawn_at_layout(car: ArcadeCar) -> bool:
+	var layout := _scene_layout()
+	var at := true
+	for i in 4:
+		at = at and car._wheels[i].position.x == layout[i].x and car._wheels[i].position.z == layout[i].z
+	return at and car._body.position.x == layout[4].x and car._body.position.z == layout[4].z
+
+
+## The wheels' drawn places across and along the car, for the check texts:
+## "FL x -0.86 z -1.30, ...".
+func _layout_text(car: ArcadeCar) -> String:
+	var names := ["FL", "FR", "RL", "RR"]
+	var parts: Array[String] = []
+	for i in 4:
+		parts.append("%s x %.2f z %.2f" % [names[i], car._wheels[i].position.x, car._wheels[i].position.z])
+	return ", ".join(parts)
+
+
+## Whether every wheel is drawn on the road at ride height, level: drawn
+## travel 0, its bottom (WHEEL_RADIUS under its centre) on the road under it
+## within DRAWN_ON_ROAD_TOLERANCE, its axle level.
+func _drawn_on_road(car: ArcadeCar) -> bool:
+	var on := true
+	for i in 4:
+		var bottom: float = car.global_position.y + car._wheels[i].position.y - ArcadeCar.WHEEL_RADIUS
+		on = on and absf(_drawn_travel(car, i)) < DRAWN_ON_ROAD_TOLERANCE \
+			and absf(bottom - car._road_height_under_wheel(i)) < DRAWN_ON_ROAD_TOLERANCE \
+			and car._wheels[i].basis.y == Vector3.UP
+	return on
+
+
+## The flip's and the reset's picture (the user's two catches on the flip,
+## 3AE): righted off its side, the car had "no tires anymore (visually), only
+## tire marks" - the four wheel nodes drawn at x = 0.22, the body's centre
+## line, buried in it; righted off its roof "the wheels are reversed" - each
+## drawn at the other side's x. The state was right both times
+## (_settle_suspension); the level picture wrote the wheels' heights alone
+## and left their places across and along the car where the carried picture
+## had put them. Now the level picture draws the whole transform: after the
+## flip, and after a reset off the side or the roof, all four wheels are on
+## the road at ride height at their own corners, the scene's layout to the
+## bit, the body on the centre line - the tick of the flip and every tick
+## after.
+func _check_flip_draws(car: ArcadeCar) -> void:
+	for roll0: float in [1.2, PI]:
+		var lying := "its side" if roll0 == 1.2 else "its roof"
+		for way in ["flip", "reset"]:
+			await _let_go(car, roll0)
+			var before := _layout_text(car)
+			var was_overturned := car.is_overturned()
+			var done: bool
+			if way == "flip":
+				done = car.flip_car()
+			else:
+				car.reset_to(Transform3D(Basis.IDENTITY, Vector3(5.0, 0.0, 10.0)))
+				done = true
+			var drawn_now := _drawn_at_layout(car) and _drawn_on_road(car)
+			await _step(1)
+			var drawn_after := _drawn_at_layout(car) and _drawn_on_road(car)
+			await _step(SETTLE_FRAMES)
+			var drawn_settled := _drawn_at_layout(car) and _drawn_on_road(car)
+			_check(was_overturned and done and drawn_now and drawn_after and drawn_settled and not car.is_overturned(),
+				"%s off %s (roll %.2f): all four wheels drawn on the road at ride height at their own corners, the scene's layout to the bit (%s), the body on the centre line - the tick of the %s, the tick after and %d ticks on; was %s (the user's flip catches: \"did not have tires anymore (visually), only tire marks\" off its side, \"the wheels are reversed\" off its roof)" % [
+					"the flip" if way == "flip" else "the reset", lying, roll0, _layout_text(car), way, SETTLE_FRAMES, before])
+
+
+## The user's handbrake roll (see ROLL_Z): flat out along the hill's lateral,
+## and from ROLL_PULL_X the throttle off, the handbrake on and the wheel hard
+## right, held to rest. Returns the snapshots of every tick from the pull,
+## the tick and speed of the pull and whether the car came to rest.
+func _handbrake_roll(car: ArcadeCar) -> Dictionary:
+	var heading := deg_to_rad(-90.0)
+	var forward := Vector3(-sin(heading), 0.0, -cos(heading))
+	car.reset_to(Transform3D(Basis.IDENTITY.rotated(Vector3.UP, heading), Vector3(RoadProfile.RAMP_X, 0.0, ROLL_Z) - forward * ROLL_RUN_UP))
+	await _step(SETTLE_FRAMES)
+	var snapshots: Array[Dictionary] = []
+	var pulled := false
+	var pull_speed := 0.0
+	var frame := 0
+	var rest := 0
+	while frame < ROLL_MAX_FRAMES and rest < ROLL_REST_FRAMES:
+		if not pulled and car.global_position.x >= ROLL_PULL_X:
+			pulled = true
+			pull_speed = car.forward_speed
+		car.set_driver_input(0.0 if pulled else 1.0, 0.0, ROLL_STEER if pulled else 0.0, pulled)
+		await physics_frame
+		frame += 1
+		if not pulled:
+			continue
+		var snapshot := _snapshot(car, frame)
+		snapshots.append(snapshot)
+		if snapshot.ground_speed < ROLL_REST_SPEED and absf(snapshot.roll_rate) < ROLL_REST_SPEED:
+			rest += 1
+		else:
+			rest = 0
+	car.set_driver_input(0.0, 0.0, 0.0)
+	return {"snapshots": snapshots, "flights": _flights(snapshots), "pull_speed": pull_speed, "rested": rest >= ROLL_REST_FRAMES}
+
+
+## The handbrake roll (the user's 3AF catch: "i've handbreaked while at speed
+## claiming the lateral of the hill, naturally rolled over, but at some point
+## we only rolled the car around its axis without letting the lateral force
+## also move the car in the direction of the fall, like the car hit a wall
+## and was rolling against that wall"). The car goes over - that is the
+## physics and stays - and while it is overturned the road's friction slows
+## its centre of mass at ROLL_FRICTION_COEFF x g at the most, the air's drag
+## on top: no tick takes more than that off it, the tumble keeps its momentum
+## and scrapes on, the roll turning about a contact that moves with it. From
+## the first overturned tick to the last nothing but the shell and the air
+## touch it (no wheel on the road), so the way it makes over that stretch is
+## at least what a body entering at v0 and slowed at the cap the whole way
+## makes: sum over the N ticks of (v0 - a k dt) dt, a = ROLL_FRICTION_COEFF x
+## g + the air's drag at v0 over the mass. How it ends - on its wheels, its
+## side or its roof - is the numbers' call. At 74aaef5 the same run took
+## 1.15 m/s off the centre of mass in one tick (7 g: SHELL_FRICTION x 190 kN
+## of shell) and the car went over its nose a full turn on to its roof; in
+## the user's session it spun about its axis where it lay.
+func _check_handbrake_roll(run: Dictionary) -> void:
+	var snapshots: Array[Dictionary] = run.snapshots
+	var delta := 1.0 / Engine.physics_ticks_per_second
+	var gravity: float = ProjectSettings.get_setting("physics/3d/default_gravity")
+	var first_over := -1
+	var last_over := -1
+	var over_ticks := 0
+	var lowest_up := 1.0
+	var furthest := 0.0
+	var fastest_roll := 0.0
+	var box := false
+	for k in snapshots.size():
+		var s: Dictionary = snapshots[k]
+		lowest_up = minf(lowest_up, s.up)
+		furthest = maxf(furthest, absf(s.roll))
+		fastest_roll = maxf(fastest_roll, absf(s.roll_rate))
+		box = box or s.floor
+		if s.overturned:
+			over_ticks += 1
+			last_over = k
+			if first_over < 0:
+				first_over = k
+	_check(run.pull_speed > 28.0 and first_over > 0 and lowest_up < ArcadeCar.OVERTURN_COS and run.rested and not box,
+		"handbraked at %.1f m/s on the hill's lateral, the wheel hard right, the car goes over: up %.3f of the world's at the lowest, %.2f rad of roll at the furthest, overturned on %d ticks, rolling at %.2f rad/s at the fastest, at rest after %d ticks, the collision box never the ground" % [
+			run.pull_speed, lowest_up, furthest, over_ticks, fastest_roll, snapshots.size()])
+	if first_over <= 0:
+		return
+	# Tick by tick while overturned (the tick's friction is the shell's when
+	# the car was overturned going in and is coming out): the centre of
+	# mass's speed over the ground falls by no more than the cap plus the
+	# air's drag.
+	var worst_drop := -INF
+	var worst_bound := 0.0
+	var capped_ticks := 0
+	for k in range(first_over, last_over + 1):
+		var before: Dictionary = snapshots[k - 1]
+		var now: Dictionary = snapshots[k]
+		if not (before.overturned and now.overturned):
+			continue
+		capped_ticks += 1
+		var speed_before := _cg_ground_speed(before)
+		var forward_speed: float = before.velocity.dot(before.forward)
+		var air_drag: float = 0.5 * ArcadeCar.AIR_DENSITY * ArcadeCar.DRAG_COEFF * ArcadeCar.FRONTAL_AREA * forward_speed * forward_speed
+		var bound: float = (ArcadeCar.ROLL_FRICTION_COEFF * gravity + air_drag / now.mass) * delta
+		var drop := speed_before - _cg_ground_speed(now)
+		if drop - bound > worst_drop - worst_bound:
+			worst_drop = drop
+			worst_bound = bound
+	_check(capped_ticks > 0 and worst_drop < worst_bound + ROLL_CAP_SLACK,
+		"the contact is no wall: on %d overturned ticks no tick takes more than ROLL_FRICTION_COEFF x g + drag off the centre of mass's speed over the ground (worst %.4f m/s a tick against %.4f + %.3f of slack; %.2f x g; 1.15 m/s, 7 g, at 74aaef5)" % [
+			capped_ticks, worst_drop, worst_bound, ROLL_CAP_SLACK, worst_drop / delta / gravity])
+	# From the first overturned tick to the last: shell or air, no wheel.
+	var wheel_free := true
+	var travel := 0.0
+	for k in range(first_over + 1, last_over + 1):
+		wheel_free = wheel_free and snapshots[k].loads.max() == 0.0
+		var a: Vector3 = snapshots[k - 1].position
+		var b: Vector3 = snapshots[k].position
+		travel += Vector2(b.x - a.x, b.z - a.z).length()
+	var entry_speed := _cg_ground_speed(snapshots[first_over])
+	var entry_forward: float = snapshots[first_over].velocity.dot(snapshots[first_over].forward)
+	var entry_drag: float = 0.5 * ArcadeCar.AIR_DENSITY * ArcadeCar.DRAG_COEFF * ArcadeCar.FRONTAL_AREA * entry_forward * entry_forward
+	var slowing: float = ArcadeCar.ROLL_FRICTION_COEFF * gravity + entry_drag / snapshots[first_over].mass
+	var floor := 0.0
+	for k in range(1, last_over - first_over + 1):
+		floor += maxf(entry_speed - slowing * k * delta, 0.0) * delta
+	var last: Dictionary = snapshots[snapshots.size() - 1]
+	var to_rest := Vector2(last.position.x - snapshots[first_over].position.x, last.position.z - snapshots[first_over].position.z).length()
+	_check(wheel_free and travel > floor and to_rest > floor,
+		"and the tumble keeps its momentum: overturned at %.2f m/s, no wheel on the road from the first overturned tick to the last (%d ticks), the centre of mass makes %.2f m over them - at least the %.2f m of a body slowed at ROLL_FRICTION_COEFF x g + drag = %.2f m/s^2 the whole way, sum of (v0 - a k dt) dt - and %.2f m to rest" % [
+			entry_speed, last_over - first_over, travel, floor, slowing, to_rest])
+	var on_wheels: bool = not last.overturned and last.supported.all(func(v: bool) -> bool: return v) and last.loads.min() > 0.0 and absf(last.pitch) < SETTLED_ANGLE and absf(last.roll) < SETTLED_ANGLE
+	var on_shell: bool = last.overturned and absf(last.shell - last.mass * gravity) < REST_LOAD_TOLERANCE * last.mass * gravity
+	_check(on_wheels or on_shell,
+		"and comes to rest %s, by the numbers and not by a rule: pitch %.3f, roll %.3f, up %.3f of the world's, %.1f m from the pull" % [
+			"on all four wheels" if on_wheels else ("overturned on its shell" if on_shell else "neither on its wheels nor on its shell"), last.pitch, last.roll, last.up,
+			Vector2(last.position.x - snapshots[0].position.x, last.position.z - snapshots[0].position.z).length()])
+
+
+## The centre of mass's speed over the ground [m/s] (see _cg_velocity).
+func _cg_ground_speed(snapshot: Dictionary) -> float:
+	var v := _cg_velocity(snapshot)
+	return Vector2(v.x, v.z).length()
 
 
 ## The state the flank runs carry over (CARRIED_STATE), read and put back.
