@@ -3,15 +3,18 @@ extends RefCounted
 ## Keeps what a car has on it from one session to the next: its odometer, the
 ## fuel in its tank, the dashboard it was left with - the aid switches, the
 ## gearbox program, automatic or manual, and the view the driver was looking
-## through - and the battery, how full and how worn. One small JSON file under
-## user://, an entry per car, e.g.
+## through - the battery, how full and how worn, and the wear, what of its
+## clutch, brakes, tyres and engine the car has used up. One small JSON file
+## under user://, an entry per car, e.g.
 ##   {"version": 1, "cars": {"boxster_986": {"odometer_m": 123.4, "fuel_l": 31.5,
 ##     "driver": {"tcs_on": true, "abs_on": true, "sc_on": true,
 ##       "gearbox_mode": "sport", "automatic": true, "camera_view": 1},
-##     "battery": {"charge": 0.93, "capacity_wear": 0.0}}}}
+##     "battery": {"charge": 0.93, "capacity_wear": 0.0},
+##     "wear": {"clutch": 0.012, "brakes_front": 0.03, "brakes_rear": 0.02,
+##       "tyres_front": 0.05, "tyres_rear": 0.08, "engine": 0.004}}}}
 ## What a car's entry holds, then: odometer_m [m], fuel_l [L], driver (the six
-## settings below) and battery (the two numbers below). Not kept yet: where the
-## car was parked and what else it has worn out.
+## settings below), battery (the two numbers below) and wear (the six shares
+## below). Not kept yet: where the car was parked.
 ## A car's entry is a dictionary so the garage can keep more per car than these,
 ## and a save only ever touches the fields it is handed, of the one car it is
 ## handed: whatever else the file holds is written back as it was read.
@@ -30,6 +33,12 @@ extends RefCounted
 # was odometer, fuel and dashboard -> the battery with them (battery): a
 # battery left flat is flat the next day, and what a deep discharge took off
 # its capacity stays taken.
+# was odometer, fuel, dashboard and battery -> the wear with them (wear): the
+# user's wear-and-aging thought, 2026-09-22 07:55 - components age with usage
+# and neglect, the odometer is the per-car usage ledger, and what a car has
+# worn out is worn out the next day too. VERSION stays 1: a new object in an
+# entry, which a file without it reads as a new car's and an old file rounds
+# through untouched (_save_fields writes back what it does not know).
 
 ## Where the cars' entries live, and the version of what is in there.
 const PATH := "user://cars.json"
@@ -72,6 +81,21 @@ const DRIVER_DEFAULTS := {
 const BATTERY_DEFAULTS := {
 	"charge": 1.0,
 	"capacity_wear": 0.0,
+}
+
+## What a car that has never been driven has worn out - and what a number that
+## is in the file and is none of its own is read as: nothing. The six fields of
+## a car's whole "wear" object, each 0..1, the share of that component's life
+## used up (see ArcadeCar clutch_wear and the rest): "clutch", "brakes_front",
+## "brakes_rear", "tyres_front", "tyres_rear", "engine". Each field is checked
+## alone.
+const WEAR_DEFAULTS := {
+	"clutch": 0.0,
+	"brakes_front": 0.0,
+	"brakes_rear": 0.0,
+	"tyres_front": 0.0,
+	"tyres_rear": 0.0,
+	"engine": 0.0,
 }
 
 
@@ -235,6 +259,50 @@ static func battery_problem(field: String, stored: Variant) -> String:
 	return ""
 
 
+## The wear `car_id` was left with:
+##   {"clutch": float 0..1, "brakes_front": ..., "brakes_rear": ...,
+##    "tyres_front": ..., "tyres_rear": ..., "engine": ...,
+##    "problems": what was wrong with the file, one text per field}
+## No file, no entry or no "wear" in it is a car that has not been driven:
+## WEAR_DEFAULTS (nothing worn), no problems. A field that is there and is no
+## share of a life (not a number, not finite, under 0 or over 1) reads as its
+## default and puts one text in "problems", naming the car and the field; the
+## other five still load. Nothing is reported from here: the car that asked
+## says it (push_error), the tests read the texts. The load_battery idiom,
+## field by field.
+static func load_wear(car_id: String, path := PATH) -> Dictionary:
+	var wear := WEAR_DEFAULTS.duplicate()
+	var problems: Array[String] = []
+	var entry: Variant = _cars(_read(path)).get(car_id)
+	var stored_wear: Variant = (entry as Dictionary).get("wear") if entry is Dictionary else null
+	if stored_wear is Dictionary:
+		for field: String in WEAR_DEFAULTS:
+			if not (stored_wear as Dictionary).has(field):
+				continue
+			var stored: Variant = (stored_wear as Dictionary)[field]
+			var problem := wear_problem(field, stored)
+			if problem != "":
+				problems.append("%s: %s's wear %s %s, %s is used" % [path, car_id, field, problem, str(WEAR_DEFAULTS[field])])
+				continue
+			wear[field] = float(stored)
+	wear["problems"] = problems
+	return wear
+
+
+## What keeps `stored` from being the wear field `field`; "" when it is one.
+## All six are shares, 0..1: a finite number, neither under 0 nor over 1.
+static func wear_problem(field: String, stored: Variant) -> String:
+	if not field in WEAR_DEFAULTS:
+		return "is no wear field"
+	if not (stored is float or stored is int):
+		return "is not a number (%s)" % str(stored)
+	if not is_finite(stored):
+		return "is not finite (%s)" % str(stored)
+	if stored < 0.0 or stored > 1.0:
+		return "is outside 0 .. 1 (%s)" % str(stored)
+	return ""
+
+
 ## Writes `odometer_m` [m] into `car_id`'s entry and leaves the rest of the file
 ## as it is. Nothing is written for a number that is not finite.
 static func save_odometer(car_id: String, odometer_m: float, path := PATH) -> void:
@@ -242,21 +310,27 @@ static func save_odometer(car_id: String, odometer_m: float, path := PATH) -> vo
 
 
 ## Writes `odometer_m` [m], `fuel_l` [L] and, when it is handed them, the
-## dashboard `driver` and the `battery` into `car_id`'s entry in ONE write, and
-## leaves the rest of the file as it is. A number that is not finite is not
-## written (the other one is); nothing is written when there is nothing to
-## write.
+## dashboard `driver`, the `battery` and the `wear` into `car_id`'s entry in
+## ONE write, and leaves the rest of the file as it is. A number that is not
+## finite is not written (the other one is); nothing is written when there is
+## nothing to write.
 # was (car_id, odometer_m, fuel_l, path) -> `driver` appended, behind `path`:
 # the car's cadence save carries the dashboard along with the metres and the
 # litres, so a car is one write per save, not three.
 # was ... driver) -> `battery` appended behind it, the same way and for the
 # same reason: still the one write per save.
-static func save_car(car_id: String, odometer_m: float, fuel_l: float, path := PATH, driver := {}, battery := {}) -> void:
+# was ... battery) -> `wear` appended behind it, the same way and for the same
+# reason: still the one write per save. VERSION stays 1 (see the header): an
+# old file has no "wear" and reads as a new car's, and everything else in it
+# is written back as it was.
+static func save_car(car_id: String, odometer_m: float, fuel_l: float, path := PATH, driver := {}, battery := {}, wear := {}) -> void:
 	var fields := {"odometer_m": odometer_m, "fuel_l": fuel_l}
 	if not driver.is_empty():
 		fields["driver"] = _driver_fields(driver)
 	if not battery.is_empty():
 		fields["battery"] = _battery_fields(battery)
+	if not wear.is_empty():
+		fields["wear"] = _wear_fields(wear)
 	_save_fields(car_id, fields, path)
 
 
@@ -290,6 +364,20 @@ static func _battery_fields(fields: Dictionary) -> Dictionary:
 		var value: Variant = fields.get(field, BATTERY_DEFAULTS[field])
 		if battery_problem(field, value) != "":
 			value = BATTERY_DEFAULTS[field]
+		written[field] = float(value)
+	return written
+
+
+# The six fields of a car's "wear" object as they go into the file: all
+# written every time, as floats; what is left out, or is no share of a life
+# (NaN among them), goes in as its default, so what is in the file is always
+# readable back.
+static func _wear_fields(fields: Dictionary) -> Dictionary:
+	var written := {}
+	for field: String in WEAR_DEFAULTS:
+		var value: Variant = fields.get(field, WEAR_DEFAULTS[field])
+		if wear_problem(field, value) != "":
+			value = WEAR_DEFAULTS[field]
 		written[field] = float(value)
 	return written
 
