@@ -307,14 +307,23 @@ var _quiz_failed := false
 #  Licences, exams and ranks
 # =============================================================================
 
-## The licence level a record of `passed` exam names earns: L1 with every one
-## of l1_requirements() in it, L0 with the sitting in it, none otherwise.
-## The store keeps the passes; the level is always this function of them.
-static func level_for(passed: Array) -> int:
-	if not passed.has(EXAM_L0):
+## The licence level a record earns - `passed`, the exam names passed, and
+## `elements`, the L0 sitting's element names passed: L0 with every one of
+## the sitting's seven elements in `elements` OR the sitting itself (EXAM_L0)
+## in `passed` - the exam-level pass of a record written before there were
+## elements entails the whole sitting, so an old record keeps its licence;
+## L1 with L0 and the rest of l1_requirements() (the five handling tests, the
+## skid pad) in `passed`; none otherwise. The store keeps the passes and the
+## elements; the level is always this function of them.
+# was level_for(passed) on EXAM_L0 alone -> the elements beside it: the
+# user's verdict, 2026-09-22 14:56 + 15:02 (each element passed is kept, the
+# sitting resumes at the first not yet passed). The one-argument call is the
+# old one, still: no elements, the exam-level pass alone decides L0.
+static func level_for(passed: Array, elements: Array = []) -> int:
+	if not (passed.has(EXAM_L0) or sitting_complete(elements)):
 		return LICENCE_NONE
 	for exam in l1_requirements():
-		if not passed.has(exam):
+		if exam != EXAM_L0 and not passed.has(exam):
 			return LICENCE_L0
 	return LICENCE_L1
 
@@ -325,6 +334,34 @@ static func l1_requirements() -> Array[String]:
 	exams.append_array(L1_HANDLING_TESTS)
 	exams.append(EXAM_SKID_PAD)
 	return exams
+
+
+## The L0 sitting's seven element names, in the order they are sat.
+static func l0_element_names() -> Array[String]:
+	var names: Array[String] = []
+	for element in l0_sitting():
+		names.append(element.name)
+	return names
+
+
+## Whether `elements` (element names passed) holds every one of the sitting's.
+static func sitting_complete(elements: Array) -> bool:
+	for name in l0_element_names():
+		if not elements.has(name):
+			return false
+	return true
+
+
+## Where a sitting with `elements` already passed begins: the index in
+## l0_sitting() of the first element not in it, in the sitting's order (a
+## passed theory is never retaken: the scan walks past it); 0 for a complete
+## record, the sitting sat again from the theory as a practice run.
+static func l0_resume_index(elements: Array) -> int:
+	var names := l0_element_names()
+	for index in names.size():
+		if not elements.has(names[index]):
+			return index
+	return 0
 
 
 ## The name of a licence level.
