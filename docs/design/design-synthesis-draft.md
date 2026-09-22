@@ -1,5 +1,6 @@
 # FACTORY DRIVER — DESIGN SYNTHESIS DRAFT (art canon × gameplay)
-# Status: DRAFT — awaiting the driver's verdict on the open questions (§6) before 4B dispatch.
+# Status: VERDICT RECEIVED 2026-09-23 (§9). 4B proceeds on the OSM skeleton of Europe
+# with the Ring region first in focus.
 # Sources: docs/art-direction.md (canon), docs/design/user-thoughts-economy.org (the driver's
 # brain dump, verbatim), the plan + night report, docs/vision-teaser.md.
 
@@ -117,3 +118,21 @@ Real sim data; environment-dependent (tunnel / buildings / open nature).
 - No mobile-app UI — the garage is a dark-charcoal automobile catalogue.
 - No retro as an excuse for sloppy geometry — minimum geometry, convincing silhouette; a Porsche needs more than a mountain.
 - **The road is the composition — never forgotten.**
+
+---
+
+## 8. THE DRIVER'S VERDICT (2026-09-23, answering §6 + new design)
+
+1. **Economy buildings — all suggested types approved** (tyre centres, scrapyards, test centres, cat sanctuaries, fuel depots, proving-ground offices, component shops), plus the driver's addition: **ABSTRACT BUILDINGS WITH PRIVILEGES** — not every workshop can sell fuel; workshops "hold anything, they are the startups that create everything that is needed"; gas stations are RARE and owning one takes luck, kilometres and jobs troc'd the right way; dealerships troc cars *and everything else* (maybe including fuel); **the cat sanctuary is a place**: bring in rescued strays for tuna, or adopt a cat with tuna.
+2. **Region: EUROPE FIRST — Romania to the Nürburgring.** "All europe, must be drivable" — the OSM skeleton is continent-wide from the start; per-region dressing is decided and "put in stone" per region when the focus moves there. The starting position is chosen by the driver from a zoomable map with a pin. THE FIRST THING A NEW DRIVER DOES: select the test centre where they will take their licence. Passing grants a voucher for a car from a (non-Porsche) dealership — "still good, and can be as performant as a standard porsche or above, but not as careful drawn, lol."
+3. **Proving rules decided**: a workshop-built car must pass the actual exam, get **at least bronze on all testing missions**, and **lap the Green Hell**; telemetry proves mileage and durability; the better the lap and stats, the more wanted the car — same for workshop-built components ("the better the stats, the more wanted the car/component is").
+4. **Cars unbranded**: Porsche progression approved; non-Porsches get European-brand *characteristics* but **serial-number names** — no trademarks, "porsche inspired with real porsche specs, just not branded", from affordable regular cars to top range matching Porsche's. The driver's naming idea for the flagship: the **"Catorsche Turbo"** (his own suggestion, "or something").
+5. **The Ring is the first region** — "sure, the ring first region"; the map is constructed like a puzzle: what exists in a region is decided and put in stone when the focus first moves to that region; "the driver first gets its focus there."
+
+## 9. WHAT THE VERDICT CHANGES FOR 4B
+
+- The OSM skeleton is **Europe-wide from the start** (roads drivable everywhere), with per-region focus/dressing decided region by region — the Ring (Eifel) region first, fully decided and put in stone.
+- The game's first-run flow is now: spawn-pin on the world map → choose a test centre → the licence ladder → the first voucher → the first car (non-Porsche, unbranded serial number) → the world.
+- Typed buildings gain the privilege layer (abstract buildings; who may sell fuel etc.) and the cat sanctuary joins the typed list.
+- Proving-ground rules are decided: exam + bronze-on-all + Ring lap + telemetry-proven durability.
+- Car naming: no brands; serial numbers; Porsche-inspired with real specs; "Catorsche" is the driver's working name for the 911-class cat-era Porsche.
