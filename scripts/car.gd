@@ -2188,6 +2188,30 @@ const SHELL_RATE := 200000.0
 const SHELL_DAMPING := 6000.0
 const SHELL_FRICTION := 0.5
 
+## Kinetic friction of an overturned car on the road [-]: on its side or its
+## roof (is_overturned) the shell's friction is at most this times the car's
+## weight, mu x W, whatever the corners transiently carry - a corner dug 0.2
+## - 0.4 m into the road at SHELL_RATE carries 40 - 80 kN for a tick, the
+## shell 190 kN at the most measured, and SHELL_FRICTION x that is a 1.5 - 7
+## g brake on the centre of mass with a moment about it to match.
+## Reconstruction practice has a car sliding on its roof or side decelerating
+## at 0.4 - 0.5 g. What it does: the tumble keeps its momentum and scrapes
+## along the road, slowed at ROLL_FRICTION_COEFF x g at the most, the roll
+## going on about the contact as it moves; the moment the friction turns the
+## car with is bounded the same way. Upright, with the shell touching (a
+## nose-first landing, the lip on a knee), nothing changes: SHELL_FRICTION x
+## the load, as certified and measured (see the airborne test's flank jump).
+# was SHELL_FRICTION x the transient load with no ceiling but stopping the
+# car in one tick: handbraked at 30 m/s along the hill's lateral the car went
+# over and the contact took 1.15 m/s (7 g) off the centre of mass in one tick
+# while its friction moment went on turning the car about it - a full turn
+# over its nose on to its roof, or with the wheel let go 14 rolls at up to
+# 23 rad/s under 200 kN of shell (the user's catch: "at some point we only
+# rolled the car around its axis without letting the lateral force also
+# move the car in the direction of the fall, like the car hit a wall and
+# was rolling against that wall").
+const ROLL_FRICTION_COEFF := 0.45
+
 ## Where the body's geometry leaves the small angles [rad]. Under
 ## ATTITUDE_BLEND_START the seats' heights, their rates and their lever arms
 ## are the first-order formulas the car was certified on (pitch x arm + roll x
@@ -4122,18 +4146,32 @@ func _physics_process(delta: float) -> void:
 	# the shell carries against the way it moves - along the car a slowing
 	# (never a push back), across it the same, and at each carrying corner a
 	# moment about the centre of mass (the corner is under or beside it, and
-	# a corner dragged behind the car turns it). Never more than what brings
-	# the sliding to rest this tick: static friction holds, it does not
-	# push, and a car at rest on its side is not rocked by a moment that
-	# changes sign with every last mm/s of drift. Exactly nothing with the
-	# shell clear of the road, which is every certified tick.
+	# a corner dragged behind the car turns it). Overturned, on its side or
+	# its roof, never more than ROLL_FRICTION_COEFF x the car's weight: the
+	# kinetic friction of the car on the road, not of the tick's penetration
+	# - the centre of mass is slowed at mu x g at the most and goes on where
+	# it was going while the car rolls about the contact, which moves with it.
+	# Never more than what brings the sliding to rest this tick: static
+	# friction holds, it does not push, and a car at rest on its side is not
+	# rocked by a moment that changes sign with every last mm/s of drift
+	# (under the cap that is the last ROLL_FRICTION_COEFF x g x delta = 7
+	# cm/s and nothing else: at any speed above it the cap is the smaller).
+	# Exactly nothing with the shell clear of the road, which is every
+	# certified tick.
 	# was nothing (the user's 20:35 retest; see SHELL_RATE).
+	# was SHELL_FRICTION x the transient load alone, tens of kN mid-roll, the
+	# centre of mass stopped in a tick or two and the car spun on about the
+	# stationary contact like a hinge (the user's catch: "like the car hit a
+	# wall and was rolling against that wall"; see ROLL_FRICTION_COEFF).
 	_shell_friction_moment = Vector3.ZERO
 	_shell_lateral_slowing = 0.0
 	if shell_load > 0.0 and ground_speed > 0.0:
 		var slide_x := cg_lateral_speed / ground_speed
 		var slide_z := -forward_speed / ground_speed
-		var friction := minf(SHELL_FRICTION * shell_load, total_mass() * ground_speed / delta)
+		var kinetic := SHELL_FRICTION * shell_load
+		if is_overturned():
+			kinetic = minf(kinetic, ROLL_FRICTION_COEFF * total_mass() * _gravity)
+		var friction := minf(kinetic, total_mass() * ground_speed / delta)
 		slowing += friction * absf(forward_speed) / ground_speed
 		_shell_lateral_slowing = friction * absf(cg_lateral_speed) / ground_speed
 		for j in _shell_loads.size():
