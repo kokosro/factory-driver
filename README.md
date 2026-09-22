@@ -439,6 +439,58 @@ their own laws - the car cools as it cools; R does not turn back time on tempera
 test starting is the exception: it hands out the certified fresh car, warm coolant, warm
 tyres and cold brakes, so every certified run is the physics it always was.
 
+#### Wear and aging
+
+The car's components age with usage and with neglect (`car.gd`, "Wear and aging"; the
+user's wear-and-aging thought, 2026-09-22 07:55). Nothing in it is new physics: the sim
+already emits every quantity wear needs, and wear is bookkeeping over those outputs, a
+share of each component's life, 0 new to 1 worn out, grown every tick from the tick's
+own numbers:
+
+- the **clutch** (`clutch_wear`) from its slip energy, |clutch torque| x |slip| x dt: a
+  launch, an upshift, a donut under the automatic's hunting; nothing while it is locked;
+- each axle's **brakes** (`front_brake_wear`, `rear_brake_wear`) from the work the discs
+  were given, the same watts the brake temperature is warmed by, three times over on any
+  tick the disc is over the fade line;
+- each axle's **tyres** (`front_tyre_wear`, `rear_tyre_wear`) from the heat put into
+  them, the rolling and the slip work the tyre temperature is warmed by - every metre
+  rolled wears a little, a slide a lot - three times over on any tick the tyre is over
+  its window;
+- the **engine** (`engine_wear`) from its revolutions under load, the radians turned
+  weighted by the load the clutch takes off the crank as a share of the curve's peak
+  torque (nothing idling in neutral, nothing free-revving at the limiter); over the
+  overheat line every revolution counts in full, loaded or not, and ten times over.
+
+The rates, the abuse multipliers and the floors are the config's (`wear`, optional: see
+`configs/README.md`); with them a flat-out 8 s launch costs the clutch ~0.07 %, a full
+stop from 90 km/h the discs ~0.02 %, a 25 s donut the rears ~0.03 %, 8 s flat out the
+engine ~0.003 %, and 2 s idling overheated as much as a launch (`tests/wear_test.gd`
+states every one of these). Gentle by design: the car is a test instrument, and a
+session on the pad wears it measurably in the ledger, not visibly at the wheel.
+
+What wear does, each a multiplier on something that already exists: a worn clutch passes
+less torque (more slip, a softer bite, never under 70 % of its capacity); worn brakes
+give less for the same pedal (never under 75 %, on top of the fade); worn tyres grip
+less (never under 85 %); a worn engine makes less torque (never under 85 % of the
+curve). Nothing breaks: a worn-out component works at its floor. Every multiplier is
+EXACTLY 1.0 at zero wear, and every multiplier reads the wear at whole hundredths: the
+accumulators count every joule and radian, continuously, but the effect moves in one
+step per 1 % of wear (`WEAR_EFFECT_STEP`), so under 1 % of wear a multiplier is exactly
+1 and the car is the fresh car to the bit. That staircase is what keeps the certified
+runs certified: a handling test's start hands out the new car, a certified run wears it
+well under a hundredth of anything (the tests state the numbers), and its physics is the
+fresh car's to the bit. From 1 % on the effect steps once a percent, in a line to the
+floor at worn out. A worn car's telemetry shows why it is worn: the same slip energy,
+brake work, tyre heat and loaded revolutions that grew the shares are the tick's own
+outputs, and every claim above is checkable by driving.
+
+Wear is for good. `R` refuels the car, fills the tank and puts in a new battery; it does
+not un-wear: the six shares stay where they were through a reset, as the temperatures
+do. Service comes with the garage (iteration 4A); until then nothing in the game
+restores a component. Between sessions the wear rides `user://cars.json` beside the
+battery (see The car's own file below); the headless suite and the certified runs read
+nothing, every car there starts new.
+
 ### Tests
 
 ```sh
@@ -592,6 +644,32 @@ that read it runs the certified torque curve to the bit, a config without any of
 optional keys is still a car, and a required key left out or a torque anchor that is NaN
 is refused by name - by the validation's functions alone, never read into the running
 car.
+
+And the wear (`tests/wear_test.gd`): the car comes out of `_ready` with nothing worn -
+all six shares exactly 0, every multiplier exactly 1 - and idles so; a multiplier is
+exactly 1 under 1 % of wear, steps once a percent in a line to the floor and never
+under it, the config's eleven numbers are the car's to the bit, a rate under zero, an
+abuse under 1, a floor outside its range and an unknown key are refused by name and a
+config without the table is a car; the clutch wears exactly its rate times the slip
+energy of a flat-out launch (68 kJ, 682 ppm, nothing on the locked ticks, the brakes
+exactly 0), the discs exactly the rate times the work of a stop from 90 km/h (174 and
+216 kJ; the engine only the radians the clutch loaded the crank on), the rears exactly
+the rate times a donut's heat with the abuse multiplier on the ticks over the window
+(the brakes doing no work on any tick the pedal was off), the engine exactly the rate
+times the loaded radians of a flat-out run and exactly 0 at the limiter in neutral, and
+every radian ten times over idling overheated; worn brakes stop the car 7 % longer half
+worn and 15 % worn out, a hair further inside the same hundredth the same stop to the
+bit, and past worn out the same stop to the bit; a worn-out clutch passes at most 350
+Nm where the new one passes 500 and slips more ticks; worn tyres hold 0.81 g half worn
+and 0.74 g worn out where new ones hold 0.88, past worn out the same to the bit; a
+worn-out engine burns for the floor's share of the curve and is slower over the same 8
+s; the six shares go through the store to the bit in the one entry beside everything
+else in the one write, an old file without them is a new car's and rounds through
+untouched at version 1, 78 values that are no share of a life are refused with the
+reason naming the car and the field, a car that loads worn components starts with
+them; a reset keeps six shares set by hand to the bit and tells the file nothing, and a
+handling test's start hands out the new car before its first tick; and NaN, inf and
+-inf shares read none, worn out and none, NaN and negative tick quantities add nothing.
 
 ### Handling tests
 
@@ -892,3 +970,26 @@ starting) is a fresh battery - full and healthy, as it fills the tank - and tell
 file nothing: the next save on the 45 s cadence writes the battery as it then stands.
 The headless suite and the certified runs read nothing: every car there starts full and
 healthy.
+
+The wear lives in the same entry too, under `wear`: the six shares of a component's life
+used up (`clutch`, `brakes_front`, `brakes_rear`, `tyres_front`, `tyres_rear`, `engine`,
+each 0..1; see Wear and aging), read once when the car enters the scene, written with
+the rest in the same save:
+
+```json
+{"version": 1, "cars": {"boxster_986": {"odometer_m": 123.4, "fuel_l": 31.5,
+  "driver": {"tcs_on": true, "abs_on": true, "sc_on": true,
+    "gearbox_mode": "sport", "automatic": true, "camera_view": 1},
+  "battery": {"charge": 0.93, "capacity_wear": 0.0},
+  "wear": {"clutch": 0.012, "brakes_front": 0.03, "brakes_rear": 0.02,
+    "tyres_front": 0.05, "tyres_rear": 0.08, "engine": 0.004}}}}
+```
+
+What a car has worn out is worn out the next day too. No entry is a new car, nothing
+worn; a number that is no share of a life (not a number, not finite, under 0, over 1) is
+an error in the log and that one default, the other five still load. A reset (`R`)
+leaves the wear where it is - R refuels, it does not un-wear - and tells the file
+nothing: the next save on the 45 s cadence writes the wear as it then stands. The file's
+version stays 1: an entry written before there was wear has no `wear` object, reads as
+a new car's, and is written back with everything else it holds. The headless suite and
+the certified runs read nothing: every car there starts new.
