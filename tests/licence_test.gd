@@ -20,19 +20,33 @@ extends SceneTree
 ## leaves the pedal on the floor of nothing (0) and the aid switches do not
 ## flip (the hint shows); during the sitting the pedal moves (the hill start
 ## is driven on it); after L0 the pedal moves and the switches flip. Then the
-## honest failures: a retake that stalls on the hill (the clutch dumped on the
-## locked axle with the throttle open) fails the sitting at once at element
-## 4/7, a retake with one wrong theory answer fails at 1/7 before a wheel
-## turns, and a hill start with the handbrake let go before the bite rolls
-## back past the tolerance. The rigor rule, from the physics.
+## honest failures, each a practice run on the complete record L0 left (the
+## exam sat again from the theory; nothing it does changes the record): one
+## that stalls on the hill (the clutch dumped on the locked axle with the
+## throttle open) fails the sitting at once at element 4/7, one with a wrong
+## theory answer fails at 1/7 before a wheel turns, and a hill start with the
+## handbrake let go before the bite rolls back past the tolerance. The rigor
+## rule, from the physics.
+# was "a retake that stalls ... a retake with one wrong theory answer" (a
+# retake a new sitting from the theory, all or nothing) -> practice runs on
+# the complete record: the user's verdict, 2026-09-22 14:56 + 15:02 (each
+# element passed is kept, a sitting resumes at the first not yet passed; a
+# complete record sits the exam again from the theory as practice).
 ##
 ## Then L1: the skid pad test sat through the manager (two laps between the
 ## rings), the five handling tests' passes heard from the MissionManager's
 ## signal (a FAILED one is not recorded), and the level only once all seven
-## are in. Last, the record itself on a file of the test's own: it comes back
+## are in. Then the record itself on a file of the test's own: it comes back
 ## to the bit, rides beside the wear and the rest through a car's save, a
 ## level the passes do not earn is brought down, and what is no field of its
-## own is refused with the reason.
+## own is refused with the reason. Last, the per-element memory (the user's
+## verdict, 2026-09-22 14:56 + 15:02): the elements passed as the record's
+## third field, the level they earn, a sitting resumed at the first element
+## not yet passed on a seeded record with the theory skipped, the
+## instructor's car manual through the parks and the hill start and
+## automatic from the turn, a failed element leaving the passed ones in the
+## record and on the file with the retake resuming at it, and a practice run
+## on a complete record changing nothing.
 ##
 ## The road's ramp too: linear between the ground lattice's points along its
 ## axis (the mesh is the ramp there), its gradient 8 % on the rise and exactly
@@ -438,15 +452,19 @@ func _sit_l0() -> void:
 	_check(_manager.state == LicenceManager.State.IDLE and not _banner.visible and not _missions.start_keys_locked, "Esc closes the banner, the keys are free again")
 
 
-## A retake that stalls on the hill: the pilot dumps the clutch on the locked
-## rear axle with the throttle open. The sitting fails at once at element
-## 4/7, the three before it passed, the licence stays.
+## A re-sit that stalls on the hill: the pilot dumps the clutch on the locked
+## rear axle with the throttle open. The record is complete (L0 was just
+## granted), so this is a practice run from the theory; the sitting fails at
+## once at element 4/7, the three before it passed, the licence stays.
 func _sit_stalling_retake() -> void:
 	print("-- a retake that stalls on the hill")
 	await _tap(LicenceManager.ACTION_BOOK)
 	_fresh_fuel(_car)
 	await _tap(LicenceManager.ACTION_SIT_L0)
-	_check(_manager.is_running() and _manager.element_index == 0, "a retake is a new sitting from the theory")
+	# was -> "a retake is a new sitting from the theory": the user's verdict,
+	# 2026-09-22 14:56 + 15:02 - a sitting resumes at the first element not
+	# yet passed; only a complete record sits again from the theory.
+	_check(_manager.is_running() and _manager.element_index == 0 and _manager.practice, "with a complete record the re-sit is a practice run from the theory")
 	var seen := await _drive_sitting(func(element: Dictionary) -> Dictionary:
 		if element.kind != LicenceExams.KIND_HILL_START:
 			return element
@@ -607,8 +625,10 @@ func _check_store() -> void:
 	var to_the_bit: bool = back.level == LicenceExams.LICENCE_L0 and back.passed == [LicenceExams.EXAM_L0, "SPIN_180"] and (back.problems as Array).is_empty() and typeof(back.level) == TYPE_INT
 	var beside: bool = entry.get("odometer_m") == 4400.0 and entry.get("fuel_l") == 12.5 and entry.get("wear", {}).get("engine") == 0.25 and entry.get("licence", {}).get("level") == 0 and written.get("version") == OdometerStore.VERSION and OdometerStore.VERSION == 1
 	var defaults_back := true
+	# was -> the passes alone: the elements passed are the record's third
+	# field (the user's verdict, 2026-09-22 14:56 + 15:02), empty for a new car.
 	for licence: Dictionary in [new_car, old_car, unknown]:
-		defaults_back = defaults_back and licence.level == LicenceExams.LICENCE_NONE and (licence.passed as Array).is_empty() and (licence.problems as Array).is_empty()
+		defaults_back = defaults_back and licence.level == LicenceExams.LICENCE_NONE and (licence.passed as Array).is_empty() and (licence.elements as Array).is_empty() and (licence.problems as Array).is_empty()
 	var old_had_no_licence: bool = not (JSON.parse_string(old_text) as Dictionary)["cars"][car_id].has("licence")
 	_check(
 		to_the_bit and beside and defaults_back and old_had_no_licence and after_licence != old_text,
@@ -644,7 +664,9 @@ func _check_store() -> void:
 	var part_bad := OdometerStore.load_licence("part_bad", _store_file)
 	_check(
 		refused == not_levels.size() + not_lists.size() and accepted and part_bad.level == LicenceExams.LICENCE_L0 and part_bad.passed == [LicenceExams.EXAM_L0] and (part_bad.problems as Array).size() == 1 and (part_bad.problems as Array)[0].contains("part_bad") and (part_bad.problems as Array)[0].contains("level"),
-		"store: %d non-levels and non-lists refused with a reason, the levels -1 .. 1 and lists of names accepted, no third field; a level of 7 beside a good list reads as the list's L0 with one problem naming the car and the field" % refused,
+		# was -> "no third field": the elements are the third (the user's
+		# verdict, 2026-09-22 14:56 + 15:02); a rank is no fourth.
+		"store: %d non-levels and non-lists refused with a reason, the levels -1 .. 1 and lists of names accepted, no fourth field; a level of 7 beside a good list reads as the list's L0 with one problem naming the car and the field" % refused,
 	)
 
 
