@@ -721,6 +721,12 @@ func _add_row(label: String, hint: String, kind: String, action: Callable, enabl
 	button.add_theme_color_override("font_disabled_color", COLOR_DIM_TEXT)
 	button.add_theme_color_override("font_hover_color", COLOR_TITLE)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	# was: the hint on one line, the button as wide as its longest line and
+	# the frame grown with it, past the screen's right edge (THE STUDY's
+	# page 1621 px wide on a 1280 px screen) -> the text wraps to the
+	# frame's width, the row grows down instead: the user's report,
+	# 2026-09-22 16:15. tests/menu_test.gd holds every page inside the screen.
+	button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	var index := _rows.size()
 	button.pressed.connect(activate_row.bind(index))
 	_body.add_child(button)
