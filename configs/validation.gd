@@ -75,7 +75,7 @@ const OPTIONAL_NUMBERS := {
 ## What is in a config besides plain numbers, each with a check of its own
 ## below: section -> keys, "" for what stands at the top of the file.
 const OTHER_KEYS := {
-	"": ["config_version", "identity", "driver_profiles", "mode_drivers"],
+	"": ["config_version", "identity", "mass_ledger", "driver_profiles", "mode_drivers"],
 	"identity": ["name", "car_id"],
 	"engine": ["torque_curve"],
 	"gearbox": ["ratios"],
@@ -124,6 +124,7 @@ static func validate(config: Variant, car_name: String) -> PackedStringArray:
 			if not _is_number(car[section][key]):
 				errors.append("%s: %s.%s is not a finite number" % [car_name, section, key])
 	_check_identity(errors, car_name, car.get("identity"))
+	_check_mass_ledger(errors, car_name, car.get("mass_ledger"), car.get("mass"))
 	if car.get("engine") is Dictionary:
 		_check_torque_curve(errors, car_name, car.engine)
 	if car.get("gearbox") is Dictionary:
@@ -158,6 +159,63 @@ static func _check_identity(errors: PackedStringArray, car_name: String, identit
 	for key: String in OTHER_KEYS["identity"]:
 		if not identity.get(key) is String or identity[key] == "":
 			errors.append("%s: identity.%s is missing or not a name" % [car_name, key])
+
+
+## The mass ledger (3W, docs/car-component-audit.md section 4): the car's kerb
+## mass as a table of its components, one row each of {name, mass_kg,
+## x_position_m, sprung} and nothing else, at least one row; the name a name,
+## the mass finite and above zero, sprung true or false, the position finite
+## and on the wheelbase (|x| <= mass.axle_distance; x from the middle of the
+## wheelbase, positive toward the rear, the sign of ArcadeCar.CG_OFFSET). Then
+## what the rows add up to has to be the car's certified figures TO THE BIT,
+## with the same plain sums car.gd draws its corner masses from
+## (_derive_from_config): the masses in row order == mass.kerb_mass, the
+## rear axle's share of the weight, sum of m x (a + x) over 2 a x the total,
+## == mass.rear_weight_fraction, and some but not all of the mass unsprung.
+## Exact equality is meant: a table is authored to the bit (the last row's
+## position calibrated, see configs/README.md), and a fault says both numbers
+## to every digit that reads back (var_to_str) so that a new car's author has
+## what to calibrate against.
+static func _check_mass_ledger(errors: PackedStringArray, car_name: String, ledger: Variant, mass: Variant) -> void:
+	if not ledger is Array or ledger.is_empty():
+		errors.append("%s: section mass_ledger is missing or has no component row" % car_name)
+		return
+	var axle_distance: float = mass.axle_distance if mass is Dictionary and _is_number(mass.get("axle_distance")) else INF
+	var rows_ok := true
+	for i: int in ledger.size():
+		var row: Variant = ledger[i]
+		if not row is Dictionary or row.size() != 4 or not (row.has("name") and row.has("mass_kg") and row.has("x_position_m") and row.has("sprung")):
+			errors.append("%s: mass_ledger[%d] is not a row of exactly name, mass_kg, x_position_m, sprung" % [car_name, i])
+			return
+		if not row.name is String or row.name == "":
+			errors.append("%s: mass_ledger[%d].name is missing or not a name" % [car_name, i])
+			rows_ok = false
+		if not _is_number(row.mass_kg) or row.mass_kg <= 0.0:
+			errors.append("%s: mass_ledger[%d].mass_kg is %s, not a finite mass above zero" % [car_name, i, row.mass_kg])
+			rows_ok = false
+		if not _is_number(row.x_position_m) or absf(row.x_position_m) > axle_distance:
+			errors.append("%s: mass_ledger[%d].x_position_m is %s, not a finite position on the wheelbase (|x| <= axle_distance %s)" % [car_name, i, row.x_position_m, axle_distance])
+			rows_ok = false
+		if not row.sprung is bool:
+			errors.append("%s: mass_ledger[%d].sprung is %s, not true or false" % [car_name, i, row.sprung])
+			rows_ok = false
+	if not rows_ok or not is_finite(axle_distance):
+		return
+	var total := 0.0
+	var moment := 0.0
+	var unsprung := 0.0
+	for row: Dictionary in ledger:
+		total += row.mass_kg
+		moment += row.mass_kg * (axle_distance + row.x_position_m)
+		if not row.sprung:
+			unsprung += row.mass_kg
+	var rear_fraction := moment / (2.0 * axle_distance * total)
+	if _is_number(mass.get("kerb_mass")) and total != mass.kerb_mass:
+		errors.append("%s: mass_ledger sums to %s kg, mass.kerb_mass is %s" % [car_name, var_to_str(total), var_to_str(mass.kerb_mass)])
+	if _is_number(mass.get("rear_weight_fraction")) and rear_fraction != mass.rear_weight_fraction:
+		errors.append("%s: mass_ledger puts %s of the weight on the rear axle, mass.rear_weight_fraction is %s" % [car_name, var_to_str(rear_fraction), var_to_str(mass.rear_weight_fraction)])
+	if unsprung <= 0.0 or unsprung >= total:
+		errors.append("%s: mass_ledger's unsprung rows weigh %s kg of %s, some but not all of the car has to be unsprung" % [car_name, unsprung, total])
 
 
 ## The torque curve: at least two [rpm, Nm] anchors of finite numbers, the rpm
