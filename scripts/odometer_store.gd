@@ -13,11 +13,13 @@ extends RefCounted
 ##     "battery": {"charge": 0.93, "capacity_wear": 0.0},
 ##     "wear": {"clutch": 0.012, "brakes_front": 0.03, "brakes_rear": 0.02,
 ##       "tyres_front": 0.05, "tyres_rear": 0.08, "engine": 0.004},
-##     "licence": {"level": 0, "passed": ["L0_CITIZEN", "SLALOM_TEST"]}}}}
+##     "licence": {"level": 0, "passed": ["L0_CITIZEN", "SLALOM_TEST"],
+##       "elements": ["THEORY_QUIZ", "PARALLEL_PARK", "BAY_PARK", "HILL_START",
+##         "TURN_IN_ROAD", "REVERSING_COURSE", "EMERGENCY_STOP"]}}}}
 ## What a car's entry holds, then: odometer_m [m], fuel_l [L], driver (the six
 ## settings below), battery (the two numbers below), wear (the six shares
-## below) and licence (the level and the passes below). Not kept yet: where
-## the car was parked.
+## below) and licence (the level, the passes and the L0 elements passed
+## below). Not kept yet: where the car was parked.
 ## A car's entry is a dictionary so the garage can keep more per car than these,
 ## and a save only ever touches the fields it is handed, of the one car it is
 ## handed: whatever else the file holds is written back as it was read.
@@ -54,6 +56,13 @@ extends RefCounted
 # may drive it how). VERSION stays 1 for the same reason as the wear. The
 # licence manager (scripts/licence_manager.gd) loads and saves it; the car
 # knows nothing of it and writes the entry's other fields round it.
+# was the level and the passes -> the L0 sitting's elements passed with them
+# (licence.elements): the user's verdict, 2026-09-22 14:56 + 15:02 - "it's
+# annoying that if i fail any of the L0 tests i need to get back to theory
+# and not retry the test i failed, it's like nothing remembers i took the
+# tests". Each element passed is kept the moment it is, so the next sitting
+# resumes at the first not yet passed. VERSION stays 1 again: a licence
+# object without "elements" reads as none passed yet, nothing reported.
 
 ## Where the cars' entries live, and the version of what is in there.
 const PATH := "user://cars.json"
@@ -114,19 +123,24 @@ const WEAR_DEFAULTS := {
 }
 
 ## What a car that has never been driven has for a licence - and what a field
-## that is in the file and is none of its own is read as: none. The two
+## that is in the file and is none of its own is read as: none. The three
 ## fields of a car's whole "licence" object: "level", the licence held
 ## (LicenceExams.LICENCE_NONE -1, L0 0, L1 1; a whole number in that range),
-## and "passed", the names of the exams passed at this car's wheel (an array
-## of strings, LicenceExams' exam names: the L0 sitting, the skid pad, the
-## five handling tests). The level is always what the passes earn
-## (LicenceExams.level_for): the passes are the record, the level in the file
-## is a convenience for a reader that has no LicenceExams (the garage of 4A),
-## written from the passes and read back from them, whatever the file says.
-## Each field is checked alone.
+## "passed", the names of the exams passed at this car's wheel (an array of
+## strings, LicenceExams' exam names: the L0 sitting, the skid pad, the five
+## handling tests), and "elements", the names of the L0 sitting's elements
+## passed at its wheel (an array of strings, LicenceExams.l0_sitting()'s
+## names, each kept from the moment it is passed: the next sitting resumes
+## at the first missing one). The level is always what the passes and the
+## elements earn (LicenceExams.level_for): they are the record, the level in
+## the file is a convenience for a reader that has no LicenceExams (the
+## garage of 4A), written from them and read back from them, whatever the
+## file says. Each field is checked alone; a licence object written before
+## there were elements has none and reads as none passed yet.
 const LICENCE_DEFAULTS := {
 	"level": -1,
 	"passed": [],
+	"elements": [],
 }
 
 ## The lowest and highest licence level the file may hold (LicenceExams'
@@ -341,15 +355,17 @@ static func wear_problem(field: String, stored: Variant) -> String:
 
 ## The licence `car_id`'s driver holds:
 ##   {"level": int LICENCE_LEVEL_MIN .. LICENCE_LEVEL_MAX, "passed": Array[String],
-##    "problems": what was wrong with the file, one text per field}
+##    "elements": Array[String], "problems": what was wrong with the file, one text per field}
 ## No file, no entry or no "licence" in it is an unlicensed driver:
 ## LICENCE_DEFAULTS, no problems. A field that is there and is none of its own
-## (a level that is no whole number in range, a passed list that is no array
-## of strings) reads as its default and puts one text in "problems", naming
-## the car and the field; the other field still loads. The level returned is
-## what the passes earn, always (the file's level is checked and reported,
-## not believed: the passes are the record). Nothing is reported from here:
-## the manager that asked says it
+## (a level that is no whole number in range, a passed or elements list that
+## is no array of strings) reads as its default and puts one text in
+## "problems", naming the car and the field; the other fields still load. A
+## field that is not there (an "elements" written before there were any)
+## reads as its default, nothing reported. The level returned is what the
+## passes and the elements earn, always (the file's level is checked and
+## reported, not believed: they are the record). Nothing is reported from
+## here: the manager that asked says it
 ## (push_error), the tests read the texts. The load_wear idiom, field by field.
 static func load_licence(car_id: String, path := PATH) -> Dictionary:
 	var licence := LICENCE_DEFAULTS.duplicate(true)
@@ -366,15 +382,15 @@ static func load_licence(car_id: String, path := PATH) -> Dictionary:
 				problems.append("%s: %s's licence %s %s, %s is used" % [path, car_id, field, problem, str(LICENCE_DEFAULTS[field])])
 				continue
 			licence[field] = _licence_value(field, stored)
-	licence["level"] = LicenceExams.level_for(licence["passed"])
+	licence["level"] = LicenceExams.level_for(licence["passed"], licence["elements"])
 	licence["problems"] = problems
 	return licence
 
 
 ## What keeps `stored` from being the licence field `field`; "" when it is one.
 ## The level is a whole number from LICENCE_LEVEL_MIN to LICENCE_LEVEL_MAX;
-## the passes are an array of strings (names; unknown names are kept, they
-## may be a later build's).
+## the passes and the elements are arrays of strings (names; unknown names
+## are kept, they may be a later build's).
 static func licence_problem(field: String, stored: Variant) -> String:
 	match field:
 		"level":
@@ -388,42 +404,43 @@ static func licence_problem(field: String, stored: Variant) -> String:
 			if level < LICENCE_LEVEL_MIN or level > LICENCE_LEVEL_MAX:
 				return "is outside the levels %d .. %d (%s)" % [LICENCE_LEVEL_MIN, LICENCE_LEVEL_MAX, str(stored)]
 			return ""
-		"passed":
+		"passed", "elements":
 			if not stored is Array:
 				return "is not a list (%s)" % str(stored)
 			for name: Variant in stored:
 				if not name is String:
-					return "holds something that is no exam name (%s)" % str(name)
+					return "holds something that is no %s name (%s)" % ["exam" if field == "passed" else "element", str(name)]
 			return ""
 	return "is no licence field"
 
 
 # A checked `stored` as the licence dictionary holds it: the level a whole int
-# (JSON gives every number back as a float), the passes an Array[String]
-# without duplicates, in the order they came.
+# (JSON gives every number back as a float), the passes and the elements each
+# an Array[String] without duplicates, in the order they came.
 static func _licence_value(field: String, stored: Variant) -> Variant:
 	match field:
 		"level":
 			return int(stored)
-		"passed":
-			var passed: Array[String] = []
+		"passed", "elements":
+			var names: Array[String] = []
 			for name: String in stored:
-				if not passed.has(name):
-					passed.append(name)
-			return passed
+				if not names.has(name):
+					names.append(name)
+			return names
 	return stored
 
 
 ## Writes the licence `fields` (the keys of LICENCE_DEFAULTS; see
 ## load_licence) into `car_id`'s "licence" object and leaves the rest of the
-## file as it is. Both are written every time: what is left out, or is no
-## field of its own, goes in as its default, so what is in the file is always
-## readable back; the level written is what the passes earn.
+## file as it is. All three are written every time: what is left out, or is
+## no field of its own, goes in as its default, so what is in the file is
+## always readable back; the level written is what the passes and the
+## elements earn.
 static func save_licence(car_id: String, fields: Dictionary, path := PATH) -> void:
 	_save_fields(car_id, {"licence": _licence_fields(fields)}, path)
 
 
-# The two fields of a car's "licence" object as they go into the file.
+# The three fields of a car's "licence" object as they go into the file.
 static func _licence_fields(fields: Dictionary) -> Dictionary:
 	var written := {}
 	for field: String in LICENCE_DEFAULTS:
@@ -431,7 +448,7 @@ static func _licence_fields(fields: Dictionary) -> Dictionary:
 		if licence_problem(field, value) != "":
 			value = LICENCE_DEFAULTS[field]
 		written[field] = _licence_value(field, value)
-	written["level"] = LicenceExams.level_for(written["passed"])
+	written["level"] = LicenceExams.level_for(written["passed"], written["elements"])
 	return written
 
 
