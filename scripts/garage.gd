@@ -326,7 +326,9 @@ func _build_drive_page() -> void:
 			hint += "  —  " + best
 		_add_row("Test %d  %s" % [index + 1, test.title], hint, "test", _start_test.bind(index), true, test.name)
 	_add_heading("LICENCE EXAMS")
-	_add_row("L0 licence sitting", "The theory (%d questions) and six elements, all or nothing: parallel park, bay park, hill start, three-point turn, reversing, emergency stop." % LicenceExams.quiz_questions().size(), "l0", _start_l0, true, LicenceExams.EXAM_L0)
+	# was "all or nothing" -> each element kept once passed, the sitting
+	# resumed: the user's verdict, 2026-09-22 14:56 + 15:02.
+	_add_row("L0 licence sitting", "The theory (%d questions) and six elements: parallel park, bay park, hill start, three-point turn, reversing, emergency stop. Each element passed is kept; a sitting resumes at the first not yet passed." % LicenceExams.quiz_questions().size(), "l0", _start_l0, true, LicenceExams.EXAM_L0)
 	_add_row("Skid pad exam", LicenceExams.skid_pad_test().objective, "skid_pad", _start_skid_pad, true, LicenceExams.EXAM_SKID_PAD)
 
 
@@ -477,12 +479,14 @@ func _build_licence_page() -> void:
 	_add_text(licence.book_text() if licence else "", COLOR_TEXT)
 
 
-## The rank panel: the licence held, the rank it is, every pass, and what
-## the next level still takes - all from the licence manager's record and
-## LicenceExams' data.
+## The rank panel: the licence held, the rank it is, every pass, the L0
+## sitting's checklist (the theory and the six elements, each ticked or not
+## from the record) and what the next level still takes - all from the
+## licence manager's record and LicenceExams' data.
 func licence_text() -> String:
 	var level := licence.level() if licence else LicenceExams.LICENCE_NONE
 	var passed: Array = licence.licence.get("passed", []) if licence else []
+	var elements: Array = licence.licence.get("elements", []) if licence else []
 	var lines := PackedStringArray()
 	lines.append("LICENCE HELD:  %s" % LicenceExams.licence_title(level))
 	var rank := "none: the first rank, TEST DRIVER, is an L1 holder"
@@ -491,9 +495,12 @@ func licence_text() -> String:
 			rank = entry.title
 	lines.append("RANK:  %s" % rank)
 	lines.append("PASSED:  %s" % (", ".join(PackedStringArray(passed)) if not passed.is_empty() else "nothing yet"))
+	lines.append("L0 ELEMENTS:  %s" % "   ".join(LicenceManager.checklist(elements)))
 	var missing := PackedStringArray()
 	if level < LicenceExams.LICENCE_L0:
-		lines.append("NEXT, L0 CITIZEN:  the L0 sitting (key 1 in the licence book, or DRIVE here): theory, parallel park, bay park, hill start, three-point turn, reversing, emergency stop - all in one sitting.")
+		# was "all in one sitting" -> each element kept: the user's verdict,
+		# 2026-09-22 14:56 + 15:02.
+		lines.append("NEXT, L0 CITIZEN:  the L0 sitting (key 1 in the licence book, or DRIVE here): theory, parallel park, bay park, hill start, three-point turn, reversing, emergency stop - each element passed is kept, the sitting resumes at the first not yet passed.")
 	elif level < LicenceExams.LICENCE_L1:
 		for exam in LicenceExams.l1_requirements():
 			if not passed.has(exam):
