@@ -1,3 +1,4 @@
+class_name ChaseCamera
 extends Camera3D
 ## The game's one camera. Starts in the view the car was last driven in, which
 ## on a car that has not been driven yet is the cockpit: the driver gets in

@@ -8,6 +8,8 @@
 [ext_resource type="Script" path="res://scripts/road_profile.gd" id="6_road"]
 [ext_resource type="Script" path="res://scripts/tyre_marks.gd" id="7_marks"]
 [ext_resource type="Script" path="res://scripts/licence_manager.gd" id="8_licence"]
+[ext_resource type="Script" path="res://scripts/study.gd" id="9_study"]
+[ext_resource type="PackedScene" path="res://scenes/garage.tscn" id="10_garage"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_material"]
 sky_top_color = Color(0.22, 0.42, 0.75, 1)
@@ -80,3 +82,18 @@ missions = NodePath("../MissionManager")
 script = ExtResource("7_marks")
 car = NodePath("../Car")
 pad = NodePath("../TestPad")
+
+[node name="Study" type="Node" parent="." node_paths=PackedStringArray("car", "pad", "hud", "missions", "licence")]
+script = ExtResource("9_study")
+car = NodePath("../Car")
+pad = NodePath("../TestPad")
+hud = NodePath("../HUD")
+missions = NodePath("../MissionManager")
+licence = NodePath("../LicenceManager")
+
+[node name="Garage" parent="." node_paths=PackedStringArray("car", "hud", "missions", "licence", "study") instance=ExtResource("10_garage")]
+car = NodePath("../Car")
+hud = NodePath("../HUD")
+missions = NodePath("../MissionManager")
+licence = NodePath("../LicenceManager")
+study = NodePath("../Study")
