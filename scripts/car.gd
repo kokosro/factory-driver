@@ -6121,6 +6121,16 @@ func _update_visuals(delta: float) -> void:
 	# stuck to the vertical axis") -> the wheel carried with the body, past
 	# the small angles (ATTITUDE_BLEND_START: under it the certified picture
 	# to the bit, the wheel's height alone).
+	# Within the small angles the whole transform is drawn, the wheel's place
+	# across and along the car (its arms, the scene's layout to the bit) and
+	# the body's on the centre line with its height, not the height alone.
+	# was the height alone, the rest taken to be the scene's: a car flipped
+	# (flip_car) or reset (reset_to) off its side or its roof is level again
+	# and drawn level, on the x and z the carried picture left behind - the
+	# four wheels at the body's centre line, buried in it, or at each other's
+	# corners (the user's catches: "the car did not have tires anymore
+	# (visually), only tire marks" off its side; "the wheels are reversed"
+	# off its roof).
 	var blend := _attitude_blend()
 	var basis := _body_basis()
 	var cg_local := Vector3(0.0, CG_HEIGHT, CG_OFFSET)
@@ -6130,17 +6140,16 @@ func _update_visuals(delta: float) -> void:
 		if wheel_supported[i]:
 			drawn_travel = clampf(_road_height_under_wheel(i) - seat, -MAX_WHEEL_VISUAL_TRAVEL, MAX_WHEEL_VISUAL_TRAVEL)
 		var steered := Basis(Vector3.UP, wheel_angle if i < 2 else 0.0)
-		if blend == 0.0:
-			_wheels[i].basis = steered
-			_wheels[i].position.y = _wheel_rest_height + seat - global_position.y + drawn_travel
-			continue
 		var level := Vector3(WHEEL_ARMS_RIGHT[i], _wheel_rest_height + seat - global_position.y + drawn_travel, CG_OFFSET - WHEEL_ARMS_AHEAD[i])
+		if blend == 0.0:
+			_wheels[i].transform = Transform3D(steered, level)
+			continue
 		var hung := _seat_offset(i) + Vector3(0.0, _wheel_rest_height + _corner_trim[i] + drawn_travel, 0.0)
 		_wheels[i].transform = Transform3D(Basis.IDENTITY.slerp(basis, blend) * steered, level.lerp(cg_local + basis * hung, blend))
 	_body.rotation.x = body_pitch
 	_body.rotation.z = body_roll
+	var level := Vector3(0.0, _body_rest_height + body_pitch * CG_OFFSET, 0.0)
 	if blend == 0.0:
-		_body.position.y = _body_rest_height + body_pitch * CG_OFFSET
+		_body.position = level
 	else:
-		var level := Vector3(0.0, _body_rest_height + body_pitch * CG_OFFSET, 0.0)
 		_body.position = level.lerp(cg_local + basis * (Vector3(0.0, _body_rest_height, 0.0) - cg_local), blend)
