@@ -38,7 +38,9 @@ extends CharacterBody3D
 ## the exhaust is there as data. The STARTER that turns a stopped engine draws
 ## on the BATTERY, the alternator puts back what the running engine's belt
 ## drives, and a battery run flat is one that cranks weakly, or not at all, and
-## has lost some of what it held for good (see Electrical). In automatic the
+## has lost some of what it held for good (see Electrical). The engine and its
+## coolant have a temperature: cold, the engine runs rich and its idle hunts,
+## overheated, its power fades (see Thermal). In automatic the
 ## clutch also creeps the car off a released brake (see Creep, by the clutch).
 ## The driven wheels are where the layouts get their character, nobody scripts it: a
 ## rear-driven car spends rear grip on drive and pushes from behind, so power
@@ -316,7 +318,9 @@ static var IDLE_CONTROL_MAX_THROTTLE := 0.3
 # the fuel that takes is
 #   burn [kg/s] = combustion torque x engine_omega / FUEL_BURN_EFFICIENCY / FUEL_LHV
 # Idling (~18 Nm at 900 rpm) that is ~0.6 L/h, flat out at 7000 rpm (~250 Nm)
-# ~67 L/h; a certified handling run burns a few hundredths of a litre. The fuel
+# ~67 L/h; a certified handling run burns a few hundredths of a litre. A cold
+# engine burns fuel_richness() times that for the same work (see Thermal; exactly
+# 1 warm). The fuel
 # in the tank is mass the car carries (fuel_mass, in total_mass()). With the
 # tank dry nothing burns: the engine runs down on its friction, stops running
 # under STALL_RPM and stays down until there is fuel again (a reset fills the
@@ -528,6 +532,178 @@ const BATTERY_WEAR_LIMIT := 0.9
 ## BATTERY_NOMINAL_VOLTAGE, 2.16 MJ. Derived, never read: worked out again from
 ## the config's number when a car reads it (_derive_from_config).
 static var BATTERY_CAPACITY_J := BATTERY_CAPACITY_AH * 3600.0 * BATTERY_NOMINAL_VOLTAGE
+
+# --- Thermal -------------------------------------------------------------------
+
+# The engine and its coolant have a temperature. One lump - the coolant and the
+# metal that warms with it - kept as coolant_temp on a scale where 0 is the air
+# (COOLANT_AMBIENT_C) and 1 the operating temperature (COOLANT_OPERATING_C):
+#   coolant_c() = COOLANT_AMBIENT_C + coolant_temp x (COOLANT_OPERATING_C - COOLANT_AMBIENT_C)
+# Every tick (_advance_coolant):
+#   heat in:   COOLANT_HEAT_SHARE of the burning fuel's heat - the combustion
+#              power over FUEL_BURN_EFFICIENCY, what the stoichiometric burn
+#              makes: the cold enrichment's extra fuel goes out unburnt and
+#              warms nothing (_run_engine_outputs, _combustion_heat_w);
+#   heat out:  the radiator, as far as the thermostat opens it (none under
+#              THERMOSTAT_C, all of it from COOLANT_OPERATING_C up, a line
+#              between: thermostat_open), shedding COOLANT_RADIATOR_COOLING x
+#              airflow^2 x (coolant - ambient), the airflow the road speed or,
+#              standing, the fan's (COOLANT_FAN_AIRFLOW, on over
+#              COOLANT_FAN_ON_C and off again under COOLANT_FAN_OFF_C:
+#              coolant_cooling_w).
+# What the temperature does to the engine:
+#   cold, under COOLANT_WARM_C: the ECU runs rich - the burn is up to
+#              COOLANT_RICH_FACTOR times what the work costs (fuel_richness),
+#              the torque as ever: that is what richness is, fuel wasted - and
+#              the idle hunts, the idle controller's target wobbling up to
+#              IDLE_WOBBLE_RPM either side of IDLE_RPM at IDLE_WOBBLE_HZ
+#              (idle_target_rpm). Both taper to nothing at COOLANT_WARM_C.
+#   hot, over OVERHEAT_FADE_START_C: the torque curve is scaled down by
+#              OVERHEAT_FADE_RATE for every degree over, to OVERHEAT_FADE_FLOOR
+#              at the most (overheat_fade): the power fades, that is all.
+#              Nothing here kills an engine - no stall, no seizure, no
+#              boil-over: the coolant stops at COOLANT_MAX_C, the fade at its
+#              floor, the engine runs on.
+# The certified path: a car comes out of _ready and out of reset_to at the
+# operating temperature (coolant_temp 1) - the warmed-up car it has been all
+# along - where the richness is exactly 1, the idle target exactly IDLE_RPM and
+# the fade exactly 1; the thermostat holds a warm engine over THERMOSTAT_C,
+# above COOLANT_WARM_C, so a warm engine never runs rich again, and a run that
+# stays under OVERHEAT_FADE_START_C (every certified run does, by the margin
+# tests/thermal_test.gd measures) is physics to the bit. A cold morning is
+# opt-in: coolant_temp set to 0 by hand (the thermal test's); the game has no
+# cold start yet.
+# Warm-up is the one number the model is calibrated on: a 986 warms up in 5 to
+# 10 min of mixed driving. At a steady 72 km/h in 5th (~15 kW of combustion,
+# ~14 kW of it into the coolant) the coolant is over COOLANT_WARM_C in ~6.5
+# min and at the thermostat in ~8 (tests/thermal_test.gd states the measured
+# numbers); idling from cold takes far longer, as it does. The one lump is
+# the trade: the capacity that warms in minutes also heats up under sustained
+# full throttle at low road speed in tens of seconds where a real block's
+# mass would take minutes, which is why OVERHEAT_FADE_START_C sits 20 K over
+# operating.
+
+## The air the radiator breathes [C]: where coolant_temp is 0. A mild morning.
+# read from the car's config (thermal.ambient_c, optional); the certified
+# value here is the fallback default a config without it gets.
+static var COOLANT_AMBIENT_C := 15.0
+
+## The operating temperature [C]: where coolant_temp is 1, the thermostat is
+## fully open, and where a car starts out of _ready and reset_to. A 986's
+## gauge sits at 90.
+# read from the car's config (thermal.operating_c, optional); the certified
+# value here is the fallback default a config without it gets.
+static var COOLANT_OPERATING_C := 90.0
+
+## Where the thermostat starts to open [C]: no coolant reaches the radiator
+## under it, all of it does from COOLANT_OPERATING_C up, a line between. It
+## holds a warm engine over 80 whatever the road speed - and so over
+## COOLANT_WARM_C.
+# read from the car's config (thermal.thermostat_c, optional); the certified
+# value here is the fallback default a config without it gets.
+static var THERMOSTAT_C := 80.0
+
+## From here up the ECU runs its warm map [C]: the cold enrichment and the idle
+## hunt taper to nothing at it (a real one is done with them at 60 .. 70 C).
+## Under THERMOSTAT_C, so a warm engine never comes back under it.
+# read from the car's config (thermal.warm_c, optional); the certified value
+# here is the fallback default a config without it gets.
+static var COOLANT_WARM_C := 70.0
+
+## The radiator fan [C]: on over COOLANT_FAN_ON_C, off again under
+## COOLANT_FAN_OFF_C. Standing at idle, a warm car cycles between the two.
+# read from the car's config (thermal.fan_on_c / fan_off_c, optional); the
+# certified values here are the fallback defaults a config without them gets.
+static var COOLANT_FAN_ON_C := 97.0
+static var COOLANT_FAN_OFF_C := 92.0
+
+## Where the model stops [C]: a real system boils over about here; this one
+## goes no further and nothing breaks - the fade sits at its floor, the engine
+## runs on.
+# read from the car's config (thermal.max_c, optional); the certified value
+# here is the fallback default a config without it gets.
+static var COOLANT_MAX_C := 130.0
+
+## Heat capacity of the lump that warms [J/K]: ~8 L of coolant (~33 kJ/K) and
+## the aluminium around it. Calibrated on the warm-up (see Thermal): 100 kJ/K
+## takes the 65 K to the thermostat in ~8 min on ~14 kW.
+## was 80000 -> 100000, with COOLANT_RADIATOR_COOLING 1.2 -> 1.5: the slalom's
+## flat-out run-up had the coolant at 105.4 C, 4.6 K under the fade, measured
+## across the suite; the heavier lump and the larger radiator keep every
+## certified run clear of it by a wider margin (tests/thermal_test.gd).
+# read from the car's config (thermal.coolant_heat_capacity, optional); the
+# certified value here is the fallback default a config without it gets.
+static var COOLANT_HEAT_CAPACITY := 100000.0
+
+## Share of the fuel's heat that goes into the coolant (no unit): about a
+## third of it goes out of the exhaust, FUEL_BURN_EFFICIENCY's share onto the
+## crankshaft, and this into the block and the coolant - roughly the crank's
+## power over again.
+# read from the car's config (thermal.heat_share, optional); the certified
+# value here is the fallback default a config without it gets.
+static var COOLANT_HEAT_SHARE := 0.28
+
+## What the radiator sheds [W per K the coolant is over the air, per (m/s)^2
+## of airflow]: 1.5 is ~100 kW at 30 m/s with the coolant 75 K over the air,
+## ~25 kW at 15 m/s, ~8 kW in the fan's airflow - the 986's two nose
+## radiators. Airflow squared: ram air; the thermostat modulates the rest, so
+## a cruise sits at 82 .. 88 C.
+## was 1.2 -> 1.5, see COOLANT_HEAT_CAPACITY.
+# read from the car's config (thermal.radiator_cooling, optional); the
+# certified value here is the fallback default a config without it gets.
+static var COOLANT_RADIATOR_COOLING := 1.5
+
+## The airflow the fan pulls through a standing radiator [m/s, the road speed
+## it stands in for]: ~8 kW at COOLANT_FAN_ON_C, five times an idling engine's
+## heat. The airflow is the larger of the fan's and the road's: at speed the
+## ram air is the larger and the fan adds nothing.
+# read from the car's config (thermal.fan_airflow, optional); the certified
+# value here is the fallback default a config without it gets.
+static var COOLANT_FAN_AIRFLOW := 8.0
+
+## From here up the torque curve fades [C] ...
+# read from the car's config (thermal.overheat_fade_start_c, optional); the
+# certified value here is the fallback default a config without it gets.
+static var OVERHEAT_FADE_START_C := 110.0
+
+## ... by this share of it per degree over [1/K]: 0.02 is a fifth of the
+## torque gone at 120 C, two fifths at 130 - and never more than
+## OVERHEAT_FADE_FLOOR leaves.
+# read from the car's config (thermal.overheat_fade_rate, optional); the
+# certified value here is the fallback default a config without it gets.
+static var OVERHEAT_FADE_RATE := 0.02
+
+## The least of the torque curve the fade leaves (0..1): half. An overheated
+## engine limps; it never dies.
+const OVERHEAT_FADE_FLOOR := 0.5
+
+## How much more fuel a cold engine burns for the same work (no unit): this
+## much at COOLANT_AMBIENT_C, tapering to exactly 1 at COOLANT_WARM_C. The
+## cold enrichment: fuel condenses on cold walls, the ECU makes up for it, and
+## the extra does no work.
+# read from the car's config (thermal.rich_factor, optional); the certified
+# value here is the fallback default a config without it gets.
+static var COOLANT_RICH_FACTOR := 1.3
+
+## How far a cold idle hunts [rpm, either side of IDLE_RPM] at
+## COOLANT_AMBIENT_C, tapering to none at COOLANT_WARM_C ...
+# read from the car's config (thermal.idle_wobble_rpm, optional); the
+# certified value here is the fallback default a config without it gets.
+static var IDLE_WOBBLE_RPM := 50.0
+
+## ... and how fast [Hz]: a slow wobble, the idle valve hunting on a cold map.
+# read from the car's config (thermal.idle_wobble_hz, optional); the certified
+# value here is the fallback default a config without it gets.
+static var IDLE_WOBBLE_HZ := 0.6
+
+## The scale's span [K]: COOLANT_OPERATING_C - COOLANT_AMBIENT_C, 75 K, what
+## one of coolant_temp is in degrees. Derived, never read: worked out again
+## from the config's numbers when a car reads them (_derive_from_config).
+static var COOLANT_SPAN_K := COOLANT_OPERATING_C - COOLANT_AMBIENT_C
+
+## COOLANT_MAX_C on coolant_temp's scale (1.533): where the setter stops it.
+## Derived, never read (_derive_from_config).
+static var COOLANT_MAX_TEMP := (COOLANT_MAX_C - COOLANT_AMBIENT_C) / COOLANT_SPAN_K
 
 # --- Gearbox -----------------------------------------------------------------
 
@@ -2032,6 +2208,20 @@ var battery_charge := 1.0:
 ## start of every tick, so one tick works with one mass throughout.
 var fuel_mass := FUEL_TANK_CAPACITY_L * FUEL_DENSITY
 
+## The engine's coolant temperature, 0 (the air, COOLANT_AMBIENT_C) .. 1 (the
+## operating temperature, COOLANT_OPERATING_C), and over it up to
+## COOLANT_MAX_TEMP (kept inside that, NaN is operating); coolant_c() is the
+## same in degrees. Warmed by the burn and cooled by the radiator every tick
+## (_advance_coolant); 1 out of _ready and out of reset_to, the warmed-up car
+## every certified run drives. Set it to 0 for a cold morning
+## (tests/thermal_test.gd does). What the HUD's coolant bar shows.
+var coolant_temp := 1.0:
+	set(value):
+		coolant_temp = 1.0 if is_nan(value) else clampf(value, 0.0, COOLANT_MAX_TEMP)
+
+## True while the radiator fan runs (COOLANT_FAN_ON_C .. COOLANT_FAN_OFF_C).
+var coolant_fan_on := false
+
 ## Mass of what the car carries on top of itself and its fuel [kg]: packages,
 ## passengers, ballast. Payload is mass and nothing else: it rides at the
 ## centre of mass and is in total_mass() from the next tick on. Never negative,
@@ -2200,6 +2390,12 @@ var _crank_timer := 0.0
 ## been paid for (BATTERY_DEEP_DISCHARGE_WEAR), the next one is the next time
 ## it goes under. Not kept in the file: set from the charge that is loaded.
 var _battery_deep := false
+
+## The heat this tick's burn put into the coolant [W] (_run_engine_outputs,
+## for _advance_coolant), and where the cold idle's hunt is in its cycle
+## [rad], advanced only while the engine is cold (see IDLE_WOBBLE_HZ).
+var _combustion_heat_w := 0.0
+var _idle_wobble_phase := 0.0
 
 ## True while the car creeps (see CREEP_CLUTCH_ENGAGEMENT); on the way there,
 ## whether the brake has held the car at a standstill (what arms the creep) and
@@ -2402,6 +2598,8 @@ func _read_config() -> void:
 	fuel_mass = FUEL_TANK_CAPACITY_L * FUEL_DENSITY
 	battery_wear = 0.0
 	battery_charge = 1.0
+	coolant_temp = 1.0
+	coolant_fan_on = false
 	front_load_fraction = 1.0 - REAR_WEIGHT_FRACTION
 	rear_load_fraction = REAR_WEIGHT_FRACTION
 	driver_profile = DRIVER_PROFILES["test_driver"]
@@ -2464,6 +2662,24 @@ static func _apply_config(config: Dictionary) -> void:
 	BATTERY_DEEP_DISCHARGE_CHARGE = battery.get("deep_discharge_charge", BATTERY_DEEP_DISCHARGE_CHARGE)
 	BATTERY_DEEP_DISCHARGE_WEAR = battery.get("deep_discharge_wear", BATTERY_DEEP_DISCHARGE_WEAR)
 	BATTERY_FLAT_WEAR_RATE = battery.get("flat_wear_rate", BATTERY_FLAT_WEAR_RATE)
+
+	var thermal: Dictionary = config.get("thermal", {})
+	COOLANT_AMBIENT_C = thermal.get("ambient_c", COOLANT_AMBIENT_C)
+	COOLANT_OPERATING_C = thermal.get("operating_c", COOLANT_OPERATING_C)
+	THERMOSTAT_C = thermal.get("thermostat_c", THERMOSTAT_C)
+	COOLANT_WARM_C = thermal.get("warm_c", COOLANT_WARM_C)
+	COOLANT_FAN_ON_C = thermal.get("fan_on_c", COOLANT_FAN_ON_C)
+	COOLANT_FAN_OFF_C = thermal.get("fan_off_c", COOLANT_FAN_OFF_C)
+	COOLANT_MAX_C = thermal.get("max_c", COOLANT_MAX_C)
+	COOLANT_HEAT_CAPACITY = thermal.get("coolant_heat_capacity", COOLANT_HEAT_CAPACITY)
+	COOLANT_HEAT_SHARE = thermal.get("heat_share", COOLANT_HEAT_SHARE)
+	COOLANT_RADIATOR_COOLING = thermal.get("radiator_cooling", COOLANT_RADIATOR_COOLING)
+	COOLANT_FAN_AIRFLOW = thermal.get("fan_airflow", COOLANT_FAN_AIRFLOW)
+	OVERHEAT_FADE_START_C = thermal.get("overheat_fade_start_c", OVERHEAT_FADE_START_C)
+	OVERHEAT_FADE_RATE = thermal.get("overheat_fade_rate", OVERHEAT_FADE_RATE)
+	COOLANT_RICH_FACTOR = thermal.get("rich_factor", COOLANT_RICH_FACTOR)
+	IDLE_WOBBLE_RPM = thermal.get("idle_wobble_rpm", IDLE_WOBBLE_RPM)
+	IDLE_WOBBLE_HZ = thermal.get("idle_wobble_hz", IDLE_WOBBLE_HZ)
 
 	var gearbox: Dictionary = config.gearbox
 	GEAR_RATIOS = []
@@ -2552,6 +2768,8 @@ static func _apply_config(config: Dictionary) -> void:
 static func _derive_from_config() -> void:
 	BASE_MASS = KERB_MASS - FUEL_TANK_CAPACITY_L * FUEL_DENSITY
 	BATTERY_CAPACITY_J = BATTERY_CAPACITY_AH * 3600.0 * BATTERY_NOMINAL_VOLTAGE
+	COOLANT_SPAN_K = COOLANT_OPERATING_C - COOLANT_AMBIENT_C
+	COOLANT_MAX_TEMP = (COOLANT_MAX_C - COOLANT_AMBIENT_C) / COOLANT_SPAN_K
 	CG_OFFSET = (REAR_WEIGHT_FRACTION - 0.5) * 2.0 * AXLE_DISTANCE
 	BRAKE_DECEL = BRAKE_DECEL_G * TYRE_MU * 9.8
 	FRONT_CORNER_MASS = KERB_MASS * (1.0 - REAR_WEIGHT_FRACTION) * 0.5
@@ -2730,6 +2948,9 @@ func _physics_process(delta: float) -> void:
 	# After the drivetrain: the engine's speed and whether it runs are this
 	# tick's, and the starter's draw of this tick is in the charge already.
 	_advance_battery(delta)
+	# After the engine too: this tick's burn has put its heat in, and the
+	# radiator stands in the road speed the tick began with.
+	_advance_coolant(_combustion_heat_w, absf(forward_speed), delta)
 	if _handbrake_amount > 0.0:
 		# Held, the lever stops the rear wheels outright. Let go, what holds
 		# them is a brake torque like any other (HANDBRAKE_RELEASE_TORQUE, in
@@ -2928,6 +3149,10 @@ func reset_to(target: Transform3D) -> void:
 	battery_wear = 0.0
 	battery_charge = 1.0
 	_battery_deep = false
+	coolant_temp = 1.0
+	coolant_fan_on = false
+	_combustion_heat_w = 0.0
+	_idle_wobble_phase = 0.0
 	payload_mass = 0.0
 	exhaust_events = 0.0
 	exhaust_flow = 0.0
@@ -2966,6 +3191,84 @@ func cranking() -> bool:
 ## How full the tank is, 0 (dry) .. 1 (full). What the HUD's fuel bar shows.
 func fuel_fraction() -> float:
 	return clampf(fuel_l / FUEL_TANK_CAPACITY_L, 0.0, 1.0)
+
+
+## The coolant's temperature in degrees [C] (see coolant_temp).
+func coolant_c() -> float:
+	return coolant_c_of(coolant_temp)
+
+
+## `temp` on coolant_temp's scale in degrees [C], and back: 0 is
+## COOLANT_AMBIENT_C, 1 is COOLANT_OPERATING_C.
+static func coolant_c_of(temp: float) -> float:
+	return COOLANT_AMBIENT_C + temp * COOLANT_SPAN_K
+
+
+static func coolant_temp_of_c(c: float) -> float:
+	return (c - COOLANT_AMBIENT_C) / COOLANT_SPAN_K
+
+
+## How cold the engine is (0..1): 1 at COOLANT_AMBIENT_C, in a line to 0 at
+## COOLANT_WARM_C and exactly 0 from there up. What the cold enrichment and the
+## idle hunt go by.
+func coolant_cold_share() -> float:
+	var warm := coolant_temp_of_c(COOLANT_WARM_C)
+	if warm <= 0.0 or coolant_temp >= warm:
+		return 0.0
+	return clampf((warm - coolant_temp) / warm, 0.0, 1.0)
+
+
+## How much more fuel the engine burns than its work costs (1 or more):
+## COOLANT_RICH_FACTOR at COOLANT_AMBIENT_C, exactly 1 warm (see
+## coolant_cold_share). The extra is no torque: wasted, as a rich mixture is.
+func fuel_richness() -> float:
+	var cold := coolant_cold_share()
+	if cold <= 0.0:
+		return 1.0
+	return 1.0 + (COOLANT_RICH_FACTOR - 1.0) * cold
+
+
+## What is left of the torque curve (0..1): exactly 1 up to
+## OVERHEAT_FADE_START_C, less by OVERHEAT_FADE_RATE for every degree over it,
+## never under OVERHEAT_FADE_FLOOR.
+func overheat_fade() -> float:
+	var over := coolant_c() - OVERHEAT_FADE_START_C
+	if over <= 0.0:
+		return 1.0
+	return maxf(1.0 - OVERHEAT_FADE_RATE * over, OVERHEAT_FADE_FLOOR)
+
+
+## The idle controller's target [rpm]: exactly IDLE_RPM warm; cold, IDLE_RPM
+## wobbling by IDLE_WOBBLE_RPM times the cold share, a sine at IDLE_WOBBLE_HZ
+## (_idle_wobble_phase, advanced by _advance_coolant while the engine is cold).
+func idle_target_rpm() -> float:
+	var cold := coolant_cold_share()
+	if cold <= 0.0:
+		return IDLE_RPM
+	return IDLE_RPM + IDLE_WOBBLE_RPM * cold * sin(_idle_wobble_phase)
+
+
+## How far the thermostat is open (0..1) with the coolant at `temp`: shut up to
+## THERMOSTAT_C, in a line to fully open at COOLANT_OPERATING_C (1), open from
+## there up.
+static func thermostat_open(temp: float) -> float:
+	var start := coolant_temp_of_c(THERMOSTAT_C)
+	if temp <= start:
+		return 0.0
+	if temp >= 1.0 or start >= 1.0:
+		return 1.0
+	return (temp - start) / (1.0 - start)
+
+
+## What the radiator sheds [W] with the coolant at `temp` in `airflow` [m/s]
+## of ram air, the fan running or not: the thermostat's opening times
+## COOLANT_RADIATOR_COOLING times the airflow squared times how far the
+## coolant is over the air [K]. The airflow is the larger of the road's and,
+## with `fan_on`, COOLANT_FAN_AIRFLOW: nothing at a standstill with the fan
+## off, nothing at all under THERMOSTAT_C.
+static func coolant_cooling_w(temp: float, airflow: float, fan_on: bool) -> float:
+	var flow := maxf(absf(airflow), COOLANT_FAN_AIRFLOW if fan_on else 0.0)
+	return thermostat_open(temp) * COOLANT_RADIATOR_COOLING * flow * flow * temp * COOLANT_SPAN_K
 
 
 ## The share of its rated torque (CRANKING_TORQUE) the starter makes on the
@@ -3886,15 +4189,30 @@ static func _engine_friction(rpm: float) -> float:
 func _combustion_torque(rpm: float, throttle: float, load: float) -> float:
 	if not engine_running or limiter_cutting or fuel_l <= 0.0:
 		return 0.0
-	return (engine_torque(rpm) + _engine_friction(rpm)) * _engine_throttle(rpm, throttle, load)
+	# was engine_torque(rpm) -> the curve as the engine has it (_curve_torque):
+	# the same number to the bit under OVERHEAT_FADE_START_C.
+	return (_curve_torque(rpm) + _engine_friction(rpm)) * _engine_throttle(rpm, throttle, load)
+
+
+## The torque curve as the engine has it right now [Nm]: engine_torque at
+## `rpm`, exactly that up to OVERHEAT_FADE_START_C, faded over it
+## (overheat_fade).
+func _curve_torque(rpm: float) -> float:
+	var fade := overheat_fade()
+	if fade >= 1.0:
+		return engine_torque(rpm)
+	return engine_torque(rpm) * fade
 
 
 ## The throttle the engine really has (0..1) with the pedal at `throttle`: the
 ## driver's plus what the idle controller opens by itself.
 func _engine_throttle(rpm: float, throttle: float, load: float) -> float:
 	var friction := _engine_friction(rpm)
-	var idle_torque := friction + load + IDLE_CONTROL_GAIN * (IDLE_RPM - rpm) * TAU / 60.0
-	var idle_throttle := clampf(idle_torque / (engine_torque(rpm) + friction), 0.0, IDLE_CONTROL_MAX_THROTTLE)
+	# was IDLE_RPM and engine_torque(rpm) -> the target as the cold engine has it
+	# (idle_target_rpm: IDLE_RPM itself warm) and the curve as the hot one has
+	# it (_curve_torque: engine_torque itself under the fade): warm, to the bit.
+	var idle_torque := friction + load + IDLE_CONTROL_GAIN * (idle_target_rpm() - rpm) * TAU / 60.0
+	var idle_throttle := clampf(idle_torque / (_curve_torque(rpm) + friction), 0.0, IDLE_CONTROL_MAX_THROTTLE)
 	return minf(throttle + idle_throttle, 1.0)
 
 
@@ -3905,6 +4223,15 @@ func _engine_throttle(rpm: float, throttle: float, load: float) -> float:
 func _run_engine_outputs(throttle: float, load: float, delta: float) -> void:
 	var combustion := _combustion_torque(engine_rpm, throttle, load)
 	var burn := combustion * engine_omega / FUEL_BURN_EFFICIENCY / FUEL_LHV
+	# The heat of that burn that goes into the coolant, for _advance_coolant:
+	# the work's share, before the enrichment - the extra is unburnt.
+	_combustion_heat_w = combustion * engine_omega / FUEL_BURN_EFFICIENCY * COOLANT_HEAT_SHARE
+	# was the burn alone -> times the richness while the engine is cold: the
+	# extra is fuel, not torque (see COOLANT_RICH_FACTOR). Warm, the richness
+	# is exactly 1 and the burn is left as it was.
+	var richness := fuel_richness()
+	if richness > 1.0:
+		burn *= richness
 	fuel_l -= burn / FUEL_DENSITY * delta
 	var blowing := 0.0
 	if combustion > 0.0:
@@ -3972,6 +4299,28 @@ func _advance_battery(delta: float) -> void:
 		battery_wear += BATTERY_FLAT_WEAR_RATE * delta
 	else:
 		_battery_deep = false
+
+
+## One tick of the coolant: `heat_w` in from the burn (_combustion_heat_w), the
+## radiator's cooling out in `airflow` [m/s] of ram air (coolant_cooling_w),
+## the fan first - on from COOLANT_FAN_ON_C, off again under COOLANT_FAN_OFF_C
+## - and the difference over COOLANT_HEAT_CAPACITY on to coolant_temp (its
+## setter stops it at COOLANT_MAX_TEMP). While the engine is cold the idle
+## hunt's cycle runs (_idle_wobble_phase); warm it stands. On a warm engine,
+## every certified run, nothing here reaches the physics: the temperature
+## wanders between THERMOSTAT_C and the fan, over COOLANT_WARM_C and under
+## OVERHEAT_FADE_START_C, where the richness, the idle target and the fade are
+## exactly what they were without a temperature.
+func _advance_coolant(heat_w: float, airflow: float, delta: float) -> void:
+	if coolant_fan_on:
+		if coolant_c() < COOLANT_FAN_OFF_C:
+			coolant_fan_on = false
+	elif coolant_c() >= COOLANT_FAN_ON_C:
+		coolant_fan_on = true
+	var net_w := heat_w - coolant_cooling_w(coolant_temp, airflow, coolant_fan_on)
+	coolant_temp += net_w * delta / (COOLANT_HEAT_CAPACITY * COOLANT_SPAN_K)
+	if coolant_cold_share() > 0.0:
+		_idle_wobble_phase = fposmod(_idle_wobble_phase + IDLE_WOBBLE_HZ * TAU * delta, TAU)
 
 
 ## The rev limiter's fuel cut: on at REDLINE_RPM, off again under

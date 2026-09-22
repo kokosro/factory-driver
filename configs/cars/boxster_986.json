@@ -61,6 +61,24 @@
 		"deep_discharge_wear": 0.03,
 		"flat_wear_rate": 2.78e-6
 	},
+	"thermal": {
+		"ambient_c": 15.0,
+		"operating_c": 90.0,
+		"thermostat_c": 80.0,
+		"warm_c": 70.0,
+		"fan_on_c": 97.0,
+		"fan_off_c": 92.0,
+		"max_c": 130.0,
+		"coolant_heat_capacity": 100000.0,
+		"heat_share": 0.28,
+		"radiator_cooling": 1.5,
+		"fan_airflow": 8.0,
+		"overheat_fade_start_c": 110.0,
+		"overheat_fade_rate": 0.02,
+		"rich_factor": 1.3,
+		"idle_wobble_rpm": 50.0,
+		"idle_wobble_hz": 0.6
+	},
 	"gearbox": {
 		"ratios": [0.0, 3.82, 2.20, 1.52, 1.22, 0.97],
 		"final_drive": 3.89,

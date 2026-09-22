@@ -46,7 +46,7 @@ const REQUIRED_NUMBERS := {
 
 ## The numbers a car may leave out, and then gets car.gd's documented default
 ## for: finite where they are there. A section that holds nothing else ("idle",
-## "exhaust", "battery", "creep") may be left out whole.
+## "exhaust", "battery", "thermal", "creep") may be left out whole.
 const OPTIONAL_NUMBERS := {
 	"engine": ["stall_rpm", "cranking_torque", "starter_free_rpm", "starter_cycle_time", "engine_catch_rpm", "firings_per_revolution"],
 	"idle": ["control_gain", "control_max_throttle"],
@@ -55,6 +55,11 @@ const OPTIONAL_NUMBERS := {
 		"capacity_ah", "starter_power", "key_on_load", "running_load", "alternator_power", "alternator_cut_in_rpm",
 		"alternator_rated_rpm", "charge_efficiency", "taper_charge", "deep_discharge_charge", "deep_discharge_wear",
 		"flat_wear_rate",
+	],
+	"thermal": [
+		"ambient_c", "operating_c", "thermostat_c", "warm_c", "fan_on_c", "fan_off_c", "max_c", "coolant_heat_capacity",
+		"heat_share", "radiator_cooling", "fan_airflow", "overheat_fade_start_c", "overheat_fade_rate", "rich_factor",
+		"idle_wobble_rpm", "idle_wobble_hz",
 	],
 	"creep": ["clutch_engagement", "free_speed", "engage_speed", "dwell", "max_speed"],
 	"brakes": ["coast_decel"],

@@ -50,6 +50,15 @@ fallback default, given in brackets.
   the loads and powers watts, the rate per second; the 12 V that turn the amp hours
   into joules are the system's, not a car's. The battery's ~20 kg are inside
   `kerb_mass`, as they are in a kerb weight.
+- `thermal` *(optional, all of it)*: `ambient_c` [15], `operating_c` [90],
+  `thermostat_c` [80], `warm_c` [70], `fan_on_c` [97], `fan_off_c` [92], `max_c` [130],
+  `coolant_heat_capacity` [100000], `heat_share` [0.28], `radiator_cooling` [1.5],
+  `fan_airflow` [8], `overheat_fade_start_c` [110], `overheat_fade_rate` [0.02],
+  `rich_factor` [1.3], `idle_wobble_rpm` [50], `idle_wobble_hz` [0.6]. Degrees Celsius,
+  the capacity J/K, the cooling W per K per (m/s)^2 of airflow, the fan's airflow the
+  road speed it stands in for [m/s], the fade rate per degree over its start. A car
+  starts at `operating_c` whatever is here: the warm-up is what a cold start (set by
+  hand) climbs through.
 - `gearbox`: `ratios` (neutral's 0 first, then the forward gears, each above zero),
   `final_drive`, `reverse_ratio`, `drivetrain_efficiency`, `clutch_torque_max`,
   `clutch_engage_time`, `clutch_shift_engage_time`.
