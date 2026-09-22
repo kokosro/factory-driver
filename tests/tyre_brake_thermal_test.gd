@@ -57,8 +57,19 @@ const RUN_SETTLE_FRAMES := 20
 # 7.72 - the steering feel (the power assist, the rack's play, the bushings'
 # compliance; see ArcadeCar STEERING_ASSIST_FULL_SPEED): +0.17 %, +0.19 %,
 # -0.33 %, 0, +0.52 %, measured at 3781c8a with the three in.
+# was 28.82 / 15.95 / 18.07 / 8.72 / 7.72 -> 28.65 / 15.95 / 18.07 / 8.72 /
+# 7.72 - the caster return (ArcadeCar CASTER_RETURN_RATE_MAX; the user's
+# verdict, 15:24) and the drivers steering back actively instead of letting
+# the key go (HandlingTests "steer_deg"): the slalom -0.59 % (each swing is
+# unwound by the hands with the caster's rate on top, 15 ticks to centre
+# for 21, so the weave sits 0.1 m closer to the cones and the last cone
+# comes 0.17 s sooner: closest pass 2.5 m for 2.3, widest 3.4 for 3.88),
+# the other four the same to the hundredth (the 180's spin settles at
+# 182.2 degrees for 183.5, the 360 and the J-turn to the tenth). With the
+# old release idiom on the caster: slalom 1/14 gates, 180 spun to 160.9
+# degrees, 360 and J-turn missed the goal (see HandlingTests).
 const CERTIFIED_RUN_TIMES := {
-	"SLALOM_TEST": 28.82,
+	"SLALOM_TEST": 28.65,
 	"SPIN_180": 15.95,
 	"SPIN_360": 18.07,
 	"STOP_BOX": 8.72,
