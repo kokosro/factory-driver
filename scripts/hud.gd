@@ -364,7 +364,10 @@ func set_gate_hint(text: String) -> void:
 
 
 ## The licence card: one overlay for the licence book and the theory quiz's
-## question cards, `text` on a dark panel in the middle of the screen.
+## question cards, `text` on a dark panel in the middle of the screen. In
+## hud.tscn: was 20 px letters on a 480 px card (the book's lines wrapped to
+## 741 px, off the top and the bottom of a 720 px screen) -> 16 px letters
+## on a 600 px card, the book 491 px (the user's report, 2026-09-22 16:15).
 func show_licence_card(text: String) -> void:
 	_licence_card.text = text
 	_licence_card.visible = true
