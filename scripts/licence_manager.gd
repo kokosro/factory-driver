@@ -8,10 +8,11 @@ extends Node
 ## scripts/licence_exams.gd, run with the scripted driver switched off: the
 ## human's driving through the same checks. This node only picks an exam,
 ## moves it through idle -> running -> result shown -> idle, one element after
-## the other (any element failed fails the sitting at once: the rigor rule),
-## and hands the HUD its strings: the mission line for the live element, the
-## banner for PASSED / FAILED, the licence card for the book and for the
-## theory's question cards. It never presses or releases an input action
+## the other (any element failed ends the sitting at once: the rigor rule;
+## the elements passed before it are kept, see THE RECORD), and hands the
+## HUD its strings: the mission line for the live element, the banner for
+## PASSED / FAILED, the licence card for the book and for the theory's
+## question cards. It never presses or releases an input action
 ## (MissionManager's pattern; the theory's digit keys are read by the run).
 ##
 ## THE GATE (the keystone: the licence gives the clutch key and the aid
@@ -26,12 +27,27 @@ extends Node
 ##
 ## THE RECORD: per car, riding the car's entry in cars.json beside the
 ## odometer, the fuel, the dashboard, the battery and the wear
-## (OdometerStore, "licence": the level and the exams passed), behind the same
-## switch as the rest of the store: the running game keeps it, the headless
-## suite writes nothing. L1 is granted the moment the record holds every one
-## of its requirements: the L0 sitting, a PASSED on each of the five handling
-## tests (heard from the MissionManager's mission_finished: free training on
-## keys 1-5 is exactly what counts) and the skid pad test.
+## (OdometerStore, "licence": the level, the exams passed and the L0
+## elements passed), behind the same switch as the rest of the store: the
+## running game keeps it, the headless suite writes nothing. THE L0 SITTING
+## REMEMBERS: every element passed is put in the record the moment it is
+## (record_element, saved at once), so it survives a failed later element,
+## an abort and the process ending; the next sitting begins at the first
+## element not yet passed, in the sitting's order (a passed theory is never
+## retaken), and the seventh element passed grants L0 and records the sitting
+## itself (EXAM_L0). A complete record sits the whole exam again from the
+## theory as a PRACTICE RUN: nothing a practice run does changes the record
+## (a pass is recorded once and never removed). L1 is granted the moment the
+## record holds every one of its requirements: L0, a PASSED on each of the
+## five handling tests (heard from the MissionManager's mission_finished:
+## free training on keys 1-5 is exactly what counts) and the skid pad test.
+# was one sitting, all or nothing, a retake from the theory -> per element:
+# the user's verdict, 2026-09-22 14:56 + 15:02 ("it's annoying that if i
+# fail any of the L0 tests i need to get back to theory and not retry the
+# test i failed, it's like nothing remembers i took the tests"). The
+# all-or-nothing rule dated from L0 being two exams, theory and practice,
+# each with its own retake; fused into one sitting it dragged a passed
+# theory under every failed practice element.
 
 signal sitting_started(exam: String)
 signal sitting_finished(exam: String, passed: bool)
@@ -86,12 +102,22 @@ var last_result: Dictionary = {}
 ## Whether the last sitting that ended passed.
 var last_sitting_passed := false
 
-## The licence record: {"level": int, "passed": Array[String]} (the store's
-## shape, OdometerStore.LICENCE_DEFAULTS). Loaded once, saved on every change
-## where the store is on.
+## Whether the sitting on (or the last one) is a practice run: the L0 exam
+## sat again on a complete record. Nothing a practice run does changes the
+## record.
+var practice := false
+
+## The licence record: {"level": int, "passed": Array[String], "elements":
+## Array[String]} (the store's shape, OdometerStore.LICENCE_DEFAULTS: the
+## level held, the exams passed, the L0 sitting's elements passed). Loaded
+## once, saved on every change where the store is on.
 var licence: Dictionary = {}
 
 var _store_kept := false
+
+## The file the record rides in: the store's (OdometerStore.PATH); a test
+## hands one of its own, with _store_kept, to see a record survive a process.
+var _store_path := OdometerStore.PATH
 var _banner_left := 0.0
 var _hint_left := 0.0
 
@@ -109,13 +135,14 @@ func _ready() -> void:
 		hud.set_gate_hint("")
 
 
-## The record as the store has it for this car (see OdometerStore.load_licence);
-## a field in there that is none of its own is reported and read as its default.
-func _load_licence(path := OdometerStore.PATH) -> void:
-	var stored := OdometerStore.load_licence(ArcadeCar.CAR_ID, path)
+## The record as the store has it for this car in _store_path (see
+## OdometerStore.load_licence); a field in there that is none of its own is
+## reported and read as its default, one that is not there is its default.
+func _load_licence() -> void:
+	var stored := OdometerStore.load_licence(ArcadeCar.CAR_ID, _store_path)
 	for problem: String in stored.problems:
 		push_error(problem)
-	licence = {"level": stored.level, "passed": stored.passed}
+	licence = {"level": stored.level, "passed": stored.passed, "elements": stored.elements}
 
 
 func _physics_process(delta: float) -> void:
@@ -198,14 +225,27 @@ func has_passed(exam_name: String) -> bool:
 	return (licence.get("passed", []) as Array).has(exam_name)
 
 
+## Whether the L0 sitting's element `element_name` (LicenceExams.l0_sitting()
+## names) is in the record.
+func has_passed_element(element_name: String) -> bool:
+	return (licence.get("elements", []) as Array).has(element_name)
+
+
 # =============================================================================
 #  Run state
 # =============================================================================
 
-## Sits the L0 exam: the theory, then the six elements, all or nothing.
+## Sits the L0 exam from the first element the record does not hold yet
+## (the theory, then the six practical elements, in the sitting's order;
+## LicenceExams.l0_resume_index): a passed element is never sat again. With
+## every element in the record it is a practice run from the theory.
 ## Returns false while a sitting is on or a mission runs.
+# was every sitting from the theory, all or nothing -> resumed: the user's
+# verdict, 2026-09-22 14:56 + 15:02.
 func start_l0_sitting() -> bool:
-	return _start_exam(LicenceExams.EXAM_L0, LicenceExams.l0_sitting())
+	var elements_passed: Array = licence.get("elements", [])
+	var complete := LicenceExams.sitting_complete(elements_passed)
+	return _start_exam(LicenceExams.EXAM_L0, LicenceExams.l0_sitting(), LicenceExams.l0_resume_index(elements_passed), complete)
 
 
 ## Sits the skid pad test (one element).
@@ -213,7 +253,7 @@ func start_skid_pad_test() -> bool:
 	return _start_exam(LicenceExams.EXAM_SKID_PAD, [LicenceExams.skid_pad_test()])
 
 
-func _start_exam(exam_name: String, exam_elements: Array[Dictionary]) -> bool:
+func _start_exam(exam_name: String, exam_elements: Array[Dictionary], first := 0, as_practice := false) -> bool:
 	if state == State.RUNNING or (missions and missions.is_running()) or exam_elements.is_empty():
 		return false
 	if state == State.RESULT:
@@ -222,10 +262,11 @@ func _start_exam(exam_name: String, exam_elements: Array[Dictionary]) -> bool:
 		close_book()
 	exam = exam_name
 	elements = exam_elements
+	practice = as_practice
 	last_result = {}
 	last_sitting_passed = false
 	state = State.RUNNING
-	_start_element(0)
+	_start_element(first)
 	sitting_started.emit(exam)
 	return true
 
@@ -264,13 +305,17 @@ func is_running() -> bool:
 	return state == State.RUNNING
 
 
-## An element's run has ended: failed, the sitting is failed at once; passed,
-## the next element, or the sitting passed after the last.
+## An element's run has ended: failed, the sitting is failed at once (what
+## was passed before it stays passed); passed, it goes in the record there
+## and then (an L0 element, not on a practice run), and the next element
+## begins, or the sitting has passed after the last.
 func _element_done() -> void:
 	last_result = run.result()
 	if not last_result.passed:
 		_finish_sitting(false)
 		return
+	if exam == LicenceExams.EXAM_L0 and not practice:
+		record_element(str(last_result.name))
 	if element_index + 1 >= elements.size():
 		_finish_sitting(true)
 		return
@@ -281,7 +326,7 @@ func _finish_sitting(passed: bool) -> void:
 	last_sitting_passed = passed
 	state = State.RESULT
 	_banner_left = RESULT_BANNER_TIME
-	if passed:
+	if passed and not practice:
 		record_pass(exam)
 	if hud:
 		hud.hide_licence_card()
@@ -305,10 +350,27 @@ func record_pass(exam_name: String) -> void:
 	if not passed.has(exam_name):
 		passed.append(exam_name)
 	licence["passed"] = passed
+	_record_changed()
+
+
+## Puts the L0 element `element_name` in the record (once, never taken out
+## again), re-derives the level - the seventh is L0 - and saves where the
+## store is on.
+func record_element(element_name: String) -> void:
+	if element_name == "":
+		return
+	var elements_passed: Array = licence.get("elements", [])
+	if not elements_passed.has(element_name):
+		elements_passed.append(element_name)
+	licence["elements"] = elements_passed
+	_record_changed()
+
+
+func _record_changed() -> void:
 	var was := level()
-	licence["level"] = LicenceExams.level_for(passed)
+	licence["level"] = LicenceExams.level_for(licence.get("passed", []), licence.get("elements", []))
 	if _store_kept:
-		OdometerStore.save_licence(ArcadeCar.CAR_ID, licence)
+		OdometerStore.save_licence(ArcadeCar.CAR_ID, licence, _store_path)
 	if licence["level"] != was:
 		licence_changed.emit(licence["level"])
 	if book_open:
@@ -340,15 +402,22 @@ func _show_book() -> void:
 		hud.show_licence_card(book_text())
 
 
-## The book's text: the licence held, L0 and its seven elements, L1 and its
-## seven requirements with a tick each, the ranks, the gate and the keys.
+## The book's text: the licence held, L0 and its seven elements with a tick
+## each, L1 and its seven requirements with a tick each, the ranks, the gate
+## and the keys.
+# was "one sitting, all or nothing ... retake from the theory" -> the
+# elements kept and the sitting resumed: the user's verdict, 2026-09-22
+# 14:56 + 15:02.
 func book_text() -> String:
 	var lines := PackedStringArray()
 	lines.append("LICENCE BOOK                                                     held:  %s" % LicenceExams.licence_title(level()))
 	lines.append("")
-	lines.append("L0 CITIZEN  %s— one sitting, all or nothing: theory (%d questions), parallel park, bay park, hill start," % [_tick(LicenceExams.EXAM_L0), LicenceExams.quiz_questions().size()])
-	lines.append("     three-point turn, reversing course, emergency stop. Any element failed fails the sitting; retake from the theory.")
-	lines.append("     1   sit the L0 exam")
+	lines.append("L0 CITIZEN  %s— seven elements, each kept once passed: theory (%d questions), parallel park, bay park, hill start," % [_tick(LicenceExams.EXAM_L0), LicenceExams.quiz_questions().size()])
+	lines.append("     three-point turn, reversing course, emergency stop. An element failed ends the sitting; the next sitting resumes at it.")
+	var checklist := checklist(licence.get("elements", []))
+	lines.append("     %s" % "   ".join(checklist.slice(0, 4)))
+	lines.append("     %s" % "   ".join(checklist.slice(4)))
+	lines.append("     1   sit the L0 exam (from the first element not yet passed; all passed, a practice run from the theory)")
 	lines.append("")
 	var l1 := PackedStringArray()
 	for test in HandlingTests.all_tests():
@@ -364,7 +433,8 @@ func book_text() -> String:
 	lines.append("RANKS:  %s  — Porsche ownership is the North Star." % "  ->  ".join(ranks))
 	lines.append("")
 	lines.append("THE GATE:  unlicensed, the clutch key (Shift) and the aid switches (T, G, K) do nothing. L0 unlocks them for good;")
-	lines.append("     in a sitting the instructor's dual controls allow them. The hill start is sat in manual (the element selects it).")
+	lines.append("     in a sitting the instructor's dual controls allow them. The parks and the hill start are sat in manual (the element")
+	lines.append("     selects it); from the three-point turn on the instructor's car is automatic.")
 	lines.append("")
 	lines.append("Esc / R abort a sitting.      L  close")
 	return "\n".join(lines)
@@ -372,6 +442,21 @@ func book_text() -> String:
 
 func _tick(exam_name: String) -> String:
 	return "[PASSED]" if has_passed(exam_name) else "[ - ]"
+
+
+## The L0 sitting's checklist from `elements_passed` (a record's "elements"):
+## "Theory: PASSED" or "Theory: —", then each practical element's title with
+## a tick, [PASSED], or a dash, [ - ], in the sitting's order. Seven entries;
+## the book and the garage's LICENCE panel both show it.
+static func checklist(elements_passed: Array) -> PackedStringArray:
+	var entries := PackedStringArray()
+	for element in LicenceExams.l0_sitting():
+		var passed: bool = elements_passed.has(element.name)
+		if element.kind == LicenceExams.KIND_QUIZ:
+			entries.append("Theory: %s" % ("PASSED" if passed else "—"))
+		else:
+			entries.append("%s %s" % [element.title, "[PASSED]" if passed else "[ - ]"])
+	return entries
 
 
 # =============================================================================
