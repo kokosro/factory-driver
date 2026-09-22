@@ -46,7 +46,7 @@ const REQUIRED_NUMBERS := {
 
 ## The numbers a car may leave out, and then gets car.gd's documented default
 ## for: finite where they are there. A section that holds nothing else ("idle",
-## "exhaust", "battery", "thermal", "creep") may be left out whole.
+## "exhaust", "battery", "thermal", "creep", "wear") may be left out whole.
 const OPTIONAL_NUMBERS := {
 	"engine": ["stall_rpm", "cranking_torque", "starter_free_rpm", "starter_cycle_time", "engine_catch_rpm", "firings_per_revolution"],
 	"idle": ["control_gain", "control_max_throttle"],
@@ -66,6 +66,10 @@ const OPTIONAL_NUMBERS := {
 		"brake_heat_capacity", "brake_cooling_still", "brake_cooling_airflow",
 	],
 	"creep": ["clutch_engagement", "free_speed", "engage_speed", "dwell", "max_speed"],
+	"wear": [
+		"clutch_rate", "clutch_floor", "brake_rate", "brake_abuse", "brake_floor", "tyre_rate", "tyre_abuse",
+		"tyre_floor", "engine_rate", "engine_abuse", "engine_floor",
+	],
 	"brakes": ["coast_decel"],
 	"suspension": ["bump_stop_rate", "bump_stop_progression"],
 	"aero": ["air_density"],
@@ -130,6 +134,8 @@ static func validate(config: Variant, car_name: String) -> PackedStringArray:
 	if car.get("gearbox") is Dictionary:
 		_check_ratios(errors, car_name, car.gearbox.get("ratios"))
 	_check_drivers(errors, car_name, car.get("driver_profiles"), car.get("mode_drivers"))
+	if car.get("wear") is Dictionary:
+		_check_wear(errors, car_name, car.wear)
 	return errors
 
 
@@ -216,6 +222,28 @@ static func _check_mass_ledger(errors: PackedStringArray, car_name: String, ledg
 		errors.append("%s: mass_ledger puts %s of the weight on the rear axle, mass.rear_weight_fraction is %s" % [car_name, var_to_str(rear_fraction), var_to_str(mass.rear_weight_fraction)])
 	if unsprung <= 0.0 or unsprung >= total:
 		errors.append("%s: mass_ledger's unsprung rows weigh %s kg of %s, some but not all of the car has to be unsprung" % [car_name, unsprung, total])
+
+
+## The wear table (3L, see ArcadeCar "Wear and aging"), every key optional:
+## a rate ("*_rate", wear per joule or per radian) is never negative - wear is
+## for good, nothing un-wears; an abuse multiplier ("*_abuse", how many times
+## faster a component over its line wears) is 1 or more - abuse never wears
+## slower than use; a floor ("*_floor", what a worn-out component keeps of
+## itself) is over 0 and no more than 1 - nothing here breaks, and a floor of
+## 1 is a component that wears without effect. The numbers themselves are
+## finite by the section check above; this is what a finite number still
+## cannot be.
+static func _check_wear(errors: PackedStringArray, car_name: String, wear: Dictionary) -> void:
+	for key: String in wear:
+		var value: Variant = wear[key]
+		if not _is_number(value) or not key in OPTIONAL_NUMBERS["wear"]:
+			continue
+		if key.ends_with("_rate") and value < 0.0:
+			errors.append("%s: wear.%s is %s, a rate under zero (wear never comes back)" % [car_name, key, value])
+		elif key.ends_with("_abuse") and value < 1.0:
+			errors.append("%s: wear.%s is %s, an abuse multiplier under 1 (abuse never wears slower than use)" % [car_name, key, value])
+		elif key.ends_with("_floor") and (value <= 0.0 or value > 1.0):
+			errors.append("%s: wear.%s is %s, a floor outside 0 < floor <= 1 (nothing here breaks)" % [car_name, key, value])
 
 
 ## The torque curve: at least two [rpm, Nm] anchors of finite numbers, the rpm

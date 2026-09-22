@@ -142,6 +142,19 @@
 		"dwell": 0.4,
 		"max_speed": 0.8
 	},
+	"wear": {
+		"clutch_rate": 1.0e-8,
+		"clutch_floor": 0.7,
+		"brake_rate": 1.0e-9,
+		"brake_abuse": 3.0,
+		"brake_floor": 0.75,
+		"tyre_rate": 4.0e-10,
+		"tyre_abuse": 3.0,
+		"tyre_floor": 0.85,
+		"engine_rate": 1.0e-8,
+		"engine_abuse": 10.0,
+		"engine_floor": 0.85
+	},
 	"brakes": {
 		"bias_front": 0.6,
 		"decel_g": 1.0,

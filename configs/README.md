@@ -101,6 +101,19 @@ fallback default, given in brackets.
 - `launch`: `rpm`. *(optional)* `clutch_share` [0.5], `bite_band` [50].
 - `creep` *(optional, all of it)*: `clutch_engagement` [0.02], `free_speed` [0.9],
   `engage_speed` [0.05], `dwell` [0.4], `max_speed` [0.8].
+- `wear` *(optional, all of it)*: `clutch_rate` [1e-8], `clutch_floor` [0.7],
+  `brake_rate` [1e-9], `brake_abuse` [3], `brake_floor` [0.75], `tyre_rate` [4e-10],
+  `tyre_abuse` [3], `tyre_floor` [0.85], `engine_rate` [1e-8], `engine_abuse` [10],
+  `engine_floor` [0.85]. A rate is wear (a share of the component's life, 0..1) per
+  joule of the clutch's slip energy, the disc's work or the tyre's heat, and per
+  radian the engine turns under load; never negative (wear never comes back). An
+  abuse multiplier is how many times faster the component wears per joule or radian
+  while it is over its line (the disc over the brake fade line, the tyre over its
+  window, the coolant over the overheat line); 1 or more. A floor is what a worn-out
+  component keeps of itself - the clutch of its capacity, a brake of its torque, a
+  tyre of its grip, the engine of its torque curve; over 0 (nothing here breaks) and
+  no more than 1 (a floor of 1 is a component that wears without effect). See "The
+  wear table" below for the 986's numbers and their reasoning.
 - `brakes`: `bias_front`, `decel_g`. *(optional)* `coast_decel` [0.15].
 - `tyres`: `mu`, `front_grip`, `rear_grip`, `peak_slip_ratio`, `abs_slip_ratio`,
   `drive_slip_ratio`, `front_peak_slip_angle`, `rear_peak_slip_angle`, `slide_grip`,
@@ -184,6 +197,34 @@ digit. Nudge the last decimal of that `x` (a step of 1e-15 or so) until the faul
 away: with a 600 kg row a few adjacent doubles land on the certified bits, and only
 those. That is calibration, not a fudge: the one figure solved for is the one the
 estimates know least.
+
+## The wear table
+
+The 986's numbers (3L, `car.gd`'s "Wear and aging"). JSON has no comments: this is
+where each rate's provenance is written. Every one is a CHOICE, not a measurement: the
+rates are set gentle on purpose (the user's car is a test instrument, and a session on
+the pad has to wear it measurably in the ledger, not visibly at the wheel), the per-event
+costs beside them are MEASURED by `tests/wear_test.gd` on the certified car, and the
+lives they add up to are held against what real parts last.
+
+| Key | Value | Unit | Reasoning |
+|---|---|---|---|
+| `clutch_rate` | 1e-8 | 1/J | 1 % per MJ of slip energy. 8 s flat out from rest (the launch and two upshifts) slips ~68 kJ: ~15 of them per percent, ~1500 to worn out. A donut under the automatic's hunting slips ~25 kW: that is abuse, and costs ~1 % a minute. |
+| `clutch_floor` | 0.7 | share | A worn-out clutch still passes 350 Nm, over what the engine makes; what goes is the margin - it slips longer on a launch and through a shift (6 ticks more over 8 s, measured). |
+| `brake_rate` | 1e-9 | 1/J | 1 % per 10 MJ of disc work. A full stop from 90 km/h is ~390 kJ, ~174 kJ on the front discs and ~216 kJ on the rears (the ABS holds the fronts at the tyres' limit; the driven axle's discs slow the engine too): ~45 such stops per percent of the rears, ~5000 to worn out - a set of racing pads' life on a circuit, far longer on the road. |
+| `brake_abuse` | 3 | x | A disc over the fade line wears three times as fast per joule: a string of hard stops without letting them cool. |
+| `brake_floor` | 0.75 | share | Pads down to the backing plate still stop the car: 15 % further from 90 km/h (measured), on top of whatever the fade takes. |
+| `tyre_rate` | 4e-10 | 1/J | 1 % per 25 MJ of tyre heat. Rolling at 72 km/h puts ~200 kJ/km into the four (`COAST_DECEL`'s work), a hard lap's sliding as much again: ~60 km of hard driving or ~130 km of cruising per percent; a 25 s donut puts ~480 kJ into the rears, ~35 of them per percent; ~13 000 km of cruising to worn out - a sports tyre's life, short. |
+| `tyre_abuse` | 3 | x | A tyre over its window wears three times as fast per joule: greasy rubber tears. The donut's last seconds pay it. |
+| `tyre_floor` | 0.85 | share | A bald tyre grips in the dry; what it has lost is the margin: 0.74 g worn out in the corner new tyres hold 0.88 g in (measured). |
+| `engine_rate` | 1e-8 | 1/rad | 1 % per Mrad turned under full load. 8 s flat out from rest costs ~33 ppm (the load weight counts the launch's and the shifts' revolutions for less); flat out at 6000 rpm ~27 min or ~50 km per percent; ~45 h or ~5000 km flat out to worn out, a race engine's rebuild interval; a road engine's mixed life is many times longer, an idle or a cruise counting for a small share of a turn. |
+| `engine_abuse` | 10 | x | Over the overheat line every revolution counts in full, loaded or not, and ten times over: an overheated engine driven on costs 1 % in ~3 min flat out, ~18 min idling. Neglect. |
+| `engine_floor` | 0.85 | share | Rings and bores gone, compression down; it runs: 97 km/h after the same 8 s flat out where the new engine reaches 106 (measured). |
+
+Not a car's number, and not in the table: `WEAR_EFFECT_STEP` (0.01), the resolution
+the multipliers read the wear at - exactly 1 under a hundredth, one step per percent
+from there - which is what keeps a certified run, wearing well under a hundredth of
+anything, the physics it always was; and `WEAR_LIMIT` (1), where every share stops.
 
 ## Adding a car
 
