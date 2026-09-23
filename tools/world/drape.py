@@ -66,15 +66,22 @@ as the Conductor adjudicated it, its numbers verified here):
     segment with fewer than MIN_SMOOTH_STATIONS uniform stations (under
     20 m: no 20 m window fits, no label, no protection, all edge).
   * LAMBDA = 5 - chosen for the smoothing; the lambda range rescaled for
-    2 m stations (h^4 scaling), Conductor-approved 2026-09-23; was the
-    recipe's per-1 m-sample 1e2..1e5. The Whittaker cutoff wavelength
-    scales as L_cut ≈ 2 pi h lambda^(1/4) for a sample spacing h, so an
-    equal cutoff needs lambda ∝ h^4: the recipe's 1e2..1e5 at ~1 m samples
-    is L_cut ≈ 12.6-126 m, and at the drape's 2 m stations the same
-    numbers give L_cut ≈ 39-126 m, attenuating the very 20-40 m crests the
-    gates require to survive - a rule that fails its own gates is
-    mis-scaled, not sacred. lambda 5 at 2 m gives L_cut ≈ 19 m, H ≈ 1/21
-    at 8 m, ~58 % of a raw 20 m wave kept, the protection carrying the
+    2 m stations, Conductor-approved 2026-09-23; was the recipe's
+    per-1 m-sample 1e2..1e5. The Whittaker cutoff wavelength scales as
+    L_cut ≈ 2 pi h lambda^(1/4) for a sample spacing h, so an equal cutoff
+    needs lambda ∝ h^-4 (was recorded here and in the ruling as "lambda ∝
+    h^4 ... 1e2..1e5 at 1 m is L_cut 12.6-126 m, at 2 m 39-126 m" -> the
+    codex review found the proportionality inverted and the numbers
+    wrong; corrected: at 1 m the recipe's 1e2..1e5 gives L_cut ≈
+    19.9-111.7 m, at 2 m the same lambdas give 39.7-223.5 m, and the same
+    cutoff at 2 m needs a lambda 16 x SMALLER than at 1 m). So the
+    recipe's range, read at the drape's 2 m stations, attenuates the very
+    20-40 m crests the gates require to survive - a rule that fails its
+    own gates is mis-scaled, not sacred - and lambda 5 at 2 m (L_cut ≈
+    18.8 m) corresponds to lambda ≈ 80 at 1 m, just under the recipe's
+    1e2 floor: its intent's lower edge. The decision stands; only the
+    scaling argument's direction and numbers are corrected. H ≈ 1/21 at
+    8 m, ~58 % of a raw 20 m wave kept, the protection carrying the
     labelled crests. Measured on 2 m stations the transfer
     H(L) = 1 / (1 + LAMBDA (2 - 2 cos(4 pi / L))^2) of a wavelength L is,
     at 1e2, 0.51 at 40 m and 0.06 at 20 m - the label rule's own windows
@@ -120,7 +127,7 @@ as the Conductor adjudicated it, its numbers verified here):
     2 465 dips -> 1 927 / 1 874 (1 133 of the labels gone were under
     0.006, the threshold's edge; 103 appear where a run split or its
     steepest station moved, none on the loop). 2 623 of the 3 314 covered
-    segments are smoothed: 33 bridges, 10 tunnels and 647 plain segments
+    segments are smoothed: 33 bridges, 10 tunnels and 648 plain segments
     under 20 m are left as sampled.
   * The banded solve: the matrix W + LAMBDA D'D is pentadiagonal and
     positive definite; whittaker() factors it by a banded Cholesky in
@@ -138,14 +145,32 @@ as the Conductor adjudicated it, its numbers verified here):
     by smoothstep(1 - d / radius) times (node height - its own end
     height): the grade is kept, the gap closed; the radius shrinks to half
     the segment's length under 2 x BLEND_RADIUS_M so both ends land.
-    Crossfall: the same priority over every non-bank participant's end
-    point (the Karussell's bank neither votes nor moves), the winners'
-    mean written to each end point - issue-0005's stair was this: the two
-    loop segments met at one centre height with -0.8 % and +4.0 % of
+    Crossfall, as a tilt in WORLD space (the codex review's F1: a
+    crossfall is "rise to the right of travel" and right is each
+    segment's own frame - the same signed value on two segments leaving a
+    node in opposite directions is two opposite tilts, an 18.2 cm one-side
+    stair at node 3183494700 between the primaries 312490275-0 and
+    82512875-0 before this): each non-bank participant's end crossfall
+    times its end chord's right normal; a rigid participant holds its own
+    tilt (rigid_pick: class rank, the loop, the segment id, the start
+    before the end; the codex review's F4 - lower-class voters had moved
+    440567173-0's 0.06 to 0.0055 at node 1301831393), else the winners'
+    mean of the plain participants' tilt vectors; each plain non-bank
+    participant's end point is written the target's component along its
+    own right normal, the rigid ones never moved, the Karussell's bank
+    neither voting nor moving. Issue-0005's stair was this: the two loop
+    segments met at one centre height with -0.8 % and +4.0 % of
     crossfall, 20 cm apart at the paved edge; T13's pit lane met the loop
     at -4 % against +4 %, 34 cm. The file's centre heights already agreed
-    at every junction (the same DEM sample), so the height stitch only
-    closes what the smoother's free ends open (centimetres).
+    at every junction (the same DEM sample), so on the loop the height
+    stitch closes only what the smoother's free ends open - the loop's
+    184 segment ends move by at most 2 cm, T13's four-way node's two by
+    8 cm - while on a side road ending at a structure's cut the offset is
+    the DEM's wall the smoother turned into a ramp (159029005-1's end:
+    3.08 m, the largest); "the grade kept" holds at the end station
+    (smoothstep's derivative is zero there) and the offset's own grade
+    spreads over the blend, up to 1.5 x offset / radius at its middle
+    (58 % per metre on that worst case; the codex review's F5).
   * Write-side only: scripts/world_road_profile.gd and road_builder.gd are
     untouched, the file's schema and `rules` the same (the reader refuses
     other rules and another pipeline_version, so PIPELINE_VERSION stays 1
@@ -757,16 +782,51 @@ def mean_of(values):
     return sum(values) / len(values)
 
 
+def end_right_normal(points, end):
+    """The unit vector to the right of travel at a segment's end in world
+    space (x-east / z-south: right = (-tz, tx)), from the end's chord - the
+    first non-degenerate chord walking inward when duplicate points make
+    the end chord zero. None when every chord is zero."""
+    n = len(points)
+    if end == 0:
+        pairs = ((points[i], points[i + 1]) for i in range(n - 1))
+    else:
+        pairs = ((points[i - 1], points[i]) for i in range(n - 1, 0, -1))
+    for p, q in pairs:
+        dx = q[0] - p[0]
+        dz = q[1] - p[1]
+        length = math.sqrt(dx * dx + dz * dz)
+        if length > 0.0:
+            return (-dz / length, dx / length)
+    return None
+
+
+def rigid_pick(candidates, loop_ids):
+    """The rigid participant that holds a node's crossfall (F4 of the codex
+    review): the best class rank, the loop's among those, then the segment
+    id, then the start before the end - one deterministic pick."""
+    return sorted(candidates, key=lambda c: (class_rank(c[0]), 0 if c[0]["id"] in loop_ids else 1, c[0]["id"], 0 if c[2] == 0 else 1))[0]
+
+
 def stitch_junctions(skeleton, raw_records, stats=None):
     """The junction rule (the header) on the raw records of drape_raw():
     at every junction, the participating records' ends on the node - a
-    record whose first or last point is the node - are stitched: the height
-    (a rigid participant - a bridge, a tunnel, a partly covered segment -
-    holds the node with its raw sample, else the winners' mean; every
-    covered plain participant blended over BLEND_RADIUS_M) and the
-    crossfall (the winners' mean written to every non-bank participant's
-    end point). Blend zones never overlap (the radius is at most half the
-    segment's length), so the junctions' order does not matter."""
+    record whose first or last point is the node - are stitched. The
+    height: a rigid participant - a bridge, a tunnel, a partly covered
+    segment - holds the node with its raw sample, else the winners' mean;
+    every covered plain participant blended over BLEND_RADIUS_M (a record
+    of zero length is written nothing: it has no radius). The crossfall,
+    as a tilt in WORLD space (the codex review's F1: a crossfall is "rise
+    to the right of travel", and right is each segment's own frame - the
+    same signed value on two segments leaving a node in opposite
+    directions is two opposite tilts): each non-bank participant's end
+    crossfall times its end chord's right normal; a rigid participant
+    holds (rigid_pick's one), else the winners' mean of the plain
+    participants' tilt vectors; each plain non-bank participant's end
+    point is written the target's component along its own right normal,
+    the rigid ones never moved. Blend zones never overlap (the radius is
+    at most half the segment's length), so the junctions' order does not
+    matter."""
     by_id = {record["id"]: record for record in raw_records}
     segments = {segment["id"]: segment for segment in skeleton["segments"]}
     loop_ids = set()
@@ -775,6 +835,7 @@ def stitch_junctions(skeleton, raw_records, stats=None):
     nodes = 0
     ends_blended = 0
     crossfall_nodes = 0
+    crossfall_rigid_nodes = 0
     largest = 0.0
     largest_where = ""
     largest_e = 0.0
@@ -806,29 +867,51 @@ def stitch_junctions(skeleton, raw_records, stats=None):
                 offset = target - record["raw"][end]
                 if offset == 0.0:
                     continue
+                length = record["stations"][-1]
+                radius = min(BLEND_RADIUS_M, length / 2.0)
+                if radius <= 0.0:
+                    # A zero-length record (duplicate points): no radius
+                    # to blend over, nothing written (the codex review's F2).
+                    continue
                 ends_blended += 1
                 if abs(offset) > largest:
                     largest = abs(offset)
                     largest_where = "%s %s" % (segment["id"], "start" if end == 0 else "end")
-                length = record["stations"][-1]
-                radius = min(BLEND_RADIUS_M, length / 2.0)
                 for k, s in enumerate(record["stations"]):
                     d = s if end == 0 else length - s
                     if d <= radius:
                         record["raw"][k] += smoothstep(1.0 - d / radius) * offset
-        # The crossfall.
-        banked = [(segment, record, end) for segment, record, end in ends if segment["osm_way"] != KARUSSELL_WAY]
-        if len(banked) >= 2:
-            target_e = mean_of([value for _segment, value in winners_of([(segment, record["crossfall"][end]) for segment, record, end in banked], loop_ids)])
+        # The crossfall, as a world-space tilt.
+        tilted = []  # (segment, record, end, right normal, tilt vector)
+        for segment, record, end in ends:
+            if segment["osm_way"] == KARUSSELL_WAY:
+                continue
+            right = end_right_normal(segment["points"], end)
+            if right is None:
+                continue
+            e = record["crossfall"][end]
+            tilted.append((segment, record, end, right, (e * right[0], e * right[1])))
+        if len(tilted) >= 2:
+            rigid_tilts = [t for t in tilted if t[1]["rigid"] or not t[1]["covered"]]
+            plain_tilts = [t for t in tilted if t[1]["covered"] and not t[1]["rigid"]]
+            if not plain_tilts:
+                continue
+            if rigid_tilts:
+                target_vector = rigid_pick([(t[0], t[4], t[2]) for t in rigid_tilts], loop_ids)[1]
+                crossfall_rigid_nodes += 1
+            else:
+                winners = winners_of([(t[0], t[4]) for t in plain_tilts], loop_ids)
+                target_vector = (mean_of([v[0] for _s, v in winners]), mean_of([v[1] for _s, v in winners]))
             crossfall_nodes += 1
-            for segment, record, end in banked:
+            for segment, record, end, right, _tilt in plain_tilts:
+                target_e = target_vector[0] * right[0] + target_vector[1] * right[1]
                 gap = abs(record["crossfall"][end] - target_e)
                 if gap > largest_e:
                     largest_e = gap
                     largest_e_where = "%s %s" % (segment["id"], "start" if end == 0 else "end")
                 record["crossfall"][end] = target_e
     if stats is not None:
-        stats.update({"junction_nodes": nodes, "ends_blended": ends_blended, "largest_end_offset_m": largest, "largest_end_offset_where": largest_where, "crossfall_nodes": crossfall_nodes, "largest_crossfall_gap": largest_e, "largest_crossfall_gap_where": largest_e_where})
+        stats.update({"junction_nodes": nodes, "ends_blended": ends_blended, "largest_end_offset_m": largest, "largest_end_offset_where": largest_where, "crossfall_nodes": crossfall_nodes, "crossfall_rigid_nodes": crossfall_rigid_nodes, "largest_crossfall_gap": largest_e, "largest_crossfall_gap_where": largest_e_where})
 
 
 def drape_raw(segment, sample, stats=None):
@@ -1035,7 +1118,7 @@ def report(skeleton, drape, mosaic, stats=None):
     print("lattice %d × %d at %.0f m = %d heights" % (drape["lattice"]["cols"], drape["lattice"]["rows"], drape["lattice"]["step_m"], len(drape["lattice"]["heights"])))
     if stats:
         print("smoothing: lambda %g, %d plain covered segments smoothed, %d stations held to the raw heights in %d crest/dip runs (pin weight %g, flank %d)" % (LAMBDA, stats.get("smoothed", 0), stats.get("pinned", 0), stats.get("runs", 0), PIN_WEIGHT, PIN_FLANK))
-        print("junctions: %d nodes' heights stitched, %d ends blended over %.0f m (the largest end offset %.3f m at %s); the crossfall stitched at %d nodes (the largest gap closed %.4f at %s)" % (stats.get("junction_nodes", 0), stats.get("ends_blended", 0), BLEND_RADIUS_M, stats.get("largest_end_offset_m", 0.0), stats.get("largest_end_offset_where", "-"), stats.get("crossfall_nodes", 0), stats.get("largest_crossfall_gap", 0.0), stats.get("largest_crossfall_gap_where", "-")))
+        print("junctions: %d nodes' heights stitched, %d ends blended over %.0f m (the largest end offset %.3f m at %s); the crossfall stitched as a world-space tilt at %d nodes, %d of them held by a rigid participant (the largest change written %.4f at %s)" % (stats.get("junction_nodes", 0), stats.get("ends_blended", 0), BLEND_RADIUS_M, stats.get("largest_end_offset_m", 0.0), stats.get("largest_end_offset_where", "-"), stats.get("crossfall_nodes", 0), stats.get("crossfall_rigid_nodes", 0), stats.get("largest_crossfall_gap", 0.0), stats.get("largest_crossfall_gap_where", "-")))
 
 
 def section(skeleton, mosaic, way, offsets=range(-8, 9), every=5.0):
@@ -1181,7 +1264,7 @@ NOISE_CREST_HALF_M = 15.0  # [m]
 NOISE_ROAD_M = 800.0  # [m] the road's length, the crest at its middle
 NOISE_ROAD_Z0 = -100.0  # [m] the road starts here (inside the box) and runs south
 NOISE_BAND_CLEAR_M = 40.0  # [m] the band starts this far from the crest
-NOISE_HEIGHT_SHRINK_MIN = 2.0  # the height residual's peak-to-peak shrinks at least this much (measured 2.3 x at LAMBDA 5; the brief asked 3 x, which this white noise reaches only from lambda 60 up, where the 40 m wavelength is cut under 0.85 - the table in the ok line)
+NOISE_HEIGHT_SHRINK_MIN = 2.0  # the height residual's peak-to-peak shrinks at least this much (measured 2.3 x at LAMBDA 5 on the finished, centimetre-rounded record, 2.4 x on the unrounded fit; the brief asked 3 x, which this white noise first reaches at lambda 30, where the 40 m wavelength is cut to 0.78 - the table in the ok line)
 NOISE_KINK_SHRINK_MIN = 3.0  # the station-to-station grade change's peak-to-peak shrinks at least this much
 NOISE_LAMBDAS = (LAMBDA, 10.0, 30.0, 60.0, 100.0)
 
@@ -1232,7 +1315,7 @@ def selftest_smoothing(ok, plane):
     out_p2p = p2p(out_residual)
     raw_kink = p2p(grade_changes(raw))
     out_kink = p2p(grade_changes(record["dense"]))
-    ok(out_p2p > 0.0 and raw_p2p / out_p2p >= NOISE_HEIGHT_SHRINK_MIN, "noisy fixture: ±%.2f m of seeded noise per cell (seed %d) on a plane; over the %d stations of the flat band the height residual's peak-to-peak goes %.3f -> %.3f m (%.1f x; at least %.0f x asked: the brief's 3 x needs lambda >= 60, below), its rms %.4f -> %.4f m" % (NOISE_M, NOISE_SEED, len(band), raw_p2p, out_p2p, raw_p2p / out_p2p if out_p2p > 0.0 else float("inf"), NOISE_HEIGHT_SHRINK_MIN, rms(raw_residual), rms(out_residual)))
+    ok(out_p2p > 0.0 and raw_p2p / out_p2p >= NOISE_HEIGHT_SHRINK_MIN, "noisy fixture: ±%.2f m of seeded noise per cell (seed %d) on a plane; over the %d stations of the flat band the height residual's peak-to-peak goes %.3f -> %.3f m (%.1f x; at least %.0f x asked: the lambda the brief's 3 x needs is in the table below), its rms %.4f -> %.4f m" % (NOISE_M, NOISE_SEED, len(band), raw_p2p, out_p2p, raw_p2p / out_p2p if out_p2p > 0.0 else float("inf"), NOISE_HEIGHT_SHRINK_MIN, rms(raw_residual), rms(out_residual)))
     ok(out_kink > 0.0 and raw_kink / out_kink >= NOISE_KINK_SHRINK_MIN, "noisy fixture: the station-to-station grade change (the 2 m second difference, the pointiness) on the flat band goes %.4f -> %.4f /m peak-to-peak (%.1f x, at least %.0f x asked): %.1f %% -> %.1f %% of grade change over one station" % (raw_kink, out_kink, raw_kink / out_kink if out_kink > 0.0 else float("inf"), NOISE_KINK_SHRINK_MIN, 100.0 * STATION_STEP_M * raw_kink, 100.0 * STATION_STEP_M * out_kink))
     # The trade-off, measured on this fixture: the lambda a 3 x height
     # shrink needs, and what that lambda does to the 40 m wavelength the
@@ -1374,6 +1457,35 @@ def selftest_junctions(ok):
     stats = {}
     stitch_junctions(skeleton, [rn, ro, rq], stats)
     ok(rn["crossfall"] == [0.0, 0.02] and ro["crossfall"][0] == 0.02 and ro["crossfall"][1] == 0.04 and rq["crossfall"] == bank_before and stats["crossfall_nodes"] == 1 and abs(stats["largest_crossfall_gap"] - 0.02) < 1e-12, "junction rule: a crowned straight (0) meeting a left-hander's end (+0.04) at a node: both end points take the mean 0.02, the bend's next point keeps 0.04; the Karussell's way at the same node neither votes nor moves")
+    # F1 (the codex review): two primaries both STARTING at the node in
+    # opposite directions - the same signed crossfall would be opposite
+    # tilts; the world-space stitch writes opposite signs for one tilt.
+    r = segment("15-0", "primary", [[100.0, 0.0], [200.0, 0.0], [200.0, -100.0]])
+    t = segment("16-0", "primary", [[100.0, 0.0], [0.0, 0.0]])
+    rr = raw_record(r, [70.0] * 101)
+    rt = raw_record(t, [70.0] * 51)
+    skeleton = {"segments": [r, t], "junctions": [{"id": "8", "x": 100.0, "z": 0.0, "segments": ["15-0", "16-0"]}], "loops": []}
+    stitch_junctions(skeleton, [rr, rt])
+    ok(abs(rr["crossfall"][0] - 0.02) < 1e-12 and abs(rt["crossfall"][0] + 0.02) < 1e-12 and end_right_normal(r["points"], 0) == (0.0, 1.0) and end_right_normal(t["points"], 0) == (0.0, -1.0), "junction rule (F1): two primaries leaving a node in opposite directions, a left-hander east (+0.04, rising to +z) and a straight west (0): the world tilt's mean rises 0.02 to +z, written %+.4f to the eastbound and %+.4f to the westbound (their right normals %s and %s) - one tilt, the platform's world-side edges level; the same signed value would have been two opposite tilts" % (rr["crossfall"][0], rt["crossfall"][0], end_right_normal(r["points"], 0), end_right_normal(t["points"], 0)))
+    # F4: a rigid participant holds its end tilt; the plain ones take it.
+    u = segment("17-0", "track", [[0.0, 0.0], [100.0, 0.0]])
+    v = segment("18-0", "primary", [[100.0, 0.0], [200.0, 0.0], [200.0, -100.0]], bridge="yes", layer="1")
+    ru = raw_record(u, [80.0] * 51)
+    rv = raw_record(v, [80.0] * 101, rigid=True)
+    bridge_before = list(rv["crossfall"])
+    skeleton = {"segments": [u, v], "junctions": [{"id": "9", "x": 100.0, "z": 0.0, "segments": ["17-0", "18-0"]}], "loops": []}
+    stats = {}
+    stitch_junctions(skeleton, [ru, rv], stats)
+    ok(rv["crossfall"] == bridge_before and abs(ru["crossfall"][-1] - 0.04) < 1e-12 and stats["crossfall_rigid_nodes"] == 1, "junction rule (F4): a bridge (rigid) ending a node with +0.04 keeps it and the track meeting it takes +0.04 (was the mean of the two, the bridge moved by a track)")
+    # F2: a zero-length participant is written nothing and does not crash.
+    w = segment("19-0", "track", [[100.0, 0.0], [100.0, 0.0]])
+    x_ = segment("20-0", "primary", [[100.0, 0.0], [200.0, 0.0]])
+    rw = raw_record(w, [90.5])
+    rx = raw_record(x_, [90.0] * 51)
+    skeleton = {"segments": [w, x_], "junctions": [{"id": "10", "x": 100.0, "z": 0.0, "segments": ["19-0", "20-0"]}], "loops": []}
+    stats = {}
+    stitch_junctions(skeleton, [rw, rx], stats)
+    ok(rw["raw"] == [90.5] and rx["raw"] == [90.0] * 51 and stats["ends_blended"] == 0 and stats["crossfall_nodes"] == 0 and rx["crossfall"] == [0.0, 0.0], "junction rule (F2): a zero-length track (two identical points) at a node is written nothing - no radius, no division - and the primary beside it holds; the track has no frame, so no crossfall is stitched there either")
     # The rule is pure: the same records twice give the same numbers.
     r1 = [raw_record(a, [10.0] * 51), raw_record(b, [10.3 - 0.01 * k for k in range(31)])]
     r2 = copy.deepcopy(r1)

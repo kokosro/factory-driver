@@ -58,7 +58,7 @@ const RING_SCENE := "res://scenes/eifel_ring.tscn"
 ## Whittaker-smoothed at lambda 5 with the crest/dip runs held to the raw
 ## data, every junction's ends stitched in height and crossfall;
 ## tools/world/drape.py's header, docs/design/4b/data-pipeline.md §5).
-const DRAPE_SHA256 := "fa2dfb58bdd51d1b6b42be1ab3da5fe3ea472c2526d75182ec846269b295fbe0"
+const DRAPE_SHA256 := "f3ca142bcc1a3a36ec559889f4d4261a36ee583c4fd52381f64fa09aae64354a"
 
 ## The drape's covered segments (tests/world_profile_test.gd's count) and
 ## the loop's (tests/skeleton_test.gd's): every one swept but the ten
@@ -82,7 +82,9 @@ const SETTLE_FRAMES := 20
 ## the twist bound splits a ramp of 8 % into ~85 sections whatever its
 ## length, so the quads at the loop's own seams - counted here as
 ## "another road", the next loop segment - went 925 -> 1 593 of 22 721,
-## 7.0 %: a mesh-density count, the field the same single-valued one).
+## 7.0 % (1 602 of 22 849 after the codex review's world-space re-tilt of
+## the crossfall stitch): a mesh-density count, the field the same
+## single-valued one).
 const OTHER_ROAD_QUADS_SHARE_MAX := 0.10
 
 ## The driver's issue-0002 ("there is something that appears as a big
@@ -94,6 +96,9 @@ const ISSUE_0002_UNDER := "828126276-0"
 ## Beyond the paved edge and the 6 m blend band the field is the terrain
 ## lattice: under a bridge that is the valley floor.
 const ISSUE_0002_PROBE_M := 12.0
+## Each side of the deck, and the ground under it, drops at least this
+## much [m] (measured 4.13 m left, 5.61 m right, 5.58 m under).
+const ISSUE_0002_DROP_MIN_M := 4.0
 
 ## The build's wall-time budget [ms]: 8-10 s measured on a machine at load
 ## average 7 (about a quarter of a core), 17 s with the suite's steps side
@@ -831,7 +836,7 @@ func _check_right_of_way(road: RoadBuilder) -> void:
 	var beside_left := road.profile.sample_height(ISSUE_0002_CAR.x - right.x * ISSUE_0002_PROBE_M, ISSUE_0002_CAR.y - right.y * ISSUE_0002_PROBE_M)
 	var terrain := road.profile.terrain_height(ISSUE_0002_CAR.x, ISSUE_0002_CAR.y)
 	var bridge_segment: SkeletonLoader.Segment = _segments[ISSUE_0002_BRIDGE]
-	_ok(where.get("road") == ISSUE_0002_BRIDGE and where.get("on_road", false) and not under_crossing.is_empty() and under_crossing.loop == ISSUE_0002_BRIDGE and road.strip(ISSUE_0002_UNDER) == null and bridge_segment.tags.get("bridge", "no") != "no" and deck_here - terrain > 4.0 and deck_here - minf(beside_left, beside_right) > 4.0, "issue-0002 (\"a big hole in the road\", the car at (%.2f, %.2f), reverse, standing): the car is on the loop's bridge deck %s at chainage %.1f, %.2f m from its centreline, %.2f m above the terrain lattice under it (the DGM1 is a ground model: the valley floor); the primary %s passes %.2f m under the deck and is one of the ten crossing structures the right of way uncovers (no strip built), and %.0f m beside the deck the field is the ground %.2f m and %.2f m below it - the hole is the bridge's missing sides and the unbuilt road under it, not a height in the file (the deck is linear and the same bytes as before the smoothing); reader-side work, recorded" % [ISSUE_0002_CAR.x, ISSUE_0002_CAR.y, where.get("road"), where.get("chainage", 0.0), where.get("offset", 0.0), deck_here - terrain, ISSUE_0002_UNDER, under_crossing.get("loop_height", 0.0) - under_crossing.get("height", 0.0), ISSUE_0002_PROBE_M, deck_here - beside_left, deck_here - beside_right], "issue-0002: over %s (%s), the crossing %s, deck %.2f terrain %.2f beside %.2f / %.2f" % [where.get("road"), where, under_crossing, deck_here, terrain, beside_left, beside_right])
+	_ok(where.get("road") == ISSUE_0002_BRIDGE and where.get("on_road", false) and not under_crossing.is_empty() and under_crossing.loop == ISSUE_0002_BRIDGE and road.strip(ISSUE_0002_UNDER) == null and bridge_segment.tags.get("bridge", "no") != "no" and deck_here - terrain > ISSUE_0002_DROP_MIN_M and deck_here - beside_left > ISSUE_0002_DROP_MIN_M and deck_here - beside_right > ISSUE_0002_DROP_MIN_M, "issue-0002 (\"a big hole in the road\", the car at (%.2f, %.2f), reverse, standing) - checked: the car is on the loop's bridge deck %s (bridge=yes) at chainage %.1f, %.2f m from its centreline, %.2f m above the terrain lattice under it; the primary %s passes %.2f m under the deck and is one of the ten crossing structures the right of way uncovers (no strip built); %.0f m beside the deck the field drops %.2f m on the left and %.2f m on the right, each over %.0f m. The reading for the driver: the DGM1 is a ground model, so the terrain under and beside the deck is the valley floor, and neither the bridge's sides nor the road under it is built - the hole is that missing structure, not a height in the file (the deck is linear and the same bytes as before the smoothing); reader-side work, recorded" % [ISSUE_0002_CAR.x, ISSUE_0002_CAR.y, where.get("road"), where.get("chainage", 0.0), where.get("offset", 0.0), deck_here - terrain, ISSUE_0002_UNDER, under_crossing.get("loop_height", 0.0) - under_crossing.get("height", 0.0), ISSUE_0002_PROBE_M, deck_here - beside_left, deck_here - beside_right, ISSUE_0002_DROP_MIN_M], "issue-0002: over %s (%s), the crossing %s, deck %.2f terrain %.2f beside %.2f / %.2f" % [where.get("road"), where, under_crossing, deck_here, terrain, beside_left, beside_right])
 
 
 # =============================================================================

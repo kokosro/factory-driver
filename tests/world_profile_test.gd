@@ -87,8 +87,9 @@ const HEIGHT_ROUNDING_M := 0.005
 ## never a silent drift. was b167c232... (4B-3's landing, 00db178) ->
 ## bab692ef... (ROAD-SMOOTHING, 2026-09-23: the file's heights changed -
 ## the plain segments Whittaker-smoothed, the junctions stitched - the
-## profile's arithmetic did not).
-const SAMPLES_DIGEST := "bab692efff0c06a8ae5dee74e597955ff58142289bec82063d69426385227486"
+## profile's arithmetic did not) -> e5b34889... (the codex review's
+## fix-forward: the crossfall stitched as a world-space tilt, F1/F4).
+const SAMPLES_DIGEST := "e5b348893166f20295e3778d11bab28891694fcabe3f9fa4c2e813b3e1ab1380"
 
 ## The codex review's precision repro: the segment and the pipeline's value.
 const MIRROR_SEGMENT := "1017207289-0"
@@ -488,12 +489,16 @@ func _check_ring(profile: WorldRoadProfile) -> void:
 ## The raw file's numbers (b8d4e531..., before the smoothing), measured
 ## 2026-09-23 with the same arithmetic and pinned here as the "before".
 ## The loop's plain segments' station-to-station grade change (the 2 m
-## second difference, |h[k+1] - 2 h[k] + h[k-1]| / 4 [1/m]) at the 90th
-## and 99th percentiles: 0.0075 and 0.0150 (1.5 % and 3.0 % per station);
-## after the smoothing at most the centimetre rounding's own quantum
-## 0.0025 and twice it.
+## second difference, |h[k+1] - 2 h[k] + h[k-1]| / 4 [1/m], taken at the
+## UNIFORM stations only - both neighbouring intervals exactly 2 m; the
+## codex review's F6: the end station past the last whole one is under
+## a shorter interval and read as a 2 m one inflated the 99th percentile)
+## at the 90th and 99th percentiles: 0.0075 and 0.0125 (1.5 % and 2.5 %
+## per station; was 0.0075 / 0.0150 with the uneven ends counted); after
+## the smoothing at most the centimetre rounding's own quantum 0.0025 and
+## twice it.
 const RAW_LOOP_KINK_P90 := 0.0075
-const RAW_LOOP_KINK_P99 := 0.0150
+const RAW_LOOP_KINK_P99 := 0.0125
 const LOOP_KINK_P90_MAX := 0.0025
 const LOOP_KINK_P99_MAX := 0.0050
 ## Junctions with two or more covered ends in the raw file: 2 158 of them
@@ -519,6 +524,12 @@ const ISSUE_0001_SEGMENTS := ["1009142894-0", "1009142894-1", "199642470-0"]
 const ISSUE_0001_CAR := Vector2(2017.926, -1373.37)
 const RAW_ISSUE_0001_RIDGE_M := 0.340
 const STAIR_MAX_M := 0.005
+## A written crossfall is the target tilt's component along the end's own
+## right normal, rounded to 1e-4 in the file; the target recomputed here
+## from rounded values may differ by another rounding.
+const TILT_TOLERANCE := 2.0e-4
+## drape.py's CLASS_RANK.
+const CLASS_RANK := {"raceway": 0, "primary": 1, "primary_link": 2, "secondary": 3, "secondary_link": 4, "tertiary": 5, "tertiary_link": 6, "unclassified": 7, "residential": 8, "living_street": 9, "service": 10, "track": 11}
 ## The field probe across a seam: 5 cm along either segment at ±4 m; the
 ## grade over those 10 cm and the rounding allow this much.
 const SEAM_PROBE_ALONG_M := 0.05
@@ -526,7 +537,8 @@ const SEAM_PROBE_OFFSET_M := 4.0
 const SEAM_PROBE_MAX_M := 0.03
 ## The raw -> smoothed evidence over ±50 m along the owning segments at
 ## the three issue sites (the Conductor's requirement): the window's
-## grade-change peak-to-peak [1/m] in the raw file, and the crest label
+## grade-change peak-to-peak [1/m] in the raw file (uniform stations only,
+## re-measured for the codex review's F6: the same seven values), and the crest label
 ## in it with its amplitude over the 20 m window (h[k] - (h[k-5] +
 ## h[k+5]) / 2) in the raw file. Issue-0002's car stood on the bridge deck
 ## 41395681-0 (rigid: the deck is the same bytes) over the primary
@@ -557,74 +569,133 @@ func _check_smoothing(skeleton: Dictionary, drape: Dictionary, raw_points: Dicti
 		if (segment.tags.has("bridge") and segment.tags["bridge"] != "no") or segment.tags.get("tunnel") == "yes":
 			continue
 		var dense: Array = records[id].dense
-		for k: int in range(1, dense.size() - 1):
+		var uniform := _uniform_count(_length_of(raw_points[id]))
+		for k: int in range(1, uniform - 1):
 			kinks.append(absf((dense[k + 1] - 2.0 * dense[k] + dense[k - 1]) / 4.0))
 	kinks.sort()
 	var p90: float = kinks[int(floor(0.9 * (kinks.size() - 1)))]
 	var p99: float = kinks[int(floor(0.99 * (kinks.size() - 1)))]
 	_ok(kinks.size() > 10000 and p90 <= LOOP_KINK_P90_MAX + 1e-9 and p99 <= LOOP_KINK_P99_MAX + 1e-9, "smoothing: over the loop's %d plain stations the station-to-station grade change is %.4f /m at the 90th percentile and %.4f at the 99th (%.1f %% and %.1f %% per 2 m station; was %.4f and %.4f in the raw file, %.1f %% and %.1f %%: the centimetre rounding's quantum is %.4f)" % [kinks.size(), p90, p99, 200.0 * p90, 200.0 * p99, RAW_LOOP_KINK_P90, RAW_LOOP_KINK_P99, 200.0 * RAW_LOOP_KINK_P90, 200.0 * RAW_LOOP_KINK_P99, LOOP_KINK_P90_MAX], "loop grade change p90 %.4f p99 %.4f over %d stations" % [p90, p99, kinks.size()])
-	# Every junction's covered ends: one height, one crossfall.
+	# Every junction's covered ends: one height; every plain non-bank end's
+	# crossfall the node's world tilt seen in its own frame (the rule
+	# mirrored: a rigid participant's tilt holds, else the class/loop
+	# winners' mean of the plain ends' tilt vectors).
 	var junctions := 0
 	var height_gaps := 0
-	var crossfall_gaps := 0
+	var tilt_misses := 0
 	var worst_height := 0.0
-	var worst_crossfall := 0.0
-	var crossfall_nodes := 0
+	var worst_tilt := 0.0
+	var tilt_nodes := 0
+	var rigid_nodes := 0
+	var plain_ends := 0
+	var first_miss := ""
+	var loop_ids := {}
+	for id: String in loop.segments:
+		loop_ids[id] = true
 	for raw: Dictionary in skeleton.junctions:
 		var heights := PackedFloat64Array()
-		var crossfalls := PackedFloat64Array()
+		var ends: Array[Dictionary] = []
 		for id: String in raw.segments:
 			if not records.has(id):
 				continue
 			var points: Array = raw_points[id]
 			var record: Dictionary = records[id]
 			var at_start: bool = Vector2(points[0][0], points[0][1]).distance_to(Vector2(raw.x, raw.z)) < 1e-6
-			var end: int = 0 if at_start else record.dense.size() - 1
-			var end_point: int = 0 if at_start else record.crossfall.size() - 1
-			if record.dense[end] != null:
-				heights.append(record.dense[end])
-			if segments[id].osm_way != SkeletonLoader.KARUSSELL_WAY:
-				crossfalls.append(record.crossfall[end_point])
+			var at_end: bool = Vector2(points[points.size() - 1][0], points[points.size() - 1][1]).distance_to(Vector2(raw.x, raw.z)) < 1e-6
+			for start: bool in ([true] if at_start and not at_end else ([false] if at_end and not at_start else ([true, false] if at_start else []))):
+				var end: int = 0 if start else record.dense.size() - 1
+				var end_point: int = 0 if start else record.crossfall.size() - 1
+				if record.dense[end] != null:
+					heights.append(record.dense[end])
+				if segments[id].osm_way == SkeletonLoader.KARUSSELL_WAY:
+					continue
+				var right := _end_right_normal(points, start)
+				if right == Vector2.ZERO:
+					continue
+				var segment: SkeletonLoader.Segment = segments[id]
+				var rigid: bool = (segment.tags.has("bridge") and segment.tags["bridge"] != "no") or segment.tags.get("tunnel") == "yes" or not record.covered
+				# The end's crossfall BEFORE the stitch, from the file: the
+				# rule gives an end its neighbour point's value (crossfall_of),
+				# which the stitch does not touch; a two-point segment is a
+				# crowned straight, 0.
+				var original: float = 0.0 if points.size() < 3 else record.crossfall[1 if start else record.crossfall.size() - 2]
+				ends.append({"id": id, "start": start, "rank": _class_rank(segment.road_class), "loop": loop_ids.has(id), "rigid": rigid, "right": right, "cf": record.crossfall[end_point], "tilt": right * original})
 		if heights.size() >= 2:
 			junctions += 1
 			var gap: float = _span_of(heights)
 			worst_height = maxf(worst_height, gap)
 			if gap > 2.0 * HEIGHT_ROUNDING_M + 1e-9:
 				height_gaps += 1
-		if crossfalls.size() >= 2:
-			crossfall_nodes += 1
-			var gap: float = _span_of(crossfalls)
-			worst_crossfall = maxf(worst_crossfall, gap)
-			if gap > 1e-9:
-				crossfall_gaps += 1
-	_ok(junctions > 2000 and height_gaps == 0 and crossfall_nodes > 2000 and crossfall_gaps == 0, "junctions: at all %d nodes with two or more draped ends the ends' centre heights agree to the centimetre (the largest gap %.3f m) and at all %d nodes with two or more non-bank ends the end crossfalls are equal (the largest gap %.4f; was a gap over 2 %% at %d junctions, %d of them on the loop: each segment's end took its own bend's crossfall)" % [junctions, worst_height, crossfall_nodes, worst_crossfall, RAW_CROSSFALL_GAP_JUNCTIONS, RAW_CROSSFALL_GAP_LOOP], "%d height gaps (worst %.3f), %d crossfall gaps (worst %.4f) over %d / %d junctions" % [height_gaps, worst_height, crossfall_gaps, worst_crossfall, junctions, crossfall_nodes])
+		if ends.size() < 2:
+			continue
+		var plain: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return not e.rigid)
+		var rigid_ends: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return e.rigid)
+		if plain.is_empty():
+			continue
+		var target := Vector2.ZERO
+		if not rigid_ends.is_empty():
+			rigid_ends.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return [a.rank, 0 if a.loop else 1, a.id, 0 if a.start else 1] < [b.rank, 0 if b.loop else 1, b.id, 0 if b.start else 1])
+			target = rigid_ends[0].tilt
+			rigid_nodes += 1
+		else:
+			var best_rank := 99
+			for e: Dictionary in plain:
+				best_rank = mini(best_rank, e.rank)
+			var winners: Array[Dictionary] = plain.filter(func(e: Dictionary) -> bool: return e.rank == best_rank)
+			var on_loop: Array[Dictionary] = winners.filter(func(e: Dictionary) -> bool: return e.loop)
+			if not on_loop.is_empty():
+				winners = on_loop
+			for e: Dictionary in winners:
+				target += e.tilt
+			target /= winners.size()
+		tilt_nodes += 1
+		for e: Dictionary in plain:
+			plain_ends += 1
+			var miss: float = absf(e.cf - target.dot(e.right))
+			worst_tilt = maxf(worst_tilt, miss)
+			if miss > TILT_TOLERANCE:
+				tilt_misses += 1
+				if first_miss == "":
+					first_miss = "node %s: %s %s cf %.4f vs the target's %.5f (target %s from %s)" % [raw.id, e.id, "start" if e.start else "end", e.cf, target.dot(e.right), target, ends]
+	_ok(junctions > 2000 and height_gaps == 0 and tilt_nodes > 2000 and tilt_misses == 0, "junctions: at all %d nodes with two or more draped ends the ends' centre heights agree to the centimetre (the largest gap %.3f m); at all %d nodes with two or more non-bank ends every one of the %d plain ends carries the node's world tilt in its own frame - a rigid participant's own (bridge, tunnel, partly covered: %d nodes) else the class/loop winners' mean of the ends' own pre-stitch tilts (each read back from its neighbour point) - within %.4f (the worst %.5f; was a crossfall gap over 2 %% at %d junctions, %d of them on the loop: each segment's end took its own bend's crossfall; and, with the first stitch, one signed value written to every frame)" % [junctions, worst_height, tilt_nodes, plain_ends, rigid_nodes, TILT_TOLERANCE, worst_tilt, RAW_CROSSFALL_GAP_JUNCTIONS, RAW_CROSSFALL_GAP_LOOP], "%d height gaps (worst %.3f), %d tilt misses (worst %.5f) over %d / %d junctions; the first: %s" % [height_gaps, worst_height, tilt_misses, worst_tilt, junctions, tilt_nodes, first_miss])
 	# Issue-0005's stair, from the file and from the field.
 	var a: Dictionary = records[ISSUE_0005_SEGMENTS[0]]
 	var b: Dictionary = records[ISSUE_0005_SEGMENTS[1]]
 	var stair_right: float = absf(_edge_height(a, a.dense.size() - 1, a.crossfall.size() - 1, 4.25) - _edge_height(b, 0, 0, 4.25))
 	var stair_left: float = absf(_edge_height(a, a.dense.size() - 1, a.crossfall.size() - 1, -4.25) - _edge_height(b, 0, 0, -4.25))
 	var nearest_5: Dictionary = profile.describe(ISSUE_0005_CAR.x, ISSUE_0005_CAR.y)
-	_ok(nearest_5.get("road") == ISSUE_0005_SEGMENTS[0] and absf(nearest_5.get("chainage", 0.0) - 465.2) < 0.5 and a.dense[a.dense.size() - 1] == b.dense[0] and a.crossfall[a.crossfall.size() - 1] == b.crossfall[0] and stair_right <= STAIR_MAX_M and stair_left <= STAIR_MAX_M, "issue-0005 (\"like a stair\", the car at (%.3f, %.3f) on %s chainage %.1f, %.2f m from its centreline): at junction %s %s ends and %s starts at one centre height %.2f m and one crossfall %+.4f, so the platform's edges 4.25 m out meet within %.3f m right and %.3f m left (was %.3f m and %.3f m: crossfall -0.0077 against +0.04 at one height)" % [ISSUE_0005_CAR.x, ISSUE_0005_CAR.y, nearest_5.get("road"), nearest_5.get("chainage", 0.0), nearest_5.get("distance", 0.0), ISSUE_0005_JUNCTION, ISSUE_0005_SEGMENTS[0], ISSUE_0005_SEGMENTS[1], b.dense[0], b.crossfall[0], stair_right, stair_left, RAW_ISSUE_0005_STAIR_M[0], RAW_ISSUE_0005_STAIR_M[1]], "issue-0005: heights %s / %s, crossfall %s / %s, stair %.3f / %.3f, the car over %s" % [a.dense[a.dense.size() - 1], b.dense[0], a.crossfall[a.crossfall.size() - 1], b.crossfall[0], stair_right, stair_left, nearest_5.get("road")])
+	_ok(nearest_5.get("road") == ISSUE_0005_SEGMENTS[0] and absf(nearest_5.get("chainage", 0.0) - 465.2) < 0.5 and a.dense[a.dense.size() - 1] == b.dense[0] and absf(a.crossfall[a.crossfall.size() - 1] - b.crossfall[0]) <= TILT_TOLERANCE and stair_right <= STAIR_MAX_M and stair_left <= STAIR_MAX_M, "issue-0005 (\"like a stair\", the car at (%.3f, %.3f) on %s chainage %.1f, %.2f m from its centreline): at junction %s %s ends and %s starts at one centre height %.2f m and one tilt (crossfall %+.4f and %+.4f in their own frames, 2° apart), so the platform's edges 4.25 m out meet within %.3f m right and %.3f m left (was %.3f m and %.3f m: crossfall -0.0077 against +0.04 at one height)" % [ISSUE_0005_CAR.x, ISSUE_0005_CAR.y, nearest_5.get("road"), nearest_5.get("chainage", 0.0), nearest_5.get("distance", 0.0), ISSUE_0005_JUNCTION, ISSUE_0005_SEGMENTS[0], ISSUE_0005_SEGMENTS[1], b.dense[0], a.crossfall[a.crossfall.size() - 1], b.crossfall[0], stair_right, stair_left, RAW_ISSUE_0005_STAIR_M[0], RAW_ISSUE_0005_STAIR_M[1]], "issue-0005: heights %s / %s, crossfall %s / %s, stair %.3f / %.3f, the car over %s" % [a.dense[a.dense.size() - 1], b.dense[0], a.crossfall[a.crossfall.size() - 1], b.crossfall[0], stair_right, stair_left, nearest_5.get("road")])
 	var probe := _seam_probe(profile, raw_points[ISSUE_0005_SEGMENTS[0]], raw_points[ISSUE_0005_SEGMENTS[1]])
 	_ok(probe.worst <= SEAM_PROBE_MAX_M, "issue-0005 in the field: sample_height %.2f m before and after the node at %.0f m left, on the centreline and %.0f m right steps %.3f, %.3f and %.3f m (the grade over those %.1f m and the rounding; a stair of 0.15-0.26 m read here before)" % [SEAM_PROBE_ALONG_M, SEAM_PROBE_OFFSET_M, SEAM_PROBE_OFFSET_M, probe.steps[0], probe.steps[1], probe.steps[2], 2.0 * SEAM_PROBE_ALONG_M], "the field steps %s across the seam" % [probe.steps])
 	# Issue-0001's ridge at T13.
 	var pit: Dictionary = records[ISSUE_0001_SEGMENTS[2]]
 	var loop_in: Dictionary = records[ISSUE_0001_SEGMENTS[0]]
 	var loop_out: Dictionary = records[ISSUE_0001_SEGMENTS[1]]
-	var ridge: float = absf(_edge_height(pit, pit.dense.size() - 1, pit.crossfall.size() - 1, 4.25) - _edge_height(loop_out, 0, 0, 4.25))
+	var right_in := _end_right_normal(raw_points[ISSUE_0001_SEGMENTS[0]], false)
+	var right_out := _end_right_normal(raw_points[ISSUE_0001_SEGMENTS[1]], true)
+	var right_pit := _end_right_normal(raw_points[ISSUE_0001_SEGMENTS[2]], false)
+	var loop_tilt: Vector2 = (right_in * loop_in.crossfall[loop_in.crossfall.size() - 1] + right_out * loop_out.crossfall[0]) / 2.0
+	var pit_cf: float = pit.crossfall[pit.crossfall.size() - 1]
+	# The pit lane's tilt against the loop's, both in world space, as an
+	# edge height 4.25 m out along the pit lane's own right normal: the
+	# ridge the driver saw (was -0.04 against +0.04 in the pit lane's
+	# frame at a 0.9 rad join).
+	var ridge: float = absf(pit_cf - loop_tilt.dot(right_pit)) * 4.25
 	var nearest_1: Dictionary = profile.describe(ISSUE_0001_CAR.x, ISSUE_0001_CAR.y)
-	_ok(nearest_1.get("distance", 99.0) < 4.25 and pit.crossfall[pit.crossfall.size() - 1] == loop_out.crossfall[0] and loop_in.crossfall[loop_in.crossfall.size() - 1] == loop_out.crossfall[0] and pit.dense[pit.dense.size() - 1] == loop_out.dense[0] and ridge <= STAIR_MAX_M, "issue-0001 (\"very pointy\", the car at (%.3f, %.3f) over %s, %.2f m from its centreline, %.2f m from the T13 junction %s): the pit lane %s ends on the loop's node at the loop's own crossfall %+.4f and height %.2f m (was -0.04 against the loop's +0.04: a %.3f m ridge at the paved edge; now %.3f m)" % [ISSUE_0001_CAR.x, ISSUE_0001_CAR.y, nearest_1.get("road"), nearest_1.get("distance", 0.0), ISSUE_0001_CAR.distance_to(Vector2(2015.436, -1370.741)), ISSUE_0001_JUNCTION, ISSUE_0001_SEGMENTS[2], loop_out.crossfall[0], loop_out.dense[0], RAW_ISSUE_0001_RIDGE_M, ridge], "issue-0001: pit crossfall %s, loop %s / %s, heights %s / %s, ridge %.3f, the car over %s" % [pit.crossfall[pit.crossfall.size() - 1], loop_in.crossfall[loop_in.crossfall.size() - 1], loop_out.crossfall[0], pit.dense[pit.dense.size() - 1], loop_out.dense[0], ridge, nearest_1.get("road")])
+	_ok(nearest_1.get("distance", 99.0) < 4.25 and absf(pit_cf - loop_tilt.dot(right_pit)) <= TILT_TOLERANCE and pit.dense[pit.dense.size() - 1] == loop_out.dense[0] and ridge <= STAIR_MAX_M, "issue-0001 (\"very pointy\", the car at (%.3f, %.3f) over %s, %.2f m from its centreline, %.2f m from the T13 junction %s): the pit lane %s ends on the loop's node at the loop's height %.2f m and carries the loop's world tilt (%.4f, %.4f) in its own frame, crossfall %+.4f = the tilt's component along its right normal (%.3f, %.3f), the join %.2f rad off the loop's line (was -0.04 against the loop's +0.04: a %.3f m ridge at the paved edge; now %.4f m)" % [ISSUE_0001_CAR.x, ISSUE_0001_CAR.y, nearest_1.get("road"), nearest_1.get("distance", 0.0), ISSUE_0001_CAR.distance_to(Vector2(2015.436, -1370.741)), ISSUE_0001_JUNCTION, ISSUE_0001_SEGMENTS[2], loop_out.dense[0], loop_tilt.x, loop_tilt.y, pit_cf, right_pit.x, right_pit.y, right_pit.angle_to(right_out), RAW_ISSUE_0001_RIDGE_M, ridge], "issue-0001: pit crossfall %s vs the loop tilt's component %.5f, heights %s / %s, ridge %.4f, the car over %s" % [pit_cf, loop_tilt.dot(right_pit), pit.dense[pit.dense.size() - 1], loop_out.dense[0], ridge, nearest_1.get("road")])
 	# The ±50 m windows at the three sites.
 	for window: Dictionary in WINDOWS:
 		var record: Dictionary = records[window.id]
 		var stations := WorldRoadProfile.station_chainages(_length_of(raw_points[window.id]))
+		var uniform := _uniform_count(_length_of(raw_points[window.id]))
 		var inside: Array[int] = []
-		for k: int in stations.size():
+		for k: int in uniform:
 			if absf(stations[k] - window.at) <= WINDOW_HALF_M:
 				inside.append(k)
 		var changes := PackedFloat64Array()
-		for i: int in range(1, inside.size() - 1):
-			changes.append((record.dense[inside[i + 1]] - 2.0 * record.dense[inside[i]] + record.dense[inside[i - 1]]) / 4.0)
+		for k: int in inside:
+			if k >= 1 and k <= uniform - 2:
+				changes.append((record.dense[k + 1] - 2.0 * record.dense[k] + record.dense[k - 1]) / 4.0)
 		var p2p: float = _span_of(changes)
 		var label_text := ""
 		var label_ok := true
@@ -637,7 +708,34 @@ func _check_smoothing(skeleton: Dictionary, drape: Dictionary, raw_points: Dicti
 				labelled = labelled or (label.kind == raw_label.kind and label.at == raw_label.at)
 			label_ok = labelled and absf(amplitude - raw_label.amplitude) <= AMPLITUDE_KEPT_M
 			label_text = "; the raw file's %s label at chainage %.0f is still there and its amplitude over the 20 m window is %.3f m (raw %.3f m, kept within %.3f m: the run is held to the raw heights)" % [raw_label.kind, raw_label.at, amplitude, raw_label.amplitude, AMPLITUDE_KEPT_M]
-		_ok(inside.size() >= 10 and p2p <= window.max_p2p + 1e-9 and p2p <= window.raw_p2p + 1e-9 and label_ok, "%s, %s over %.0f..%.0f m (%d stations): the grade-change peak-to-peak is %.4f /m, %.1f %% per station (raw %.4f, %.1f %%; at most %.4f asked)%s" % [window.issue, window.id, stations[inside[0]], stations[inside[inside.size() - 1]], inside.size(), p2p, 200.0 * p2p, window.raw_p2p, 200.0 * window.raw_p2p, window.max_p2p, label_text], "%s %s: p2p %.4f (raw %.4f, max %.4f), label ok %s" % [window.issue, window.id, p2p, window.raw_p2p, window.max_p2p, label_ok])
+		_ok(inside.size() >= 10 and p2p <= window.max_p2p + 1e-9 and p2p <= window.raw_p2p + 1e-9 and label_ok, "%s, %s over %.0f..%.0f m (%d uniform stations, %d second differences): the grade-change peak-to-peak is %.4f /m, %.1f %% per station (raw %.4f, %.1f %%; at most %.4f asked)%s" % [window.issue, window.id, stations[inside[0]], stations[inside[inside.size() - 1]], inside.size(), changes.size(), p2p, 200.0 * p2p, window.raw_p2p, 200.0 * window.raw_p2p, window.max_p2p, label_text], "%s %s: p2p %.4f (raw %.4f, max %.4f), label ok %s" % [window.issue, window.id, p2p, window.raw_p2p, window.max_p2p, label_ok])
+
+
+## The unit vector to the right of travel at a segment's end (x-east /
+## z-south: right = (-tz, tx)), from the end's first non-degenerate chord
+## walking inward; Vector2.ZERO when every chord is zero (drape.py's
+## end_right_normal).
+static func _end_right_normal(points: Array, start: bool) -> Vector2:
+	var n := points.size()
+	for i: int in range(n - 1):
+		var p: Array = points[i] if start else points[n - 2 - i]
+		var q: Array = points[i + 1] if start else points[n - 1 - i]
+		var dx: float = q[0] - p[0]
+		var dz: float = q[1] - p[1]
+		var length := sqrt(dx * dx + dz * dz)
+		if length > 0.0:
+			return Vector2(-dz / length, dx / length)
+	return Vector2.ZERO
+
+
+static func _class_rank(road_class: String) -> int:
+	return CLASS_RANK.get(road_class, CLASS_RANK.size())
+
+
+## The uniform stations of a segment: 0, 2, ... up to the last whole one
+## (the end station past it, if any, is under a shorter interval).
+static func _uniform_count(length: float) -> int:
+	return floori(length / WorldRoadProfile.STATION_STEP_M + 1e-9) + 1
 
 
 ## The largest value less the smallest.

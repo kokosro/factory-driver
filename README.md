@@ -722,13 +722,14 @@ built headless at load by `scripts/road_builder.gd` from the checked-in skeleton
 implementation-plan.md §4B-4): drape.json pinned by sha256 (the two transforms below correct
 parsed data, never the file); the rim rule and the loop's right of way pure functions of the
 parsed data (twice, the same); the scene loads with every covered segment but the ten
-crossing structures swept (3 304 roads, 383 146 sections, 1 149 438 vertices, 1 519 368
+crossing structures swept (3 304 roads, 378 093 sections, 1 134 279 vertices, 1 499 156
 triangles - was 329 394 / 988 182 / 1 304 320 before ROAD-SMOOTHING's crossfall stitch put a
-ramp on every segment's end chord for the twist bound to split -, one trimesh StaticBody3D
+ramp on every segment's end chord for the twist bound to split, and 383 146 / 1 149 438 /
+1 519 368 with the first stitch, before the codex review's world-space re-tilt -, one trimesh StaticBody3D
 per road on layer 2 and a follower floor slab on layer 1
 put under the car every tick from the same corrected profile), the car at the pit anchor on
 a WorldRoadProfile; the mesh is the field: every vertex of the loop's and the pit strips on
-the corrected profile's `sample_height` within 1 mm (70 569 vertices), the quads' edges and
+the corrected profile's `sample_height` within 1 mm (70 947 vertices), the quads' edges and
 centres within the twist bound away from the skeleton's kinks (the field's own step between
 two chords measured and reported there, as at junctions); the rim rule: Breidscheid's rims
 8.44 m and 8.00 m out at 338.76 and 337.00 m and its deck line -5.14 %, every loop bridge's
