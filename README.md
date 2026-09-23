@@ -664,6 +664,36 @@ class outside the table, a one-point segment, a mismatched way, segments out of 
 unknown key, a one-segment junction, a junction listing a segment that is missing or does
 not end on it, a segment end its junction does not list, a loop that does not join or
 close, a file that is not JSON) naming the thing and the field. Then
+`tests/world_profile_test.gd`: the Ring's elevation drape under `data/regions/eifel_ring/`
+(the 42 verified DGM1 tiles mosaicked and sampled along the skeleton offline by
+`tools/world/drape.py`: the platform's centre height every 2 m, a crossfall per point, the
+bridge and tunnel rules, crest/dip labels, a 10 m terrain lattice of the raw ground;
+`docs/design/4b/data-pipeline.md` §5) read the way `WorldRoadProfile` reads it and put
+through its validation against the skeleton, in seconds and before anything drives; then
+held to what the plan asks of the drape: the snapshot pinned and the skeleton it was draped
+on the checked-in one by sha256, the 42 tiles each sha256-verified against the metalinks,
+the coverage the 7 km × 6 km core and the lattice spanning it; every Nordschleife segment
+covered; the crest/dip labels recounted from the file's own heights by the mirrored rule and
+equal to the file's; every draped bridge deck linear between its abutments, one line each;
+the Karussell's bank (branch (c) of the decision tree: 30 % over 6.5 m with the 1 m strip)
+read across the bowl; the reference heights derived from the file itself, the loop's lowest
+sample at the Breidscheid bridge 333 ± 2 m, its highest at T13 627.5 ± 2 m, the Hohe Acht way
+616.8 ± 2 m (measured, `docs/design/4b/ring-region-decisions.md` §3); the loop's steepest
+gradient past the pad's `MAX_SLOPE` and under 35 % away from bridge abutments, the abutments
+reported apart; the documented fallback outside coverage (height 0, gradient zero, mask 0)
+and no cliff at the edge; purity; `ring()` the same profile; then a 3 × 3 km fixture built in
+code (a plane with a bowl and two crests, six roads through the mirrored drape rules): the
+plane within 1 mm off-road and on a centreline, its gradient within 1e-4, the bowl's depth,
+bilinear continuity across the lattice's seams, the 2 % crown and the 6 m blend band, a
+left-hand bend superelevated 4 %, a bridge deck linear over the crest under it, a tunnel at
+the ground at its portal and 6 m under it inside, the crest labelled at its top, the bank's
+bowl on way 414785755, the fallback outside the box; and `validate()` on eighteen fixtures
+broken in code (an unpinned snapshot, another pipeline's version, another skeleton's
+queries, other rules, a lattice short of a height or off the coverage, an empty coverage, a
+DEM in another CRS, an unverified tile, a segment the skeleton lacks, a dense list short of a
+station, a covered segment with a missing height, a label of an unknown kind or within the
+threshold or of the wrong sign, a bank not filling the width, a crossfall beyond every rule,
+segments out of order, a file that is not JSON) naming the thing and the field. Then
 `tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the

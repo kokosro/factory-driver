@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Headless checks: import the project, check the car configs, the element
-# catalogue and the Ring skeleton (seconds: a broken config, catalogue entry
-# or skeleton fails here, not somewhere in the smoke test), run the smoke
-# test, then the handling, camera, mission, battery, thermal, tyre/brake
-# thermal, steering-feel, wear, licence, menu and airborne tests. Fails on a
-# non-zero exit code or on any engine/script error in the output.
+# catalogue, the Ring skeleton and the Ring's drape through the world
+# profile (seconds: a broken config, catalogue entry, skeleton or drape
+# fails here, not somewhere in the smoke test), run the smoke test, then the
+# handling, camera, mission, battery, thermal, tyre/brake thermal,
+# steering-feel, wear, licence, menu and airborne tests. Fails on a non-zero
+# exit code or on any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the fifteen tests side by side
+#   tests/run_tests.sh --parallel   the import first, then the sixteen tests side by side
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -117,6 +118,7 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 "$STEP" "config test" "$GODOT" --headless --path "$ROOT" --script res://tests/config_test.gd
 "$STEP" "element catalogue test" "$GODOT" --headless --path "$ROOT" --script res://tests/element_catalogue_test.gd
 "$STEP" "skeleton test" "$GODOT" --headless --path "$ROOT" --script res://tests/skeleton_test.gd
+"$STEP" "world profile test" "$GODOT" --headless --path "$ROOT" --script res://tests/world_profile_test.gd
 # --fixed-fps: same 1/60 s physics steps, without waiting for the wall clock.
 # Every wait in these tests is counted in physics ticks.
 "$STEP" "smoke test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/smoke_test.gd
