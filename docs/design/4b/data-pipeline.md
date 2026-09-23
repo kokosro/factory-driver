@@ -198,17 +198,84 @@ These are German road-design values (RAL/RASt), not measured: open question 2 in
 - The terrain lattice (T-family) samples the DEM raw; a blend band of 6 m outside the paved edge
   eases the platform into it (the same "lane band" idea as road_profile.gd's LANE_BAND_HALF_WIDTH,
   there to keep a lane from leaning sideways).
-- Vertical smoothing: none beyond the 1 m grid's own noise (0.1 m stated accuracy). Crest/dip
-  detection (R7/R8): second difference of height over 20 m and 40 m windows; a crest is where the
-  20 m curvature exceeds 0.004 /m (a 100 km/h car lightens by ~0.3 g there). These thresholds
-  are for the assembler's *labels* only; the physics reads the height field, not the labels.
+- Vertical smoothing: was "none beyond the 1 m grid's own noise (0.1 m stated accuracy)" ->
+  ROAD-SMOOTHING (2026-09-23, the driver's issue-0001 "the road tile is very pointy" and
+  issue-0005 "two tiles connect ... like a stair"; the research survey's recipe as the Conductor
+  adjudicated it, its numbers verified on the data; `tools/world/drape.py`'s header is the
+  record): per covered plain segment (not a bridge's deck, not a tunnel, not a partly covered
+  segment) the raw dense centre heights are smoothed by a **Whittaker penalised-smoothness
+  fit** (Eilers 2003, "A Perfect Smoother"): z = argmin Σ wᵢ(yᵢ − zᵢ)² + λ Σ(Δ²z)², the penalty
+  on the second difference, the very curvature the labels below read. The recipe's primary was
+  a Savitzky-Golay filter (window 11, order 2), which needs scipy; scipy is absent from the
+  venv that builds the file (pip list, 2026-09-23: rasterio 1.5.1 depends on numpy, affine and
+  attrs, not scipy; no network, nothing installed), so the recipe's pre-approved alternative is
+  the deliverable, pure python (a banded Cholesky of the pentadiagonal system in plain floats:
+  no BLAS, so two builds are the same bytes). **λ = 5**, a hardcoded constant: the λ range
+  rescaled for 2 m stations (h⁴ scaling), Conductor-approved 2026-09-23; was the recipe's
+  per-1 m-sample 1e2..1e5. The Whittaker cutoff wavelength scales as L_cut ≈ 2π·h·λ^(1/4) for a
+  sample spacing h, so an equal cutoff needs λ ∝ h⁴: the recipe's range at ~1 m samples is
+  L_cut ≈ 12.6-126 m, and at the drape's 2 m stations the same numbers give L_cut ≈ 39-126 m,
+  attenuating the very 20-40 m crests the gates require to survive (measured on the checked-in
+  file: λ 1e2 loses 258 labels of |curvature| ≥ 0.01 and moves loop heights by up to 2.47 m;
+  a rule that fails its own gates is mis-scaled, not sacred). λ 5 at 2 m gives L_cut ≈ 19 m,
+  H ≈ 1/21 at 8 m, ~58 % of a raw 20 m wave kept, 95 % at 40 m, 99 % at 60 m; the protection
+  carries the labelled crests. **The edge**: natural (free) ends, D of n − 2 rows, no second
+  difference imposed across a segment's end; the end station past the last whole one (an
+  uneven length) is outside the uniform spacing and takes the fit's last grade over its own
+  length. **The protection**: the labels are taken on the smoothed heights; every station of a
+  crest/dip run plus one flank station either side is held to its raw height (weight 1e6 in the
+  same solve, so the neighbours bend onto the raw stations instead of stepping to them), and
+  the file's labels are recomputed on the final heights, which is what the suite's recount
+  reads. Measured on the file: 2 623 of the 3 314 covered segments smoothed (33 bridges, 10
+  tunnels and 647 plain segments under 20 m left as sampled); labels 2 551 crests / 2 465 dips
+  -> 1 927 / 1 874; of the raw
+  labels of |curvature| ≥ 0.01 seven have no label of their kind within 6 m afterwards, five of
+  them still labelled with the run's steepest station moved 8-20 m along and two one- or
+  two-station spikes on forest tracks, none a crest of a road, none on the loop; the loop's
+  station-to-station grade change fell from 1.5 % (90th percentile) and 3.0 % (99th) to the
+  centimetre rounding's own 0.5 % and 1.0 %; the loop's lowest, highest and Hohe Acht samples
+  (332.94, 627.52, 616.50 m) are the same to the centimetre; the DGM1 on the paved loop reads
+  5 mm rms in the 4-16 m band, far under the survey's ±15 cm per cell (the forest tracks are
+  the noisy class: a 5 % grade change per station at their 90th percentile). The noisy fixture
+  (drape.py --selftest: ±15 cm of seeded white noise per cell on a plane with a 30 m crest):
+  the flat band's height residual peak-to-peak shrinks 2.4× (the brief's 3× needs λ ≥ 30 on
+  white noise, where the 40 m wavelength is cut to 0.78: the feature gate's loss - recorded,
+  not taken), the station-to-station grade change ≥ 3×, the crest still labelled with the raw
+  data's own curvature and its top station the raw height.
+- **The junction rule** (write-side, the readers untouched): at every skeleton junction the
+  draped segments' ends on the node are stitched. Height: a rigid participant holds the node -
+  a bridge's deck end, a tunnel's portal, a partly covered segment's raw sample (all the raw
+  ground at the node); else the highest road class wins (raceway, primary, primary_link,
+  secondary, secondary_link, tertiary, tertiary_link, unclassified, residential, living_street,
+  service, track), the Nordschleife loop wins ties, and the winners' mean is the node's height;
+  every covered plain participant's stations within **8 m** of the node are shifted by
+  smoothstep(1 − d / 8 m) times (node height − its own end height), the grade kept and the gap
+  closed (the radius is half the segment's length under 16 m so both ends land). Crossfall:
+  the same priority over every non-bank participant's end point (the Karussell's bank neither
+  votes nor moves), the winners' mean written to each end point. The file's centre heights
+  already agreed at every junction (the same DEM sample), so the height stitch closes only what
+  the smoother's free ends open (centimetres); the crossfall stitch is what issue-0005 was: the
+  two loop segments met at one centre height with −0.8 % and +4.0 % of crossfall, a 0.255 m
+  stair at the right paved edge and 0.150 m at the left, now 0.000; T13's pit lane met the loop
+  at −4 % against +4 %, a 0.340 m ridge, now 0.000; 1 562 junctions had a crossfall gap over
+  2 % (29 on the loop), now none. The T13 four-way junction's 0.413 m step in the ring drive
+  test's loop sweep was never in the file (the four ends read 618.65 m alike): it is the
+  reader's rim rule lifting one branch through the junction; recorded below, not this rule's.
+- Crest/dip detection (R7/R8): second difference of height over 20 m and 40 m windows; a crest
+  is where the 20 m curvature exceeds 0.004 /m (a 100 km/h car lightens by ~0.3 g there).
+  These thresholds are for the assembler's *labels* only; the physics reads the height field,
+  not the labels.
 - Bridges (`bridge=yes`): deck height interpolated linearly between the abutment samples; tunnels
   (`tunnel=yes`): the road sits below the DEM by `layer × 6 m` at the portal, ramped in over 30 m.
 - The Karussell: DGM1 is a ground model; whether it carries the concrete bank at 1 m is unknown
   until the tile is opened. Decision tree in ring-region-decisions.md §3 (DOM1/DOMB, else a
   parametric bank on the R9 element).
-- Output `drape.json`: per segment, `heights: [...]` aligned with `points`, plus `crossfall: [...]`
-  and `labels: [{at, kind: crest|dip|bank}]`.
+- Output `drape.json`: per segment, `heights: [...]` aligned with `points` (since ROAD-SMOOTHING
+  the field's own value at the point: the rounded dense heights interpolated there), plus
+  `crossfall: [...]` and `labels: [{at, kind: crest|dip|bank}]`. The file's `rules` and its
+  `pipeline_version` (1) are unchanged by the smoothing: the reader refuses other rules and
+  another version, and the readers are frozen; the smoothing's constants are recorded in
+  `drape.py` and here, the file is pinned by sha256 in `tests/ring_drive_test.gd`.
 
 ## 6. REGION DRESSING PASSES
 
