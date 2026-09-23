@@ -23,7 +23,11 @@ extends Node
 ## t_session_s, read at the start and at the stop. The HUD stands before the
 ## MissionManager in main.tscn, so this node's tick runs before the
 ## recorder's: what is read at a tick is the second of the sample the
-## recorder writes that tick. No recorder recording, the binding is the
+## recorder writes that tick. The stop's read is taken only while the
+## recorder is still the session the start bound - there, recording, under
+## the same session id; a recorder stopped, restarted or freed in between
+## lends no clock, and the range ends where it began (t_stop_s = t_start_s,
+## the duration still counted). No recorder recording, the binding is the
 ## odometer and the wall clock (IssueStore.BINDING_ODOMETER): session_id 0
 ## and both seconds 0.0, the drive identified by odometer_start_m ..
 ## odometer_stop_m and started_at .. stopped_at. Either way the odometer
@@ -146,7 +150,7 @@ func stop() -> Dictionary:
 	issue["description"] = ""
 	issue["stopped_at"] = _stamp()
 	issue["duration_s"] = snappedf(_ticks * TelemetryRecorder.TICK_SECONDS, TelemetryRecorder.TIME_SNAP)
-	issue["t_stop_s"] = _recorder_seconds()
+	issue["t_stop_s"] = _stop_seconds(issue["t_start_s"], issue["session_id"])
 	issue["odometer_stop_m"] = snappedf(car.odometer_m, TelemetryRecorder.VALUE_SNAP)
 	active_id = ""
 	_start = {}
@@ -210,12 +214,29 @@ static func _find_recording(node: Node) -> TelemetryRecorder:
 	return null
 
 
-## The bound recorder's second right now, its own count through its own
-## conversion; 0.0 with no recorder bound (or one gone from the tree since
-## the start: the range then ends where it began, an honest nothing).
+## The bound recorder's second at the start, its own count through its own
+## conversion; 0.0 with no recorder bound.
 func _recorder_seconds() -> float:
-	if _recorder == null or not is_instance_valid(_recorder):
+	if _recorder == null:
 		return 0.0
+	return _recorder._seconds(_recorder._session_ticks)
+
+
+## The bound recorder's second at the stop, its own count through its own
+## conversion, while the recorder is still the session the start bound: the
+## object there, still recording, under `session_id` (the id written down at
+## the start). Otherwise `t_start_s`: the range ends where it began, an
+## honest nothing, the duration in ticks still counted. A stop after the
+## bound session ended - the recorder stopped, restarted (a new id, its
+## count from 0 again) or freed - borrows no other session's clock; two
+## debug recordings (record_to_file, both id 0) cannot be told apart here.
+# was -> the stop read whatever the recorder held at that moment: a
+# recorder restarted between the two keys gave the OLD session id the NEW
+# session's endpoint (two sessions in one range), a recorder freed gave
+# 0.0 (a range ended before it began).
+func _stop_seconds(t_start_s: float, session_id: int) -> float:
+	if _recorder == null or not is_instance_valid(_recorder) or not _recorder.recording or _recorder._session_id != session_id:
+		return t_start_s
 	return _recorder._seconds(_recorder._session_ticks)
 
 

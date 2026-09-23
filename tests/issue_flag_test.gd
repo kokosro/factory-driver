@@ -34,10 +34,20 @@ extends SceneTree
 ## records round-tripped to the bit, the counter past them, and validate on
 ## broken fixtures naming the record and the field with the default used,
 ## a record without an id left out, a counter behind the ids brought up,
-## an id already taken re-issued. The key: V in the map and on nothing
-## else, the engine's built-ins walked too. The overlay and the line inside the game's own 1280 x 720. Esc in
-## the box files what is typed, and the garage - polling its Esc through
-## the pause - opens over it on the same key, as the HUD says it does.
+## an id already taken re-issued; an id twice in the file loads once (the
+## first record keeps it), an id of too many digits, a counter past
+## COUNTER_MAX, a session id past an int32 and a gear outside -1..20 each
+## refused with their text, a full file writing nothing. The key: V in the
+## map and on nothing else, the engine's built-ins walked too. The overlay
+## and the line inside the game's own 1280 x 720. Esc in the box files what
+## is typed - a text typed first, read back as that text -, and the garage
+## - polling its Esc through the pause - opens over it on the same key, as
+## the HUD says it does. THE STOP GUARD: a recorder stopped, or restarted
+## under a new session id, between the flagger's two keys lends no clock -
+## the record keeps the session it started in and its range ends where it
+## began (t_stop_s == t_start_s), the duration still counted. The debug
+## recording's own .jsonl read back as an independent anchor: its last
+## sample's t_session_s inside the record's range.
 ## Exits 0 on success, 1 on any failed check.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -119,6 +129,7 @@ func _run() -> void:
 	await _check_gate_and_hud()
 	await _check_bindings()
 	_check_store()
+	await _check_stop_guard()
 	await _check_bare_hud()
 
 	_remove_tmp()
@@ -220,14 +231,22 @@ func _check_bindings() -> void:
 	var first: Dictionary = _stopped_records[1]
 	_check(first.get("binding") == IssueStore.BINDING_TELEMETRY and first.get("session_id") == 0 and typeof(first.get("session_id")) == TYPE_INT, "the record binds to the recorder's own session id, honestly 0 in a debug recording")
 	_check_range(first, "the debug recording")
+	# An anchor outside the recorder's fields: the recorder's own file, the
+	# last sample it wrote (the tree is paused now, the recorder with it),
+	# lies inside the range - the flagger's two reads straddle the tail.
+	var last_sample_s := _last_sample_second(debug_file)
+	_check(last_sample_s >= 0.0 and first.get("t_start_s") <= last_sample_s and last_sample_s <= first.get("t_stop_s"), "the debug recording's own .jsonl anchors the range: its last sample's t_session_s (%.5f s) lies inside %.5f - %.5f s" % [last_sample_s, first.get("t_start_s"), first.get("t_stop_s")])
 	_check(_hud.issue_caption_text().contains("bound to telemetry session 0"), "the caption names the session and the range")
+	# was -> Esc was asserted on an EMPTY box, which a discarded text would
+	# have passed too: a text is typed first and read back as that text.
+	await _type("snaps over the crest")
 	var before_esc := (_hud.get_node("IssueOverlay/Description") as LineEdit).text
 	await _key(KEY_ESCAPE)
 	await _step(3)
-	_check(not _hud.issue_overlay_visible() and _flagger.last_filed.get("description") == before_esc and _flagger.last_written_id == "issue-0001" and FileAccess.file_exists(_issues_file), "Esc files what is typed (\"%s\") under issue-0001, into the test's file" % before_esc)
+	_check(before_esc == "snaps over the crest" and not _hud.issue_overlay_visible() and _flagger.last_filed.get("description") == "snaps over the crest" and _flagger.last_written_id == "issue-0001" and FileAccess.file_exists(_issues_file), "Esc files what is typed (\"%s\", typed into the box first) under issue-0001, into the test's file" % before_esc)
 	_check(_garage.is_open and paused, "and the garage opened over it on the same Esc (its poll runs through the pause): the garage holds the pause")
 	await _tap(Garage.ACTION_OPEN)
-	_check(not _garage.is_open and not paused, "Tab closes the garage, the tree runs on")
+	_check(not _garage.is_open and not paused and IssueStore.load_issues(_issues_file).issues[0].description == "snaps over the crest", "Tab closes the garage, the tree runs on; the text Esc filed is in the file")
 
 	# Session 2: the recorder's own id, set by hand, and Enter with a text.
 	_recorder._session_id = 42
@@ -301,6 +320,17 @@ func _ticks_between() -> int:
 	return _ticks_at_stop - _ticks_at_start
 
 
+## The t_session_s of the last sample line in a recorder's .jsonl (the
+## session_start line has none); -1.0 for no sample.
+func _last_sample_second(path: String) -> float:
+	var last := -1.0
+	for line in FileAccess.get_file_as_string(path).split("\n", false):
+		var parsed: Variant = JSON.parse_string(line)
+		if parsed is Dictionary and (parsed as Dictionary).has("t_session_s"):
+			last = float((parsed as Dictionary)["t_session_s"])
+	return last
+
+
 # =============================================================================
 #  The store
 # =============================================================================
@@ -358,8 +388,109 @@ func _check_store() -> void:
 	_check(taken == "issue-0004" and none == "issue-0005" and after.issues.size() == 5 and after.next_issue_id == 6 and after.issues[3].description == "again" and after.issues[3].session_id == 0 and after.issues[4].description == "no id" and (after.problems as Array).is_empty(), "an id already taken and no id both get the counter's; a field that is none of its own is written as its default; the first three untouched")
 	var far := IssueStore.add({"id": "issue-0100"}, _issues_file)
 	_check(far == "issue-0100" and IssueStore.load_issues(_issues_file).next_issue_id == 101 and IssueStore.next_id(_issues_file) == "issue-0101", "an id of one's own that is free is kept, the counter moves past it")
-	for name in ["broken.json", "array.json"]:
+
+	# The bounds: the id's digits, the counter's ceiling, the session id's
+	# and the gear's.
+	_check(IssueStore.id_number("issue-999999999999") == 999999999999 and IssueStore.id_number("issue-1000000000000") == 0 and IssueStore.id_number("issue-9223372036854775807") == 0 and IssueStore.ID_MAX_DIGITS == 12, "an id of up to twelve digits counts, thirteen or more (a saturating to_int among them) is no id")
+	var bounds := _tmp_dir + "/bounds.json"
+	_write_raw(bounds, {
+		"version": 1,
+		"next_issue_id": 1e30,
+		"issues": [
+			{"id": "issue-0001", "session_id": 3000000000, "car_state": {"gear": 21}},
+			{"id": "issue-0002", "session_id": 2147483647, "car_state": {"gear": -2}},
+			{"id": "issue-9223372036854775807"},
+		],
+	})
+	var bounded := IssueStore.load_issues(bounds)
+	var bounded_said := "\n".join(PackedStringArray(bounded.problems))
+	_check(bounded.issues.size() == 2 and bounded.issues[0].session_id == 0 and bounded.issues[0].car_state.gear == 0 and bounded.issues[1].session_id == 2147483647 and bounded.issues[1].car_state.gear == 0 and bounded.next_issue_id == 3 and bounded.problems.size() == 5, "a session id past an int32 and a gear outside -1..20 read as their defaults (an int32 itself kept), the saturating id left out, a counter of 1e30 brought to 3: five texts (%d)" % bounded.problems.size())
+	_check(bounded_said.contains("issue-0001's session_id is over 2147483647 (3000000000.0), 0 is used") and bounded_said.contains("issue-0001's car_state gear is over 20 (21.0), 0 is used") and bounded_said.contains("issue-0002's car_state gear is under -1 (-2.0), 0 is used") and bounded_said.contains("issue 2 has no id (issue-9223372036854775807), it is left out") and bounded_said.contains("next_issue_id ") and bounded_said.contains(" is no counter over the 2 issue(s) there are, 3 is used"), "each bound is reported by record and field with the default used, the counter's text naming 3")
+	# The full file: the last id COUNTER_MAX may be written, then nothing.
+	var full := _tmp_dir + "/full.json"
+	var last_id := IssueStore.add({"id": "issue-99999999", "description": "the last"}, full)
+	var full_loaded := IssueStore.load_issues(full)
+	var full_bytes := FileAccess.get_file_as_string(full)
+	var refused := IssueStore.add({"description": "one more"}, full)
+	var refused_taken := IssueStore.add({"id": "issue-99999999", "description": "taken"}, full)
+	_check(last_id == "issue-99999999" and IssueStore.COUNTER_MAX == 99999999 and full_loaded.issues.size() == 1 and full_loaded.next_issue_id == 100000000 and full_loaded.problems.size() == 1 and (full_loaded.problems[0] as String).contains("next_issue_id 100000000") and refused == "" and refused_taken == "" and FileAccess.get_file_as_string(full) == full_bytes, "a record under the counter's ceiling issue-99999999 is written; the file is full then: the counter past the ceiling reported, add from the counter - no id, or an id taken - writes nothing and returns \"\", the file's bytes untouched")
+	var free_own := IssueStore.add({"id": "issue-0001", "description": "own id"}, full)
+	_check(free_own == "issue-0001" and IssueStore.load_issues(full).issues.size() == 2 and IssueStore.load_issues(full).next_issue_id == 100000000, "a free id of one's own under the ceiling is still written into the full file, the counter left past the ceiling")
+
+	# A duplicate id: the first record keeps it, the second is left out.
+	var twice := _tmp_dir + "/twice.json"
+	_write_raw(twice, {
+		"version": 1,
+		"next_issue_id": 3,
+		"issues": [
+			{"id": "issue-0001", "description": "first"},
+			{"id": "issue-0001", "description": "second"},
+			{"id": "issue-0002", "description": "other"},
+		],
+	})
+	var twice_loaded := IssueStore.load_issues(twice)
+	_check(twice_loaded.issues.size() == 2 and twice_loaded.issues[0].description == "first" and twice_loaded.issues[1].id == "issue-0002" and twice_loaded.next_issue_id == 3 and twice_loaded.problems == ["%s: issue 1's id issue-0001 is already in the file, the first record keeps it, this one is left out" % twice], "an id twice in the file: the first record keeps it, the second is left out with one text naming it by position")
+	var under_dup := IssueStore.add({"id": "issue-0001", "description": "third"}, twice)
+	var twice_after := IssueStore.load_issues(twice)
+	_check(under_dup == "issue-0003" and twice_after.issues.size() == 3 and twice_after.issues[2].description == "third" and twice_after.issues[2].id == "issue-0003" and twice_after.next_issue_id == 4 and twice_after.problems.size() == 1, "add under the duplicated id writes under the counter's issue-0003, not the id twice taken; the file's own duplicate is written back as read and still left out")
+	for name in ["broken.json", "array.json", "bounds.json", "full.json", "twice.json"]:
 		DirAccess.remove_absolute(_tmp_dir.path_join(name))
+
+
+# =============================================================================
+#  The stop guard
+# =============================================================================
+
+## The recorder stopped between the flagger's two keys, and the recorder
+## restarted under a new session id between them: the record keeps the
+## session it started in and its range ends where it began, t_stop_s ==
+## t_start_s - no other session's clock borrowed, no range turned round -,
+## the binding still the telemetry's and the duration the tick count.
+func _check_stop_guard() -> void:
+	var guard_file := _tmp_dir + "/guard.json"
+	_flagger.path = guard_file
+	_recorder.record_to_file(_tmp_dir + "/guard.jsonl")
+	await _step(5)
+	# The recorder stopped mid-flag.
+	var started := _flagger.start()
+	var t_start: float = _flagger._start.get("t_start_s", -1.0)
+	Input.action_press(&"accelerate")
+	await _step(DRIVE_FRAMES)
+	Input.action_release(&"accelerate")
+	await _step(2)
+	_recorder.stop()
+	await _step(2)
+	var stopped := _flagger.stop()
+	_check(started and _recorder.recording == false and t_start == _recorder._seconds(5) and t_start > 0.0 and stopped.get("binding") == IssueStore.BINDING_TELEMETRY and stopped.get("session_id") == 0 and stopped.get("t_start_s") == t_start and stopped.get("t_stop_s") == t_start and stopped.get("duration_s") == snappedf((DRIVE_FRAMES + 4) * TelemetryRecorder.TICK_SECONDS, TelemetryRecorder.TIME_SNAP), "the recorder stopped mid-flag: the record keeps the telemetry binding and session 0, its range ends where it began (%.5f - %.5f s, was a fresh read of whatever the recorder held), the duration still the %d ticks" % [stopped.get("t_start_s"), stopped.get("t_stop_s"), DRIVE_FRAMES + 4])
+	_hud.commit_issue_description("recorder stopped mid-flag")
+	_check(_flagger.last_written_id == "issue-0001" and not paused, "filed under issue-0001 of the guard's file")
+
+	# The recorder restarted mid-flag under a new session id: its count from
+	# 0 again, another session's clock.
+	_recorder.record_to_file(_tmp_dir + "/guard.jsonl")
+	_recorder._session_id = 42
+	await _step(5)
+	started = _flagger.start()
+	t_start = _flagger._start.get("t_start_s", -1.0)
+	Input.action_press(&"accelerate")
+	await _step(DRIVE_FRAMES)
+	Input.action_release(&"accelerate")
+	await _step(2)
+	_recorder.record_to_file(_tmp_dir + "/guard2.jsonl")
+	_recorder._session_id = 43
+	await _step(2)
+	var fresh_clock := _recorder._seconds(_recorder._session_ticks)
+	stopped = _flagger.stop()
+	_check(started and _recorder.recording and _recorder._session_id == 43 and fresh_clock < t_start and stopped.get("session_id") == 42 and stopped.get("binding") == IssueStore.BINDING_TELEMETRY and stopped.get("t_start_s") == t_start and stopped.get("t_stop_s") == t_start and stopped.get("duration_s") == snappedf((DRIVE_FRAMES + 4) * TelemetryRecorder.TICK_SECONDS, TelemetryRecorder.TIME_SNAP), "the recorder restarted mid-flag as session 43 (its clock at %.5f s, below the start's %.5f s): the record keeps session 42 and its range ends where it began (was session 42 with session 43's endpoint), the duration still the %d ticks" % [fresh_clock, t_start, DRIVE_FRAMES + 4])
+	_hud.commit_issue_description("recorder restarted mid-flag")
+	var guard_loaded := IssueStore.load_issues(guard_file)
+	_check(_flagger.last_written_id == "issue-0002" and not paused and guard_loaded.issues.size() == 2 and guard_loaded.issues[1].session_id == 42 and guard_loaded.issues[1].t_stop_s == guard_loaded.issues[1].t_start_s and (guard_loaded.problems as Array).is_empty(), "filed under issue-0002 and read back: session 42, the degenerate range, no problem text")
+	_recorder.stop()
+	_recorder._session_id = 0
+	_flagger.path = IssueStore.PATH
+	for name in ["guard.json", "guard.jsonl", "guard2.jsonl"]:
+		if FileAccess.file_exists(_tmp_dir.path_join(name)):
+			DirAccess.remove_absolute(_tmp_dir.path_join(name))
 
 
 # =============================================================================

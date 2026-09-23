@@ -50,9 +50,26 @@ extends RefCounted
 const PATH := "user://issues.json"
 const VERSION := 1
 
-## An id as it is written: "issue-" and the counter, at least four digits.
+## An id as it is written: "issue-" and the counter, at least four digits
+## and at most twelve: what is longer is no id (String.to_int saturates at
+## 19 digits, and a counter past a saturated id has nowhere to go).
 const ID_PREFIX := "issue-"
 const ID_DIGITS := 4
+const ID_MAX_DIGITS := 12
+
+## The counter's ceiling: eight digits at most. A file whose ids reach it
+## is full - add writes nothing then -, and a next_issue_id past it is no
+## counter (a float like 1e30 is a whole number int() cannot hold).
+const COUNTER_MAX := 99999999
+
+## The largest session id (an int32, the recorder's index counts up from 1):
+## a bigger number is no session id.
+const SESSION_ID_MAX := 2147483647
+
+## What a gear may be: -1 reverse engaged, 0 neutral, then the gearbox's
+## own (single digits); the ceiling only keeps a corrupt number out.
+const GEAR_MIN := -1
+const GEAR_MAX := 20
 
 ## What a record's status may be: open until it is diagnosed and closed by
 ## hand (nothing here closes one).
@@ -118,12 +135,13 @@ static func format_id(number: int) -> String:
 	return "%s%0*d" % [ID_PREFIX, ID_DIGITS, number]
 
 
-## The counter behind an id, 7 for "issue-0007"; 0 for anything that is no id.
+## The counter behind an id, 7 for "issue-0007"; 0 for anything that is no
+## id, digits past ID_MAX_DIGITS among them.
 static func id_number(id: Variant) -> int:
 	if not id is String or not (id as String).begins_with(ID_PREFIX):
 		return 0
 	var digits := (id as String).trim_prefix(ID_PREFIX)
-	if digits.length() < ID_DIGITS or not digits.is_valid_int() or digits.begins_with("-") or digits.begins_with("+"):
+	if digits.length() < ID_DIGITS or digits.length() > ID_MAX_DIGITS or not digits.is_valid_int() or digits.begins_with("-") or digits.begins_with("+"):
 		return 0
 	return maxi(digits.to_int(), 0)
 
@@ -135,9 +153,11 @@ static func id_number(id: Variant) -> int:
 ## No file is no issues, counter 1, no problems. A field that is there and is
 ## none of its own reads as its default and puts one text in "problems",
 ## naming the record and the field; the other fields still load. A record
-## that is no dictionary, or has no usable id, is left out, with a text. A
-## counter that is no whole number over every id in the file is brought up
-## to one, with a text. Nothing is reported from here: whoever asked says it,
+## that is no dictionary, or has no usable id, is left out, with a text; so
+## is a record whose id an earlier record in the file already has (the first
+## keeps it). A counter that is no whole number over every id in the file
+## and within COUNTER_MAX is brought up to one past the highest id, with a
+## text. Nothing is reported from here: whoever asked says it,
 ## the tests read the texts. The default path while the switch is off is
 ## not read: no file, as above.
 static func load_issues(path := PATH) -> Dictionary:
@@ -149,6 +169,7 @@ static func load_issues(path := PATH) -> Dictionary:
 		problems.append("%s: issues is not a list (%s), none are read" % [path, str(raw)])
 		raw = []
 	var highest := 0
+	var seen := {}
 	for position in (raw as Array).size():
 		var record: Variant = (raw as Array)[position]
 		if not record is Dictionary:
@@ -158,11 +179,18 @@ static func load_issues(path := PATH) -> Dictionary:
 		if number == 0:
 			problems.append("%s: issue %d has no id (%s), it is left out" % [path, position, str((record as Dictionary).get("id"))])
 			continue
+		# was -> two records under one id both loaded: the first keeps it.
+		if seen.has(number):
+			problems.append("%s: issue %d's id %s is already in the file, the first record keeps it, this one is left out" % [path, position, str((record as Dictionary).get("id"))])
+			continue
+		seen[number] = true
 		highest = maxi(highest, number)
 		issues.append(_checked(record, path, problems))
+	# was -> a cursor of any size passed as a whole number (int() mangles 1e30).
+	highest = mini(highest, COUNTER_MAX)
 	var cursor: Variant = stored.get("next_issue_id", highest + 1)
 	var counter := highest + 1
-	if not (cursor is float or cursor is int) or not is_finite(cursor) or cursor != floorf(cursor) or cursor < highest + 1:
+	if not (cursor is float or cursor is int) or not is_finite(cursor) or cursor != floorf(cursor) or cursor < highest + 1 or cursor > COUNTER_MAX:
 		problems.append("%s: next_issue_id %s is no counter over the %d issue(s) there are, %d is used" % [path, str(cursor), issues.size(), highest + 1])
 	else:
 		counter = int(cursor)
@@ -178,7 +206,9 @@ static func load_issues(path := PATH) -> Dictionary:
 ## out, or is none of its own, goes in as its default, so what is in the file
 ## is always readable back; the rest of the file is written back as it was
 ## read. The default path while the switch is off is refused: nothing read,
-## nothing written.
+## nothing written. A file whose counter is past COUNTER_MAX is full: nothing
+## written, "" - there is no problem text to give from here, the id returned
+## is the report.
 static func add(issue: Dictionary, path := PATH) -> String:
 	if not allowed(path):
 		return ""
@@ -187,10 +217,12 @@ static func add(issue: Dictionary, path := PATH) -> String:
 	var issues: Array = stored.get("issues", []) if stored.get("issues") is Array else []
 	var taken := {}
 	for record: Dictionary in loaded.issues:
-		taken[record.id] = true
+		taken[id_number(record.id)] = true
 	var number := id_number(issue.get("id"))
-	if number == 0 or taken.has(format_id(number)):
+	if number == 0 or taken.has(number):
 		number = loaded.next_issue_id
+	if number > COUNTER_MAX:
+		return ""
 	var written := _checked(issue, path, [])
 	written["id"] = format_id(number)
 	issues.append(written)
@@ -212,8 +244,9 @@ static func add(issue: Dictionary, path := PATH) -> String:
 ## What keeps `stored` from being the record field `field`; "" when it is one.
 ## The texts are strings; the status and the binding are from their lists;
 ## the seconds and the metres are finite numbers, none of them negative; the
-## session id is a whole number, none or a session's; the car state is a
-## dictionary (its own fields are checked one by one, car_state_problem).
+## session id is a whole number, none or a session's, up to SESSION_ID_MAX;
+## the car state is a dictionary (its own fields are checked one by one,
+## car_state_problem).
 static func issue_problem(field: String, stored: Variant) -> String:
 	match field:
 		"status":
@@ -234,7 +267,9 @@ static func issue_problem(field: String, stored: Variant) -> String:
 			var whole := _whole_problem(stored)
 			if whole != "":
 				return whole
-			return "" if stored >= 0 else "is under 0 (%s)" % str(stored)
+			if stored < 0:
+				return "is under 0 (%s)" % str(stored)
+			return "" if stored <= SESSION_ID_MAX else "is over %d (%s)" % [SESSION_ID_MAX, str(stored)]
 		"duration_s", "t_start_s", "t_stop_s", "odometer_start_m", "odometer_stop_m":
 			return _non_negative_problem(stored)
 		"car_state":
@@ -243,12 +278,18 @@ static func issue_problem(field: String, stored: Variant) -> String:
 
 
 ## What keeps `stored` from being the car-state field `field`; "" when it is
-## one. The gear is a whole number; the rest are finite numbers.
+## one. The gear is a whole number from GEAR_MIN to GEAR_MAX; the rest are
+## finite numbers.
 static func car_state_problem(field: String, stored: Variant) -> String:
 	if not field in CAR_STATE_DEFAULTS:
 		return "is no car-state field"
 	if field == "gear":
-		return _whole_problem(stored)
+		var whole := _whole_problem(stored)
+		if whole != "":
+			return whole
+		if stored < GEAR_MIN:
+			return "is under %d (%s)" % [GEAR_MIN, str(stored)]
+		return "" if stored <= GEAR_MAX else "is over %d (%s)" % [GEAR_MAX, str(stored)]
 	if not (stored is float or stored is int):
 		return "is not a number (%s)" % str(stored)
 	if not is_finite(stored):
