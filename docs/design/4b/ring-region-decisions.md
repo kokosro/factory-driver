@@ -57,6 +57,20 @@ was likely of the paved classes only, ~2 208 without track and service):
 - PUT IN STONE — Reference points the drape must reproduce within the DGM1's stated accuracy plus
   the recorded rounding: Breidscheid (lowest) ~320 m, Hohe Acht / T13 (highest) ~620 m
   (docs/nordschleife-data-sources.md §1). A drape that does not is a pipeline bug, not a tuning.
+  was Breidscheid ~320 ± 5 m -> 333 ± 2 m at the Breidscheid bridge; was "Hohe Acht / T13 ~620
+  ± 5 m" -> the loop's top 627.5 ± 2 m at T13 (the Sabine-Schmitz-Kurve), the Hohe Acht way
+  itself 616.8 ± 2 m — measured 4B-3 (2026-09-23) on the verified DGM1 tiles, the Conductor's
+  "measure first, then decide" rule: the loop's lowest dense sample is 332.94 m at the shared
+  endpoint of loop segments 41395647-0 (bridge=yes) and 683006908-0 ("Breidscheid", no bridge
+  tag) at (2247.813, -5557.306); the raw DGM1 ground (no deck rule, no platform) at that point
+  reads 332.94 m, on the track line within 100 m of it 331.83-342.98 m over 114 stations, and
+  the lowest ground of any kind within 150 m (the stream bed) 327.08 m — so the ~320 figure was
+  the recorded source's loose round, not a drape fault, and no tolerance was widened: the pin
+  moved to the measured value with a tighter band. The loop's highest dense sample is 627.52 m
+  on 1009142894-0 (Sabine-Schmitz-Kurve, T13), the commonly cited 627.5 m; the Hohe Acht way
+  414785756 tops at 616.50 m against the officially recorded 616.8 m (0.3 m) and the Nürburg
+  castle hill reads 680.65 m against the recorded 678 m: the tiles and the DHHN2016 datum are
+  right. The suite holds all three (tests/world_profile_test.gd).
 - DECIDED, REVISITABLE — Slope truth: the recorded gradients (Fuchsröhre 11 % down, short 27 %
   stretches, up to 18 % down Flugplatz → Karussell → Hohe Acht, §1) are what the world profile must
   carry to the car; MAX_SLOPE 0.015 (road_profile.gd:96) is the pad's assumption, explicitly
@@ -67,6 +81,25 @@ was likely of the paved classes only, ~2 208 without track and service):
   surface model carries structures); (c) else the R9 element's parametric bank (bank 30 %, bowl
   width 6.5 m, asphalt strip 1 m) fitted to the OSM way. Whichever wins is recorded here as
   "was ->".
+  was (the tree open) -> (c) TAKEN, 4B-3 (2026-09-23): the Karussell is in tile 356_5581, not
+  355_5580 (the skeleton's first point of way 414785755 is E 356 780.6 / N 5 581 961.7; the
+  tile named above and in data-pipeline.md §2.2/§5 lies 1 km south-west, inside the core all
+  the same); (a) DGM1 356_5581, sha-verified: 31 cross-sections every 5 m along the 152.9 m way,
+  ±8 m to the right of travel, show the bowl smeared by the 1 m gridding — the steepest 1 m cell
+  reaches 35.5 % over a 3-4 m band but the slope across the 7.5 m paved platform tops at 19.5 %
+  (18.2 % mean over the bowl's middle 30-125 m): under the tree's ≥ 20 %, so (a) fails by the
+  letter; (b) DOM1 verified live (geoshop.rlp.de/files/anpassungen/hvd/products/dom1.json names
+  the per-district metalink dom1_tif_07{kreissch}.meta4 and the tile pattern
+  dom1_32_<E>_<N>_1_rp_<year>.tif; dom1_tif_07131.meta4 lists dom1_32_356_5581_1_rp_2025.tif,
+  2 398 554 bytes, sha256 1d1150cc…, fetched and verified) gives the identical bowl (platform
+  19.6 % max, 18.2 % mean; the surface model differs from the ground model only outside the
+  paved width, where the fence and trees stand +3.4..+10 m at +6..+8 m): (b) fails the same
+  way; (c) the R9 element's parametric bank, 30 % over a 6.5 m bowl with the 1 m asphalt strip
+  at the inside, fitted to way 414785755 (a left-hander: the bank rises to the right of travel,
+  the centre anchored on the DGM1's centre height), and the DGM1 corroborates the numbers: the
+  inside-to-outside drop across the bowl measures 1.9-2.0 m, and 30 % × 6.5 m = 1.95 m. The
+  drape's label carries kind:bank with the three parameters (tools/world/drape.py,
+  `--section 414785755` prints the evidence; the DOM1 run with `--tile-prefix dom1`).
 - DEFERRED — Surface bumps and seams (recorded §2: Bergwerk seams, Brünnchen concrete patch): the
   micro-bump layer of the world profile takes them when a per-segment seed table exists (4B-4+).
 

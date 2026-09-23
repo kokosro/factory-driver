@@ -58,6 +58,8 @@
   is its slope to 1e-4; bilinear continuity across tile seams (no step > 1 mm); a bridge deck is
   linear between abutments; a crest label appears where the fixture's curvature says. On the real
   drape file (if checked in): Breidscheid sample within 320 ± 5 m, Hohe Acht within 620 ± 5 m.
+  (was -> measured 4B-3: Breidscheid 333 ± 2 m, the loop's top at T13 627.5 ± 2 m, the Hohe
+  Acht way 616.8 ± 2 m; ring-region-decisions.md §3 has the measurement.)
 - DoD: world_profile_test ok; `RoadProfile.flat()` and the pad's profile untouched (road_profile.gd
   frozen); certs untouched.
 

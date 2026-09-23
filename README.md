@@ -618,6 +618,16 @@ nothing in the game restores a component. Between sessions the wear rides `user:
 battery (see The car's own file below); the headless suite and the certified runs read
 nothing, every car there starts new.
 
+### Data sources & licences
+
+The Ring region's world data under `data/regions/eifel_ring/` is derived from two public
+sources (`docs/design/4b/data-pipeline.md` §8 has the verified wording and the licence links):
+- Road geometry: © OpenStreetMap contributors — data licensed under ODbL 1.0,
+  https://www.openstreetmap.org/copyright
+- Elevation: © GeoBasis-DE / LVermGeoRP 2026, dl-de/by-2-0 (https://www.govdata.de/dl-de/by-2-0),
+  www.lvermgeo.rlp.de, DGM1 Rheinland-Pfalz [Daten bearbeitet] (also offered under CC BY-SA 4.0;
+  we attribute under DL-DE BY 2.0). The DGM1 tiles themselves are not in the repository.
+
 ### Tests
 
 ```sh
