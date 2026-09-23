@@ -135,8 +135,10 @@ xargs -n1 curl -sO < urls.txt
 shasum -a 256 -c SHA256SUMS
 ```
 Measured 2026-09-23: the core is 42 tiles, 68.3 MB (every tile dated 2025); the whole bbox is 391
-tiles, 658.2 MB. One tile: `dgm1_32_355_5580_1_rp_2025.tif` (the Karussell), 1 770 201 bytes,
-`Last-Modified: 12 May 2026`. Metadata per tile:
+tiles, 658.2 MB. One tile: `dgm1_32_355_5580_1_rp_2025.tif`, 1 770 201 bytes,
+`Last-Modified: 12 May 2026` (was "(the Karussell)" -> the Karussell is in tile 356_5581: the
+skeleton's first point of way 414785755 is E 356 780.6 / N 5 581 961.7, measured at 4B-3; the
+Conductor's docs pass, 4B-4). Metadata per tile:
 `https://geobasis-rlp.de/data/dgm1/current/metadata/<tile>_meta.xml` (carries the licence note
 quoted in §8 and the accuracy statement).
 
@@ -280,7 +282,8 @@ LIVE-VERIFIED 2026-09-23:
 
 ## Open questions
 1. DOM1/DOMB download path and whether the 1 m surface model resolves the Karussell's bank: verify
-   in 4B-3 by opening `dgm1_32_355_5580` and, if flat, the DOM tile.
+   in 4B-3 by opening `dgm1_32_356_5581` (was `dgm1_32_355_5580` -> the Karussell's tile is
+   356_5581, measured at 4B-3) and, if flat, the DOM tile. DONE 4B-3: ring-region-decisions.md §3.
 2. CC BY-SA 4.0 vs DL-DE BY 2.0: both offered; is DL-DE alone acceptable to the driver for a
    shipped game? (No share-alike on the game's meshes under DL-DE.)
 3. Overpass reliability: pin one mirror or keep a fallback list? Snapshots make this a one-time cost.
