@@ -211,15 +211,20 @@ These are German road-design values (RAL/RASt), not measured: open question 2 in
   attrs, not scipy; no network, nothing installed), so the recipe's pre-approved alternative is
   the deliverable, pure python (a banded Cholesky of the pentadiagonal system in plain floats:
   no BLAS, so two builds are the same bytes). **λ = 5**, a hardcoded constant: the λ range
-  rescaled for 2 m stations (h⁴ scaling), Conductor-approved 2026-09-23; was the recipe's
-  per-1 m-sample 1e2..1e5. The Whittaker cutoff wavelength scales as L_cut ≈ 2π·h·λ^(1/4) for a
-  sample spacing h, so an equal cutoff needs λ ∝ h⁴: the recipe's range at ~1 m samples is
-  L_cut ≈ 12.6-126 m, and at the drape's 2 m stations the same numbers give L_cut ≈ 39-126 m,
+  rescaled for 2 m stations, Conductor-approved 2026-09-23; was the recipe's per-1 m-sample
+  1e2..1e5. The Whittaker cutoff wavelength scales as L_cut ≈ 2π·h·λ^(1/4) for a sample spacing
+  h, so an equal cutoff needs λ ∝ h⁻⁴ - at 2 m stations the same cutoff takes a λ 16× SMALLER
+  than at 1 m. was (this paragraph and the Conductor's ruling text) "λ ∝ h⁴; the recipe's range
+  at ~1 m is L_cut ≈ 12.6-126 m, at 2 m ≈ 39-126 m" -> corrected (the codex read-only review
+  found the proportionality inverted and the numbers wrong; recorded, not blamed): at 1 m the
+  recipe's 1e2..1e5 gives L_cut ≈ 19.9-111.7 m, at 2 m the same λ range gives ≈ 39.7-223.5 m,
   attenuating the very 20-40 m crests the gates require to survive (measured on the checked-in
   file: λ 1e2 loses 258 labels of |curvature| ≥ 0.01 and moves loop heights by up to 2.47 m;
-  a rule that fails its own gates is mis-scaled, not sacred). λ 5 at 2 m gives L_cut ≈ 19 m,
-  H ≈ 1/21 at 8 m, ~58 % of a raw 20 m wave kept, 95 % at 40 m, 99 % at 60 m; the protection
-  carries the labelled crests. **The edge**: natural (free) ends, D of n − 2 rows, no second
+  a rule that fails its own gates is mis-scaled, not sacred). λ 5 at 2 m gives L_cut ≈ 18.8 m
+  (the half-power wavelength 18.4 m) and corresponds to λ ≈ 80 at 1 m - just under the recipe's
+  1e2 floor, its intent's lower edge; the decision stands, only the scaling argument's direction
+  and numbers are corrected. H ≈ 1/21 at 8 m, ~58 % of a raw 20 m wave kept, 95 % at 40 m, 99 %
+  at 60 m; the protection carries the labelled crests. **The edge**: natural (free) ends, D of n − 2 rows, no second
   difference imposed across a segment's end; the end station past the last whole one (an
   uneven length) is outside the uniform spacing and takes the fit's last grade over its own
   length. **The protection**: the labels are taken on the smoothed heights; every station of a
@@ -227,7 +232,7 @@ These are German road-design values (RAL/RASt), not measured: open question 2 in
   same solve, so the neighbours bend onto the raw stations instead of stepping to them), and
   the file's labels are recomputed on the final heights, which is what the suite's recount
   reads. Measured on the file: 2 623 of the 3 314 covered segments smoothed (33 bridges, 10
-  tunnels and 647 plain segments under 20 m left as sampled); labels 2 551 crests / 2 465 dips
+  tunnels and 648 plain segments under 20 m left as sampled); labels 2 551 crests / 2 465 dips
   -> 1 927 / 1 874; of the raw
   labels of |curvature| ≥ 0.01 seven have no label of their kind within 6 m afterwards, five of
   them still labelled with the run's steepest station moved 8-20 m along and two one- or
@@ -238,10 +243,11 @@ These are German road-design values (RAL/RASt), not measured: open question 2 in
   5 mm rms in the 4-16 m band, far under the survey's ±15 cm per cell (the forest tracks are
   the noisy class: a 5 % grade change per station at their 90th percentile). The noisy fixture
   (drape.py --selftest: ±15 cm of seeded white noise per cell on a plane with a 30 m crest):
-  the flat band's height residual peak-to-peak shrinks 2.4× (the brief's 3× needs λ ≥ 30 on
-  white noise, where the 40 m wavelength is cut to 0.78: the feature gate's loss - recorded,
-  not taken), the station-to-station grade change ≥ 3×, the crest still labelled with the raw
-  data's own curvature and its top station the raw height.
+  the flat band's height residual peak-to-peak shrinks 2.3× on the finished, centimetre-rounded
+  record (2.4× on the unrounded fit; the brief's 3× is first reached at λ 30 on white noise,
+  where the 40 m wavelength is cut to 0.78: the feature gate's loss - recorded, not taken), the
+  station-to-station grade change ≥ 3×, the crest still labelled with the raw data's own
+  curvature and its top station the raw height.
 - **The junction rule** (write-side, the readers untouched): at every skeleton junction the
   draped segments' ends on the node are stitched. Height: a rigid participant holds the node -
   a bridge's deck end, a tunnel's portal, a partly covered segment's raw sample (all the raw
@@ -250,15 +256,32 @@ These are German road-design values (RAL/RASt), not measured: open question 2 in
   service, track), the Nordschleife loop wins ties, and the winners' mean is the node's height;
   every covered plain participant's stations within **8 m** of the node are shifted by
   smoothstep(1 − d / 8 m) times (node height − its own end height), the grade kept and the gap
-  closed (the radius is half the segment's length under 16 m so both ends land). Crossfall:
-  the same priority over every non-bank participant's end point (the Karussell's bank neither
-  votes nor moves), the winners' mean written to each end point. The file's centre heights
-  already agreed at every junction (the same DEM sample), so the height stitch closes only what
-  the smoother's free ends open (centimetres); the crossfall stitch is what issue-0005 was: the
-  two loop segments met at one centre height with −0.8 % and +4.0 % of crossfall, a 0.255 m
-  stair at the right paved edge and 0.150 m at the left, now 0.000; T13's pit lane met the loop
-  at −4 % against +4 %, a 0.340 m ridge, now 0.000; 1 562 junctions had a crossfall gap over
-  2 % (29 on the loop), now none. The T13 four-way junction's 0.413 m step in the ring drive
+  closed (the radius is half the segment's length under 16 m so both ends land; a zero-length
+  record - the skeleton admits identical points - has no radius and is written nothing, the
+  codex review's F2). Crossfall, as a tilt in WORLD space (the codex review's F1: a crossfall
+  is "rise to the right of travel" and right is each segment's own frame, so the same signed
+  value on two segments leaving a node in opposite directions is two opposite tilts - measured
+  18.2 cm of one-side stair at node 3183494700 between the primaries 312490275-0 and
+  82512875-0 with the first stitch): each non-bank participant's end crossfall times its end
+  chord's right normal is its tilt vector; a rigid participant holds its end tilt and is never
+  moved (the pick when several: class rank, the loop, the segment id, the start before the
+  end - the codex review's F4: the first stitch let a track's mean move the bridge 440567173-0's
+  end from 0.06 to 0.0055), else the winners' mean of the plain participants' tilt vectors by
+  the same class/loop priority; only the plain non-bank participants are written, each its
+  own right normal's component of the target (the Karussell's bank neither votes nor moves).
+  The file's centre heights already agreed at every junction (the same DEM sample), so on the
+  loop the height stitch closes only what the smoother's free ends open: the loop's 184
+  segment ends move by at most 2 cm, except the T13 four-way node's two by 8 cm (known limit
+  (2) in docs/night-shift-3.md); on a side road ending at a structure's cut the offset is the
+  DEM's wall the smoother turned into a ramp - the largest 3.08 m at 159029005-1's end, a
+  tertiary (known limit (1)). "The grade kept" holds at the end station (smoothstep's
+  derivative is zero there); the offset's own grade spreads over the blend, at most
+  1.5 × offset / radius at its middle: 58 % per metre on that worst case, 1.5 % on the T13
+  node's 8 cm (the codex review's F5). The crossfall stitch is what issue-0005 was: the two
+  loop segments met at one centre height with −0.8 % and +4.0 % of crossfall, a 0.255 m stair
+  at the right paved edge and 0.150 m at the left, now 0.000; T13's pit lane met the loop at
+  −4 % against +4 %, a 0.340 m ridge, now 0.000; 1 562 junctions had a crossfall gap over 2 %
+  (29 on the loop), now none. The T13 four-way junction's 0.413 m step in the ring drive
   test's loop sweep was never in the file (the four ends read 618.65 m alike): it is the
   reader's rim rule lifting one branch through the junction; recorded below, not this rule's.
 - Crest/dip detection (R7/R8): second difference of height over 20 m and 40 m windows; a crest
