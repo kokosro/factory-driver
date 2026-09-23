@@ -49,6 +49,14 @@ E0 = 352000.0  # [m] easting of the origin, EPSG:25832
 N0 = 5577000.0  # [m] northing of the origin, EPSG:25832
 BBOX = [50.3, 6.8, 50.45, 7.1]  # [deg] south, west, north, east
 
+# The pipeline's own version in skeleton.snapshot (data-pipeline.md §7: a
+# derived file carries the pipeline's own version; the codex review of 4B-2
+# counted the field missing). Bumped when the pipeline's output changes:
+# 1 = the 4B-2 pipeline (projection, split, DP 0.3 m + heading keep, widths,
+# loop), as first shipped. chosen for the skeleton: the docs' schema gained
+# the field with this commit, the loader and the test hold it.
+PIPELINE_VERSION = 1
+
 # The simplification (data-pipeline.md §4 item 2): Douglas-Peucker at 0.3 m
 # removes collinear noise only. chosen for the skeleton: a node whose heading
 # changes by more than HEADING_KEEP_DEG is never removed, whatever its
@@ -140,8 +148,16 @@ def load_snapshot(folder):
     The osm_base is the attic date the six queries asked for (they must agree
     with each other and with extract_osm.OSM_BASE); the server's own
     timestamp_osm_base only has to be at or after it (it reports its live
-    database, not the attic view), else the answer cannot be the snapshot."""
+    database, not the attic view), else the answer cannot be the snapshot.
+    A manifest.json is verified when the folder carries one: its sha256 per
+    raw file must match, so a raw file rewritten by anything but the extract
+    is refused (codex review of 4B-2)."""
     dates = set()
+    manifest = None
+    manifest_path = os.path.join(folder, "manifest.json")
+    if os.path.exists(manifest_path):
+        with open(manifest_path, "r", encoding="utf-8") as handle:
+            manifest = json.load(handle)
     for name in extract_osm.QUERY_NAMES:
         with open(os.path.join(folder, name + ".ql"), "r", encoding="utf-8") as handle:
             text = handle.read()
@@ -158,6 +174,13 @@ def load_snapshot(folder):
         served = raws[name].get("osm3s", {}).get("timestamp_osm_base", "")
         if served < osm_base:
             raise ValueError("%s was served from a database of %s, older than the attic date %s" % (name, served, osm_base))
+        if "remark" in raws[name]:
+            # Overpass puts a remark on a failed or truncated run even with
+            # some elements in it (codex review of 4B-2); a raw file like that
+            # is not the query's data: refuse it, never build from it.
+            raise ValueError("%s carries a remark, not a clean answer: %s" % (name, raws[name]["remark"]))
+        if extract_osm.sha256_of(os.path.join(folder, name + ".json")) != (manifest or {}).get("queries", {}).get(name, {}).get("sha256"):
+            raise ValueError("%s's sha256 does not match the snapshot's manifest; the raw file was written by something else" % name)
     ways = [e for e in raws["q1_skeleton"]["elements"] if e.get("type") == "way"]
     loop_way_ids = sorted(e["id"] for e in raws["q2_nordschleife"]["elements"] if e.get("type") == "way")
     relations = [e for e in raws["q2_nordschleife"]["elements"] if e.get("type") == "relation"]
@@ -322,7 +345,7 @@ def build_skeleton(ways, loop_way_ids, osm_base, query_sha):
     junction_records.sort(key=lambda j: j["id"])
     loop = chain_loop(segments, ends, loop_way_ids)
     skeleton = {
-        "snapshot": {"osm_base": osm_base, "bbox": BBOX, "query_sha": query_sha},
+        "snapshot": {"osm_base": osm_base, "bbox": BBOX, "query_sha": query_sha, "pipeline_version": PIPELINE_VERSION},
         "origin": {"epsg": EPSG, "e0": E0, "n0": N0},
         "segments": segments,
         "junctions": junction_records,
@@ -369,6 +392,22 @@ def chain_loop(segments, ends, loop_way_ids):
             break
     if node != start_node or len(chain) != len(members):
         raise ValueError("relation %d does not close into one loop: %d of %d members chained, ended at node %s" % (NORDSCHLEIFE_RELATION, len(chain), len(members), node))
+    # The stored chain must also be walkable as it is stored (codex review of
+    # 4B-2: the chain walked node ids, not the stored points, so a segment
+    # stored tail-first passed silently): consecutive segments share an
+    # endpoint to the millimetre, and an oneway segment must be entered at its
+    # stored first point — the whole loop runs the way traffic does.
+    by_id = {s["id"]: s for s in segments}
+    for a, b in zip(chain, chain[1:] + chain[:1]):
+        pa, pb = by_id[a]["points"], by_id[b]["points"]
+        if pa[-1] == pb[0]:
+            enters_first = True
+        elif pa[-1] == pb[-1]:
+            enters_first = False
+        else:
+            raise ValueError("loop: %s's stored points do not join %s's" % (a, b))
+        if not enters_first and by_id[b].get("oneway") == "yes":
+            raise ValueError("loop: %s is oneway but the chain runs it backwards" % b)
     return {"id": NORDSCHLEIFE_LOOP_ID, "rel": NORDSCHLEIFE_RELATION, "segments": chain}
 
 

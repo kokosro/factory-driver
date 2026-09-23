@@ -114,16 +114,18 @@ QUERIES = {
     # chosen for the skeleton: §2.1 gives q6 as a sentence ("barrier=* ways,
     # highway=street_lamp|stop|give_way, traffic_sign=*, power=pole|line,
     # railway=level_crossing|rail; out geom;"), not as QL. This is its faithful
-    # composition: ways where the sentence says ways, nwr where it names a tag
-    # that sits on nodes as well (traffic signs, level crossings). Nothing in
+    # composition: ways where the sentence says ways, nwr where the tag sits on
+    # nodes as well — highway=stop/give_way are nodes far more often than ways,
+    # and so are lamps and poles (codex review of 4B-2 caught the way-only
+    # selectors; nwr is the reading the sentence cannot contradict). Nothing in
     # 4B-2 consumes q6; 4B-8's furniture pass is where its shape matters.
     "q6_furniture": (
         '[out:json][timeout:300][bbox:' + BBOX + '][date:"' + OSM_BASE + '"];\n'
         "(\n"
         '  way["barrier"];\n'
-        '  way["highway"~"^(street_lamp|stop|give_way)$"];\n'
+        '  nwr["highway"~"^(street_lamp|stop|give_way)$"];\n'
         '  nwr["traffic_sign"];\n'
-        '  way["power"~"^(pole|line)$"];\n'
+        '  nwr["power"~"^(pole|line)$"];\n'
         '  nwr["railway"~"^(level_crossing|rail)$"];\n'
         ");\n"
         "out geom;\n"
@@ -165,9 +167,16 @@ def sha256_of(path):
 def fetch_one(name, folder, endpoints, log):
     """Fetches query `name` into folder/name.json: §2.1's curl line, the
     endpoints in order, RETRIES_PER_ENDPOINT tries each. Returns the endpoint
-    that served it and the parsed answer, or raises with the reason."""
+    that served it and the parsed answer, or raises with the reason. The
+    download is staged beside the file and committed by os.replace only after
+    it parsed as an answer without a remark, so a failed or truncated fetch
+    can never replace raw data an earlier run already verified (codex review
+    of 4B-2: the old code curled straight into name.json, and a failed retry
+    on a reused snapshot folder could overwrite a good raw file while its old
+    manifest entry stayed)."""
     ql_path = os.path.join(folder, name + ".ql")
     json_path = os.path.join(folder, name + ".json")
+    staged_path = json_path + ".staging"
     last_reason = "no endpoint tried"
     for endpoint in endpoints:
         for attempt in range(RETRIES_PER_ENDPOINT):
@@ -176,7 +185,7 @@ def fetch_one(name, folder, endpoints, log):
                 time.sleep(RETRY_PAUSE_S)
             command = [
                 "curl", "-s", "--max-time", str(CURL_MAX_TIME_S), "-A", USER_AGENT,
-                "--data-urlencode", "data@" + ql_path, endpoint, "-o", json_path, "-w", "%{http_code}",
+                "--data-urlencode", "data@" + ql_path, endpoint, "-o", staged_path, "-w", "%{http_code}",
             ]
             started = time.time()
             run = subprocess.run(command, capture_output=True, text=True)
@@ -191,17 +200,25 @@ def fetch_one(name, folder, endpoints, log):
                 log("  " + last_reason)
                 continue
             try:
-                with open(json_path, "r", encoding="utf-8") as handle:
+                with open(staged_path, "r", encoding="utf-8") as handle:
                     answer = json.load(handle)
             except ValueError as fault:
                 last_reason = "%s: not JSON (%s)" % (endpoint, fault)
                 log("  " + last_reason)
                 continue
-            if "remark" in answer and "elements" in answer and not answer["elements"]:
-                last_reason = "%s: empty answer with remark: %s" % (endpoint, answer["remark"])
+            if "remark" in answer:
+                # Overpass puts a remark on a failed or truncated run even when
+                # it managed to return some elements (codex review of 4B-2: a
+                # 200 answer with "runtime error: Query timed out" and partial
+                # data used to be accepted): such an answer is not the query's
+                # data, whatever it holds.
+                last_reason = "%s: answer carries a remark, not trusted: %s" % (endpoint, answer["remark"])
                 log("  " + last_reason)
                 continue
+            os.replace(staged_path, json_path)
             return endpoint, answer, elapsed
+    if os.path.exists(staged_path):
+        os.remove(staged_path)
     raise RuntimeError("%s: every endpoint failed; last: %s" % (name, last_reason))
 
 

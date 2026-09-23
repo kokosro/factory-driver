@@ -91,7 +91,10 @@ const JOIN_TOLERANCE_M := 0.5
 ## The schema (data-pipeline.md §4 item 6 plus the two additive fields:
 ## width_source, and loops).
 const TOP_KEYS := ["snapshot", "origin", "segments", "junctions", "loops"]
-const SNAPSHOT_KEYS := ["osm_base", "bbox", "query_sha"]
+const SNAPSHOT_KEYS := ["osm_base", "bbox", "query_sha", "pipeline_version"]
+## The pipeline version this loader reads (skeleton.py's PIPELINE_VERSION):
+## a file of another version is refused, not silently mis-read.
+const SKELETON_PIPELINE_VERSION := 1
 const ORIGIN_KEYS := ["epsg", "e0", "n0"]
 const SEGMENT_REQUIRED_KEYS := ["id", "osm_way", "class", "width_m", "width_source", "points"]
 const JUNCTION_KEYS := ["id", "x", "z", "segments"]
@@ -466,6 +469,8 @@ static func _check_snapshot(errors: PackedStringArray, snapshot: Variant) -> voi
 		errors.append("snapshot.bbox is %s, the Ring's is %s" % [snapshot.bbox, BBOX])
 	if snapshot.has("query_sha") and not (snapshot.query_sha is String and RegEx.create_from_string(QUERY_SHA_PATTERN).search(snapshot.query_sha) != null):
 		errors.append("snapshot.query_sha is %s, not a sha256 hex" % snapshot.get("query_sha"))
+	if snapshot.has("pipeline_version") and snapshot.pipeline_version != SKELETON_PIPELINE_VERSION:
+		errors.append("snapshot.pipeline_version is %s, this loader reads %d (an older or newer pipeline's file)" % [snapshot.get("pipeline_version"), SKELETON_PIPELINE_VERSION])
 
 
 ## The origin block: the region frame put in stone.
