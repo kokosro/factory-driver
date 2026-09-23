@@ -27,7 +27,8 @@ Usage:
 §2.2; --tile-prefix dom1 reads a DOM1 folder the same way (the decision
 tree's branch (b)). --selftest proves the rules on a synthetic DEM (a plane
 with a bowl and a crest): the plane reproduced, the crest labelled, a bridge
-deck linear, a tunnel below the ground, two runs the same bytes. Neither the
+deck linear, a tunnel below the ground, two runs the same bytes, the
+mosaic assembly refusing a missing tile, a NaN and an infinity. Neither the
 suite nor the game runs this script: the suite reads only the checked-in
 drape.json (tests/world_profile_test.gd).
 
@@ -244,37 +245,68 @@ def verify_tiles(folder, files):
     return pins
 
 
+def assemble_mosaic(tiles):
+    """One float64 grid from `tiles`, a list of (E km, N km, array) with
+    every array TILE_M / GRID_M square, pasted into the rectangle the names
+    span, NaN wherever no tile writes a finite value. Refused (ValueError)
+    when any cell inside the rectangle is left without a finite height: a
+    missing tile, a nodata cell, a NaN or an infinity. was rasterio.merge
+    with the first tile's nodata -> this (the codex review of 4B-3: merge
+    fills uncovered cells with ZERO when the rasters carry no nodata, a
+    fictitious valid terrain the nodata-is-None check never saw, and a NaN
+    nodata escaped `grid == nodata` too)."""
+    import numpy as np
+    if not tiles:
+        raise ValueError("no tiles to assemble")
+    per_tile = int(round(TILE_M / GRID_M))
+    e_min = min(e for e, _n, _a in tiles)
+    e_max = max(e for e, _n, _a in tiles)
+    n_min = min(n for _e, n, _a in tiles)
+    n_max = max(n for _e, n, _a in tiles)
+    cols = (e_max - e_min + 1) * per_tile
+    rows = (n_max - n_min + 1) * per_tile
+    grid = np.full((rows, cols), np.nan, dtype="float64")
+    for e_km, n_km, array in tiles:
+        if array.shape != (per_tile, per_tile):
+            raise ValueError("tile E %d N %d is %s cells, a tile is %d × %d" % (e_km, n_km, array.shape, per_tile, per_tile))
+        # Row 0 of the grid is the north edge: the tile's top row goes at
+        # (n_max - n_km) tiles down.
+        r0 = (n_max - n_km) * per_tile
+        c0 = (e_km - e_min) * per_tile
+        grid[r0:r0 + per_tile, c0:c0 + per_tile] = array
+    holes = int(np.sum(~np.isfinite(grid)))
+    if holes:
+        raise ValueError("%d cells without a finite height inside the tiles' rectangle E %d-%d km × N %d-%d km (a missing tile, a nodata cell or a non-finite value); the drape has no rule for holes" % (holes, e_min, e_max + 1, n_min, n_max + 1))
+    x_min = e_min * TILE_M - E0
+    z_min = -((n_max + 1) * TILE_M - N0)
+    return Mosaic(grid, x_min, z_min)
+
+
 def load_mosaic(folder, prefix="dgm1"):
-    """The tiles of `folder` merged into one Mosaic in game metres, and the
-    tile pins. Every tile has to be 1 m, EPSG:25832 by its name, without a
-    nodata cell (the core has none; a hole would be a documented decision)."""
+    """The tiles of `folder` assembled into one Mosaic in game metres, and
+    the tile pins. Every tile has to be 1 m, EPSG:25832 by its name,
+    AREA_OR_POINT=Area; its nodata cells (by its own nodata value, which
+    may be NaN) become NaN and assemble_mosaic refuses any hole."""
     import numpy as np
     import rasterio
-    from rasterio.merge import merge
 
     files = tile_files(folder, prefix)
     pins = verify_tiles(folder, files)
-    sources = [rasterio.open(path) for path, _e, _n, _year in files]
-    try:
-        for source, (path, e_km, n_km, _year) in zip(sources, files):
+    tiles = []
+    for path, e_km, n_km, _year in files:
+        with rasterio.open(path) as source:
             if source.res != (GRID_M, GRID_M):
                 raise ValueError("%s is %s m, the DGM1 is %s m" % (path, source.res, GRID_M))
             if source.bounds.left != e_km * TILE_M or source.bounds.bottom != n_km * TILE_M:
                 raise ValueError("%s: bounds %s, the name says E %d N %d km" % (path, source.bounds, e_km, n_km))
             if source.tags().get("AREA_OR_POINT", "Area") != "Area":
                 raise ValueError("%s is AREA_OR_POINT=%s; the sampler assumes Area" % (path, source.tags().get("AREA_OR_POINT")))
-        merged, transform = merge(sources, nodata=sources[0].nodata)
-    finally:
-        for source in sources:
-            source.close()
-    grid = merged[0].astype("float64")
-    nodata = sources[0].nodata
-    if nodata is not None and bool(np.any(grid == nodata)):
-        raise ValueError("%d nodata cells in the mosaic; the drape has no rule for holes" % int(np.sum(grid == nodata)))
-    # transform: E of the west edge, N of the north edge; row 0 is the north.
-    x_min = transform.c - E0
-    z_min = -(transform.f - N0)
-    return Mosaic(grid, x_min, z_min), pins
+            array = source.read(1).astype("float64")
+            nodata = source.nodata
+        if nodata is not None and not math.isnan(nodata):
+            array[array == nodata] = np.nan
+        tiles.append((e_km, n_km, array))
+    return assemble_mosaic(tiles), pins
 
 
 # --- the skeleton ---------------------------------------------------------------
@@ -707,6 +739,21 @@ def selftest():
     first = dumps(build_drape(skeleton, "0" * 64, mosaic, [], "synthetic"))
     second = dumps(build_drape(skeleton, "0" * 64, mosaic, [], "synthetic"))
     ok(first == second, "built twice, the same bytes (%d)" % len(first))
+    per_tile = int(TILE_M / GRID_M)
+    flat = np.full((per_tile, per_tile), 500.0)
+    complete = assemble_mosaic([(352, 5577, flat), (353, 5577, flat + 1.0), (352, 5578, flat + 2.0), (353, 5578, flat + 3.0)])
+    # z grows southward: z = -0.5 is the south edge (N 5577), z = -1999.5 the north (N 5578).
+    ok(complete.rows == 2 * per_tile and complete.cols == 2 * per_tile and complete.sample(0.5, -0.5) == 500.0 and complete.sample(1999.5, -0.5) == 501.0 and complete.sample(0.5, -1999.5) == 502.0 and complete.sample(1999.5, -1999.5) == 503.0, "assemble: four tiles in their places (south-west 500, south-east 501, north-west 502, north-east 503)")
+    ok(complete.sample(1000.0, -1000.0) == 501.5, "assemble: a sample on the four tiles' corner blends them, no seam")
+    for name, tiles in (("a missing tile", [(352, 5577, flat), (353, 5577, flat), (352, 5578, flat)]),
+                        ("a NaN cell", [(352, 5577, np.where(np.arange(per_tile * per_tile).reshape(per_tile, per_tile) == 7, np.nan, 500.0))]),
+                        ("an infinite cell", [(352, 5577, np.where(np.arange(per_tile * per_tile).reshape(per_tile, per_tile) == 7, np.inf, 500.0))])):
+        refused = ""
+        try:
+            assemble_mosaic(tiles)
+        except ValueError as error:
+            refused = str(error)
+        ok("without a finite height" in refused, "assemble refuses %s: %s" % (name, refused[:60]))
     ok(re.search(r"-0\.0(?![0-9])", first) is None, "no -0.0 in the file")
     print("DRAPE SELFTEST PASSED" if failures == 0 else "DRAPE SELFTEST FAILED: %d fault(s)" % failures)
     return failures == 0

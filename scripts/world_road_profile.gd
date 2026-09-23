@@ -109,10 +109,14 @@ const CHAINAGE_DECIMALS := 3
 const GRADIENT_SPAN_M := 1.0
 
 ## The cell grid over the covered chords [m]: a chord is filed under every
-## cell its box, grown by the widest reach of a road (half of 8.5 m plus the
-## blend band), overlaps; a sample looks in its own cell only.
+## cell its box, grown by its own road's reach (the paved half width plus
+## the blend band: a road with a tagged width up to twice its class's
+## reaches further than the raceway's 4.25 + 6 m), overlaps; a sample looks
+## in its own cell only and a chord counts only within its road's reach.
+## was one fixed reach of 10.25 m for every road -> each road's own (the
+## codex review of 4B-3: a wider road's band was cut off at 10.25 m while
+## its platform still contributed, a step in the field).
 const CELL_M := 20.0
-const REACH_M := 4.25 + BLEND_BAND_M  # [m] the raceway's half width plus the band
 
 ## Chord entries are packed as road index × CHORD_STRIDE + chord index.
 const CHORD_STRIDE := 65536
@@ -163,6 +167,11 @@ class Road:
 	var bank_to: float = 0.0
 	var bank_slope: float = 0.0
 	var bank_strip: float = 0.0
+
+	## How far from the centreline the road has a say [m]: the paved half
+	## width plus the blend band.
+	func reach() -> float:
+		return half_width + BLEND_BAND_M
 
 
 ## The drape's coverage box in game metres; flat outside it.
@@ -291,17 +300,18 @@ static func _road_of(raw: Dictionary, segment: SkeletonLoader.Segment, points: A
 	return road
 
 
-## Files every chord of every road under the cells its box, grown by
-## REACH_M, overlaps.
+## Files every chord of every road under the cells its box, grown by the
+## road's own reach, overlaps.
 func _build_cells() -> void:
 	_cells = {}
 	for r: int in _roads.size():
 		var road := _roads[r]
+		var reach := road.reach()
 		for c: int in range(road.xs.size() - 1):
-			var x_lo := minf(road.xs[c], road.xs[c + 1]) - REACH_M
-			var x_hi := maxf(road.xs[c], road.xs[c + 1]) + REACH_M
-			var z_lo := minf(road.zs[c], road.zs[c + 1]) - REACH_M
-			var z_hi := maxf(road.zs[c], road.zs[c + 1]) + REACH_M
+			var x_lo := minf(road.xs[c], road.xs[c + 1]) - reach
+			var x_hi := maxf(road.xs[c], road.xs[c + 1]) + reach
+			var z_lo := minf(road.zs[c], road.zs[c + 1]) - reach
+			var z_hi := maxf(road.zs[c], road.zs[c + 1]) + reach
 			var packed := r * CHORD_STRIDE + c
 			for i: int in range(floori(z_lo / CELL_M), floori(z_hi / CELL_M) + 1):
 				for j: int in range(floori(x_lo / CELL_M), floori(x_hi / CELL_M) + 1):
@@ -462,9 +472,10 @@ func _platform_height(road: Road, chainage: float, offset: float) -> float:
 	return centre + e * o - crown_share * CROWN * absf(o)
 
 
-## The nearest chord to (x, z) among those filed under its cell: the road
-## index, the chord's chainage at the closest point, the signed offset to
-## the right of travel and the distance. Empty when nothing is within reach.
+## The nearest chord to (x, z) among those filed under its cell and within
+## their own road's reach: the road index, the chord's chainage at the
+## closest point, the signed offset to the right of travel and the
+## distance. Empty when no road reaches the point.
 func _nearest_chord(x: float, z: float) -> Dictionary:
 	var key := Vector2i(floori(x / CELL_M), floori(z / CELL_M))
 	if not _cells.has(key):
@@ -486,13 +497,11 @@ func _nearest_chord(x: float, z: float) -> Dictionary:
 		var cx := ax + t * dx
 		var cz := az + t * dz
 		var distance := sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz))
-		if distance < best_distance:
+		if distance <= road.reach() and distance < best_distance:
 			best_distance = distance
 			# Right of travel in the x-east / z-south frame: (-tz, tx).
 			var offset := ((x - ax) * (-dz) + (z - az) * dx) / chord
 			best = {"road": r, "chainage": road.chain[c] + t * chord, "offset": offset, "distance": distance}
-	if best_distance > REACH_M:
-		return {}
 	return best
 
 
@@ -644,7 +653,7 @@ static func drape_segment(segment: SkeletonLoader.Segment, points: Array, sample
 	var raw_dense: Array = []
 	for s: float in stations:
 		var p := _along(xs, zs, chain, s)
-		raw_dense.append(sample.call(p.x, p.y))
+		raw_dense.append(sample.call(p[0], p[1]))
 	var raw_points: Array = []
 	for i: int in xs.size():
 		raw_points.append(sample.call(xs[i], zs[i]))
@@ -693,15 +702,19 @@ static func drape_segment(segment: SkeletonLoader.Segment, points: Array, sample
 	return {"id": segment.id, "covered": covered, "heights": heights, "dense": dense, "crossfall": _rounded_all(crossfall, CROSSFALL_DECIMALS), "labels": labels}
 
 
-static func _along(xs: PackedFloat64Array, zs: PackedFloat64Array, chain: PackedFloat64Array, s: float) -> Vector2:
+## The point at chainage s as [x, z] in 64-bit floats: the mirror's station
+## math never passes through a Vector2 (single precision would move a
+## station by a fraction of a millimetre and flip a centimetre rounding:
+## the codex review's 698.03 for the pipeline's 698.02 on 1017207289-0).
+static func _along(xs: PackedFloat64Array, zs: PackedFloat64Array, chain: PackedFloat64Array, s: float) -> PackedFloat64Array:
 	if s <= 0.0:
-		return Vector2(xs[0], zs[0])
+		return PackedFloat64Array([xs[0], zs[0]])
 	for i: int in range(1, xs.size()):
 		if chain[i] >= s:
 			var span := chain[i] - chain[i - 1]
 			var u := 0.0 if span <= 0.0 else (s - chain[i - 1]) / span
-			return Vector2(xs[i - 1] + u * (xs[i] - xs[i - 1]), zs[i - 1] + u * (zs[i] - zs[i - 1]))
-	return Vector2(xs[xs.size() - 1], zs[zs.size() - 1])
+			return PackedFloat64Array([xs[i - 1] + u * (xs[i] - xs[i - 1]), zs[i - 1] + u * (zs[i] - zs[i - 1])])
+	return PackedFloat64Array([xs[xs.size() - 1], zs[zs.size() - 1]])
 
 
 ## floor(value × 10^decimals + 0.5) / 10^decimals with -0.0 folded to 0.0:

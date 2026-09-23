@@ -69,6 +69,15 @@ const LOOP_SLOPE_CEILING := 0.35
 ## Rounding of the file's heights [m]: what a linear check allows per end.
 const HEIGHT_ROUNDING_M := 0.005
 
+## The 200-sample set's sha256 as read at 4B-3's landing (00db178), pinned
+## so a change in the profile's arithmetic on the checked-in file is a
+## documented "was ->", never a silent drift.
+const SAMPLES_DIGEST := "b167c232226cc25acdcebb520a8894f13d480bb7f72dd9a7b3332d7a381be1a8"
+
+## The codex review's precision repro: the segment and the pipeline's value.
+const MIRROR_SEGMENT := "1017207289-0"
+const MIRROR_HEIGHT_M := 698.02
+
 ## The fixture: a plane 400 + 0.05 x - 0.02 z [m] over 3 × 3 km with a
 ## bowl 20 m deep, 200 m radius at (1500, -1500), a crest 3 m high, 30 m
 ## long across the straight at z = -800 (x within 50 of 800) and another
@@ -399,6 +408,40 @@ func _check_slopes(skeleton: Dictionary, drape: Dictionary, raw_points: Dictiona
 		var z := -5000.0 + (i * 53) % 4000
 		same = same and profile.sample_height(x, z) == samples[i]
 	_ok(same, "pure: 200 samples asked twice come back bit for bit")
+	var context := HashingContext.new()
+	context.start(HashingContext.HASH_SHA256)
+	for h: float in samples:
+		context.update(("%.6f\n" % h).to_utf8_buffer())
+	var digest := context.finish().hex_encode()
+	_ok(digest == SAMPLES_DIGEST, "the 200 samples read the same as at 4B-3's landing: sha256 %s (no covered segment is wider than 8.5 m, so the per-road reach changes nothing here)" % digest, "the 200 samples' digest is %s, pinned %s" % [digest, SAMPLES_DIGEST])
+	_check_mirror_precision(skeleton)
+
+
+## The mirror's station math in 64-bit floats: segment 1017207289-0 draped
+## on the plane 400 + 0.05 x - 0.02 z has its chainage-4 station at a
+## height of 698.02499711 m, a centimetre boundary; through a single-
+## precision Vector2 the station moved a fraction of a millimetre and the
+## file's 698.02 became 698.03 (the codex review's finding). The reader's
+## value is held to a 64-bit interpolation done here and to the pipeline's.
+func _check_mirror_precision(skeleton: Dictionary) -> void:
+	var segments := SkeletonLoader.segments_of(skeleton)
+	for raw: Dictionary in skeleton.segments:
+		if raw.id != MIRROR_SEGMENT:
+			continue
+		var record: Variant = WorldRoadProfile.drape_segment(segments[raw.id], raw.points, func(x: float, z: float) -> Variant: return _plane(x, z))
+		var xs := PackedFloat64Array()
+		var zs := PackedFloat64Array()
+		for point: Array in raw.points:
+			xs.append(point[0])
+			zs.append(point[1])
+		var chain := WorldRoadProfile.chainages(xs, zs)
+		var u := 4.0 / chain[1]
+		var x64 := xs[0] + u * (xs[1] - xs[0])
+		var z64 := zs[0] + u * (zs[1] - zs[0])
+		var expected := floorf(_plane(x64, z64) * 100.0 + 0.5) / 100.0
+		_ok(record.dense[2] == expected and record.dense[2] == MIRROR_HEIGHT_M, "the mirror drapes %s chainage 4 on the plane to %.2f m: the 64-bit interpolation's (%.8f m rounds to it), the pipeline's (was 698.03 through a Vector2)" % [MIRROR_SEGMENT, record.dense[2], _plane(x64, z64)], "the mirror gives %.2f at chainage 4, 64-bit says %.2f, the pipeline %.2f" % [record.dense[2], expected, MIRROR_HEIGHT_M])
+		return
+	_ok(false, "", "segment %s is not in the skeleton" % MIRROR_SEGMENT)
 
 
 ## Outside the coverage: height 0, gradient zero, mask 0; a tap outside
@@ -453,7 +496,9 @@ func _fixture_sample(x: float, z: float) -> Variant:
 
 ## The fixture's skeleton: a straight over the crest, a bridge over the
 ## other crest, a tunnel, a left-hand bend, the Karussell's way as a
-## left-hander, and a diagonal across the lattice's seams at (1000, -1000).
+## left-hander, a diagonal across the lattice's seams at (1000, -1000), and
+## a 14 m road by tag (twice primary's class width, the widest the skeleton
+## admits) along x across cell boundaries: its reach is 7 + 6 = 13 m.
 func _fixture_skeleton() -> Dictionary:
 	return {
 		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 1},
@@ -465,6 +510,7 @@ func _fixture_skeleton() -> Dictionary:
 			{"id": "4-0", "osm_way": 4, "class": "secondary", "width_m": 6.5, "width_source": "class", "points": [[200.0, -200.0], [300.0, -200.0], [300.0, -300.0]]},
 			{"id": "414785755-0", "osm_way": SkeletonLoader.KARUSSELL_WAY, "class": "raceway", "width_m": 7.5, "width_source": "class", "points": [[2000.0, -2600.0], [2100.0, -2600.0], [2100.0, -2700.0]]},
 			{"id": "5-0", "osm_way": 5, "class": "residential", "width_m": 5.5, "width_source": "class", "points": [[950.0, -1050.0], [1050.0, -950.0]]},
+			{"id": "6-0", "osm_way": 6, "class": "primary", "width_m": 14.0, "width_source": "tag", "points": [[2400.0, -2200.0], [2700.0, -2200.0]]},
 		],
 		"junctions": [],
 		"loops": [],
@@ -504,7 +550,7 @@ func _check_fixture() -> void:
 	var errors := WorldRoadProfile.validate(drape, skeleton)
 	_ok(errors.is_empty(), "fixture: the 3 × 3 km drape built here passes validate()", "fixture: %s" % [errors])
 	var profile := WorldRoadProfile.from_data(skeleton, drape)
-	_ok(profile.road_count() == 6 and profile.coverage() == Rect2(0.0, -FIXTURE_SIZE_M, FIXTURE_SIZE_M, FIXTURE_SIZE_M), "fixture: 6 roads, coverage 0..3000 × -3000..0")
+	_ok(profile.road_count() == 7 and profile.coverage() == Rect2(0.0, -FIXTURE_SIZE_M, FIXTURE_SIZE_M, FIXTURE_SIZE_M), "fixture: 7 roads, coverage 0..3000 × -3000..0")
 	# The plane, off every road and on the straight's centreline.
 	var worst := 0.0
 	for point: Vector2 in [Vector2(100.0, -100.0), Vector2(2500.0, -2900.0), Vector2(123.4, -2345.6), Vector2(2999.0, -1.0)]:
@@ -567,6 +613,16 @@ func _check_fixture() -> void:
 	var bowl_centre := profile.sample_height(2050.0, -2600.0)
 	var bowl_outside := profile.sample_height(2050.0, -2596.25)
 	_ok(karussell_record.id == "414785755-0" and karussell_record.crossfall == [0.3, 0.3, 0.3] and karussell_record.labels.back().kind == "bank" and absf(bowl_strip - bowl_inside) < MM and absf(bowl_outside - bowl_inside - 1.95) < MM and absf(bowl_centre - _plane(2050.0, -2600.0)) < MM, "fixture: way 414785755 takes the bank: flat over the 1 m strip, 1.95 m up at the outside edge, the centre on the ground", "bank: crossfall %s, across %.3f %.3f %.3f %.3f" % [karussell_record.crossfall, bowl_inside, bowl_strip, bowl_centre, bowl_outside])
+	# The 14 m road (travel east: right is +z): its full band, no step at the old 10.25 m cutoff.
+	var wide_centre := profile.sample_height(2550.0, -2200.0)
+	var wide_edge := profile.sample_height(2550.0, -2193.0)
+	var wide_half := profile.sample_height(2550.0, -2190.0)
+	var wide_beyond := profile.sample_height(2550.0, -2187.0)
+	var wide_before := profile.sample_height(2550.0, -2200.0 + 10.25 - 0.0005)
+	var wide_after := profile.sample_height(2550.0, -2200.0 + 10.25 + 0.0005)
+	var wide_at_11: Dictionary = profile.describe(2550.0, -2189.0)
+	_ok(absf(wide_centre - _plane(2550.0, -2200.0)) < MM and absf(wide_centre - wide_edge - 0.14) < MM and absf(wide_half - 0.5 * (wide_edge + _plane(2550.0, -2190.0))) < MM and absf(wide_beyond - _plane(2550.0, -2187.0)) < MM, "fixture: the 14 m road's crown 14 cm down at its 7 m edge, its band halfway at 10 m and the terrain at 13 m (was cut off at 10.25 m for every road)")
+	_ok(absf(wide_before - wide_after) < MM and wide_at_11.road == "6-0" and wide_at_11.distance == 11.0, "fixture: no step across the old 10.25 m cutoff (%.6f m) and the road still reaches 11 m out" % absf(wide_before - wide_after), "step %.6f, road at 11 m: %s" % [absf(wide_before - wide_after), wide_at_11.road])
 	# Outside.
 	_ok(profile.sample_height(-1.0, -1.0) == 0.0 and profile.ramp_gradient(-1.0, -1.0) == Vector2.ZERO and profile.elevation_mask(-1.0, -1.0) == 0.0 and profile.sample_height(3001.0, -1500.0) == 0.0, "fixture: outside the 3 km box the profile is flat: 0, (0, 0), mask 0")
 	# The stations and the mirrored rules on their own.
