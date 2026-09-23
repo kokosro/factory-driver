@@ -54,7 +54,10 @@ for q in q1_skeleton q2_nordschleife q3_economy q4_landcover q5_buildings q6_fur
 done
 ```
 
-`q1_skeleton.ql` — every drivable way with geometry (2 181 ways in the bbox, live count):
+`q1_skeleton.ql` — every drivable way with geometry (2 181 ways in the bbox, live count
+— was 2 181 -> 9 188 ways at the pinned snapshot 2026-09-22T08:45:51Z, measured 2026-09-23
+by the 4B-2 extract: the prep-time count was likely of the paved classes only, ~2 208
+without track and service):
 ```
 [out:json][timeout:300][bbox:50.30,6.80,50.45,7.10];
 way["highway"~"^(motorway|trunk|primary|secondary|tertiary|unclassified|residential|living_street|service|track|raceway|motorway_link|trunk_link|primary_link|secondary_link|tertiary_link)$"];
@@ -180,7 +183,9 @@ These are German road-design values (RAL/RASt), not measured: open question 2 in
    spine, the public roads join it only at R18 (Döttinger Höhe).
 6. Output `skeleton.json`: `{snapshot: {osm_base, bbox, query_sha}, origin: {epsg, e0, n0},
    segments: [{id, osm_way, class, width_m, oneway, layer, surface, ref, name, points: [[x,z],...]}],
-   junctions: [{id, x, z, segments: [...]}]}`. Small: ~2 181 ways × ~30 points.
+   junctions: [{id, x, z, segments: [...]}]}`. Small: ~2 181 ways × ~30 points (was -> the
+   real bbox is 9 188 ways and the honest skeleton is 5 953 503 bytes — see open question 4,
+   decided 4B-2).
 
 ## 5. ELEVATION DRAPE
 
@@ -266,7 +271,7 @@ LIVE-VERIFIED 2026-09-23:
 | Item | Count | Raw size (estimate) |
 |---|---|---|
 | ways: highway + railway + building + landuse + natural | 33 163 | ~40-60 MB JSON with geometry |
-| drivable ways (q1 classes) | 2 181 | ~5 MB |
+| drivable ways (q1 classes) | 9 188 (was -> 2 181, the prep-time estimate; likely the paved classes only) | ~11 MB (measured) |
 | Nordschleife relation ways / nodes | 52 / 1 119 | 92 KB (measured) |
 | fuel / car_repair / car / driving_school / castle / grandstand | 9 / 9 / 1 / 1 / 4 / 12 | < 1 MB |
 | roundabouts / bridges / tunnels / industrial polygons | 11 / 188 / 28 / 16 | in q1/q3 |
@@ -280,5 +285,8 @@ LIVE-VERIFIED 2026-09-23:
    shipped game? (No share-alike on the game's meshes under DL-DE.)
 3. Overpass reliability: pin one mirror or keep a fallback list? Snapshots make this a one-time cost.
 4. Repo policy for derived data: check in the Ring skeleton (≤ 1 MB) or generate on first run?
+   DECIDED 4B-2: checked in, full bbox — 5 953 503 bytes (§9's own estimate; reproducible
+   byte-exact from the pinned snapshot via tools/world/, the gate proven) — was the ≤ 1 MB /
+   generate-on-demand alternative, which assumed the 2 181 way count.
 5. Europe-wide extraction (the driver's "All europe, must be drivable"): Overpass cannot serve a
    continent; that is a Geofabrik `.osm.pbf` + osmium job, sized in 4C, not here.

@@ -21,7 +21,10 @@
 
 ## 2. ROADS AT FIRST FOCUS
 
-Live counts 2026-09-23 (Overpass, the bbox above):
+Live counts 2026-09-23 (Overpass, the bbox above; the q1 "2 181" below the plan recorded
+at prep time was was 2 181 -> 9 188 drivable ways at the pinned snapshot
+2026-09-22T08:45:51Z — the attic pull answers 9 188 ways, and the design package's count
+was likely of the paved classes only, ~2 208 without track and service):
 
 | Road | OSM | Ways | Element | Note |
 |---|---|---|---|---|

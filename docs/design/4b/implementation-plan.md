@@ -194,7 +194,8 @@ to be honest below ~50 m wavelength: to be documented per region, never smoothed
 
 ## Open questions
 1. 4B-2's skeleton in the repo (≤ 1 MB) or generated: decides whether 4B-3's real-drape asserts
-   run in the suite or only locally.
+   run in the suite or only locally. DECIDED 4B-2: checked in, full bbox, 5 953 503 bytes —
+   was the ≤ 1 MB / generated alternative (the ≤ 1 MB assumed the wrong 2 181 way count).
 2. The change-scene path in `Garage._free_drive` (4B-4): a plain `change_scene_to_file` loses the
    car's state; is the car re-instanced from cars.json (the store already has everything but the
    parking spot: "Not kept yet: where the car was parked", odometer_store.gd:23)?
