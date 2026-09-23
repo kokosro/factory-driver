@@ -39,6 +39,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Abort the running test / close its result | `Esc` (`R` also aborts) |
 | Licence book open / close (`1` sits the L0 exam, `2` the skid pad test while it is open; digits answer the theory) | `L` |
 | Garage open / close: the pause menu - drive, the study, car, licence, settings (`Esc` also opens it when nothing at all is running, and closes it); inside: `Left` / `Right` tabs, `Up` / `Down` rows, `Enter` go, `PgUp` / `PgDn` scroll, or the mouse | `Tab` |
+| Flag an issue: press to start a session (the HUD says `ISSUE issue-0007 recording`), drive to show the problem, press again to stop; a box then asks what is wrong, the game paused while you type - `Enter` files it, `Esc` files it as typed so far (and opens the garage, as `Esc` does with nothing running). See [The issue flag](#the-issue-flag) | `V` |
 
 Look left / right are on `,` and `.` (the `<` / `>` pair, under the right hand's reach from the arrows and next to `B`'s row): `Q` / `E` are the gearbox, `B` is look back. Hold to glance to that side, let go and the view comes back: the chase camera swings ~65 degrees round the car, in the cockpit and the bonnet view the head turns ~60 degrees; the overhead and wheel views have no side to look to. It is a glance, not a view of its own (`C` still cycles the same five), both keys at once look straight ahead, and look back wins over either.
 
@@ -980,6 +981,32 @@ garage page walked with `Tab`, `Right`, `Down` and `PgDn`, the book on `L`, a le
 input display with its caption, the mission line and the banners laid out and measured,
 nothing reaching past the screen and every row landing inside the scroll area.
 
+And the issue flag (`tests/issue_flag_test.gd`, see [The issue flag](#the-issue-flag)):
+the key `V` in the map and on nothing else, plain, the engine's built-ins walked too
+(the one modified `V`, the engine's paste, named); a session on the key - the HUD's line
+up with `issue-0001`, the counter of no file -, the car driven, the key again - the line
+down, the overlay up with its caption, the box empty and focused, the tree paused and the
+car frozen for 30 ticks with the throttle down, the key doing nothing while the box is
+up -, the text typed character by character through the input pipeline, `Enter` filing
+it and the tree running on; the suite's own default path proven untouched (the store off
+with no window, the default path refused to read and to write, a session on no path of
+its own writing nothing, `user://issues.json` not there after); then, on a file of the
+test's own, the binding against the real recorder main.tscn's mission manager makes:
+recording to a debug file the record is bound to telemetry with session id 0, honestly,
+the range the recorder's own clock at the two ticks and its length the flagger's own
+tick count, the car's state the car's at the start in its seven fields, the wall clock
+stamped at both ends; `Esc` in the box filing what is typed and the garage opening over
+it on the same key; the recorder's own session id set to 42 by hand and the record
+carrying 42, read off the recorder; the recorder stopped and the record bound to the
+odometer and the wall clock with the telemetry explicitly absent, the same keys the same
+ticks apart; the three records read back from the file to the bit with the counter at
+4, the id format pinned (`issue-0007`, four digits at least), sixteen faults in a broken
+fixture each named by record and field with the default used, records without a usable
+id left out by position, a counter behind the ids brought up past them, an id already
+taken re-issued from the counter and a free one kept; and a bare HUD in a scene with no
+recorder (the Ring's case), the main scene's recorder recording all the while and not
+found, binding to the odometer and the clock and filing to its own file.
+
 ### Handling tests
 
 The fourth step of `tests/run_tests.sh` runs `tests/handling_test.gd`: a scripted driver
@@ -1404,6 +1431,45 @@ whose files are kept, the test driven `last_test`, and per test `best_time_s`, `
 passed) - and that is what the HUD shows back: the idle mission line ends with
 `| last: GOLD, best: 28.8 s` and a `PASSED` banner carries
 `BEST 28.8 s GOLD — your 4 run(s)` under the medal times. Nothing stored, nothing shown.
+
+### The issue flag
+
+The driver's complaint channel, worked from behind the wheel. Press `V` while driving
+and a flagging session starts: the HUD puts `ISSUE issue-0007  recording` over the
+odometer, the car's state is taken down and the drive is bound to the telemetry; drive
+around showing the problem; press `V` again and the session stops: a box in the middle
+of the screen asks what is wrong, the game paused while you type (the garage's own
+pause; the box alone keeps processing), `Enter` files it, `Esc` files it as typed so far
+("" for nothing - the drive is the evidence; the garage then opens on that same `Esc`,
+as it does on any `Esc` with nothing running, and `Tab` or `Esc` closes it). Later you
+tell the Conductor "analyse the issues" and the store and the sessions it names are
+read together. `scripts/issue_flagger.gd` (an `IssueFlagger` the HUD makes in `_ready`:
+the HUD is the one node the pad and the Ring share that holds the car, so the flag
+works on both maps) only ever reads the car and polls its own key; `scripts/issue_store.gd`
+keeps the records in
+
+```
+user://issues.json
+```
+
+(resolved through the data folder like everything else): `{"version": 1,
+"next_issue_id": 8, "issues": [...]}`, one record per issue:
+
+| Field | What it is |
+| --- | --- |
+| `id` | `issue-0007`: the file's own counter, four digits at least, never reused; shown before the drive, written after it |
+| `status`, `description` | `open` until somebody closes it; the text typed, `""` when none was |
+| `started_at`, `stopped_at` | the wall clock at the two presses, the telemetry's own idiom: for finding a drive again, nothing is measured against them |
+| `duration_s` | the session's length counted in physics ticks (1/60 s each): the same drive the same number; a pause stops it |
+| `binding` | `telemetry` when a recorder was recording in the scene, `odometer+wallclock` when none was (the Ring has no recorder: `eifel_ring.tscn` has no mission manager) |
+| `session_id`, `t_start_s`, `t_stop_s` | bound to telemetry: THE RECORDER'S OWN session id (its `session_start` line's, its file name's; 0 in a debug recording) and the range inside that session in the recorder's own clock, the samples' `t_session_s`; unbound: 0 and 0.0 - 0.0, explicitly absent |
+| `odometer_start_m`, `odometer_stop_m` | the odometer at the two presses [m], on either map: an odometer range is a range anywhere |
+| `car_state` | at the start: `x`, `y`, `z` [m], `heading_deg` (left positive), `speed_ms` (negative reversing), `gear` (0 neutral, 1-5, -1 reverse), `odometer_m` - the sample's own fields and snaps |
+
+Behind the telemetry's own switch: on in the running game, off with no window, so the
+headless suite reads and writes nothing under `user://` (a test hands the store a file
+of its own). What is in the file and is none of its own reads as its default and is
+reported by record and field; a record without a usable id is left out, with a word.
 
 ### Camera
 

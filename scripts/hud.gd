@@ -19,6 +19,15 @@ extends CanvasLayer
 ## caption, and the event flashes (study_events: a stall, wheel spin, locked
 ## wheels, the heat, an aid switched, a gear changed). Shown and fed by
 ## scripts/study.gd; hidden it costs nothing.
+## THE ISSUE FLAG (scripts/issue_flagger.gd, made here in _ready: the HUD is
+## the one node in both scenes, the pad's and the Ring's, that holds the
+## car): the line over the odometer while a session records, and the
+## overlay that asks what is wrong once it stops - a caption and a LineEdit
+## in the middle of the screen, the tree paused while the driver types (the
+## garage's own mechanism: SceneTree.paused, the overlay alone kept
+## processing, PROCESS_MODE_ALWAYS in hud.tscn, so its keys reach it), Enter
+## files the text, Esc files what is typed so far ("" for nothing), and the
+## tree runs on. See _start_flagger for the garage's part in it.
 
 ## Tach text colour normally and from ArcadeCar.SHIFT_LIGHT_RPM up.
 const TACH_COLOR := Color(1, 1, 1, 1)
@@ -141,6 +150,16 @@ const STUDY_BRAKE_COLOR := Color(1, 0.25, 0.2, 1)
 const STUDY_CLUTCH_COLOR := Color(0.55, 0.8, 0.95, 1)
 const STUDY_EVENT_COLOR := Color(1.0, 0.55, 0.2, 1)
 
+# --- THE ISSUE FLAG ------------------------------------------------------------
+
+## The recording line's text, the id in it; the overlay's caption, the id in
+## it; what the caption says on the pad (a recorder recording: the range is
+## in a session file) and on the Ring (none: the odometer and the clock).
+const ISSUE_LINE_TEXT := "ISSUE %s  recording  -  V stops it and asks what is wrong"
+const ISSUE_CAPTION_TEXT := "ISSUE %s  -  what is wrong?   Enter files it, Esc files it as typed   (%s)"
+const ISSUE_BOUND_TEXT := "bound to telemetry session %d, %.1f - %.1f s"
+const ISSUE_UNBOUND_TEXT := "no telemetry recording here: bound to the odometer, %.1f - %.1f m, and the clock"
+
 @export var car: ArcadeCar
 
 @onready var _speed_label: Label = $SpeedLabel
@@ -162,6 +181,13 @@ const STUDY_EVENT_COLOR := Color(1.0, 0.55, 0.2, 1)
 @onready var _gate_hint: Label = $GateHint
 @onready var _licence_card_back: ColorRect = $LicenceCardBack
 @onready var _licence_card: Label = $LicenceCard
+@onready var _issue_label: Label = $IssueLabel
+@onready var _issue_overlay: Control = $IssueOverlay
+@onready var _issue_caption: Label = $IssueOverlay/Caption
+@onready var _issue_description: LineEdit = $IssueOverlay/Description
+
+## THE ISSUE FLAG's node, made in _ready (_start_flagger); the tests reach it.
+var flagger: IssueFlagger
 
 ## The odometer as last written on its label [tenths of a km]; the label's text
 ## is only made anew when this changes, every 100 m.
@@ -187,6 +213,7 @@ var _study_state: Dictionary = {}
 
 func _ready() -> void:
 	_build_study_panel()
+	_start_flagger()
 
 
 func _process(_delta: float) -> void:
@@ -672,6 +699,106 @@ static func study_events(now: Dictionary, before: Dictionary) -> Array[String]:
 		elif now.gear != before.gear:
 			events.append("SHIFT %s" % ("N" if now.gear == 0 else "G%d" % now.gear))
 	return events
+
+
+# =============================================================================
+#  THE ISSUE FLAG
+# =============================================================================
+
+## Makes the flagger (the mission manager's idiom for the recorder: new,
+## named, a child, the car handed over) and wires the two ends: its start
+## puts the line up, its stop takes the line down and puts the overlay up.
+## The overlay's LineEdit files on Enter (text_submitted) and on Esc
+## (gui_input, the key spent there). THE GARAGE'S PART: the garage polls its
+## keys, Tab and Esc, through a pause (it is PROCESS_MODE_ALWAYS, as the
+## overlay is), and a key the LineEdit has taken cannot be taken back from
+## Input - is_action_just_pressed holds for the frame whatever accept_event
+## says - so Esc, and Tab, open the garage over the typing as they do over
+## anything idle. The garage is found by name beside the HUD (both scenes
+## name it Garage, and the HUD may reach for no node path in a frozen
+## scene) and its `opened` files what is typed so far and takes the overlay
+## down, the garage holding the pause from then on; no garage (a bare HUD),
+## nothing to wire. Esc's own filing happens first, in the LineEdit; the
+## garage then comes up on the same key, and Tab or Esc closes it again.
+# chosen for the flagging tool: HUD LineEdit overlay (garage row blocked by
+# frozen menu_test); Esc files as typed rather than discarding - the garage
+# opens on that same Esc, and text typed for a minute is not thrown away for
+# a key the overlay cannot keep to itself.
+func _start_flagger() -> void:
+	flagger = IssueFlagger.new()
+	flagger.name = "IssueFlagger"
+	flagger.car = car
+	add_child(flagger)
+	flagger.started.connect(_on_issue_started)
+	flagger.stopped.connect(_on_issue_stopped)
+	_issue_description.text_submitted.connect(func(text: String) -> void: commit_issue_description(text))
+	_issue_description.gui_input.connect(_on_issue_description_input)
+	var beside := get_parent()
+	var garage: Node = beside.get_node_or_null("Garage") if beside != null else null
+	if garage is Garage:
+		(garage as Garage).opened.connect(_on_garage_opened_over_issue)
+
+
+func _on_issue_started(id: String) -> void:
+	_issue_label.text = ISSUE_LINE_TEXT % id
+	_issue_label.visible = true
+
+
+## The stop: the line down, the overlay up with the record's binding spelt
+## out, the box empty and focused, the tree paused for the typing.
+func _on_issue_stopped(issue: Dictionary) -> void:
+	_issue_label.visible = false
+	var bound: String
+	if issue.get("binding") == IssueStore.BINDING_TELEMETRY:
+		bound = ISSUE_BOUND_TEXT % [int(issue.get("session_id", 0)), float(issue.get("t_start_s", 0.0)), float(issue.get("t_stop_s", 0.0))]
+	else:
+		bound = ISSUE_UNBOUND_TEXT % [float(issue.get("odometer_start_m", 0.0)), float(issue.get("odometer_stop_m", 0.0))]
+	_issue_caption.text = ISSUE_CAPTION_TEXT % [String(issue.get("id", "")), bound]
+	_issue_description.text = ""
+	_issue_overlay.visible = true
+	get_tree().paused = true
+	_issue_description.grab_focus()
+
+
+## Files `text` as the stopped record's description and takes the overlay
+## down; the tree runs on unless `keep_paused` (the garage has opened over
+## it and holds the pause itself). Nothing with no overlay up.
+func commit_issue_description(text: String, keep_paused := false) -> void:
+	if not _issue_overlay.visible:
+		return
+	_issue_overlay.visible = false
+	_issue_description.release_focus()
+	if not keep_paused:
+		get_tree().paused = false
+	flagger.describe(text)
+
+
+## Esc in the box: filed as typed, the key spent here (accept_event: the
+## LineEdit's own handling never sees it).
+func _on_issue_description_input(event: InputEvent) -> void:
+	if event is InputEventKey and (event as InputEventKey).pressed and (event as InputEventKey).keycode == KEY_ESCAPE:
+		_issue_description.accept_event()
+		commit_issue_description(_issue_description.text)
+
+
+func _on_garage_opened_over_issue() -> void:
+	commit_issue_description(_issue_description.text, true)
+
+
+func issue_line_visible() -> bool:
+	return _issue_label.visible
+
+
+func issue_line_text() -> String:
+	return _issue_label.text
+
+
+func issue_overlay_visible() -> bool:
+	return _issue_overlay.visible
+
+
+func issue_caption_text() -> String:
+	return _issue_caption.text
 
 
 # =============================================================================
