@@ -2,10 +2,11 @@
 
 `tests/run_tests.sh` is the gate: a headless import, then the config, element catalogue,
 skeleton, world profile, ring drive, smoke, handling, camera, mission, battery, thermal,
-tyre/brake thermal, steering-feel, wear, licence, menu, issue flag and airborne tests, the
-driving ones on the tick clock (`--fixed-fps 60`), a few minutes (the ring drive test builds
-the Ring's road twice and drives 2 km on it twice).
-`tests/run_tests.sh --parallel` runs the eighteen tests side by side after the import and
+tyre/brake thermal, steering-feel, wear, licence, menu, issue flag, minimap and airborne
+tests, the driving ones on the tick clock (`--fixed-fps 60`), a few minutes (the ring drive
+test builds the Ring's road twice and drives 2 km on it twice; the minimap test builds it
+once more).
+`tests/run_tests.sh --parallel` runs the nineteen tests side by side after the import and
 prints the same lines in the same order. What each test checks is in the main
 `README.md`.
 

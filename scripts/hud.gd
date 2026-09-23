@@ -28,6 +28,8 @@ extends CanvasLayer
 ## processing, PROCESS_MODE_ALWAYS in hud.tscn, so its keys reach it), Enter
 ## files the text, Esc files what is typed so far ("" for nothing), and the
 ## tree runs on. See _start_flagger for the garage's part in it.
+## THE GPS GUIDER (scripts/gps_minimap.gd, made here in _ready too:
+## _start_minimap): the minimap in the top-right corner, its key its own.
 
 ## Tach text colour normally and from ArcadeCar.SHIFT_LIGHT_RPM up.
 const TACH_COLOR := Color(1, 1, 1, 1)
@@ -189,6 +191,10 @@ const ISSUE_UNBOUND_TEXT := "no telemetry recording here: bound to the odometer,
 ## THE ISSUE FLAG's node, made in _ready (_start_flagger); the tests reach it.
 var flagger: IssueFlagger
 
+## THE GPS GUIDER's node (scripts/gps_minimap.gd), made in _ready
+## (_start_minimap); the tests reach it.
+var minimap: GpsMinimap
+
 ## The odometer as last written on its label [tenths of a km]; the label's text
 ## is only made anew when this changes, every 100 m.
 var _odometer_shown := -1
@@ -214,6 +220,7 @@ var _study_state: Dictionary = {}
 func _ready() -> void:
 	_build_study_panel()
 	_start_flagger()
+	_start_minimap()
 
 
 func _process(_delta: float) -> void:
@@ -737,6 +744,17 @@ func _start_flagger() -> void:
 	var garage: Node = beside.get_node_or_null("Garage") if beside != null else null
 	if garage is Garage:
 		(garage as Garage).opened.connect(_on_garage_opened_over_issue)
+
+
+## Makes the minimap (the flagger's idiom: new, named, a child, the car
+## handed over); it finds the Ring's RoadBuilder beside the HUD by itself
+## in its _ready, and shows its "no map data" line where there is none
+## (the pad). The key is its own (GpsMinimap.ACTION, P).
+func _start_minimap() -> void:
+	minimap = GpsMinimap.new()
+	minimap.name = "GpsMinimap"
+	minimap.car = car
+	add_child(minimap)
 
 
 func _on_issue_started(id: String) -> void:

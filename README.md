@@ -12,6 +12,7 @@ geometry is generated in-engine.
 `run.sh` uses `godot` from your `PATH` (falling back to `/opt/homebrew/bin/godot`) and
 imports the project on first launch. Alternatively, open the folder in the Godot 4.7
 editor (*Import* → select `project.godot`) and press **F5**.
+The game starts fullscreen (exclusive fullscreen, `display/window/size/mode` 4 in `project.godot`; was windowed).
 
 ### Controls
 
@@ -40,6 +41,7 @@ editor (*Import* → select `project.godot`) and press **F5**.
 | Licence book open / close (`1` sits the L0 exam, `2` the skid pad test while it is open; digits answer the theory) | `L` |
 | Garage open / close: the pause menu - drive, the study, car, licence, settings (`Esc` also opens it when nothing at all is running, and closes it); inside: `Left` / `Right` tabs, `Up` / `Down` rows, `Enter` go, `PgUp` / `PgDn` scroll, or the mouse | `Tab` |
 | Flag an issue: press to start a session (the HUD says `ISSUE issue-0007 recording`), drive to show the problem, press again to stop; a box then asks what is wrong, the game paused while you type - `Enter` files it, `Esc` files it as typed so far (and opens the garage, as `Esc` does with nothing running). See [The issue flag](#the-issue-flag) | `V` |
+| GPS minimap on / off (top right, on by default): ~500 m around the car heading-up, the roads at their widths, the car's arrow, and the road ahead ~400 m coloured by the bend's sharpness (green gentle, amber medium, red sharp) with the road's name and the next name along it; the pad has no map data and says so | `P` |
 
 Look left / right are on `,` and `.` (the `<` / `>` pair, under the right hand's reach from the arrows and next to `B`'s row): `Q` / `E` are the gearbox, `B` is look back. Hold to glance to that side, let go and the view comes back: the chase camera swings ~65 degrees round the car, in the cockpit and the bonnet view the head turns ~60 degrees; the overhead and wheel views have no side to look to. It is a glance, not a view of its own (`C` still cycles the same five), both keys at once look straight ahead, and look back wins over either.
 
