@@ -685,15 +685,27 @@ held to what the plan asks of the drape: the snapshot pinned and the skeleton it
 on the checked-in one by sha256, the 42 tiles each sha256-verified against the metalinks,
 the coverage the 7 km × 6 km core and the lattice spanning it; every Nordschleife segment
 covered; the crest/dip labels recounted from the file's own heights by the mirrored rule and
-equal to the file's; every draped bridge deck linear between its abutments, one line each;
+equal to the file's (1 927 crests, 1 874 dips; was 2 551 / 2 465 before ROAD-SMOOTHING);
+every draped bridge deck linear between its abutments, one line each;
 the Karussell's bank (branch (c) of the decision tree: 30 % over 6.5 m with the 1 m strip)
 read across the bowl; the reference heights derived from the file itself, the loop's lowest
 sample at the Breidscheid bridge 333 ± 2 m, its highest at T13 627.5 ± 2 m, the Hohe Acht way
 616.8 ± 2 m (measured, `docs/design/4b/ring-region-decisions.md` §3); the loop's steepest
 gradient past the pad's `MAX_SLOPE` and under 35 % away from bridge abutments, the abutments
 reported apart; the documented fallback outside coverage (height 0, gradient zero, mask 0)
-and no cliff at the edge; purity; `ring()` the same profile; then a 3 × 3 km fixture built in
-code (a plane with a bowl and two crests, six roads through the mirrored drape rules): the
+and no cliff at the edge; purity; `ring()` the same profile; the smoothing's evidence from
+the file's own numbers (ROAD-SMOOTHING, 2026-09-23, `docs/design/4b/data-pipeline.md` §5:
+the plain segments' centre heights Whittaker-smoothed at λ 5 with the crest/dip runs held to
+the raw data, every junction's ends stitched in height and crossfall, write-side): the loop's
+station-to-station grade change at the 90th and 99th percentiles down to the centimetre
+rounding's own 0.5 % and 1.0 % (was 1.5 % and 3.0 %), every junction's draped ends on one
+height and one crossfall (was a crossfall gap over 2 % at 1 562 junctions, 29 on the loop),
+the driver's issue-0005 stair at junction 65386044 (0.255 m and 0.150 m at the paved
+edges, now 0.000) and issue-0001's T13 ridge (the pit lane's −4 % against the loop's +4 %,
+0.340 m, now 0.000) flat in the file and in the field, and the raw -> smoothed evidence over
+±50 m at the three issue sites with the crest labels there kept at the raw amplitude; then a
+3 × 3 km fixture built in code (a plane with a bowl and two crests, six roads through the
+mirrored drape rules): the
 plane within 1 mm off-road and on a centreline, its gradient within 1e-4, the bowl's depth,
 bilinear continuity across the lattice's seams, the 2 % crown and the 6 m blend band, a
 left-hand bend superelevated 4 %, a bridge deck linear over the crest under it, a tunnel at
@@ -710,20 +722,29 @@ built headless at load by `scripts/road_builder.gd` from the checked-in skeleton
 implementation-plan.md §4B-4): drape.json pinned by sha256 (the two transforms below correct
 parsed data, never the file); the rim rule and the loop's right of way pure functions of the
 parsed data (twice, the same); the scene loads with every covered segment but the ten
-crossing structures swept (3 304 roads, 329 394 sections, 988 182 vertices, 1 304 320
-triangles, one trimesh StaticBody3D per road on layer 2 and a follower floor slab on layer 1
+crossing structures swept (3 304 roads, 383 146 sections, 1 149 438 vertices, 1 519 368
+triangles - was 329 394 / 988 182 / 1 304 320 before ROAD-SMOOTHING's crossfall stitch put a
+ramp on every segment's end chord for the twist bound to split -, one trimesh StaticBody3D
+per road on layer 2 and a follower floor slab on layer 1
 put under the car every tick from the same corrected profile), the car at the pit anchor on
 a WorldRoadProfile; the mesh is the field: every vertex of the loop's and the pit strips on
-the corrected profile's `sample_height` within 1 mm (62 259 vertices), the quads' edges and
+the corrected profile's `sample_height` within 1 mm (70 569 vertices), the quads' edges and
 centres within the twist bound away from the skeleton's kinks (the field's own step between
 two chords measured and reported there, as at junctions); the rim rule: Breidscheid's rims
 8.44 m and 8.00 m out at 338.76 and 337.00 m and its deck line -5.14 %, every loop bridge's
-abutment spike before and after through `ramp_gradient` (64 % -> 6.5 %, 32 % -> 4.9 %,
-61 % -> 4.5 %, 52 % -> 7.9 %, 59 % -> 3.0 % via amendment 2's continuation through the T13
-junction, 54 % -> 4.0 %, 41395681-0 already clean), no station on the loop's own field at
+abutment spike before and after through `ramp_gradient` (65 % -> 5.1 %, 57 % -> 5.1 %,
+32 % -> 5.1 %, 43 % -> 6.8 %, 46 % -> 4.0 %, 62 % -> 3.2 % via amendment 2's continuation
+through the T13 junction, 61 % -> 3.0 %, 41395681-0 already clean; the "before" numbers are
+the smoothed file's abutment walls, was 64 / 32 / 61 / 52 / 59 / 54 % on the raw file), no
+station on the loop's own field at
 20 % or more, every deck a straight line in the mesh, 41226730-0 untouched and below the
 ground; the loop's right of way: the ten crossing structures (id, distance along the lap,
-height step, removed) and the whole loop swept every metre with no step over 0.5 m left;
+height step, removed) and the whole loop swept every metre with no step over 0.5 m left (the
+largest 0.16 m; was 0.41 m at the T13 four-way junction, where the rim rule's lift through the
+junction now lands on the stitched node); the driver's issue-0002 "big hole in the road"
+localised: the car on the loop's bridge deck 41395681-0 over the primary 828126276-0, one of
+the ten unbuilt crossing structures, the ground 5.6 m below the deck - a missing bridge side
+and an unbuilt road under it, reader-side work recorded, not a height in the file;
 the scripted pure-pursuit driver's 2 km from Döttinger Höhe along the loop's one-way
 direction with no wheel off the paved width (the worst lateral offset, the speeds, the
 crossings passed clean, the follower floor on the field every tick); the hill step made

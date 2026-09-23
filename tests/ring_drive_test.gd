@@ -52,9 +52,13 @@ extends SceneTree
 
 const RING_SCENE := "res://scenes/eifel_ring.tscn"
 
-## drape.json as checked in at 4B-3 (00db178 / 80b3917): the rim rule
-## corrects parsed data, the file stays these bytes.
-const DRAPE_SHA256 := "b8d4e53117790b95581a11641e57d0693118efd9b93000f2314048f1c3672940"
+## drape.json as checked in: the rim rule corrects parsed data, the file
+## stays these bytes. was 4B-3's b8d4e531... (00db178 / 80b3917) ->
+## ROAD-SMOOTHING's (2026-09-23: the plain segments' centre heights
+## Whittaker-smoothed at lambda 5 with the crest/dip runs held to the raw
+## data, every junction's ends stitched in height and crossfall;
+## tools/world/drape.py's header, docs/design/4b/data-pipeline.md §5).
+const DRAPE_SHA256 := "fa2dfb58bdd51d1b6b42be1ab3da5fe3ea472c2526d75182ec846269b295fbe0"
 
 ## The drape's covered segments (tests/world_profile_test.gd's count) and
 ## the loop's (tests/skeleton_test.gd's): every one swept but the ten
@@ -70,6 +74,26 @@ const CROSSINGS: Array[String] = ["377340334-0", "29898554-0", "41455756-6", "42
 
 ## Physics frames to let the car settle after a load or a reset.
 const SETTLE_FRAMES := 20
+
+## The share of the loop's quads a vertex or a probe of which reads
+## another road (a junction's field). was 0.05 (4B-4: 925 of 21 673
+## quads) -> 0.10 (ROAD-SMOOTHING, 2026-09-23: the crossfall stitch at
+## every junction puts a crossfall ramp on each segment's end chord, and
+## the twist bound splits a ramp of 8 % into ~85 sections whatever its
+## length, so the quads at the loop's own seams - counted here as
+## "another road", the next loop segment - went 925 -> 1 593 of 22 721,
+## 7.0 %: a mesh-density count, the field the same single-valued one).
+const OTHER_ROAD_QUADS_SHARE_MAX := 0.10
+
+## The driver's issue-0002 ("there is something that appears as a big
+## whole in the road", 2026-09-23T19:02, gear -1, speed 0): the car at
+## this region point, the nearest loop chord and the crossing under it.
+const ISSUE_0002_CAR := Vector2(714.38, -1782.091)
+const ISSUE_0002_BRIDGE := "41395681-0"
+const ISSUE_0002_UNDER := "828126276-0"
+## Beyond the paved edge and the 6 m blend band the field is the terrain
+## lattice: under a bridge that is the valley floor.
+const ISSUE_0002_PROBE_M := 12.0
 
 ## The build's wall-time budget [ms]: 8-10 s measured on a machine at load
 ## average 7 (about a quarter of a core), 17 s with the suite's steps side
@@ -290,7 +314,7 @@ func _step(frames: int) -> void:
 
 func _check_files() -> void:
 	_ok(_skeleton is Dictionary and _drape is Dictionary, "the skeleton and the drape read as JSON")
-	_ok(FileAccess.get_sha256(WorldRoadProfile.PATH) == DRAPE_SHA256, "drape.json is byte-identical to 4B-3's (sha256 %s): the rim rule corrects parsed data, never the file" % DRAPE_SHA256.left(12), "drape.json's sha256 is %s" % FileAccess.get_sha256(WorldRoadProfile.PATH))
+	_ok(FileAccess.get_sha256(WorldRoadProfile.PATH) == DRAPE_SHA256, "drape.json is byte-identical to ROAD-SMOOTHING's (sha256 %s; was 4B-3's b8d4e531...): the rim rule corrects parsed data, never the file" % DRAPE_SHA256.left(12), "drape.json's sha256 is %s" % FileAccess.get_sha256(WorldRoadProfile.PATH))
 	var entry: Dictionary = Garage.MAPS[Garage.MAPS.size() - 1] if Garage.MAPS.size() == 2 else {}
 	_ok(Garage.MAPS.size() == 2 and entry.get("id") == "eifel_ring" and entry.get("scene") == RING_SCENE and ResourceLoader.exists(RING_SCENE), "Garage.MAPS lists the Ring after the pad: id %s, scene %s, and the scene file exists (was one map, the Ring row a push_error)" % [entry.get("id"), entry.get("scene")], "Garage.MAPS is %s" % [Garage.MAPS])
 
@@ -576,7 +600,7 @@ func _check_mesh_between(road: RoadBuilder) -> void:
 					where = "%s at %.1f m" % [id, strip.chainages[k]]
 	_ok(interior > 0 and non_finite == 0 and worst_interior <= OFF_VERTEX_TOLERANCE_M, "between the vertices, at the edges' midpoints and the centres of %d interior quads of the loop, the mesh is within %.2f mm of the field (worst %s; the twist bound %.0f mm); every probe finite" % [interior, 1000.0 * worst_interior, where, 1000.0 * RoadBuilder.MESH_TOLERANCE_M], "an interior quad of the loop is %.4f m off the field at %s, %d interior quads, %d probes not finite" % [worst_interior, where, interior, non_finite])
 	_ok(at_kinks > 0 and worst_kink < 1.0, "at the %d quads within the half width of a skeleton kink or a segment's end the field's own step between chords shows: the mesh is up to %.1f mm off it there (reported, not the mesh's fault: the nearest-chord field is not continuous across a bisector)" % [at_kinks, 1000.0 * worst_kink], "a kink quad is %.3f m off, %d kink quads" % [worst_kink, at_kinks])
-	_ok(at_others < 0.05 * (interior + at_kinks + at_others), "at %d quads a vertex or a probe reads another road (a junction: the pit lane's, the access links'), where the field is that road's and the mesh is up to %.2f m off it - the single-valued field's step at a junction, the same the car feels" % [at_others, worst_other], "%d quads read another road" % at_others)
+	_ok(at_others < OTHER_ROAD_QUADS_SHARE_MAX * (interior + at_kinks + at_others), "at %d of %d quads a vertex or a probe reads another road (a junction: the next loop segment's, the pit lane's, the access links'), where the field is that road's and the mesh is up to %.2f m off it - the single-valued field's step at a junction, the same the car feels (under %.0f %%; was 925 quads under 5 %% before the crossfall stitch's ramps were split for the twist bound)" % [at_others, interior + at_kinks + at_others, worst_other, 100.0 * OTHER_ROAD_QUADS_SHARE_MAX], "%d of %d quads read another road" % [at_others, interior + at_kinks + at_others])
 
 
 # =============================================================================
@@ -791,6 +815,23 @@ func _check_right_of_way(road: RoadBuilder) -> void:
 		var at := _point_on(geometry.xs, geometry.zs, geometry.chain, crossing.loop_chainage)
 		loop_field = loop_field and road.profile.describe(at[0], at[1]).get("road") == crossing.loop
 	_ok(loop_field, "at every crossing the field on the loop's centreline is the loop's own (was the crossing road's, a step of 1.6-6.0 m the car drove into)")
+	# Issue-0002's localisation: the car on the bridge deck over a
+	# crossing structure the right of way uncovers, the valley floor
+	# beside the deck.
+	var where := road.profile.describe(ISSUE_0002_CAR.x, ISSUE_0002_CAR.y)
+	var under_crossing := {}
+	for crossing: Dictionary in road.crossings:
+		if crossing.id == ISSUE_0002_UNDER:
+			under_crossing = crossing
+	var deck_geometry := _geometry_of(ISSUE_0002_BRIDGE)
+	var deck_direction := _direction_on(deck_geometry.xs, deck_geometry.zs, deck_geometry.chain, where.get("chainage", 0.0))
+	var right := Vector2(-deck_direction.y, deck_direction.x)
+	var deck_here := road.profile.sample_height(ISSUE_0002_CAR.x, ISSUE_0002_CAR.y)
+	var beside_right := road.profile.sample_height(ISSUE_0002_CAR.x + right.x * ISSUE_0002_PROBE_M, ISSUE_0002_CAR.y + right.y * ISSUE_0002_PROBE_M)
+	var beside_left := road.profile.sample_height(ISSUE_0002_CAR.x - right.x * ISSUE_0002_PROBE_M, ISSUE_0002_CAR.y - right.y * ISSUE_0002_PROBE_M)
+	var terrain := road.profile.terrain_height(ISSUE_0002_CAR.x, ISSUE_0002_CAR.y)
+	var bridge_segment: SkeletonLoader.Segment = _segments[ISSUE_0002_BRIDGE]
+	_ok(where.get("road") == ISSUE_0002_BRIDGE and where.get("on_road", false) and not under_crossing.is_empty() and under_crossing.loop == ISSUE_0002_BRIDGE and road.strip(ISSUE_0002_UNDER) == null and bridge_segment.tags.get("bridge", "no") != "no" and deck_here - terrain > 4.0 and deck_here - minf(beside_left, beside_right) > 4.0, "issue-0002 (\"a big hole in the road\", the car at (%.2f, %.2f), reverse, standing): the car is on the loop's bridge deck %s at chainage %.1f, %.2f m from its centreline, %.2f m above the terrain lattice under it (the DGM1 is a ground model: the valley floor); the primary %s passes %.2f m under the deck and is one of the ten crossing structures the right of way uncovers (no strip built), and %.0f m beside the deck the field is the ground %.2f m and %.2f m below it - the hole is the bridge's missing sides and the unbuilt road under it, not a height in the file (the deck is linear and the same bytes as before the smoothing); reader-side work, recorded" % [ISSUE_0002_CAR.x, ISSUE_0002_CAR.y, where.get("road"), where.get("chainage", 0.0), where.get("offset", 0.0), deck_here - terrain, ISSUE_0002_UNDER, under_crossing.get("loop_height", 0.0) - under_crossing.get("height", 0.0), ISSUE_0002_PROBE_M, deck_here - beside_left, deck_here - beside_right], "issue-0002: over %s (%s), the crossing %s, deck %.2f terrain %.2f beside %.2f / %.2f" % [where.get("road"), where, under_crossing, deck_here, terrain, beside_left, beside_right])
 
 
 # =============================================================================

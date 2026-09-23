@@ -23,10 +23,23 @@ extends SceneTree
 ## superelevation across the platform, a bridge deck linear between its
 ## abutments, a tunnel below the ground, the crest labelled where the
 ## curvature says, the bank's bowl; and validate() on fixtures broken in
-## code names the field. No network, no python, no DGM1: drape.py is never
-## run by the suite. Seconds, right after the skeleton test in
-## run_tests.sh: static data that fails first. Writes nothing under /tmp.
-## Exits 0 on success, 1 on any fault.
+## code names the field. ROAD-SMOOTHING (2026-09-23, tools/world/drape.py's
+## header): the checked-in file's plain segments are Whittaker-smoothed
+## (lambda 5, the crest/dip runs held to the raw data) and every
+## junction's ends stitched in height and crossfall, write-side; held
+## here from the file's own numbers: the loop's station-to-station grade
+## change at the 90th and 99th percentiles against the raw file's, every
+## junction's covered ends on one height and one crossfall, the driver's
+## issue-0005 stair (junction 65386044) and issue-0001's T13 ridge
+## (junction 312821860) flat in the file and in the field, and the raw ->
+## smoothed evidence over ±50 m at the three issue sites (the raw
+## numbers pinned from the file before the smoothing, b8d4e531...). The
+## noisy fixture (a seeded noise band on a plane with a 30 m crest) needs
+## numpy and lives in drape.py --selftest; its evidence is cited in
+## docs/design/4b/data-pipeline.md §5. No network, no python, no DGM1:
+## drape.py is never run by the suite. Seconds, right after the skeleton
+## test in run_tests.sh: static data that fails first. Writes nothing
+## under /tmp. Exits 0 on success, 1 on any fault.
 
 ## The pinned snapshot (ring-region-decisions.md §1), its own literal.
 const PINNED_OSM_BASE := "2026-09-22T08:45:51Z"
@@ -69,10 +82,13 @@ const LOOP_SLOPE_CEILING := 0.35
 ## Rounding of the file's heights [m]: what a linear check allows per end.
 const HEIGHT_ROUNDING_M := 0.005
 
-## The 200-sample set's sha256 as read at 4B-3's landing (00db178), pinned
-## so a change in the profile's arithmetic on the checked-in file is a
-## documented "was ->", never a silent drift.
-const SAMPLES_DIGEST := "b167c232226cc25acdcebb520a8894f13d480bb7f72dd9a7b3332d7a381be1a8"
+## The 200-sample set's sha256 as read on the checked-in file, pinned so a
+## change in the profile's arithmetic on it is a documented "was ->",
+## never a silent drift. was b167c232... (4B-3's landing, 00db178) ->
+## bab692ef... (ROAD-SMOOTHING, 2026-09-23: the file's heights changed -
+## the plain segments Whittaker-smoothed, the junctions stitched - the
+## profile's arithmetic did not).
+const SAMPLES_DIGEST := "bab692efff0c06a8ae5dee74e597955ff58142289bec82063d69426385227486"
 
 ## The codex review's precision repro: the segment and the pipeline's value.
 const MIRROR_SEGMENT := "1017207289-0"
@@ -116,6 +132,7 @@ func _initialize() -> void:
 		_check_slopes(skeleton, drape, raw_points, profile)
 		_check_fallback(profile)
 		_check_ring(profile)
+		_check_smoothing(skeleton, drape, raw_points, profile)
 	_check_fixture()
 	_check_broken_fixtures()
 	print("WORLD PROFILE TEST PASSED" if _failures == 0 else "WORLD PROFILE TEST FAILED: %d fault(s)" % _failures)
@@ -413,7 +430,7 @@ func _check_slopes(skeleton: Dictionary, drape: Dictionary, raw_points: Dictiona
 	for h: float in samples:
 		context.update(("%.6f\n" % h).to_utf8_buffer())
 	var digest := context.finish().hex_encode()
-	_ok(digest == SAMPLES_DIGEST, "the 200 samples read the same as at 4B-3's landing: sha256 %s (no covered segment is wider than 8.5 m, so the per-road reach changes nothing here)" % digest, "the 200 samples' digest is %s, pinned %s" % [digest, SAMPLES_DIGEST])
+	_ok(digest == SAMPLES_DIGEST, "the 200 samples read the same as at ROAD-SMOOTHING's landing: sha256 %s (was 4B-3's b167c232...: the smoothed file; no covered segment is wider than 8.5 m, so the per-road reach changes nothing here)" % digest, "the 200 samples' digest is %s, pinned %s" % [digest, SAMPLES_DIGEST])
 	_check_mirror_precision(skeleton)
 
 
@@ -462,6 +479,202 @@ func _check_ring(profile: WorldRoadProfile) -> void:
 		same = same and ring != null and ring.sample_height(point.x, point.y) == profile.sample_height(point.x, point.y)
 	_ok(same, "WorldRoadProfile.ring() reads the checked-in files into the same profile (%d roads)" % profile.road_count())
 	_ok(profile.micro_amplitude == 0.0 and profile.test_dip_depth == 0.0 and profile.ramp_height == 0.0 and profile.swell_amplitude == 0.0 and profile.second_swell_amplitude == 0.0, "the pad's layers are zero on the world profile: no micro-bumps, no test dip, no licence ramp, no swells")
+
+
+# =============================================================================
+#  ROAD-SMOOTHING: THE FILE'S OWN EVIDENCE
+# =============================================================================
+
+## The raw file's numbers (b8d4e531..., before the smoothing), measured
+## 2026-09-23 with the same arithmetic and pinned here as the "before".
+## The loop's plain segments' station-to-station grade change (the 2 m
+## second difference, |h[k+1] - 2 h[k] + h[k-1]| / 4 [1/m]) at the 90th
+## and 99th percentiles: 0.0075 and 0.0150 (1.5 % and 3.0 % per station);
+## after the smoothing at most the centimetre rounding's own quantum
+## 0.0025 and twice it.
+const RAW_LOOP_KINK_P90 := 0.0075
+const RAW_LOOP_KINK_P99 := 0.0150
+const LOOP_KINK_P90_MAX := 0.0025
+const LOOP_KINK_P99_MAX := 0.0050
+## Junctions with two or more covered ends in the raw file: 2 158 of them
+## had a crossfall gap over 2 % at 1 562 (29 on the loop), the largest
+## 0.34 (the Karussell's bank, excluded from the stitch); the heights
+## already agreed everywhere (the same DEM sample).
+const RAW_CROSSFALL_GAP_JUNCTIONS := 1562
+const RAW_CROSSFALL_GAP_LOOP := 29
+## The driver's issue-0005 ("two tiles of the road connect, but one is
+## higher than the other ... like a stair", car at x 1594.015 z -1218.086):
+## junction 65386044, 1009142895-0's end onto 799394496-0's start, both
+## at 585.23 m with crossfall -0.0077 and +0.04: the platform 4.25 m
+## right of the centre stepped 0.255 m and 0.150 m left. Issue-0001 ("the
+## road tile is very pointy", x 2017.926 z -1373.37): junction 312821860,
+## the pit lane 199642470-0 meeting the loop at T13 with -0.04 against
+## the loop's +0.04, a 0.340 m ridge at the paved edge.
+const ISSUE_0005_JUNCTION := "65386044"
+const ISSUE_0005_SEGMENTS := ["1009142895-0", "799394496-0"]
+const ISSUE_0005_CAR := Vector2(1594.015, -1218.086)
+const RAW_ISSUE_0005_STAIR_M := [0.255, 0.150]
+const ISSUE_0001_JUNCTION := "312821860"
+const ISSUE_0001_SEGMENTS := ["1009142894-0", "1009142894-1", "199642470-0"]
+const ISSUE_0001_CAR := Vector2(2017.926, -1373.37)
+const RAW_ISSUE_0001_RIDGE_M := 0.340
+const STAIR_MAX_M := 0.005
+## The field probe across a seam: 5 cm along either segment at ±4 m; the
+## grade over those 10 cm and the rounding allow this much.
+const SEAM_PROBE_ALONG_M := 0.05
+const SEAM_PROBE_OFFSET_M := 4.0
+const SEAM_PROBE_MAX_M := 0.03
+## The raw -> smoothed evidence over ±50 m along the owning segments at
+## the three issue sites (the Conductor's requirement): the window's
+## grade-change peak-to-peak [1/m] in the raw file, and the crest label
+## in it with its amplitude over the 20 m window (h[k] - (h[k-5] +
+## h[k+5]) / 2) in the raw file. Issue-0002's car stood on the bridge deck
+## 41395681-0 (rigid: the deck is the same bytes) over the primary
+## 828126276-0.
+const WINDOW_HALF_M := 50.0
+const WINDOWS := [
+	{"issue": "issue-0001", "id": "199642470-0", "at": 46.9, "raw_p2p": 0.2675, "max_p2p": 0.2675, "raw_label": {"kind": "crest", "at": 10.0, "amplitude": 2.330}},
+	{"issue": "issue-0001", "id": "1009142894-0", "at": 47.3, "raw_p2p": 0.2300, "max_p2p": 0.2300, "raw_label": {"kind": "crest", "at": 10.0, "amplitude": 2.275}},
+	{"issue": "issue-0001", "id": "1009142894-1", "at": 0.0, "raw_p2p": 0.0150, "max_p2p": 0.0100, "raw_label": {}},
+	{"issue": "issue-0002", "id": "41395681-0", "at": 24.1, "raw_p2p": 0.0050, "max_p2p": 0.0050, "raw_label": {}},
+	{"issue": "issue-0002", "id": "828126276-0", "at": 13.1, "raw_p2p": 0.0550, "max_p2p": 0.0075, "raw_label": {}},
+	{"issue": "issue-0005", "id": "1009142895-0", "at": 465.2, "raw_p2p": 0.0200, "max_p2p": 0.0075, "raw_label": {}},
+	{"issue": "issue-0005", "id": "799394496-0", "at": 0.0, "raw_p2p": 0.0175, "max_p2p": 0.0075, "raw_label": {}},
+]
+const AMPLITUDE_KEPT_M := 0.011
+
+
+func _check_smoothing(skeleton: Dictionary, drape: Dictionary, raw_points: Dictionary, profile: WorldRoadProfile) -> void:
+	var records := {}
+	for raw: Dictionary in drape.segments:
+		records[raw.id] = raw
+	var segments := SkeletonLoader.segments_of(skeleton)
+	var loop: SkeletonLoader.Loop = SkeletonLoader.loops_of(skeleton)[SkeletonLoader.NORDSCHLEIFE_LOOP]
+	# The loop's station-to-station grade change.
+	var kinks := PackedFloat64Array()
+	for id: String in loop.segments:
+		var segment: SkeletonLoader.Segment = segments[id]
+		if (segment.tags.has("bridge") and segment.tags["bridge"] != "no") or segment.tags.get("tunnel") == "yes":
+			continue
+		var dense: Array = records[id].dense
+		for k: int in range(1, dense.size() - 1):
+			kinks.append(absf((dense[k + 1] - 2.0 * dense[k] + dense[k - 1]) / 4.0))
+	kinks.sort()
+	var p90: float = kinks[int(floor(0.9 * (kinks.size() - 1)))]
+	var p99: float = kinks[int(floor(0.99 * (kinks.size() - 1)))]
+	_ok(kinks.size() > 10000 and p90 <= LOOP_KINK_P90_MAX + 1e-9 and p99 <= LOOP_KINK_P99_MAX + 1e-9, "smoothing: over the loop's %d plain stations the station-to-station grade change is %.4f /m at the 90th percentile and %.4f at the 99th (%.1f %% and %.1f %% per 2 m station; was %.4f and %.4f in the raw file, %.1f %% and %.1f %%: the centimetre rounding's quantum is %.4f)" % [kinks.size(), p90, p99, 200.0 * p90, 200.0 * p99, RAW_LOOP_KINK_P90, RAW_LOOP_KINK_P99, 200.0 * RAW_LOOP_KINK_P90, 200.0 * RAW_LOOP_KINK_P99, LOOP_KINK_P90_MAX], "loop grade change p90 %.4f p99 %.4f over %d stations" % [p90, p99, kinks.size()])
+	# Every junction's covered ends: one height, one crossfall.
+	var junctions := 0
+	var height_gaps := 0
+	var crossfall_gaps := 0
+	var worst_height := 0.0
+	var worst_crossfall := 0.0
+	var crossfall_nodes := 0
+	for raw: Dictionary in skeleton.junctions:
+		var heights := PackedFloat64Array()
+		var crossfalls := PackedFloat64Array()
+		for id: String in raw.segments:
+			if not records.has(id):
+				continue
+			var points: Array = raw_points[id]
+			var record: Dictionary = records[id]
+			var at_start: bool = Vector2(points[0][0], points[0][1]).distance_to(Vector2(raw.x, raw.z)) < 1e-6
+			var end: int = 0 if at_start else record.dense.size() - 1
+			var end_point: int = 0 if at_start else record.crossfall.size() - 1
+			if record.dense[end] != null:
+				heights.append(record.dense[end])
+			if segments[id].osm_way != SkeletonLoader.KARUSSELL_WAY:
+				crossfalls.append(record.crossfall[end_point])
+		if heights.size() >= 2:
+			junctions += 1
+			var gap: float = _span_of(heights)
+			worst_height = maxf(worst_height, gap)
+			if gap > 2.0 * HEIGHT_ROUNDING_M + 1e-9:
+				height_gaps += 1
+		if crossfalls.size() >= 2:
+			crossfall_nodes += 1
+			var gap: float = _span_of(crossfalls)
+			worst_crossfall = maxf(worst_crossfall, gap)
+			if gap > 1e-9:
+				crossfall_gaps += 1
+	_ok(junctions > 2000 and height_gaps == 0 and crossfall_nodes > 2000 and crossfall_gaps == 0, "junctions: at all %d nodes with two or more draped ends the ends' centre heights agree to the centimetre (the largest gap %.3f m) and at all %d nodes with two or more non-bank ends the end crossfalls are equal (the largest gap %.4f; was a gap over 2 %% at %d junctions, %d of them on the loop: each segment's end took its own bend's crossfall)" % [junctions, worst_height, crossfall_nodes, worst_crossfall, RAW_CROSSFALL_GAP_JUNCTIONS, RAW_CROSSFALL_GAP_LOOP], "%d height gaps (worst %.3f), %d crossfall gaps (worst %.4f) over %d / %d junctions" % [height_gaps, worst_height, crossfall_gaps, worst_crossfall, junctions, crossfall_nodes])
+	# Issue-0005's stair, from the file and from the field.
+	var a: Dictionary = records[ISSUE_0005_SEGMENTS[0]]
+	var b: Dictionary = records[ISSUE_0005_SEGMENTS[1]]
+	var stair_right: float = absf(_edge_height(a, a.dense.size() - 1, a.crossfall.size() - 1, 4.25) - _edge_height(b, 0, 0, 4.25))
+	var stair_left: float = absf(_edge_height(a, a.dense.size() - 1, a.crossfall.size() - 1, -4.25) - _edge_height(b, 0, 0, -4.25))
+	var nearest_5: Dictionary = profile.describe(ISSUE_0005_CAR.x, ISSUE_0005_CAR.y)
+	_ok(nearest_5.get("road") == ISSUE_0005_SEGMENTS[0] and absf(nearest_5.get("chainage", 0.0) - 465.2) < 0.5 and a.dense[a.dense.size() - 1] == b.dense[0] and a.crossfall[a.crossfall.size() - 1] == b.crossfall[0] and stair_right <= STAIR_MAX_M and stair_left <= STAIR_MAX_M, "issue-0005 (\"like a stair\", the car at (%.3f, %.3f) on %s chainage %.1f, %.2f m from its centreline): at junction %s %s ends and %s starts at one centre height %.2f m and one crossfall %+.4f, so the platform's edges 4.25 m out meet within %.3f m right and %.3f m left (was %.3f m and %.3f m: crossfall -0.0077 against +0.04 at one height)" % [ISSUE_0005_CAR.x, ISSUE_0005_CAR.y, nearest_5.get("road"), nearest_5.get("chainage", 0.0), nearest_5.get("distance", 0.0), ISSUE_0005_JUNCTION, ISSUE_0005_SEGMENTS[0], ISSUE_0005_SEGMENTS[1], b.dense[0], b.crossfall[0], stair_right, stair_left, RAW_ISSUE_0005_STAIR_M[0], RAW_ISSUE_0005_STAIR_M[1]], "issue-0005: heights %s / %s, crossfall %s / %s, stair %.3f / %.3f, the car over %s" % [a.dense[a.dense.size() - 1], b.dense[0], a.crossfall[a.crossfall.size() - 1], b.crossfall[0], stair_right, stair_left, nearest_5.get("road")])
+	var probe := _seam_probe(profile, raw_points[ISSUE_0005_SEGMENTS[0]], raw_points[ISSUE_0005_SEGMENTS[1]])
+	_ok(probe.worst <= SEAM_PROBE_MAX_M, "issue-0005 in the field: sample_height %.2f m before and after the node at %.0f m left, on the centreline and %.0f m right steps %.3f, %.3f and %.3f m (the grade over those %.1f m and the rounding; a stair of 0.15-0.26 m read here before)" % [SEAM_PROBE_ALONG_M, SEAM_PROBE_OFFSET_M, SEAM_PROBE_OFFSET_M, probe.steps[0], probe.steps[1], probe.steps[2], 2.0 * SEAM_PROBE_ALONG_M], "the field steps %s across the seam" % [probe.steps])
+	# Issue-0001's ridge at T13.
+	var pit: Dictionary = records[ISSUE_0001_SEGMENTS[2]]
+	var loop_in: Dictionary = records[ISSUE_0001_SEGMENTS[0]]
+	var loop_out: Dictionary = records[ISSUE_0001_SEGMENTS[1]]
+	var ridge: float = absf(_edge_height(pit, pit.dense.size() - 1, pit.crossfall.size() - 1, 4.25) - _edge_height(loop_out, 0, 0, 4.25))
+	var nearest_1: Dictionary = profile.describe(ISSUE_0001_CAR.x, ISSUE_0001_CAR.y)
+	_ok(nearest_1.get("distance", 99.0) < 4.25 and pit.crossfall[pit.crossfall.size() - 1] == loop_out.crossfall[0] and loop_in.crossfall[loop_in.crossfall.size() - 1] == loop_out.crossfall[0] and pit.dense[pit.dense.size() - 1] == loop_out.dense[0] and ridge <= STAIR_MAX_M, "issue-0001 (\"very pointy\", the car at (%.3f, %.3f) over %s, %.2f m from its centreline, %.2f m from the T13 junction %s): the pit lane %s ends on the loop's node at the loop's own crossfall %+.4f and height %.2f m (was -0.04 against the loop's +0.04: a %.3f m ridge at the paved edge; now %.3f m)" % [ISSUE_0001_CAR.x, ISSUE_0001_CAR.y, nearest_1.get("road"), nearest_1.get("distance", 0.0), ISSUE_0001_CAR.distance_to(Vector2(2015.436, -1370.741)), ISSUE_0001_JUNCTION, ISSUE_0001_SEGMENTS[2], loop_out.crossfall[0], loop_out.dense[0], RAW_ISSUE_0001_RIDGE_M, ridge], "issue-0001: pit crossfall %s, loop %s / %s, heights %s / %s, ridge %.3f, the car over %s" % [pit.crossfall[pit.crossfall.size() - 1], loop_in.crossfall[loop_in.crossfall.size() - 1], loop_out.crossfall[0], pit.dense[pit.dense.size() - 1], loop_out.dense[0], ridge, nearest_1.get("road")])
+	# The ±50 m windows at the three sites.
+	for window: Dictionary in WINDOWS:
+		var record: Dictionary = records[window.id]
+		var stations := WorldRoadProfile.station_chainages(_length_of(raw_points[window.id]))
+		var inside: Array[int] = []
+		for k: int in stations.size():
+			if absf(stations[k] - window.at) <= WINDOW_HALF_M:
+				inside.append(k)
+		var changes := PackedFloat64Array()
+		for i: int in range(1, inside.size() - 1):
+			changes.append((record.dense[inside[i + 1]] - 2.0 * record.dense[inside[i]] + record.dense[inside[i - 1]]) / 4.0)
+		var p2p: float = _span_of(changes)
+		var label_text := ""
+		var label_ok := true
+		var raw_label: Dictionary = window.raw_label
+		if not raw_label.is_empty():
+			var k := int(round(raw_label.at / WorldRoadProfile.STATION_STEP_M))
+			var amplitude: float = record.dense[k] - 0.5 * (record.dense[k - 5] + record.dense[k + 5])
+			var labelled := false
+			for label: Dictionary in record.labels:
+				labelled = labelled or (label.kind == raw_label.kind and label.at == raw_label.at)
+			label_ok = labelled and absf(amplitude - raw_label.amplitude) <= AMPLITUDE_KEPT_M
+			label_text = "; the raw file's %s label at chainage %.0f is still there and its amplitude over the 20 m window is %.3f m (raw %.3f m, kept within %.3f m: the run is held to the raw heights)" % [raw_label.kind, raw_label.at, amplitude, raw_label.amplitude, AMPLITUDE_KEPT_M]
+		_ok(inside.size() >= 10 and p2p <= window.max_p2p + 1e-9 and p2p <= window.raw_p2p + 1e-9 and label_ok, "%s, %s over %.0f..%.0f m (%d stations): the grade-change peak-to-peak is %.4f /m, %.1f %% per station (raw %.4f, %.1f %%; at most %.4f asked)%s" % [window.issue, window.id, stations[inside[0]], stations[inside[inside.size() - 1]], inside.size(), p2p, 200.0 * p2p, window.raw_p2p, 200.0 * window.raw_p2p, window.max_p2p, label_text], "%s %s: p2p %.4f (raw %.4f, max %.4f), label ok %s" % [window.issue, window.id, p2p, window.raw_p2p, window.max_p2p, label_ok])
+
+
+## The largest value less the smallest.
+static func _span_of(values: PackedFloat64Array) -> float:
+	var lowest := INF
+	var highest := -INF
+	for v: float in values:
+		lowest = minf(lowest, v)
+		highest = maxf(highest, v)
+	return highest - lowest
+
+
+## The platform's height at a record's end station, `offset` metres right
+## of the centre: the file's centre height plus the crossfall's shape
+## (world_road_profile.gd's _platform_height without the bank).
+static func _edge_height(record: Dictionary, station: int, point: int, offset: float) -> float:
+	var e: float = record.crossfall[point]
+	var crown_share := 1.0 - minf(absf(e) / WorldRoadProfile.CROWN, 1.0)
+	return record.dense[station] + e * offset - crown_share * WorldRoadProfile.CROWN * absf(offset)
+
+
+## The field just before and just after the node where segment `a` ends
+## and `b` starts, at -4, 0 and +4 m right of travel: the three steps and
+## the worst.
+static func _seam_probe(profile: WorldRoadProfile, a: Array, b: Array) -> Dictionary:
+	var node := Vector2(a[a.size() - 1][0], a[a.size() - 1][1])
+	var da := (node - Vector2(a[a.size() - 2][0], a[a.size() - 2][1])).normalized()
+	var db := (Vector2(b[1][0], b[1][1]) - node).normalized()
+	var steps := PackedFloat64Array()
+	var worst := 0.0
+	for o: float in [-SEAM_PROBE_OFFSET_M, 0.0, SEAM_PROBE_OFFSET_M]:
+		var before := node - da * SEAM_PROBE_ALONG_M + Vector2(-da.y, da.x) * o
+		var after := node + db * SEAM_PROBE_ALONG_M + Vector2(-db.y, db.x) * o
+		var step := absf(profile.sample_height(after.x, after.y) - profile.sample_height(before.x, before.y))
+		steps.append(step)
+		worst = maxf(worst, step)
+	return {"steps": steps, "worst": worst}
 
 
 # =============================================================================
