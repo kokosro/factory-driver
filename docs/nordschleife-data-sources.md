@@ -10,6 +10,8 @@
 | DEM tiles (30 m) | SRTM‑30 / Copernicus DEM (1° × 1° HGT files) | Covers whole Eifel region (incl. Nürburgring) | NASA SRTM download (https://srtm.csi.cgiar.org) |
 | High‑resolution LiDAR (≈ 1 m) | DGM‑2 (RLP) – laser‑scanned DEM, free with attribution | Rhineland‑Palatinate GeoPortal (https://www.geoportal.rlp.de) | DGM‑2 download page (https://geoshop.rlp.de/digitale_gelaendemodelle.html) |
 
+Measured 4B‑3 (2026‑09‑23) on the sha‑verified DGM1 tiles (data‑pipeline.md §2.2): the Nordschleife's lowest point is the Breidscheid bridge at 332.94 m and its highest T13 / Sabine‑Schmitz‑Kurve at 627.52 m — the recorded "~320 / ~620" above were loose rounds (the Hohe Acht way tops at 616.50 m against the officially recorded 616.8 m, the Nürburg castle hill 680.65 m against 678: tiles and datum right). Re‑pinned as 333 ± 2 m / 627.5 ± 2 m in ring‑region‑decisions.md §3.
+
 ## 2️⃣ Road Surface Types & Bumps
 
 | Section | Surface | Notable bumps / seams | Source |
