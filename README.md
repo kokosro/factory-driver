@@ -704,6 +704,34 @@ DEM in another CRS, an unverified tile, a segment the skeleton lacks, a dense li
 station, a covered segment with a missing height, a label of an unknown kind or within the
 threshold or of the wrong sign, a bank not filling the width, a crossfall beyond every rule,
 segments out of order, a file that is not JSON) naming the thing and the field. Then
+`tests/ring_drive_test.gd`: the Nordschleife as a drivable road (`scenes/eifel_ring.tscn`,
+built headless at load by `scripts/road_builder.gd` from the checked-in skeleton and drape,
+implementation-plan.md §4B-4): drape.json pinned by sha256 (the two transforms below correct
+parsed data, never the file); the rim rule and the loop's right of way pure functions of the
+parsed data (twice, the same); the scene loads with every covered segment but the ten
+crossing structures swept (3 304 roads, 329 394 sections, 988 182 vertices, 1 304 320
+triangles, one trimesh StaticBody3D per road on layer 2 and a follower floor slab on layer 1
+put under the car every tick from the same corrected profile), the car at the pit anchor on
+a WorldRoadProfile; the mesh is the field: every vertex of the loop's and the pit strips on
+the corrected profile's `sample_height` within 1 mm (62 259 vertices), the quads' edges and
+centres within the twist bound away from the skeleton's kinks (the field's own step between
+two chords measured and reported there, as at junctions); the rim rule: Breidscheid's rims
+8.44 m and 8.00 m out at 338.76 and 337.00 m and its deck line -5.14 %, every loop bridge's
+abutment spike before and after through `ramp_gradient` (64 % -> 6.5 %, 32 % -> 4.9 %,
+61 % -> 4.5 %, 52 % -> 7.9 %, 59 % -> 3.0 % via amendment 2's continuation through the T13
+junction, 54 % -> 4.0 %, 41395681-0 already clean), no station on the loop's own field at
+20 % or more, every deck a straight line in the mesh, 41226730-0 untouched and below the
+ground; the loop's right of way: the ten crossing structures (id, distance along the lap,
+height step, removed) and the whole loop swept every metre with no step over 0.5 m left;
+the scripted pure-pursuit driver's 2 km from Döttinger Höhe along the loop's one-way
+direction with no wheel off the paved width (the worst lateral offset, the speeds, the
+crossings passed clean, the follower floor on the field every tick); the hill step made
+executable (the world profile's gradient non-zero at the loop's steepest honest sample,
+`RoadProfile.flat()`'s exactly zero at the same point); the Karussell's 30 % bank through
+`ramp_gradient` with the drape's sign; body attitude measured on the bank and on the
+steepest stretch (pitch and roll against the small-angle model, sanity bounds only); and
+determinism: a second scene instanced fresh and driven the same 2 km lands on the same
+odometer and position to the bit. Then
 `tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the

@@ -1,10 +1,11 @@
 # Tests
 
 `tests/run_tests.sh` is the gate: a headless import, then the config, element catalogue,
-skeleton, world profile, smoke, handling, camera, mission, battery, thermal, tyre/brake
-thermal, steering-feel, wear, licence, menu and airborne tests, the driving ones on the tick
-clock (`--fixed-fps 60`), under a minute.
-`tests/run_tests.sh --parallel` runs the sixteen tests side by side after the import and
+skeleton, world profile, ring drive, smoke, handling, camera, mission, battery, thermal,
+tyre/brake thermal, steering-feel, wear, licence, menu and airborne tests, the driving ones on
+the tick clock (`--fixed-fps 60`), a few minutes (the ring drive test builds the Ring's road
+twice and drives 2 km on it twice).
+`tests/run_tests.sh --parallel` runs the seventeen tests side by side after the import and
 prints the same lines in the same order. What each test checks is in the main
 `README.md`.
 
@@ -30,5 +31,6 @@ anywhere else. Several copies can be gated at once: the only things the suite wr
 outside the project are the smoke test's `/tmp/fd-3R-smoke-<pid>/`, the battery
 test's `/tmp/fd-3T-battery-<pid>/`, the wear test's `/tmp/fd-3L-wear-<pid>/`, the
 licence test's `/tmp/fd-3K-licence-<pid>/` and the menu test's `/tmp/fd-4A-menu-<pid>/`,
-one per process each, removed when the test finishes. No test opens a window or a
+one per process each, removed when the test finishes (the ring drive test writes nothing:
+it reads the checked-in skeleton and drape and builds in memory). No test opens a window or a
 native dialog: the garage's folder picker is a GUI path the menu test never takes.

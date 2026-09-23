@@ -45,6 +45,9 @@ extends SceneTree
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 
+## The Ring, the second map (4B-4): the DRIVE page's row changes to it.
+const RING_SCENE := "res://scenes/eifel_ring.tscn"
+
 ## Physics frames to let the scene settle after loading.
 const SETTLE_FRAMES := 20
 
@@ -301,28 +304,46 @@ func _check_routes() -> void:
 	var kinds := PackedStringArray()
 	for row in rows:
 		kinds.append(row.kind)
-	_check(Garage.MAPS.size() == 1 and Garage.MAPS[0].title == "Factory test pad" and Garage.MAPS[0].scene == MAIN_SCENE, "the map list holds exactly the one map there is, the Factory test pad, the main scene")
-	_check(rows.size() == 1 + tests.size() + 2 and kinds[0] == "map" and kinds[6] == "l0" and kinds[7] == "skid_pad", "DRIVE lists the map, the %d handling tests, the L0 sitting and the skid pad exam (%s)" % [tests.size(), ", ".join(kinds)])
+	# was one map, the pad, at row 0, the tests from row 1, L0 at 6, the skid
+	# pad at 7 -> the Ring appended after the pad (4B-4): the tests from row
+	# 2, L0 at 7, the skid pad at 8.
+	_check(Garage.MAPS.size() == 2 and Garage.MAPS[0].title == "Factory test pad" and Garage.MAPS[0].scene == MAIN_SCENE and Garage.MAPS[1].id == "eifel_ring" and Garage.MAPS[1].scene == RING_SCENE, "the map list holds exactly the two maps there are: the Factory test pad, the main scene, then the Ring, %s (was the one map)" % RING_SCENE)
+	_check(rows.size() == 2 + tests.size() + 2 and kinds[0] == "map" and kinds[1] == "map" and kinds[7] == "l0" and kinds[8] == "skid_pad", "DRIVE lists the two maps, the %d handling tests, the L0 sitting and the skid pad exam (%s) (was L0 at 6 and the skid pad at 7 -> 7 and 8)" % [tests.size(), ", ".join(kinds)])
 	var in_order := true
 	for index in tests.size():
-		in_order = in_order and rows[1 + index].kind == "test" and rows[1 + index].id == tests[index].name and rows[1 + index].label.contains(tests[index].title)
-	_check(in_order and rows[0].label.contains("Factory test pad"), "the test rows are HandlingTests.all_tests() in order, by name and title; the map row names the pad")
+		in_order = in_order and rows[2 + index].kind == "test" and rows[2 + index].id == tests[index].name and rows[2 + index].label.contains(tests[index].title)
+	_check(in_order and rows[0].label.contains("Factory test pad") and rows[1].label.contains("Nordschleife") and rows[1].hint.contains("pit area") and rows[0].hint.contains("start line"), "the test rows are HandlingTests.all_tests() in order, by name and title (was from row 1 -> 2); the map rows name the pad and the Ring, the pad's hint the start line, the Ring's the pit area")
 
 	var position_before := _car.global_position
-	_check(_garage.activate_row(0) and not _garage.is_open and not paused and not _missions.is_running() and not _licence.is_running() and _car.global_position == position_before, "free drive closes the door and starts nothing; the car is where it was")
+	_check(_garage.activate_row(0) and not _garage.is_open and not paused and not _missions.is_running() and not _licence.is_running() and _car.global_position == position_before and current_scene == null and _main.is_inside_tree(), "free drive on the pad closes the door and starts nothing; the car is where it was, the scene is this one still")
+	# The Ring row changes the scene (was a push_error, "not built yet"):
+	# the new scene is the Ring, built, with its own car on the world
+	# profile; this scene was added by hand, not as current_scene, so it
+	# stays for the checks after - the Ring is unloaded again right here.
 	_garage.open()
-	_check(_garage.activate_row(2) and not _garage.is_open and _missions.is_running() and _missions.selected_index == 1 and not _missions.run.scripted, "the test 2 row starts the 180 through the mission manager, a human run, and closes the door")
+	_check(_garage.activate_row(1) and not _garage.is_open, "the Ring row closes the door")
+	await _step(3)
+	var ring := current_scene
+	var ring_road := ring.get_node_or_null("Road") if ring else null
+	var ring_car := ring.get_node_or_null("Car") if ring else null
+	_check(ring != null and ring.scene_file_path == RING_SCENE and ring_road is RoadBuilder and ring_road.road_count > 0 and ring_car is ArcadeCar and ring_car.road_profile is WorldRoadProfile and ring_car != _car and _main.is_inside_tree(), "and changes the scene: the current scene is %s, its road built (%d roads), its car a fresh instance on a WorldRoadProfile (was a push_error, \"changing scenes is not built yet\")" % [ring.scene_file_path if ring else "none", ring_road.road_count if ring_road else 0])
+	unload_current_scene()
+	await _step(2)
+	_check(current_scene == null and not is_instance_valid(ring) and _main.is_inside_tree() and is_instance_valid(_car) and _car.is_inside_tree(), "the Ring unloaded again (no current scene), this scene and its car still here")
+	_garage.open()
+	_garage.show_page(Garage.Page.DRIVE)
+	_check(_garage.activate_row(3) and not _garage.is_open and _missions.is_running() and _missions.selected_index == 1 and not _missions.run.scripted, "the test 2 row (was row 2 -> 3) starts the 180 through the mission manager, a human run, and closes the door")
 	_missions.abort_mission()
 	await _step(int(MissionManager.ABORT_BANNER_TIME * Engine.physics_ticks_per_second) + 5)
 	_check(_missions.state == MissionManager.State.IDLE, "aborted, the banner timed out")
 	_garage.open()
 	_garage.show_page(Garage.Page.DRIVE)
-	_check(_garage.activate_row(6) and not _garage.is_open and _licence.is_running() and _licence.exam == LicenceExams.EXAM_L0 and _hud.licence_card_visible(), "the L0 row starts the sitting through the licence manager: the theory card is up")
+	_check(_garage.activate_row(7) and not _garage.is_open and _licence.is_running() and _licence.exam == LicenceExams.EXAM_L0 and _hud.licence_card_visible(), "the L0 row (was row 6 -> 7) starts the sitting through the licence manager: the theory card is up")
 	_licence.abort_sitting()
 	await _step(int(LicenceManager.ABORT_BANNER_TIME * Engine.physics_ticks_per_second) + 5)
 	_garage.open()
 	_garage.show_page(Garage.Page.DRIVE)
-	_check(_garage.activate_row(7) and not _garage.is_open and _licence.is_running() and _licence.exam == LicenceExams.EXAM_SKID_PAD, "the skid pad row starts the skid pad test through the licence manager")
+	_check(_garage.activate_row(8) and not _garage.is_open and _licence.is_running() and _licence.exam == LicenceExams.EXAM_SKID_PAD, "the skid pad row (was row 7 -> 8) starts the skid pad test through the licence manager")
 	_licence.abort_sitting()
 	await _step(int(LicenceManager.ABORT_BANNER_TIME * Engine.physics_ticks_per_second) + 5)
 	_check(_licence.state == LicenceManager.State.IDLE and not _garage.is_open, "aborted, idle again")
@@ -761,6 +782,7 @@ func _check_legend_and_keys() -> void:
 	var page := _garage.page_text()
 	var rows := _garage.page_rows()
 	_check(page.contains(legend) and page.contains(Garage.CONTROLS_TEXT) and page.contains("This run:") and page.contains(DataDir.BOOTSTRAP_PATH), "the SETTINGS page shows the data location, the legend and the controls")
+	_check(page.contains(Garage.OSM_ATTRIBUTION) and Garage.OSM_ATTRIBUTION.begins_with("© OpenStreetMap contributors") and Garage.OSM_ATTRIBUTION.contains("ODbL 1.0") and Garage.OSM_ATTRIBUTION.contains("https://www.openstreetmap.org/copyright"), "and the road data's attribution beside the data location: OpenStreetMap's exact string (data-pipeline.md §8; 4B-4)")
 	_check(rows.size() == 2 and rows[0].kind == "choose_folder" and rows[1].kind == "default_folder" and not _garage.folder_dialog_opened(), "its two rows choose a folder and go back to the default; no folder dialog has been made")
 	_garage.close()
 	var mapped := true

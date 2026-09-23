@@ -2,13 +2,14 @@
 # Headless checks: import the project, check the car configs, the element
 # catalogue, the Ring skeleton and the Ring's drape through the world
 # profile (seconds: a broken config, catalogue entry, skeleton or drape
-# fails here, not somewhere in the smoke test), run the smoke test, then the
-# handling, camera, mission, battery, thermal, tyre/brake thermal,
-# steering-feel, wear, licence, menu and airborne tests. Fails on a non-zero
-# exit code or on any engine/script error in the output.
+# fails here, not somewhere in the smoke test), build the Ring's road and
+# drive it (the ring drive test), run the smoke test, then the handling,
+# camera, mission, battery, thermal, tyre/brake thermal, steering-feel,
+# wear, licence, menu and airborne tests. Fails on a non-zero exit code or
+# on any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the sixteen tests side by side
+#   tests/run_tests.sh --parallel   the import first, then the seventeen tests side by side
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -121,6 +122,7 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 "$STEP" "world profile test" "$GODOT" --headless --path "$ROOT" --script res://tests/world_profile_test.gd
 # --fixed-fps: same 1/60 s physics steps, without waiting for the wall clock.
 # Every wait in these tests is counted in physics ticks.
+"$STEP" "ring drive test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/ring_drive_test.gd
 "$STEP" "smoke test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/smoke_test.gd
 "$STEP" "handling tests" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/handling_test.gd
 "$STEP" "camera test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/camera_test.gd

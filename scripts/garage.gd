@@ -45,11 +45,21 @@ enum Page { DRIVE, STUDY, CAR, LICENCE, SETTINGS }
 const PAGE_TITLES: Array[String] = ["DRIVE", "THE STUDY", "CAR", "LICENCE", "SETTINGS"]
 
 ## The maps free driving can be had on: exactly the ones there are, the
-## scene each is. One today, the one main.tscn is; a second entry here is a
-## scene to change to, which _free_drive does not do yet and says so.
+## scene each is, and the row's hint (what is true of that map). Two: the
+## pad main.tscn is, and the Ring - the Nordschleife's road alone, bare,
+## built from the checked-in skeleton and drape (4B-4), no dressing yet;
+## the car spawns at the pit area (ring-region-decisions.md §4). A map that
+## is another scene is changed to (_free_drive).
+## was one map, a second entry a scene _free_drive did not change to and
+## said so -> the Ring row and the change (4B-4).
 const MAPS: Array[Dictionary] = [
-	{"id": "factory_test_pad", "title": "Factory test pad", "scene": "res://scenes/main.tscn"},
+	{"id": "factory_test_pad", "title": "Factory test pad", "scene": "res://scenes/main.tscn", "hint": "The pad as it is; R puts the car back on the start line."},
+	{"id": "eifel_ring", "title": "Nordschleife (bare road)", "scene": "res://scenes/eifel_ring.tscn", "hint": "The Ring's road alone, no dressing yet; the car starts at the pit area by T13 and R puts it back there."},
 ]
+
+## The road data's attribution, shown on the SETTINGS page as OpenStreetMap
+## requires (docs/design/4b/data-pipeline.md §8: the exact string).
+const OSM_ATTRIBUTION := "© OpenStreetMap contributors — data licensed under ODbL 1.0, https://www.openstreetmap.org/copyright"
 
 ## The frame: size [px], corner radius [px], border width [px], the margins
 ## inside [px], and how far a row scrolls per key [px].
@@ -314,7 +324,7 @@ func _highlight_cursor() -> void:
 func _build_drive_page() -> void:
 	_add_heading("FREE DRIVE")
 	for map in MAPS:
-		_add_row("Free drive  —  %s" % map.title, "The pad as it is; R puts the car back on the start line.", "map", _free_drive.bind(map), true, map.id)
+		_add_row("Free drive  —  %s" % map.title, map.hint, "map", _free_drive.bind(map), true, map.id)
 	_add_heading("HANDLING TESTS  (keys 1 - 5 on the pad; a PASSED counts towards L1)")
 	var tests := HandlingTests.all_tests()
 	var index_stored: Dictionary = missions.telemetry.index if missions and missions.telemetry else {}
@@ -332,14 +342,21 @@ func _build_drive_page() -> void:
 	_add_row("Skid pad exam", LicenceExams.skid_pad_test().objective, "skid_pad", _start_skid_pad, true, LicenceExams.EXAM_SKID_PAD)
 
 
-## Free driving on `map`: this scene is the one map there is, so the door
-## simply opens. A map that is another scene is not changed to yet: that is
-## said, loudly, rather than pretended.
+## Free driving on `map`: the door opens; on the map this scene already is
+## (the garage's parent is the scene's root, its scene_file_path the map's)
+## that is all, another map's scene is changed to. The car there is a fresh
+## instance at that scene's spawn: nothing of this car goes along (the
+## store keeps the odometer, the fuel, the wear and the rest; where it was
+## parked stays with queued item 3S).
+## was a push_error, "changing scenes is not built yet" -> the change
+## (4B-4, the Conductor's ruling: change_scene_to_file, the car
+## re-instanced fresh).
 func _free_drive(map: Dictionary) -> void:
-	if map.scene != MAPS[0].scene:
-		push_error("Garage: map %s is another scene (%s); changing scenes is not built yet" % [map.id, map.scene])
-		return
 	close()
+	var scene_root := get_parent()
+	if scene_root != null and scene_root.scene_file_path == map.scene:
+		return
+	get_tree().change_scene_to_file(map.scene)
 
 
 func _start_test(index: int) -> void:
@@ -516,6 +533,7 @@ func licence_text() -> String:
 func _build_settings_page() -> void:
 	_add_heading("DATA LOCATION")
 	_add_text(data_location_text(), COLOR_TEXT)
+	_add_text("Road data:  " + OSM_ATTRIBUTION, COLOR_TEXT)
 	_add_row("Choose a data folder…", "A native folder dialog. Takes effect at the next start: the first start in a new folder copies your data there; nothing is moved or deleted.", "choose_folder", _choose_folder, true)
 	_add_row("Use the default folder", "Forgets the chosen folder (the FD_DATA_DIR variable, if set, still wins). Takes effect at the next start.", "default_folder", _use_default_folder, true)
 	if _folder_status != "":

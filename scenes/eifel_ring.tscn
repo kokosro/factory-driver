@@ -1,0 +1,52 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/road_builder.gd" id="1_road"]
+[ext_resource type="PackedScene" path="res://scenes/car.tscn" id="2_car"]
+[ext_resource type="Script" path="res://scripts/chase_camera.gd" id="3_camera"]
+[ext_resource type="PackedScene" path="res://scenes/hud.tscn" id="4_hud"]
+[ext_resource type="PackedScene" path="res://scenes/garage.tscn" id="5_garage"]
+
+[sub_resource type="ProceduralSkyMaterial" id="sky_material"]
+sky_top_color = Color(0.22, 0.42, 0.75, 1)
+sky_horizon_color = Color(0.68, 0.78, 0.88, 1)
+ground_bottom_color = Color(0.16, 0.17, 0.19, 1)
+ground_horizon_color = Color(0.68, 0.78, 0.88, 1)
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_material")
+
+[sub_resource type="Environment" id="environment"]
+background_mode = 2
+sky = SubResource("sky")
+tonemap_mode = 2
+
+[node name="EifelRing" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("environment")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, 0.383022, -0.321394, 0, 0.642788, 0.766044, 0.5, -0.663414, 0.55667, 0, 20, 0)
+shadow_enabled = true
+directional_shadow_max_distance = 150.0
+
+[node name="Car" parent="." instance=ExtResource("2_car")]
+transform = Transform3D(0.836857, 0, 0.547422, 0, 1, 0, -0.547422, 0, 0.836857, 2037.199, 0, -1355.401)
+
+[node name="Road" type="Node3D" parent="." node_paths=PackedStringArray("car")]
+script = ExtResource("1_road")
+car = NodePath("../Car")
+
+[node name="ChaseCamera" type="Camera3D" parent="." node_paths=PackedStringArray("target")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.6, 6.5)
+current = true
+fov = 65.0
+script = ExtResource("3_camera")
+target = NodePath("../Car")
+
+[node name="HUD" parent="." node_paths=PackedStringArray("car") instance=ExtResource("4_hud")]
+car = NodePath("../Car")
+
+[node name="Garage" parent="." node_paths=PackedStringArray("car", "hud") instance=ExtResource("5_garage")]
+car = NodePath("../Car")
+hud = NodePath("../HUD")
