@@ -19,11 +19,18 @@ extends SceneTree
 ## steps between two chords and a continuous mesh cannot follow (measured,
 ## reported); the rim rule: Breidscheid's deck drawn straight between its
 ## rims, every loop bridge's abutment spike measured before and after
-## through ramp_gradient (the car's own call), 41395668-0's east end the
-## one residual the endorsed rule leaves (its approach ends at a four-way
-## junction after 4.1 m: recorded, not fixed), 41226730-0 untouched with its
-## below-ground reading, the decks linear in the mesh, the rule a pure
-## function of the parsed data; the hill step made executable: at the
+## through ramp_gradient (the car's own call), 41395668-0's east end -
+## the one residual with two-segment junctions only, its approach
+## 41395670-0 ending at the four-way T13 junction after 4.1 m - resolved
+## by amendment 2's heading continuation onto the straighter Boxengasse
+## branch 769107218-0 (59.3 % -> 3.0 %), 41226730-0 untouched with its
+## below-ground reading and 41395681-0 (both abutments their own rims)
+## likewise, the decks linear in the mesh, the rule a pure function of
+## the parsed data (the complete parsed inputs snapshotted before and
+## compared after, the complete outputs of two calls compared); every
+## maximum folded from finite readings only over a positive count (the
+## codex review of 4B-4: a NaN compares false against a worst and an
+## empty sweep reports a clean zero); the hill step made executable: at the
 ## loop's steepest honest sample the world profile's gradient is non-zero
 ## and RoadProfile.flat()'s at the same point exactly zero (§2.3's
 ## byte-lock argument); the Karussell's bank read through ramp_gradient
@@ -33,8 +40,11 @@ extends SceneTree
 ## scripted driver (a pure-pursuit follower of the loop's centreline, fed
 ## through set_driver_input every tick the way HandlingTests feeds the
 ## keys) drives 2 km from Döttinger Höhe along the loop's one-way direction
-## without a wheel leaving the paved width, its worst lateral offset and
-## its speeds logged; and determinism: a second scene, instanced fresh,
+## with all four wheels carried (car.wheel_supported) every tick and every
+## wheel's contact point (global_transform × WHEEL_CONTACT_POINTS, the
+## seam car.gd itself reads the road through) inside the nearest loop
+## chord's paved half width every tick, its worst lateral offset and its
+## speeds logged, the two crossings on the way passed; and determinism: a second scene, instanced fresh,
 ## driven the same 2 km, lands on the same odometer and the same position
 ## to the bit. Garage.MAPS lists the Ring (the row's scene change itself is
 ## the menu test's). No network, no python; writes nothing under /tmp.
@@ -118,6 +128,21 @@ const CODEX_BELOW_DEM_M := 1.472
 ## The profile's terrain is the 10 m lattice, not the 1 m DEM the review
 ## read: the deck is under the ground by more than this either way [m].
 const CODEX_BELOW_MIN_M := 1.0
+
+## The loop bridge the rule leaves as the file has it: both abutments
+## already climb under RIM_SLOPE (their own rims: 1.3 % and 5.0 %), so
+## there is no hole and no deck line - its dense heights are the file's.
+const CLEAN_BRIDGE := "41395681-0"
+
+## The codex review's twist-bound counterexample (RoadBuilder._twist_pieces):
+## an interval this long [m] on a road of this half width [m] whose
+## crossfall swings between these values needs this many pieces for the
+## 1 mm bound; the old clamp to floor(interval / MIN_SECTION_M) returned
+## one and left 10 mm of twist.
+const TWIST_CASE_INTERVAL_M := 0.05
+const TWIST_CASE_HALF_WIDTH_M := 4.0
+const TWIST_CASE_CROSSFALL := [0.02, 0.03]
+const TWIST_CASE_PIECES := 10
 
 ## A deck the rule left alone carries the file's centimetre-rounded
 ## stations, so its centre line is collinear within this [m]; a lifted
@@ -272,28 +297,35 @@ func _check_files() -> void:
 
 ## The rim rule is a pure function of the parsed data: twice on the same
 ## dictionaries, the same lifts and the same heights; the input untouched.
+## Both transforms: the COMPLETE parsed inputs (the skeleton and the
+## drape, every key) serialised before each call and compared after it,
+## and the complete outputs of two independent calls compared (the whole
+## output drape and every lift / every crossing), not a sample record or
+## a count.
 func _check_rule_purity() -> void:
-	var before := JSON.stringify(_drape.segments[0])
+	var skeleton_before := JSON.stringify(_skeleton)
+	var drape_before := JSON.stringify(_drape)
 	var first := RoadBuilder.apply_rim_rule(_skeleton, _drape)
+	var input_kept: bool = JSON.stringify(_skeleton) == skeleton_before and JSON.stringify(_drape) == drape_before
 	var second := RoadBuilder.apply_rim_rule(_skeleton, _drape)
-	var same: bool = first.lifts.size() == second.lifts.size()
+	input_kept = input_kept and JSON.stringify(_skeleton) == skeleton_before and JSON.stringify(_drape) == drape_before
+	var same: bool = JSON.stringify(first.drape) == JSON.stringify(second.drape) and JSON.stringify(first.lifts) == JSON.stringify(second.lifts)
 	var changed := 0
 	for i: int in first.drape.segments.size():
-		var a: Dictionary = first.drape.segments[i]
-		var b: Dictionary = second.drape.segments[i]
-		same = same and a.dense == b.dense
-		if not is_same(a, _drape.segments[i]):
+		if not is_same(first.drape.segments[i], _drape.segments[i]):
 			changed += 1
-	for i: int in mini(first.lifts.size(), second.lifts.size()):
-		same = same and JSON.stringify(first.lifts[i]) == JSON.stringify(second.lifts[i])
-	_ok(same and JSON.stringify(_drape.segments[0]) == before, "apply_rim_rule is pure: twice on the parsed files, %d bridges lifted and %d records replaced, the same heights and the same lifts both times, the input untouched" % [first.lifts.size(), changed])
+	_ok(same and input_kept and first.drape.segments.size() == _drape.segments.size() and first.lifts.size() > 0, "apply_rim_rule is pure: twice on the parsed files, %d bridges lifted and %d records replaced, the complete output drape and every lift the same both times, the complete skeleton and drape (%d and %d bytes as JSON) untouched by either call" % [first.lifts.size(), changed, skeleton_before.length(), drape_before.length()], "same outputs %s, inputs kept %s" % [same, input_kept])
+	var ruled_before := JSON.stringify(first.drape)
 	var cleared := RoadBuilder.apply_right_of_way(_skeleton, first.drape)
+	var ruled_kept: bool = JSON.stringify(_skeleton) == skeleton_before and JSON.stringify(first.drape) == ruled_before
 	var cleared_again := RoadBuilder.apply_right_of_way(_skeleton, first.drape)
+	ruled_kept = ruled_kept and JSON.stringify(_skeleton) == skeleton_before and JSON.stringify(first.drape) == ruled_before
+	var cleared_same: bool = JSON.stringify(cleared.drape) == JSON.stringify(cleared_again.drape) and JSON.stringify(cleared.crossings) == JSON.stringify(cleared_again.crossings)
 	var uncovered := 0
 	for i: int in cleared.drape.segments.size():
 		if not cleared.drape.segments[i].covered and first.drape.segments[i].covered:
 			uncovered += 1
-	_ok(JSON.stringify(cleared.crossings) == JSON.stringify(cleared_again.crossings) and uncovered == cleared.crossings.size(), "apply_right_of_way is pure: twice on the ruled data, the same %d crossings, %d records uncovered" % [cleared.crossings.size(), uncovered])
+	_ok(cleared_same and ruled_kept and uncovered == cleared.crossings.size() and uncovered > 0, "apply_right_of_way is pure: twice on the ruled data, the complete output drape and every one of the %d crossings the same both times, %d records uncovered, the complete skeleton and ruled drape untouched by either call" % [cleared.crossings.size(), uncovered], "same outputs %s, inputs kept %s, %d uncovered vs %d crossings" % [cleared_same, ruled_kept, uncovered, cleared.crossings.size()])
 
 
 # =============================================================================
@@ -449,6 +481,7 @@ func _check_mesh_vertices(road: RoadBuilder) -> void:
 	var ids: Array[String] = []
 	ids.append_array(_loop.segments)
 	ids.append_array(SIDE_SEGMENTS)
+	var non_finite := 0
 	for id: String in ids:
 		var strip: RoadBuilder.Strip = road.strip(id)
 		if strip == null:
@@ -457,10 +490,13 @@ func _check_mesh_vertices(road: RoadBuilder) -> void:
 		for v: Vector3 in strip.vertices:
 			var gap := absf(road.profile.sample_height(v.x, v.z) - v.y)
 			sampled += 1
+			if not is_finite(gap):
+				non_finite += 1
+				continue
 			if gap > worst:
 				worst = gap
 				worst_where = id
-	_ok(worst <= VERTEX_TOLERANCE_M, "every one of the %d vertices of the %d loop strips and the %d side strips lies on the corrected profile's sample_height: the worst is %.3f mm off (%s), within 1 mm" % [sampled, _loop.segments.size(), SIDE_SEGMENTS.size(), 1000.0 * worst, worst_where], "a vertex of %s is %.4f m off the field" % [worst_where, worst])
+	_ok(sampled > 0 and non_finite == 0 and worst <= VERTEX_TOLERANCE_M, "every one of the %d vertices of the %d loop strips and the %d side strips lies on the corrected profile's sample_height: the worst is %.3f mm off (%s), within 1 mm; every reading finite" % [sampled, _loop.segments.size(), SIDE_SEGMENTS.size(), 1000.0 * worst, worst_where], "a vertex of %s is %.4f m off the field, %d of %d readings not finite" % [worst_where, worst, non_finite, sampled])
 
 
 ## Between the vertices: the loop's quads probed at the along-edges'
@@ -477,6 +513,7 @@ func _check_mesh_between(road: RoadBuilder) -> void:
 	var interior := 0
 	var at_kinks := 0
 	var at_others := 0
+	var non_finite := 0
 	var where := ""
 	for id: String in _loop.segments:
 		var strip: RoadBuilder.Strip = road.strip(id)
@@ -511,13 +548,21 @@ func _check_mesh_between(road: RoadBuilder) -> void:
 				var m := (a + b) * 0.5
 				var described := road.profile.describe(m.x, m.z)
 				own = own and described.get("road") == id
-				quad_worst = maxf(quad_worst, absf(described.height - m.y))
+				var gap: float = absf(described.height - m.y)
+				if is_finite(gap):
+					quad_worst = maxf(quad_worst, gap)
+				else:
+					non_finite += 1
 				if i + 1 < across:
 					var c := strip.vertex(k + 1, i + 1)
 					var centre := (a + c) * 0.5
 					described = road.profile.describe(centre.x, centre.z)
 					own = own and described.get("road") == id
-					quad_worst = maxf(quad_worst, absf(described.height - centre.y))
+					gap = absf(described.height - centre.y)
+					if is_finite(gap):
+						quad_worst = maxf(quad_worst, gap)
+					else:
+						non_finite += 1
 			if not own:
 				at_others += 1
 				worst_other = maxf(worst_other, quad_worst)
@@ -529,8 +574,8 @@ func _check_mesh_between(road: RoadBuilder) -> void:
 				if quad_worst > worst_interior:
 					worst_interior = quad_worst
 					where = "%s at %.1f m" % [id, strip.chainages[k]]
-	_ok(worst_interior <= OFF_VERTEX_TOLERANCE_M, "between the vertices, at the edges' midpoints and the centres of %d interior quads of the loop, the mesh is within %.2f mm of the field (worst %s; the twist bound %.0f mm)" % [interior, 1000.0 * worst_interior, where, 1000.0 * RoadBuilder.MESH_TOLERANCE_M], "an interior quad of the loop is %.4f m off the field at %s" % [worst_interior, where])
-	_ok(worst_kink < 1.0, "at the %d quads within the half width of a skeleton kink or a segment's end the field's own step between chords shows: the mesh is up to %.1f mm off it there (reported, not the mesh's fault: the nearest-chord field is not continuous across a bisector)" % [at_kinks, 1000.0 * worst_kink], "a kink quad is %.3f m off" % worst_kink)
+	_ok(interior > 0 and non_finite == 0 and worst_interior <= OFF_VERTEX_TOLERANCE_M, "between the vertices, at the edges' midpoints and the centres of %d interior quads of the loop, the mesh is within %.2f mm of the field (worst %s; the twist bound %.0f mm); every probe finite" % [interior, 1000.0 * worst_interior, where, 1000.0 * RoadBuilder.MESH_TOLERANCE_M], "an interior quad of the loop is %.4f m off the field at %s, %d interior quads, %d probes not finite" % [worst_interior, where, interior, non_finite])
+	_ok(at_kinks > 0 and worst_kink < 1.0, "at the %d quads within the half width of a skeleton kink or a segment's end the field's own step between chords shows: the mesh is up to %.1f mm off it there (reported, not the mesh's fault: the nearest-chord field is not continuous across a bisector)" % [at_kinks, 1000.0 * worst_kink], "a kink quad is %.3f m off, %d kink quads" % [worst_kink, at_kinks])
 	_ok(at_others < 0.05 * (interior + at_kinks + at_others), "at %d quads a vertex or a probe reads another road (a junction: the pit lane's, the access links'), where the field is that road's and the mesh is up to %.2f m off it - the single-valued field's step at a junction, the same the car feels" % [at_others, worst_other], "%d quads read another road" % at_others)
 
 
@@ -558,7 +603,7 @@ func _check_rim_rule(road: RoadBuilder, raw_profile: WorldRoadProfile) -> void:
 		for end: int in 2:
 			var before := _spike_near(ends[end], raw_profile)
 			var after := _spike_near(ends[end], road.profile)
-			var resolved: bool = after.slope < RoadBuilder.RIM_SLOPE
+			var resolved: bool = before.samples > 0 and after.samples > 0 and after.slope < RoadBuilder.RIM_SLOPE
 			if not resolved:
 				unresolved += 1
 			var rim: Dictionary = lift.get("start" if end == 0 else "end", {})
@@ -567,27 +612,34 @@ func _check_rim_rule(road: RoadBuilder, raw_profile: WorldRoadProfile) -> void:
 				walk += (" -> " if walk != "" else "") + approach.id
 			var rim_text := "no lift" if lift.is_empty() else ("rim %.2f m out at %.2f m along %s" % [rim.rim_m, rim.rim_height, walk] if rim.rim_m > 0.0 else ("its own rim" if rim.found else "no rim within reach"))
 			var amended := " (was the one residual with two-segment junctions only, 59.2 %% before and after: amendment 2's continuation through the four-way T13 junction onto %s resolves it)" % (rim.approaches[1].id if rim.get("approaches", []).size() > 1 else "?") if id == HOHENRAIN_BRIDGE and end == HOHENRAIN_END else ""
-			_ok(resolved and after.slope <= before.slope + 1e-9, "%s %s end (%s): the spike is %.1f %% before and %.1f %% after at %s - resolved: true%s%s" % [id, "west" if end == 0 else "east", rim_text, 100.0 * before.slope, 100.0 * after.slope, after.where, "" if before.slope >= RoadBuilder.RIM_SLOPE else " (already clean)", amended], "%s end %d: before %.3f after %.3f at %s (%s)" % [id, end, before.slope, after.slope, after.where, rim_text])
+			_ok(resolved and after.slope <= before.slope + 1e-9, "%s %s end (%s): the spike is %.1f %% before and %.1f %% after at %s (%d stations read) - resolved: true%s%s" % [id, "west" if end == 0 else "east", rim_text, 100.0 * before.slope, 100.0 * after.slope, after.where, after.samples, "" if before.slope >= RoadBuilder.RIM_SLOPE else " (already clean)", amended], "%s end %d: before %.3f (%d stations) after %.3f (%d stations) at %s (%s)" % [id, end, before.slope, before.samples, after.slope, after.samples, after.where, rim_text])
 	_ok(unresolved == 0, "no residual on the loop: every abutment spike is under %.0f %% (was one, Hohenrain's east end, before amendment 2)" % (100.0 * RoadBuilder.RIM_SLOPE))
 	# Stations past RIM_SLOPE after the rule, anywhere on the loop.
 	var steep := 0
 	var steepest := 0.0
 	var steepest_where := ""
+	var own_stations := 0
+	var non_finite := 0
 	for station: Array in _loop_stations:
 		if not _own(road.profile, station):
 			continue
 		var grade := _grade_along(road.profile, station)
+		if not is_finite(grade):
+			non_finite += 1
+			continue
+		own_stations += 1
 		if grade >= RoadBuilder.RIM_SLOPE:
 			steep += 1
 		if grade > steepest:
 			steepest = grade
 			steepest_where = "%s chainage %.0f" % [station[2], station[3]]
-	_ok(steep == 0, "of the loop's %d stations, none on the loop's own field reads a grade along the road of %.0f %% or more after the rule (the steepest is %.1f %% at %s; was 19 stations at 50-64 %% in the DGM1's bridge holes)" % [_loop_stations.size(), 100.0 * RoadBuilder.RIM_SLOPE, 100.0 * steepest, steepest_where], "%d stations past %.2f, the steepest %.3f at %s" % [steep, RoadBuilder.RIM_SLOPE, steepest, steepest_where])
+	_ok(steep == 0 and non_finite == 0 and own_stations > 0, "of the loop's %d stations, none of the %d on the loop's own field reads a grade along the road of %.0f %% or more after the rule (the steepest is %.1f %% at %s, every reading finite; was 19 stations at 50-64 %% in the DGM1's bridge holes)" % [_loop_stations.size(), own_stations, 100.0 * RoadBuilder.RIM_SLOPE, 100.0 * steepest, steepest_where], "%d stations past %.2f, the steepest %.3f at %s, %d own stations, %d readings not finite" % [steep, RoadBuilder.RIM_SLOPE, steepest, steepest_where, own_stations, non_finite])
 	# The decks linear in the mesh.
 	var worst_line := 0.0
 	var worst_deck := ""
 	var deck_vertices := 0
 	var foreign := 0
+	var line_non_finite := 0
 	for id: String in LOOP_BRIDGES:
 		var strip: RoadBuilder.Strip = road.strip(id)
 		var n := strip.chainages.size()
@@ -603,10 +655,13 @@ func _check_rim_rule(road: RoadBuilder, raw_profile: WorldRoadProfile) -> void:
 			deck_vertices += 1
 			var line := h0 + (h1 - h0) * (strip.chainages[k] - s0) / (s1 - s0)
 			var gap := absf(v.y - line)
+			if not is_finite(gap):
+				line_non_finite += 1
+				continue
 			if gap > worst_line:
 				worst_line = gap
 				worst_deck = id
-	_ok(worst_line <= DECK_LINE_TOLERANCE_M and foreign == 0, "every loop bridge's deck is a straight line in the mesh: its %d centre vertices between the abutments are collinear within %.1f mm (worst %s, a deck the rule left as the file's centimetre stations), none reading another road now the crossings under the decks are uncovered" % [deck_vertices, 1000.0 * worst_line, worst_deck], "%s's deck bends by %.4f m in the mesh, %d centre vertices read another road" % [worst_deck, worst_line, foreign])
+	_ok(deck_vertices > 0 and line_non_finite == 0 and worst_line <= DECK_LINE_TOLERANCE_M and foreign == 0, "every loop bridge's deck is a straight line in the mesh: its %d centre vertices between the abutments are collinear within %.1f mm (worst %s, a deck the rule left as the file's centimetre stations), every reading finite, none reading another road now the crossings under the decks are uncovered" % [deck_vertices, 1000.0 * worst_line, worst_deck], "%s's deck bends by %.4f m in the mesh, %d centre vertices, %d not finite, %d read another road" % [worst_deck, worst_line, deck_vertices, line_non_finite, foreign])
 	# 41226730-0 untouched, its below-ground reading.
 	var raw_record := {}
 	var ruled_record := {}
@@ -621,18 +676,54 @@ func _check_rim_rule(road: RoadBuilder, raw_profile: WorldRoadProfile) -> void:
 	var described := road.profile.describe(at[0], at[1])
 	var below: float = described.terrain - described.centre
 	_ok(ruled_record.dense == raw_record.dense and ruled_record.covered and not lifts.has(CODEX_BRIDGE) and described.get("road") == CODEX_BRIDGE and below > CODEX_BELOW_MIN_M, "%s is unchanged (its dense heights the file's, covered, no lift): its one walkable approach climbs away at 1-2 %% so its abutment is its own rim, the other end stands at a junction the walk does not enter; its deck stays %.2f m below the 10 m terrain lattice at chainage %.0f (the codex review read %.3f m below the 1 m DEM) - the below-ground instance the rule deliberately does not take" % [CODEX_BRIDGE, below, CODEX_CHAINAGE_M, CODEX_BELOW_DEM_M], "%s: same heights %s, lifted %s, road %s, below the lattice by %.3f" % [CODEX_BRIDGE, ruled_record.dense == raw_record.dense, lifts.has(CODEX_BRIDGE), described.get("road"), below])
-	_ok(road.lifts.size() > 0 and road.lifts.size() < 33, "%d of the 33 covered bridges were lifted by the rule (the rest are their own rims or stand at junctions the walk does not enter)" % road.lifts.size())
+	# 41395681-0 likewise: both abutments their own rims, no line drawn.
+	var clean_raw := {}
+	var clean_ruled := {}
+	for raw: Dictionary in _drape.segments:
+		if raw.id == CLEAN_BRIDGE:
+			clean_raw = raw
+	for raw: Dictionary in road.drape_data.segments:
+		if raw.id == CLEAN_BRIDGE:
+			clean_ruled = raw
+	_ok(not clean_raw.is_empty() and clean_ruled.dense == clean_raw.dense and clean_ruled.covered and not lifts.has(CLEAN_BRIDGE) and road.strip(CLEAN_BRIDGE) != null, "%s is unchanged (its dense heights the file's, covered, swept, no lift): both abutments already climb under %.0f %% onward, their own rims at distance zero, so there is no hole and no deck line is drawn" % [CLEAN_BRIDGE, 100.0 * RoadBuilder.RIM_SLOPE], "%s: same heights %s, covered %s, lifted %s" % [CLEAN_BRIDGE, clean_ruled.get("dense") == clean_raw.get("dense"), clean_ruled.get("covered"), lifts.has(CLEAN_BRIDGE)])
+	# Every lift has a rim found at both ends (nothing where no rim is
+	# found), and a bridge with an end whose walk found none is not
+	# lifted: 134220315-0 (off the loop) was, drawn to its unfound end's
+	# abutment, before the codex review.
+	var both_found := true
+	for lift: Dictionary in road.lifts:
+		both_found = both_found and lift.start.found and lift.end.found and (lift.start.rim_m > 0.0 or lift.end.rim_m > 0.0)
+	_ok(road.lifts.size() > 0 and road.lifts.size() < 33 and both_found and not lifts.has("134220315-0"), "%d of the 33 covered bridges were lifted by the rule, every one with a rim found at both ends and at least one rim out past the abutment (the rest are their own rims at both ends, or have an end whose walk finds no rim: no line is drawn to an abutment that is not a rim - 134220315-0 was, 46 stations by up to 1.505 m, before the codex review)" % road.lifts.size(), "%d lifts, both ends found in all: %s, 134220315-0 lifted: %s" % [road.lifts.size(), both_found, lifts.has("134220315-0")])
+	# The twist bound's piece count is the tolerance's, never clamped by
+	# MIN_SECTION_M (the codex review's counterexample).
+	var builder := RoadBuilder.new()
+	var case_road := RoadBuilder.Road.new()
+	case_road.half_width = TWIST_CASE_HALF_WIDTH_M
+	var pieces: int = builder._twist_pieces(case_road, TWIST_CASE_CROSSFALL[0], TWIST_CASE_CROSSFALL[1], 0.0, TWIST_CASE_INTERVAL_M)
+	var twist_left: float = absf(TWIST_CASE_CROSSFALL[1] - TWIST_CASE_CROSSFALL[0]) * TWIST_CASE_HALF_WIDTH_M / 4.0 / pieces
+	var flat_pieces: int = builder._twist_pieces(case_road, 0.0, 0.0, 0.0, TWIST_CASE_INTERVAL_M)
+	_ok(pieces == TWIST_CASE_PIECES and twist_left <= RoadBuilder.MESH_TOLERANCE_M + 1e-12 and builder.fine_split_count == 1 and flat_pieces == 1, "the twist bound's piece count is the tolerance's alone: a %.2f m interval on a %.0f m half width whose crossfall swings %.2f -> %.2f is split into %d pieces (%.1f mm of twist left, the bound %.0f mm; the old clamp to the interval over MIN_SECTION_M %.2f m returned one piece and left %.0f mm), counted as a fine split; a flat interval one piece" % [TWIST_CASE_INTERVAL_M, TWIST_CASE_HALF_WIDTH_M, TWIST_CASE_CROSSFALL[0], TWIST_CASE_CROSSFALL[1], pieces, 1000.0 * twist_left, 1000.0 * RoadBuilder.MESH_TOLERANCE_M, RoadBuilder.MIN_SECTION_M, 1000.0 * absf(TWIST_CASE_CROSSFALL[1] - TWIST_CASE_CROSSFALL[0]) * TWIST_CASE_HALF_WIDTH_M / 4.0], "%d pieces (%d expected), %.4f m of twist, fine splits %d, flat %d" % [pieces, TWIST_CASE_PIECES, twist_left, builder.fine_split_count, flat_pieces])
+	builder.free()
+	_ok(road.fine_split_count >= 0, "on the Ring's build %d intervals were split finer than MIN_SECTION_M %.2f m for the twist bound (reported: the bound holds everywhere, the interior quads above)" % [road.fine_split_count, RoadBuilder.MIN_SECTION_M])
 
 
 ## The steepest grade along the road (ramp_gradient's component along the
 ## travel direction) among the loop stations within SPIKE_REACH_M of `at`,
-## and where.
+## where, and how many stations qualified (`samples`: zero when none did
+## or a reading was not finite - the slope is then no measurement, and a
+## caller must not take its 0.0 for a clean reading).
 func _spike_near(at: Vector2, profile: WorldRoadProfile) -> Dictionary:
-	var out := {"slope": 0.0, "where": ""}
+	var out := {"slope": 0.0, "where": "", "samples": 0}
 	for station: Array in _loop_stations:
 		if Vector2(station[0], station[1]).distance_to(at) > SPIKE_REACH_M or not _own(profile, station):
 			continue
 		var slope := _grade_along(profile, station)
+		if not is_finite(slope):
+			out.samples = 0
+			out.slope = NAN
+			out.where = "a non-finite reading at %s chainage %.0f" % [station[2], station[3]]
+			return out
+		out.samples += 1
 		if slope > out.slope:
 			out.slope = slope
 			out.where = "%s chainage %.0f" % [station[2], station[3]]
@@ -667,6 +758,8 @@ func _check_right_of_way(road: RoadBuilder) -> void:
 	var worst_step := 0.0
 	var worst_at := ""
 	var samples := 0
+	var sweep_non_finite := 0
+	var first_height := NAN
 	var previous := NAN
 	for id: String in _loop.segments:
 		var geometry := _geometry_of(id)
@@ -674,13 +767,24 @@ func _check_right_of_way(road: RoadBuilder) -> void:
 		while s < geometry.length:
 			var p := _point_on(geometry.xs, geometry.zs, geometry.chain, s)
 			var h := road.profile.sample_height(p[0], p[1])
-			if not is_nan(previous) and absf(h - previous) > worst_step:
-				worst_step = absf(h - previous)
-				worst_at = "%s chainage %.0f" % [id, s]
-			previous = h
 			samples += 1
 			s += LOOP_SWEEP_STEP_M
-	_ok(worst_step <= RoadBuilder.CROSSING_HEIGHT_M, "the whole loop swept along its centreline every %.0f m (%d samples): no step over %.1f m remains anywhere in the field, the largest %.3f m at %s" % [LOOP_SWEEP_STEP_M, samples, RoadBuilder.CROSSING_HEIGHT_M, worst_step, worst_at], "a step of %.3f m at %s" % [worst_step, worst_at])
+			if not is_finite(h):
+				sweep_non_finite += 1
+				continue
+			if is_nan(first_height):
+				first_height = h
+			if not is_nan(previous) and absf(h - previous) > worst_step:
+				worst_step = absf(h - previous)
+				worst_at = "%s chainage %.0f" % [id, s - LOOP_SWEEP_STEP_M]
+			previous = h
+	# The closing seam: the last sample against the first (the loop's last
+	# segment ends where its first begins).
+	var closing_step := absf(first_height - previous)
+	if is_finite(closing_step) and closing_step > worst_step:
+		worst_step = closing_step
+		worst_at = "the closing seam (%s's end onto %s's start)" % [_loop.segments[_loop.segments.size() - 1], _loop.segments[0]]
+	_ok(samples > 0 and sweep_non_finite == 0 and is_finite(closing_step) and worst_step <= RoadBuilder.CROSSING_HEIGHT_M, "the whole loop swept along its centreline every %.0f m (%d samples, every height finite, the last sample folded back onto the first across the closing seam: %.3f m): no step over %.1f m remains anywhere in the field, the largest %.3f m at %s" % [LOOP_SWEEP_STEP_M, samples, closing_step, RoadBuilder.CROSSING_HEIGHT_M, worst_step, worst_at], "a step of %.3f m at %s, %d samples, %d not finite, the closing seam %.3f m" % [worst_step, worst_at, samples, sweep_non_finite, closing_step])
 	var loop_field := true
 	for crossing: Dictionary in road.crossings:
 		var geometry := _geometry_of(crossing.loop)
@@ -777,6 +881,10 @@ class LoopDriver:
 	var xs := PackedFloat64Array()
 	var zs := PackedFloat64Array()
 	var chain := PackedFloat64Array()
+	## The paved half width [m] of the loop segment each point belongs to;
+	## a chord's is its end point's (the point shared by two segments is
+	## the first's, the chord leading into the next segment the next's).
+	var half_widths := PackedFloat64Array()
 	var car: ArcadeCar
 	var cursor := 0
 	var progress := 0.0
@@ -785,7 +893,7 @@ class LoopDriver:
 	var worst_offset_at := 0.0
 	var target_speed := 0.0
 
-	func add_point(x: float, z: float) -> void:
+	func add_point(x: float, z: float, half_width: float) -> void:
 		if xs.is_empty():
 			chain.append(0.0)
 		else:
@@ -796,6 +904,30 @@ class LoopDriver:
 			chain.append(chain[last] + d)
 		xs.append(x)
 		zs.append(z)
+		half_widths.append(half_width)
+
+	## How far inside the loop's paved width a world point is [m]: the
+	## nearest loop chord around the cursor (the car's own chord, the ones
+	## behind and ahead of it that a 2.6 m wheelbase can reach), that
+	## chord's half width less the point's perpendicular distance from it;
+	## negative outside the platform. The loop's own geometry and width,
+	## not the single-valued field's answer (which at a junction is the
+	## side road's).
+	func margin_of(x: float, z: float) -> float:
+		var best := INF
+		var best_c := cursor
+		for c: int in range(maxi(cursor - 2, 0), mini(cursor + 6, xs.size() - 1)):
+			var dx := xs[c + 1] - xs[c]
+			var dz := zs[c + 1] - zs[c]
+			var len2 := dx * dx + dz * dz
+			var t := clampf(((x - xs[c]) * dx + (z - zs[c]) * dz) / len2, 0.0, 1.0)
+			var px := xs[c] + t * dx
+			var pz := zs[c] + t * dz
+			var d := (x - px) * (x - px) + (z - pz) * (z - pz)
+			if d < best:
+				best = d
+				best_c = c
+		return half_widths[best_c + 1] - sqrt(best)
 
 	func length() -> float:
 		return chain[chain.size() - 1]
@@ -876,8 +1008,10 @@ func _loop_path(car: ArcadeCar) -> LoopDriver:
 	var start := _loop.segments.find(DRIVE_START_SEGMENT)
 	var k := start
 	while driver.xs.is_empty() or driver.length() < PATH_LENGTH_M:
-		for point: Array in _raw_points[_loop.segments[k % _loop.segments.size()]]:
-			driver.add_point(point[0], point[1])
+		var id: String = _loop.segments[k % _loop.segments.size()]
+		var half_width: float = _segments[id].width_m * 0.5
+		for point: Array in _raw_points[id]:
+			driver.add_point(point[0], point[1], half_width)
 		k += 1
 	return driver
 
@@ -904,6 +1038,19 @@ func _drive(car: ArcadeCar, road: RoadBuilder, report: bool) -> Dictionary:
 	var pitch_max := 0.0
 	var roll_max := 0.0
 	var half_width: float = _segments[DRIVE_START_SEGMENT].width_m * 0.5
+	# Every tick: all four wheels carried (car.wheel_supported, the
+	# corner check's own flags; is_airborne clears when ANY wheel carries)
+	# and every wheel's contact point - global_transform ×
+	# WHEEL_CONTACT_POINTS, the seam car.gd's _road_height_under_wheel
+	# reads the road through, with the car's yaw, axles and track in it -
+	# inside the nearest loop chord's own paved half width.
+	var unsupported_ticks := 0
+	var unsupported_first := -1
+	var wheel_margin := INF
+	var wheel_margin_at := 0.0
+	var wheel_margin_which := -1
+	var wheel_readings := 0
+	var wheel_non_finite := 0
 	# The follower floor: its top is the corrected field's height at its
 	# own place every tick (the same profile, no third height source), and
 	# from one tick to the next it steps by no more than the field itself
@@ -919,20 +1066,43 @@ func _drive(car: ArcadeCar, road: RoadBuilder, report: bool) -> Dictionary:
 	for crossing: Dictionary in road.crossings:
 		var along := _along_lap(crossing.loop, crossing.loop_chainage)
 		if along > DRIVE_START_CHAINAGE_M and along < DRIVE_START_CHAINAGE_M + DRIVE_DISTANCE_M:
-			passes[crossing.id] = {"along": along, "ticks": 0, "clean": true, "roads": {}}
+			passes[crossing.id] = {"along": along, "ticks": 0, "clean": true, "roads": {}, "margin": INF, "unsupported": 0}
 	while ticks < limit:
 		driver.tick(CRUISE_SPEED, LATERAL_ACCEL_BUDGET, LOOKAHEAD_S, LOOKAHEAD_MIN_M, LOOKAHEAD_MAX_M, CURVATURE_PREVIEW_M, PEDAL_GAIN)
 		if driver.progress >= DRIVE_START_CHAINAGE_M + DRIVE_DISTANCE_M:
 			break
 		await physics_frame
 		ticks += 1
+		var all_supported := true
+		for held: bool in car.wheel_supported:
+			all_supported = all_supported and held
+		if not all_supported:
+			unsupported_ticks += 1
+			if unsupported_first < 0:
+				unsupported_first = ticks
+		var tick_margin := INF
+		for i: int in ArcadeCar.WHEEL_CONTACT_POINTS.size():
+			var contact: Vector3 = car.global_transform * ArcadeCar.WHEEL_CONTACT_POINTS[i]
+			var margin := driver.margin_of(contact.x, contact.z)
+			wheel_readings += 1
+			if not is_finite(margin):
+				wheel_non_finite += 1
+				continue
+			tick_margin = minf(tick_margin, margin)
+			if margin < wheel_margin:
+				wheel_margin = margin
+				wheel_margin_at = driver.progress
+				wheel_margin_which = i
 		for id: String in passes:
 			var passing: Dictionary = passes[id]
 			if absf(driver.progress - passing.along) <= CROSSING_PASS_M:
 				passing.ticks += 1
 				var under: String = profile.describe(car.global_position.x, car.global_position.z).get("road", "")
 				passing.roads[under] = true
-				passing.clean = passing.clean and _loop.segments.has(under) and not car.is_airborne
+				passing.margin = minf(passing.margin, tick_margin)
+				if not all_supported:
+					passing.unsupported += 1
+				passing.clean = passing.clean and _loop.segments.has(under) and all_supported and not car.is_airborne and tick_margin >= 0.0
 		var placed := floor_body.position
 		floor_off_field = maxf(floor_off_field, absf(placed.y - profile.sample_height(placed.x, placed.z)))
 		var way := Vector2(placed.x - floor_last.x, placed.z - floor_last.z).length()
@@ -956,11 +1126,16 @@ func _drive(car: ArcadeCar, road: RoadBuilder, report: bool) -> Dictionary:
 		var seconds := float(ticks) / Engine.physics_ticks_per_second
 		var on_road: bool = absf(driver.worst_offset) + ArcadeCar.HALF_TRACK <= half_width
 		_ok(driver.progress >= DRIVE_START_CHAINAGE_M + DRIVE_DISTANCE_M, "the scripted driver covered %.0f m of the loop from %s chainage %.0f in %.1f s (%d ticks), the time limit %.0f s" % [driver.progress - DRIVE_START_CHAINAGE_M, DRIVE_START_SEGMENT, DRIVE_START_CHAINAGE_M, seconds, ticks, DRIVE_TIME_LIMIT_S], "the drive reached %.0f m in %d ticks" % [driver.progress - DRIVE_START_CHAINAGE_M, ticks])
-		_ok(on_road, "no wheel left the paved width: the worst lateral offset of the car's centre from the loop's centreline is %+.3f m at %.0f m along (the outer wheel %.3f m from the centreline, the paved half width %.2f m)" % [driver.worst_offset, driver.worst_offset_at, absf(driver.worst_offset) + ArcadeCar.HALF_TRACK, half_width], "the car strayed %.3f m from the centreline at %.0f m: a wheel %.3f m out on a %.2f m half width" % [driver.worst_offset, driver.worst_offset_at, absf(driver.worst_offset) + ArcadeCar.HALF_TRACK, half_width])
+		_ok(on_road, "the car's centre stayed on the road: its worst lateral offset from the loop's centreline is %+.3f m at %.0f m along (the outer wheel by track alone %.3f m from the centreline, the start road's paved half width %.2f m; the estimate - the wheels themselves are measured next)" % [driver.worst_offset, driver.worst_offset_at, absf(driver.worst_offset) + ArcadeCar.HALF_TRACK, half_width], "the car strayed %.3f m from the centreline at %.0f m: a wheel %.3f m out on a %.2f m half width" % [driver.worst_offset, driver.worst_offset_at, absf(driver.worst_offset) + ArcadeCar.HALF_TRACK, half_width])
+		_ok(ticks > 0 and wheel_readings == 4 * ticks and wheel_non_finite == 0 and wheel_margin >= 0.0, "no wheel left the paved width: every tick each of the four contact points (global_transform × WHEEL_CONTACT_POINTS, car.gd's own seam: the yaw, the axles and the track in it) lay inside the nearest loop chord's own paved half width - %d readings over %d ticks, the smallest margin %.3f m inside the edge at %.0f m along (wheel %d)" % [wheel_readings, ticks, wheel_margin, wheel_margin_at, wheel_margin_which], "a wheel (%d) was %.3f m outside the paved width at %.0f m along; %d readings over %d ticks, %d not finite" % [wheel_margin_which, -wheel_margin, wheel_margin_at, wheel_readings, ticks, wheel_non_finite])
+		_ok(ticks > 0 and unsupported_ticks == 0 and airborne_ticks == 0, "all four wheels carried every tick of the drive (car.wheel_supported, the corner check's own flags: %d of %d ticks with a wheel unsupported; is_airborne clears when any one wheel carries, %d airborne ticks)" % [unsupported_ticks, ticks, airborne_ticks], "%d of %d ticks with a wheel unsupported (the first at tick %d), %d airborne ticks" % [unsupported_ticks, ticks, unsupported_first, airborne_ticks])
 		_ok(speed_ticks > 0 and speed_min > 0.0, "speed after the first %.0f s: %.1f-%.1f m/s, mean %.1f m/s (%.0f km/h; the cruise %.0f m/s eased for the bends), %d airborne ticks, the body's pitch up to %.2f° and roll up to %.2f° on the way" % [SPEED_STATS_FROM_S, speed_min, speed_max, speed_sum / maxi(speed_ticks, 1), 3.6 * speed_sum / maxi(speed_ticks, 1), CRUISE_SPEED, airborne_ticks, rad_to_deg(pitch_max), rad_to_deg(roll_max)], "speeds %.1f-%.1f" % [speed_min, speed_max])
 		_ok(car.odometer_m > DRIVE_DISTANCE_M * 0.99, "the odometer counted %.1f m for the drive" % car.odometer_m)
-		for id: String in passes:
+		var pass_ids := passes.keys()
+		pass_ids.sort()
+		_ok(passes.size() == 2 and passes.has("377340334-0") and passes.has("29898554-0"), "the 2 km drive passes two of the ten crossings (the tunnel 377340334-0 under the Döttinger Höhe straight and the track bridge 29898554-0 over Antoniusbuche), both within the drive's reach: %s" % [", ".join(pass_ids)], "the passes are %s" % [pass_ids])
+		for id: String in pass_ids:
 			var passing: Dictionary = passes[id]
-			_ok(passing.ticks > 0 and passing.clean, "the drive passed the crossing of %s at %.0f m along: over %d ticks within %.0f m of it the field under the car was the loop's own (%s) and every wheel was carried (was a wall of +2.88 m at 1 901 m that stopped the car dead, a hole of -2.76 m at 888 m)" % [id, passing.along, passing.ticks, CROSSING_PASS_M, ", ".join(passing.roads.keys())], "at %s (%.0f m): %d ticks, clean %s, roads %s" % [id, passing.along, passing.ticks, passing.clean, passing.roads.keys()])
+			_ok(passing.ticks > 0 and passing.clean, "the drive passed the crossing of %s at %.0f m along: over %d ticks within %.0f m of it the field under the car was the loop's own (%s), all four wheels were carried every tick (wheel_supported; %d ticks with one unsupported) and every wheel's contact point stayed inside the loop's paved width (the smallest margin %.3f m) - was a wall of +2.88 m at 1 901 m that stopped the car dead, a hole of -2.76 m at 888 m" % [id, passing.along, passing.ticks, CROSSING_PASS_M, ", ".join(passing.roads.keys()), passing.unsupported, passing.margin], "at %s (%.0f m): %d ticks, clean %s, roads %s, %d unsupported, margin %.3f" % [id, passing.along, passing.ticks, passing.clean, passing.roads.keys(), passing.unsupported, passing.margin])
 		_ok(floor_off_field <= FLOOR_FIELD_TOLERANCE_M and floor_step_over == 0, "the follower floor over %d ticks: its top is the corrected profile's height at its own place every tick (worst %.4f mm off: the same field the mesh and the car read), and it never steps more than the field does over the car's way (worst step %.3f m per tick)" % [ticks, 1000.0 * floor_off_field, floor_step_worst], "the floor was %.4f m off the field, %d steps beyond the field's own (worst %.3f m)" % [floor_off_field, floor_step_over, floor_step_worst])
 	return out

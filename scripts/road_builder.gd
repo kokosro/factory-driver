@@ -112,7 +112,8 @@ extends Node3D
 ##     with its below-ground instance recorded as the reading the rule does
 ##     not take"): from each end of a covered
 ##     bridge, walk outward along untagged covered approach segments,
-##     through two-segment junctions only, at most APPROACH_REACH_M; the RIM
+##     through junctions along the best-continuing segment (amendment 2
+##     below), at most APPROACH_REACH_M; the RIM
 ##     is the first outward station whose onward station-to-station slope
 ##     is under RIM_SLOPE (the hole's walls climb 50-65 % per metre, the
 ##     loop's honest grades top at 15-20 %); the deck is drawn straight
@@ -121,8 +122,13 @@ extends Node3D
 ##     it - never lowered, so never below the abutment samples. An end whose
 ##     abutment already climbs under RIM_SLOPE is its own rim (nothing moves
 ##     there); an end whose walk finds no rim within reach (a tagged or
-##     uncovered segment, no continuation, the reach) keeps its abutment as
-##     the line's end. AMENDMENT 2, Conductor-endorsed 2026-09-23: the walk
+##     uncovered segment, no continuation, the reach) has no rim, and a
+##     bridge with such an end is not lifted at all - nothing where no rim
+##     is found (the endorsed rule; the codex review of 4B-4 found the
+##     unfound end's abutment serving as the line's end, 134220315-0's
+##     lift drawn to it, and the walk taking a two-segment junction's
+##     other segment before the turn filter: both fixed, the filter the
+##     same at every junction). AMENDMENT 2, Conductor-endorsed 2026-09-23: the walk
 ##     may continue THROUGH a junction of three or more along the outgoing
 ##     covered untagged segment whose direction best continues the
 ##     incoming heading (a turn of CONTINUATION_MAX_TURN_DEG at most), the
@@ -154,7 +160,8 @@ const FLOOR_THICKNESS_M := 0.1
 
 ## How far the mesh may interpolate off the field inside a quad [m]: the
 ## twist bound Δb × half width / 4 is held under it by splitting the
-## interval, down to MIN_SECTION_M [m] between sections.
+## interval into as many pieces as that takes; an interval split finer
+## than MIN_SECTION_M [m] between sections is counted (fine_split_count).
 const MESH_TOLERANCE_M := 0.001
 const MIN_SECTION_M := 0.05
 
@@ -223,6 +230,7 @@ var build_ms := 0
 var road_count := 0
 var section_count := 0
 var split_count := 0
+var fine_split_count := 0
 var vertex_count := 0
 var triangle_count := 0
 var body_count := 0
@@ -467,15 +475,22 @@ func _section_chainages(road: Road) -> PackedFloat64Array:
 ## How many pieces an interval whose crossfall runs from e0 to e1 needs
 ## so a quad's twist, Δb × half width / 4 (b the platform's slope across
 ## on either side of the crown line: ±e less the crown's share), stays
-## under the tolerance; at least one, never closer than MIN_SECTION_M.
+## under the tolerance; at least one. The count is the tolerance's alone:
+## it is not clamped to the interval's length over MIN_SECTION_M (the
+## codex review of 4B-4: a 0.05 m interval whose crossfall swings 0.02 ->
+## 0.03 on a 4 m half width needs 10 pieces and the clamp returned one,
+## 10 mm of twist left in the mesh); an interval split finer than
+## MIN_SECTION_M is counted in fine_split_count and reported, not hidden.
 func _twist_pieces(road: Road, e0: float, e1: float, s0: float, s1: float) -> int:
 	var worst := 0.0
 	for side: float in [-1.0, 1.0]:
 		var b0 := side * e0 - _crown_share(e0) * WorldRoadProfile.CROWN
 		var b1 := side * e1 - _crown_share(e1) * WorldRoadProfile.CROWN
 		worst = maxf(worst, absf(b1 - b0))
-	var pieces := ceili(worst * road.half_width / (4.0 * MESH_TOLERANCE_M) - 1e-9)
-	return clampi(pieces, 1, maxi(floori((s1 - s0) / MIN_SECTION_M), 1))
+	var pieces := maxi(ceili(worst * road.half_width / (4.0 * MESH_TOLERANCE_M) - 1e-9), 1)
+	if pieces > 1 and (s1 - s0) / pieces < MIN_SECTION_M:
+		fine_split_count += 1
+	return pieces
 
 
 ## The crown's share of the crossfall shape (WorldRoadProfile's
@@ -856,6 +871,17 @@ static func apply_rim_rule(skeleton: Dictionary, drape: Dictionary) -> Dictionar
 			_rim_of(id, 0, segments, records, dense, lengths, end_junction, raw_points),
 			_rim_of(id, 1, segments, records, dense, lengths, end_junction, raw_points),
 		]
+		# Nothing where no rim is found (the endorsed rule): the deck line
+		# needs a rim at BOTH ends - a rim at distance zero (the abutment
+		# its own rim) is one, an end whose walk found none is not, and
+		# that bridge is left as the file has it (the codex review of
+		# 4B-4: an unfound end's abutment used to serve as the line's end,
+		# 134220315-0's lift drawn to it). Two abutments that are their own
+		# rims stand at no hole: nothing to draw, the deck the file's
+		# (measured: the line between them would lift 14 bridges' decks by
+		# a rounding's 2-9 mm, 41395681-0 among them).
+		if not (ends[0].found and ends[1].found):
+			continue
 		if ends[0].rim_m <= 0.0 and ends[1].rim_m <= 0.0:
 			continue
 		var run: float = ends[0].rim_m + length + ends[1].rim_m
@@ -928,7 +954,8 @@ static func _is_plain(segment: SkeletonLoader.Segment) -> bool:
 ## (`from_start`); the outward stations' heights are read in order and the
 ## rim is the first station whose onward slope is under RIM_SLOPE. rim_m is
 ## 0 and rim_height the bridge's own abutment sample when the abutment is
-## its own rim (found) or when no rim is within reach (not found).
+## its own rim (found) or when no rim is within reach (not found); an end
+## not found draws no deck line (apply_rim_rule).
 static func _rim_of(id: String, end: int, segments: Dictionary, records: Dictionary, dense: Dictionary, lengths: Dictionary, end_junction: Dictionary, raw_points: Dictionary) -> Dictionary:
 	var deck: PackedFloat64Array = dense[id]
 	var abutment := deck[0] if end == 0 else deck[deck.size() - 1]
@@ -972,10 +999,10 @@ static func _rim_of(id: String, end: int, segments: Dictionary, records: Diction
 
 
 ## The segment the walk leaves `junction` on, coming off `current` with
-## the outward `heading`: at a two-segment junction the other segment; at
-## a bigger one (amendment 2) the plain covered segment leaving the
-## junction with the smallest turn from the heading, CONTINUATION_MAX_TURN_DEG
-## at most, the first in the junction's order on a tie. "" when there is
+## the outward `heading`: the plain covered segment leaving the junction
+## with the smallest turn from the heading, CONTINUATION_MAX_TURN_DEG at
+## most (amendment 2; the same filter at every junction, whatever its
+## arity), the first in the junction's order on a tie. "" when there is
 ## none plain and covered, or none within the turn.
 static func _continuation(junction: SkeletonLoader.Junction, current: String, heading: Vector2, segments: Dictionary, records: Dictionary, end_junction: Dictionary, raw_points: Dictionary) -> String:
 	var best := ""
@@ -983,10 +1010,11 @@ static func _continuation(junction: SkeletonLoader.Junction, current: String, he
 	for candidate: String in junction.segments:
 		if candidate == current or not records.has(candidate) or not _is_plain(segments[candidate]):
 			continue
-		if junction.segments.size() == 2:
-			return candidate
 		# Into the candidate from the junction: the reverse of its outward
-		# heading at that end.
+		# heading at that end. Every junction's candidates go through the
+		# same turn filter, a two-segment junction's too (the codex review
+		# of 4B-4: a 2-way junction's other segment used to be taken before
+		# the heading check, so a hairpin would have been walked through).
 		var leaves_from_start: bool = end_junction.get(candidate + ":0") == junction
 		var outgoing := -_outward_heading(raw_points[candidate], not leaves_from_start)
 		var turn := absf(heading.angle_to(outgoing))
