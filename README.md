@@ -642,6 +642,28 @@ letter, an empty canon line, a default outside its range or none of its choices,
 priority of 0, of 10 or not the family's, a privilege outside the vocabulary, a shell
 naming no B entry or no B id, a texture over budget, a stone parameter that is no number,
 a key outside the schema, a file that is not JSON) naming the entry and the field. Then
+`tests/skeleton_test.gd`: the Ring's road skeleton under `data/regions/eifel_ring/`
+(the pinned OSM snapshot's drivable ways projected to region metres, split at junctions,
+simplified and widened offline by `tools/world/skeleton.py`; `docs/design/4b/data-pipeline.md`
+§4) read the way `SkeletonLoader` reads it and put through its validation, in seconds and
+before anything drives; then held to what the plan asks of the skeleton: the snapshot id
+present and pinned to 2026-09-22T08:45:51Z, the bbox and the origin the Ring's; every
+segment id of the form way-index and unique, every segment with two or more points,
+sorted; every junction with two or more segments, each there and ending on it, and every
+segment end on a junction listed by it; widths by class the table's, one line per class,
+a width by tag inside its band, no raceway taking one, the Karussell 7.5 m; relation
+38566's segments chaining one into the next within 0.5 m, closing, all raceway and oneway,
+the loop within 1 % of the 20 830 m lap; the loader's own forward projection held to
+pyproj's on a pinned reference table (within 0.01 m at the origin, 0.5 m at 20 km); the
+checked-in Karussell sample's three ways present with their endpoints where the sample's
+lat/lon say; the lookups answering; a five-way fixture built in code through the same
+checks (a crossing, a dead end, widths by class and by tag, a two-way loop closing); and
+`validate()` on eighteen fixtures broken in code (an unpinned snapshot, a foreign bbox or
+origin, a width that is not the table's or outside the band, a raceway width by tag, a
+class outside the table, a one-point segment, a mismatched way, segments out of order, an
+unknown key, a one-segment junction, a junction listing a segment that is missing or does
+not end on it, a segment end its junction does not list, a loop that does not join or
+close, a file that is not JSON) naming the thing and the field. Then
 `tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the
