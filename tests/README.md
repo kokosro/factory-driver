@@ -1,9 +1,10 @@
 # Tests
 
-`tests/run_tests.sh` is the gate: a headless import, then the config, smoke, handling,
-camera, mission, battery, thermal, tyre/brake thermal, steering-feel, wear, licence and
-menu tests, all on the tick clock (`--fixed-fps 60`), under a minute.
-`tests/run_tests.sh --parallel` runs the twelve tests side by side after the import and
+`tests/run_tests.sh` is the gate: a headless import, then the config, element catalogue,
+smoke, handling, camera, mission, battery, thermal, tyre/brake thermal, steering-feel,
+wear, licence, menu and airborne tests, the driving ones on the tick clock
+(`--fixed-fps 60`), under a minute.
+`tests/run_tests.sh --parallel` runs the fourteen tests side by side after the import and
 prints the same lines in the same order. What each test checks is in the main
 `README.md`.
 

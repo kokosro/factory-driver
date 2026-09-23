@@ -627,6 +627,21 @@ tests/run_tests.sh
 Runs a headless import, then `tests/config_test.gd`: every car config under
 `configs/cars/` read the way the car reads it and put through the validation, in
 seconds, so a broken config fails the suite there and not somewhere in the smoke test. Then
+`tests/element_catalogue_test.gd`: the seven element files under `configs/elements/` (the
+4B element library, `docs/design/4b/element-library.md`, as data: 81 entries, R 18 / T 9 /
+S 6 / B 11 / E 14 / V 8 / F 15) read the way `ElementCatalogue` reads them and put through
+its validation, in seconds and before anything drives, so a broken entry fails the suite
+there; then every entry held, one line per check, to what the plan asks of the catalogue:
+an id of the documented form, unique, in its family's file; a canon line cited; a priority
+of 1-9 that is its family's; every varying parameter with a range or choices and its
+default inside; a texture size inside the family's budget; every economy building's shell
+a B entry that exists and its privileges from the fixed vocabulary; the files parsed twice
+to the same bytes; `entry()` and `by_family()` answering; and `validate()` on sixteen
+fixtures broken in code (a duplicate id, an id of the wrong form or of another family's
+letter, an empty canon line, a default outside its range or none of its choices, a
+priority of 0, of 10 or not the family's, a privilege outside the vocabulary, a shell
+naming no B entry or no B id, a texture over budget, a stone parameter that is no number,
+a key outside the schema, a file that is not JSON) naming the entry and the field. Then
 `tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the

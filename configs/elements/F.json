@@ -1,0 +1,220 @@
+{
+	"family": "F",
+	"elements": [
+		{
+			"id": "F1",
+			"family": "F",
+			"title": "Guardrail (Armco)",
+			"priority": 7,
+			"canon": "\"Guardrails catch little white highlights.\"",
+			"data": "`barrier=guard_rail`; R17 both sides; B-roads on the fill side where DGM1 cross-slope > 20 %",
+			"stone": "W-beam profile, posts every 4 m, follows the road spline.",
+			"stone_parameters": {"profile": "W-beam", "post_spacing_m": 4, "tris_max_per_4_m": 8, "cross_slope_threshold_pct": 20},
+			"varies": {
+				"rail_tint": {"choices": ["galvanised"], "default": "galvanised"}
+			},
+			"texture": {"look": "≤ 8 tris per 4 m; \"strong specular\" like the car? No: \"little white highlights\" only"},
+			"notes": []
+		},
+		{
+			"id": "F2",
+			"family": "F",
+			"title": "Stone wall",
+			"priority": 7,
+			"canon": "\"low stone walls\"",
+			"data": "`barrier=wall`, `barrier=retaining_wall`; R3 outside in villages",
+			"stone": "1.0 × 0.5 m box strip.",
+			"stone_parameters": {"height_m": 1.0, "thickness_m": 0.5},
+			"varies": {
+				"stone_texture": {"choices": ["grey slate"], "default": "grey slate", "note": "Eifel: grey slate; the library names no other."}
+			},
+			"texture": {"look": "box + 512 texture", "size_px": 512},
+			"notes": []
+		},
+		{
+			"id": "F3",
+			"family": "F",
+			"title": "Wooden fence",
+			"priority": 7,
+			"canon": "\"wooden fences\"",
+			"data": "`barrier=fence` (+ `fence_type=wood`)",
+			"stone": "posts + 2 rails as cards.",
+			"stone_parameters": {"rails": 2},
+			"varies": {
+				"enabled": {"choices": ["on", "off"], "default": "on", "note": "on/off by region. Default chosen for the catalogue."}
+			},
+			"texture": {"look": "cards"},
+			"notes": []
+		},
+		{
+			"id": "F4",
+			"family": "F",
+			"title": "Telephone / power pole",
+			"priority": 7,
+			"canon": "\"sparse telephone poles\"",
+			"data": "`power=pole|line`, `man_made=utility_pole`; spacing from OSM nodes, else 50 m along R1 in rural families",
+			"stone": "pole + crossarm; wires as 1-px lines optional.",
+			"stone_parameters": {"default_spacing_m": 50},
+			"varies": {
+				"density": {"range": [0, 1], "default": 1, "note": "the share of the OSM / 50 m poles placed; 0 in villages. Range and default chosen for the catalogue."}
+			},
+			"texture": {"look": "a cylinder"},
+			"notes": []
+		},
+		{
+			"id": "F5",
+			"family": "F",
+			"title": "Direction sign",
+			"priority": 7,
+			"canon": "\"Large road signs.\" (Autobahn) / village name signs",
+			"data": "`highway=*` junction nodes with `destination=*`; `traffic_sign=city_limit`",
+			"stone": "DE yellow board (village names from OSM `name`)",
+			"stone_parameters": {"board": "DE yellow"},
+			"varies": {},
+			"texture": {"look": "a textured quad on a post"},
+			"notes": ["the library states no varies for F5."]
+		},
+		{
+			"id": "F6",
+			"family": "F",
+			"title": "Warning / regulatory sign",
+			"priority": 7,
+			"canon": "as F5",
+			"data": "`traffic_sign=*` nodes; `highway=stop|give_way`; `maxspeed=*` changes",
+			"stone": "DE sign set as one 512 atlas.",
+			"stone_parameters": {"atlas_px": 512},
+			"varies": {
+				"country_atlas": {"choices": ["DE"], "default": "DE", "note": "which country's atlas; the library names DE."}
+			},
+			"texture": {"look": "a quad", "size_px": 512},
+			"notes": []
+		},
+		{
+			"id": "F7",
+			"family": "F",
+			"title": "Cone",
+			"priority": 7,
+			"canon": "the pad's cone (test_pad.gd builds it today)",
+			"data": "placed by E8 yards and the pad",
+			"stone": "the pad's cone as it is.",
+			"stone_parameters": {},
+			"varies": {},
+			"texture": {"look": "reused"},
+			"notes": ["Varies: nothing."]
+		},
+		{
+			"id": "F8",
+			"family": "F",
+			"title": "Lamp / floodlight",
+			"priority": 7,
+			"canon": "\"orange/yellow artificial lights / small pools of illumination\"",
+			"data": "`highway=street_lamp`; E-yards get 2 floodlights",
+			"stone": "pole + emissive head + a light with 12 m radius.",
+			"stone_parameters": {"light_radius_m": 12, "floodlights_per_e_yard": 2},
+			"varies": {
+				"warmth": {"choices": ["orange", "yellow"], "default": "orange", "note": "Default chosen for the catalogue."}
+			},
+			"texture": {"look": "one emissive quad + one OmniLight"},
+			"notes": []
+		},
+		{
+			"id": "F9",
+			"family": "F",
+			"title": "Delineator post",
+			"priority": 7,
+			"canon": "roadside markers on B-roads",
+			"data": "rule: every 50 m on R1/R2 outside villages (DE Leitpfosten)",
+			"stone": "1 m post, reflector quad.",
+			"stone_parameters": {"height_m": 1, "spacing_m": 50},
+			"varies": {
+				"enabled": {"choices": ["on", "off"], "default": "on", "note": "Default chosen for the catalogue: the rule places them."}
+			},
+			"texture": {"look": "2 quads"},
+			"notes": []
+		},
+		{
+			"id": "F10",
+			"family": "F",
+			"title": "Distance board",
+			"priority": 7,
+			"canon": "the pad's 100 m boards",
+			"data": "rule: R17 gets the Ring's own km boards",
+			"stone": "the pad's board.",
+			"stone_parameters": {},
+			"varies": {},
+			"texture": {"look": "reused"},
+			"notes": ["Varies: nothing."]
+		},
+		{
+			"id": "F11",
+			"family": "F",
+			"title": "Bridge parapet",
+			"priority": 7,
+			"canon": "\"Industrial roads pass underneath structures\"",
+			"data": "with R10",
+			"stone": "parapet strip.",
+			"stone_parameters": {},
+			"varies": {
+				"material": {"choices": ["stone", "steel", "concrete"], "default": "steel", "note": "R10's parapet style. Default chosen for the catalogue."}
+			},
+			"texture": {"look": "a strip"},
+			"notes": []
+		},
+		{
+			"id": "F12",
+			"family": "F",
+			"title": "Tunnel portal",
+			"priority": 7,
+			"canon": "\"a convincing entrance silhouette\"",
+			"data": "with R11",
+			"stone": "arch/box face 2 m thick.",
+			"stone_parameters": {"face_thickness_m": 2},
+			"varies": {
+				"face_texture": {"choices": ["stone", "concrete"], "default": "concrete", "note": "R11's portal face texture. Default chosen for the catalogue."}
+			},
+			"texture": {"look": "one extruded face"},
+			"notes": []
+		},
+		{
+			"id": "F13",
+			"family": "F",
+			"title": "Concrete barrier",
+			"priority": 7,
+			"canon": "\"Concrete.\" (Autobahn)",
+			"data": "`barrier=jersey_barrier`; R13 median",
+			"stone": "profile strip.",
+			"stone_parameters": {},
+			"varies": {},
+			"texture": {"look": "a strip"},
+			"notes": ["Varies: nothing."]
+		},
+		{
+			"id": "F14",
+			"family": "F",
+			"title": "Tyre wall / catch fence",
+			"priority": 7,
+			"canon": "Ring-specific",
+			"data": "`barrier=*` on raceway margins; else rule at R17 run-off",
+			"stone": "a box strip with a tyre texture.",
+			"stone_parameters": {},
+			"varies": {},
+			"texture": {"look": "a strip; no individual tyres"},
+			"notes": ["Varies: nothing."]
+		},
+		{
+			"id": "F15",
+			"family": "F",
+			"title": "Parked car (scenery)",
+			"priority": 7,
+			"canon": "\"few parked cars\"",
+			"data": "rule in R15: 0-3 per 100 m",
+			"stone": "a low-detail unbranded box car (NOT the hero model).",
+			"stone_parameters": {},
+			"varies": {
+				"count_per_100_m": {"range": [0, 3], "default": 1, "note": "R15's parked-car density; canon says \"few\". Default chosen for the catalogue."}
+			},
+			"texture": {"look": "the canon's contrast rule: it must look worse than the hero"},
+			"notes": []
+		}
+	]
+}

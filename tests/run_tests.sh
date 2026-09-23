@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Headless checks: import the project, check the car configs (seconds: a broken
-# config fails here, not somewhere in the smoke test), run the smoke test,
-# then the handling, camera, mission, battery, thermal, tyre/brake thermal,
-# steering-feel, wear, licence, menu and airborne tests. Fails on a non-zero
-# exit code or on any engine/script error in the output.
+# Headless checks: import the project, check the car configs and the element
+# catalogue (seconds: a broken config or catalogue entry fails here, not
+# somewhere in the smoke test), run the smoke test, then the handling, camera,
+# mission, battery, thermal, tyre/brake thermal, steering-feel, wear, licence,
+# menu and airborne tests. Fails on a non-zero exit code or on any
+# engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the thirteen tests side by side
+#   tests/run_tests.sh --parallel   the import first, then the fourteen tests side by side
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -114,6 +115,7 @@ fi
 # The import is always alone and first: it writes .godot/, the tests only read it.
 run_step "import" "$GODOT" --headless --path "$ROOT" --import
 "$STEP" "config test" "$GODOT" --headless --path "$ROOT" --script res://tests/config_test.gd
+"$STEP" "element catalogue test" "$GODOT" --headless --path "$ROOT" --script res://tests/element_catalogue_test.gd
 # --fixed-fps: same 1/60 s physics steps, without waiting for the wall clock.
 # Every wait in these tests is counted in physics ticks.
 "$STEP" "smoke test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/smoke_test.gd

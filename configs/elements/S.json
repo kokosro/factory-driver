@@ -1,0 +1,96 @@
+{
+	"family": "S",
+	"elements": [
+		{
+			"id": "S1",
+			"family": "S",
+			"title": "Clear day",
+			"priority": 4,
+			"canon": "\"sunny: slightly warm highlights / neutral midtones / cool distant landscape\"",
+			"data": "region time-of-day parameter; sun azimuth from real latitude",
+			"stone": "one sun, one sky, shadow \"clearly readable but not pitch black\".",
+			"stone_parameters": {"suns": 1, "skies": 1},
+			"varies": {
+				"sun_elevation_deg": {"range": [0, 90], "default": 45, "note": "named by the library without a number; the range is a sun's, default chosen for the catalogue."},
+				"sun_warmth": {"choices": ["slightly warm"], "default": "slightly warm", "note": "the canon's \"slightly warm highlights\"; the library names no other."}
+			},
+			"texture": {"look": "photographic skybox (\"Blue sky with soft clouds\"), no procedural atmosphere"},
+			"notes": []
+		},
+		{
+			"id": "S2",
+			"family": "S",
+			"title": "Overcast",
+			"priority": 4,
+			"canon": "\"overcast: grey-blue ambient / very soft shadows / moderately desaturated vegetation\"",
+			"data": "region weather set",
+			"stone": "shadow softness.",
+			"stone_parameters": {},
+			"varies": {
+				"cloud_plate": {"choices": ["second skybox plate"], "default": "second skybox plate", "note": "the library names the plate, not a set of plates."}
+			},
+			"texture": {"look": "second skybox plate"},
+			"notes": []
+		},
+		{
+			"id": "S3",
+			"family": "S",
+			"title": "Sunset / morning",
+			"priority": 4,
+			"canon": "\"mountain mornings\"; \"Orange sunset.\"",
+			"data": "region set",
+			"stone": "low sun long shadows.",
+			"stone_parameters": {},
+			"varies": {
+				"hue": {"choices": ["orange sunset", "mountain morning"], "default": "orange sunset", "note": "Default chosen for the catalogue."}
+			},
+			"texture": {"look": "third plate"},
+			"notes": []
+		},
+		{
+			"id": "S4",
+			"family": "S",
+			"title": "Night",
+			"priority": 4,
+			"canon": "\"deep blue/black environment / orange/yellow artificial lights / small pools of illumination\"",
+			"data": "region set; F8 lamps",
+			"stone": "lamp pool radius.",
+			"stone_parameters": {"lamp_pool_radius_m": 12},
+			"varies": {
+				"lamp_warmth": {"choices": ["orange", "yellow"], "default": "orange", "note": "Default chosen for the catalogue."}
+			},
+			"texture": {"look": "fourth plate; emissive quads"},
+			"notes": ["the lamp pool radius is F8's: a light with 12 m radius."]
+		},
+		{
+			"id": "S5",
+			"family": "S",
+			"title": "Distance haze",
+			"priority": 4,
+			"canon": "\"0–100 m normal saturation / 100–300 m slight haze / 300–800 m reduced contrast / 800 m+ increasingly sky-colored\"",
+			"data": "fixed table",
+			"stone": "the table (it is the canon).",
+			"stone_parameters": {"normal_saturation_to_m": 100, "slight_haze_to_m": 300, "reduced_contrast_to_m": 800, "sky_coloured_from_m": 800},
+			"varies": {
+				"haze_colour": {"choices": ["the sky plate's horizon colour"], "default": "the sky plate's horizon colour"}
+			},
+			"texture": {"look": "Godot depth fog with the four-band curve; \"Not volumetric cinematic fog\""},
+			"notes": []
+		},
+		{
+			"id": "S6",
+			"family": "S",
+			"title": "Rain (Autobahn family)",
+			"priority": 4,
+			"canon": "\"darkened asphalt / simple rain streaks / grey sky / slightly reduced visibility / car reflections on road\"",
+			"data": "region weather set",
+			"stone": "wet-road material variant of R-textures.",
+			"stone_parameters": {},
+			"varies": {
+				"intensity": {"range": [0, 1], "default": 0.5, "note": "named by the library without a number; range and default chosen for the catalogue."}
+			},
+			"texture": {"look": "DEFERRED past the Ring (the Ring is dry at first focus)"},
+			"notes": ["DEFERRED past the Ring."]
+		}
+	]
+}

@@ -1,0 +1,129 @@
+{
+	"family": "V",
+	"elements": [
+		{
+			"id": "V1",
+			"family": "V",
+			"title": "Broadleaf, near road (beech/oak)",
+			"priority": 6,
+			"canon": "\"chunky low-poly crowns\"",
+			"data": "`natural=tree` nodes; `landuse=forest` edge sampling; `leaf_type=broadleaved`",
+			"stone": "trunk cylinder + 3-lobe crown.",
+			"stone_parameters": {"crown_lobes": 3, "tris_max": 120},
+			"varies": {
+				"tint": {"choices": ["deep green"], "default": "deep green", "note": "the canon's forest green; the library names no other for a near tree."},
+				"height_m": {"range": [8, 18], "default": 12, "note": "Default chosen for the catalogue."}
+			},
+			"texture": {"look": "≤ 120 tris, 256-512 card", "size_px": [256, 512]},
+			"notes": []
+		},
+		{
+			"id": "V2",
+			"family": "V",
+			"title": "Conifer, near road (spruce)",
+			"priority": 6,
+			"canon": "\"Dark pine forests.\"",
+			"data": "`leaf_type=needleleaved` / Eifel default",
+			"stone": "trunk + 3 crossed cards.",
+			"stone_parameters": {"crossed_cards": 3},
+			"varies": {
+				"tint": {"choices": ["spruce blue-green"], "default": "spruce blue-green", "note": "the Eifel's; the library names no other."},
+				"height_m": {"range": [12, 25], "default": 18, "note": "Default chosen for the catalogue."}
+			},
+			"texture": {"look": "crossed cards"},
+			"notes": []
+		},
+		{
+			"id": "V3",
+			"family": "V",
+			"title": "Billboard tree, mid distance",
+			"priority": 6,
+			"canon": "\"billboard foliage\"",
+			"data": "any tree beyond 80 m",
+			"stone": "2 crossed cards.",
+			"stone_parameters": {"crossed_cards": 2, "from_distance_m": 80, "tris": 4},
+			"varies": {
+				"tint": {"choices": ["deep green", "spruce blue-green"], "default": "deep green", "note": "as V1/V2."},
+				"height_m": {"range": [8, 25], "default": 12, "note": "as V1/V2: the two bands joined. Default chosen for the catalogue."}
+			},
+			"texture": {"look": "4 tris"},
+			"notes": []
+		},
+		{
+			"id": "V4",
+			"family": "V",
+			"title": "Forest wall card",
+			"priority": 6,
+			"canon": "\"dark forest walls made from layered vegetation cards\"",
+			"data": "`landuse=forest` / `natural=wood` polygon edges",
+			"stone": "3 layers, 12-18 m, staggered.",
+			"stone_parameters": {"layers": 3, "height_m": [12, 18], "arrangement": "staggered"},
+			"varies": {
+				"tint": {"choices": ["blue-green spruce over beech"], "default": "blue-green spruce over beech", "note": "Eifel."}
+			},
+			"texture": {"look": "\"deep green and almost black\""},
+			"notes": []
+		},
+		{
+			"id": "V5",
+			"family": "V",
+			"title": "Hedge row",
+			"priority": 6,
+			"canon": "\"Hedges.\" \"Stone walls.\"",
+			"data": "`barrier=hedge`; field boundaries in the Rural France family (region parameter, off in the Eifel)",
+			"stone": "box + card top.",
+			"stone_parameters": {},
+			"varies": {
+				"height_m": {"range": [1, 2], "default": 1.5, "note": "Default chosen for the catalogue."},
+				"enabled": {"choices": ["on", "off"], "default": "off", "note": "off in the Eifel."}
+			},
+			"texture": {"look": "a textured box"},
+			"notes": []
+		},
+		{
+			"id": "V6",
+			"family": "V",
+			"title": "Avenue / tree line",
+			"priority": 6,
+			"canon": "\"sparse telephone poles, clusters of trees\"",
+			"data": "`natural=tree_row`",
+			"stone": "V1 at OSM spacing.",
+			"stone_parameters": {"archetype": "V1", "spacing": "OSM"},
+			"varies": {
+				"species": {"choices": ["V1", "V2"], "default": "V1", "note": "the stone says V1; the species is the region's."}
+			},
+			"texture": {"look": "instances"},
+			"notes": []
+		},
+		{
+			"id": "V7",
+			"family": "V",
+			"title": "Forest mass (interior)",
+			"priority": 6,
+			"canon": "\"Forests should often become large masses of deep green and almost black\"",
+			"data": "`landuse=forest` polygon interior",
+			"stone": "interior is a dark canopy plane on the terrain (no trees inside beyond 60 m of a road).",
+			"stone_parameters": {"trees_within_m": 60},
+			"varies": {
+				"tint": {"choices": ["deep green", "almost black"], "default": "deep green", "note": "Default chosen for the catalogue."}
+			},
+			"texture": {"look": "a tinted terrain material + V4 at the edge: the interior is never modelled"},
+			"notes": []
+		},
+		{
+			"id": "V8",
+			"family": "V",
+			"title": "Scrub / dry vegetation",
+			"priority": 6,
+			"canon": "\"Sparse dry vegetation.\" (Mediterranean)",
+			"data": "`natural=scrub|heath`",
+			"stone": "low cards.",
+			"stone_parameters": {},
+			"varies": {
+				"tint": {"choices": ["dry"], "default": "dry", "note": "the library names the parameter only."}
+			},
+			"texture": {"look": "DEFERRED past the Ring"},
+			"notes": ["DEFERRED past the Ring."]
+		}
+	]
+}

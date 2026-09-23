@@ -1,0 +1,170 @@
+{
+	"family": "B",
+	"elements": [
+		{
+			"id": "B0",
+			"family": "B",
+			"title": "House",
+			"priority": 5,
+			"canon": "the recipe above: \"rectangular plaster volume + simple pitched roof + chimney + window/door textures + perhaps 2–3 geometric details\"",
+			"data": "`building=house|residential|yes` footprint; `building:levels`, `roof:shape` when tagged",
+			"stone": "box + pitched roof + chimney.",
+			"stone_parameters": {"tris_max": 60},
+			"varies": {
+				"plaster_tint": {"choices": ["cream", "white", "pale ochre"], "default": "white", "note": "\"cream / white / pale ochre\"; Eifel: white render + slate-grey roofs."},
+				"roof_tint": {"choices": ["slate-grey"], "default": "slate-grey", "note": "Eifel: slate-grey roofs; the library names no other."},
+				"roof_pitch_deg": {"range": [25, 55], "default": 45, "note": "named by the library without a number; range and default chosen for the catalogue."},
+				"window_texture_set": {"choices": ["Eifel"], "default": "Eifel", "note": "the library names the parameter, not the sets."}
+			},
+			"texture": {"look": "≤ 60 tris, 512 texture", "size_px": 512},
+			"notes": []
+		},
+		{
+			"id": "B1",
+			"family": "B",
+			"title": "Barn / farmhouse",
+			"priority": 5,
+			"canon": "\"occasional farmhouses and barns\"",
+			"data": "`building=barn|farm|farm_auxiliary`",
+			"stone": "long box, low pitch, big door texture.",
+			"stone_parameters": {},
+			"varies": {
+				"material": {"choices": ["timber", "stone"], "default": "timber", "note": "timber vs stone. Default chosen for the catalogue."}
+			},
+			"texture": {"look": "one 512 texture", "size_px": 512},
+			"notes": []
+		},
+		{
+			"id": "B2",
+			"family": "B",
+			"title": "Church",
+			"priority": 5,
+			"canon": "\"church\" in the village list",
+			"data": "`amenity=place_of_worship` + `building=church`; tower from `height`/levels",
+			"stone": "nave box + tower + spire.",
+			"stone_parameters": {},
+			"varies": {
+				"spire_shape": {"choices": ["slate onion", "pointed"], "default": "pointed", "note": "Eifel: slate onion or pointed. Default chosen for the catalogue."}
+			},
+			"texture": {"look": "512-1024 texture; \"important building\" budget", "size_px": [512, 1024]},
+			"notes": []
+		},
+		{
+			"id": "B3",
+			"family": "B",
+			"title": "Castle ruin",
+			"priority": 5,
+			"canon": "\"Large architectural landmarks\"",
+			"data": "`historic=castle` (Nürburg: OSM way 31010481 \"Nürburg (Ruine)\", live 2026-09-23)",
+			"stone": "keep tower silhouette from the footprint, height from `height` or 20 m default.",
+			"stone_parameters": {"height_default_m": 20},
+			"varies": {},
+			"texture": {"look": "the canon's \"pale stone village sits farther down the valley\" landmark logic; 1024 texture", "size_px": 1024},
+			"notes": ["Varies: nothing for a landmark: it is placed by hand once."]
+		},
+		{
+			"id": "B4",
+			"family": "B",
+			"title": "Grandstand",
+			"priority": 5,
+			"canon": "Ring landmark (\"T13 grandstand (highest point)\")",
+			"data": "`building=grandstand` (12 in the bbox)",
+			"stone": "tiered box + roof plane.",
+			"stone_parameters": {},
+			"varies": {},
+			"texture": {"look": "flat seat texture; no seats"},
+			"notes": ["Varies: nothing."]
+		},
+		{
+			"id": "B5",
+			"family": "B",
+			"title": "Warehouse / shed",
+			"priority": 5,
+			"canon": "\"Warehouses.\" \"Large simple structures are preferable to thousands of props.\"",
+			"data": "`building=industrial|warehouse`, `landuse=industrial` (16 polygons in the bbox)",
+			"stone": "box + shallow roof.",
+			"stone_parameters": {},
+			"varies": {
+				"cladding_tint": {"choices": ["grey", "rust", "dirty beige"], "default": "grey", "note": "\"grey / rust / dirty beige\". Default chosen for the catalogue."}
+			},
+			"texture": {"look": "one 512 corrugated texture", "size_px": 512},
+			"notes": []
+		},
+		{
+			"id": "B6",
+			"family": "B",
+			"title": "Fuel canopy",
+			"priority": 5,
+			"canon": "the shell of E2",
+			"data": "`amenity=fuel` footprint or default 12 × 8 m",
+			"stone": "flat canopy on 4 posts + kiosk box.",
+			"stone_parameters": {"posts": 4, "default_footprint_w_m": 12, "default_footprint_d_m": 8},
+			"varies": {
+				"canopy_colour_band": {"choices": ["unbranded"], "default": "unbranded", "note": "a colour band with no real brand (\"no trademarks\"); the library names no colours."}
+			},
+			"texture": {"look": "4 posts, 1 slab, 1 box"},
+			"notes": []
+		},
+		{
+			"id": "B7",
+			"family": "B",
+			"title": "Workshop hall",
+			"priority": 5,
+			"canon": "the shell of E1/E5/E6/E12",
+			"data": "`shop=car_repair` footprint or default 15 × 10 m",
+			"stone": "B5 with a roller-door texture.",
+			"stone_parameters": {"base_shell": "B5", "default_footprint_w_m": 15, "default_footprint_d_m": 10},
+			"varies": {
+				"tint": {"choices": ["grey", "rust", "dirty beige"], "default": "grey", "note": "B5's cladding tints. Default chosen for the catalogue."},
+				"sign": {"choices": ["unbranded"], "default": "unbranded", "note": "the library names the parameter, not a sign set; \"no trademarks\"."}
+			},
+			"texture": {"look": "as B5", "size_px": 512},
+			"notes": []
+		},
+		{
+			"id": "B8",
+			"family": "B",
+			"title": "Showroom",
+			"priority": 5,
+			"canon": "the shell of E3/E4",
+			"data": "`shop=car` footprint or default 20 × 12 m",
+			"stone": "glass front (dark glass, \"dark blue-grey tint\") on a B5 box.",
+			"stone_parameters": {"base_shell": "B5", "glass": "dark blue-grey tint", "default_footprint_w_m": 20, "default_footprint_d_m": 12},
+			"varies": {
+				"tint": {"choices": ["grey", "rust", "dirty beige"], "default": "grey", "note": "B5's cladding tints. Default chosen for the catalogue."}
+			},
+			"texture": {"look": "the car inside is the product photograph: the showroom exists to frame it"},
+			"notes": []
+		},
+		{
+			"id": "B9",
+			"family": "B",
+			"title": "Office / booth",
+			"priority": 5,
+			"canon": "the shell of E8/E11",
+			"data": "`amenity=driving_school`, or placed by rule",
+			"stone": "B0 without the chimney, a sign.",
+			"stone_parameters": {"base_shell": "B0", "chimney": "none"},
+			"varies": {
+				"tint": {"choices": ["cream", "white", "pale ochre"], "default": "white", "note": "B0's plaster tints. Default chosen for the catalogue."}
+			},
+			"texture": {"look": "as B0", "size_px": 512},
+			"notes": []
+		},
+		{
+			"id": "B10",
+			"family": "B",
+			"title": "Gantry bridge (teleport)",
+			"priority": 5,
+			"canon": "E13's shell; \"the bridge should bifurcate in a tree shape road like chosing the gate of your departure\" (user-thoughts-economy.org line 19)",
+			"data": "placed by rule at a coastline/land-end road (`natural=coastline` ∩ `highway=*` end)",
+			"stone": "R10 deck fanning into N gates (tree shape), a B9 booth per gate.",
+			"stone_parameters": {"deck": "R10", "booth_per_gate": "B9"},
+			"varies": {
+				"gates": {"range": [2, 8], "default": 4, "note": "N gates; named by the library without a number. Range and default chosen for the catalogue."}
+			},
+			"texture": {"look": "a bridge with a fan; \"toll infrastructure\" look"},
+			"notes": []
+		}
+	]
+}

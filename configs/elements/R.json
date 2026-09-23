@@ -1,0 +1,275 @@
+{
+	"family": "R",
+	"elements": [
+		{
+			"id": "R1",
+			"family": "R",
+			"title": "Two-lane rural straight",
+			"priority": 1,
+			"canon": "\"Long roads\" / \"The road consequently becomes a bright ribbon cutting through darker scenery.\" Compliant by construction; it IS the composition.",
+			"data": "`highway=primary|secondary|tertiary|unclassified` ways; width from `width=*` when present, else by class (see data-pipeline.md §4); `surface=asphalt` default. Elevation from DGM1.",
+			"stone": "cross-section construction (crown 2 %, shoulder 1.0 m grass, 0 kerb), edge-line paint geometry.",
+			"stone_parameters": {"crown_pct": 2, "shoulder_m": 1.0, "shoulder_material": "grass", "kerb_m": 0},
+			"varies": {
+				"lane_width_m": {"range": [2.75, 3.5], "default": 3.5, "note": "Eifel B-road 3.25-3.5 m; village 2.75 m. Default chosen for the catalogue: the top of the Eifel B-road band."},
+				"asphalt_tint": {"choices": ["medium cool grey", "pale"], "default": "medium cool grey", "note": "\"medium cool grey\" here; \"Pale roads\" for Mediterranean."},
+				"centre_line_dash": {"choices": ["DE 3 m/6 m"], "default": "DE 3 m/6 m"}
+			},
+			"texture": {"look": "one repeating 1024 asphalt texture with \"subtle normal / very mild roughness variation\"; no decals every metre; edge paint baked into the texture strip.", "size_px": 1024},
+			"notes": ["the default road: two lanes, grass shoulder, no kerb. \"a narrow two-lane asphalt road\"."]
+		},
+		{
+			"id": "R2",
+			"family": "R",
+			"title": "Sweeper (gentle curve)",
+			"priority": 1,
+			"canon": "\"Long curves disappear behind hills.\" The target screenshot is a silver 911 \"entering a long sweeping mountain curve\". Must be built so the far side is visible or hidden by terrain, never by fog (\"Do not hide everything behind thick fog\").",
+			"data": "consecutive OSM nodes with heading change < ~25°/node; radius from three-point circle fit.",
+			"stone": "superelevation ≤ 4 % on public roads (crossfall banked into the curve; real road practice), centreline smoothing (Catmull-Rom through nodes with G1 continuity).",
+			"stone_parameters": {"superelevation_max_pct": 4, "centreline_smoothing": "Catmull-Rom through nodes with G1 continuity"},
+			"varies": {},
+			"texture": {"look": "the sweep is one strip mesh; the beauty is the sightline, not the tessellation."},
+			"notes": ["a curve the car takes at speed; the classic \"long sweeping mountain curve\". Varies: nothing visual."]
+		},
+		{
+			"id": "R3",
+			"family": "R",
+			"title": "Hairpin",
+			"priority": 1,
+			"canon": "\"Mountain roads\" / \"Much more vertical.\" Compliant; a hairpin is a silhouette event.",
+			"data": "node heading change ≥ 120° over < 60 m of way; `highway=*` unchanged.",
+			"stone": "inner-radius widening (real roads widen the inside by ~1 m), crossfall 6 % max.",
+			"stone_parameters": {"inner_widening_m": 1, "crossfall_max_pct": 6, "bend_min_deg": 120, "radius_max_m": 30},
+			"varies": {
+				"outside_barrier": {"choices": ["F2", "F1"], "default": "F1", "note": "a low stone wall (F2) or guardrail (F1) on the outside is the region's call. Default chosen for the catalogue."}
+			},
+			"texture": {"look": "the inside verge is a single grass/rock texture; no rubber marks, no debris."},
+			"notes": ["a bend > 120°, radius < 30 m (Eifel: Steilstrecke, the road up to Nürburg, alpine passes)."]
+		},
+		{
+			"id": "R4",
+			"family": "R",
+			"title": "Junction (T, Y, cross)",
+			"priority": 1,
+			"canon": "\"Intersections\" (Autobahn family) and \"Roads descend toward villages.\" Compliant when simple; a junction is 2-4 road strips blended into one flat patch, \"recognizable reality represented economically\".",
+			"data": "an OSM node shared by ≥ 3 way ends (or a way passing through). Priority from `highway=*` class ranking; `highway=stop|give_way` nodes for the sign (F6).",
+			"stone": "patch construction (fillet radius 6-12 m by class), give-way triangle paint.",
+			"stone_parameters": {"fillet_radius_m": [6, 12]},
+			"varies": {
+				"sign_set": {"choices": ["DE"], "default": "DE", "note": "DE \"Vorfahrt gewähren\" here."},
+				"village_kerb": {"choices": ["on", "off"], "default": "on", "note": "whether a village junction gets a kerb. Default chosen for the catalogue: R15's stone has the kerb."}
+			},
+			"texture": {"look": "one patch mesh, one blended texture; no traffic islands unless OSM has them."},
+			"notes": ["two or more ways meeting at a shared node."]
+		},
+		{
+			"id": "R5",
+			"family": "R",
+			"title": "Roundabout",
+			"priority": 1,
+			"canon": "\"modest European architecture\" applies to infrastructure too: a grass island, a kerb ring.",
+			"data": "`junction=roundabout` on the circular way; arms are R4 entries onto it.",
+			"stone": "ring construction (inner island radius = OSM geometry; truck apron 1.5 m).",
+			"stone_parameters": {"truck_apron_m": 1.5, "island_radius": "OSM geometry"},
+			"varies": {
+				"island_dressing": {"choices": ["grass", "low hedge V5", "a single tree V1"], "default": "grass", "note": "Default chosen for the catalogue: the canon's grass island."}
+			},
+			"texture": {"look": "island is one disc mesh with a grass texture; no sculpture, no flower beds."},
+			"notes": ["a circular junction (11 in the Ring bbox, live count 2026-09-23)."]
+		},
+		{
+			"id": "R6",
+			"family": "R",
+			"title": "Grade (level) crossing",
+			"priority": 1,
+			"canon": "\"Industrial roads pass underneath structures\" — rail is scenery, not gameplay. Compliant as a texture event plus two barrier props.",
+			"data": "`railway=level_crossing` node; the `railway=rail` way for the track strip.",
+			"stone": "crossing plate 4 m long; barrier post pair.",
+			"stone_parameters": {"plate_length_m": 4, "barrier_posts": 2},
+			"varies": {
+				"barrier_style": {"choices": ["DE St. Andrew's cross"], "default": "DE St. Andrew's cross"}
+			},
+			"texture": {"look": "the rails are a 512 texture strip; no animated barriers in 4B.", "size_px": 512},
+			"notes": ["a railway crossing the road on the level. Zero in the Ring bbox (live count 2026-09-23), so library-defined here and instantiated when a region has one."]
+		},
+		{
+			"id": "R7",
+			"family": "R",
+			"title": "Crest",
+			"priority": 1,
+			"canon": "\"Long curves disappear behind hills.\" The crest is the canon's main sightline device.",
+			"data": "not an OSM tag: detected from the draped DGM1 profile (second derivative of elevation along the centreline over 20-40 m windows; see data-pipeline.md §5).",
+			"stone": "vertical-curve construction from the DEM (no artificial ramps); the profile is never \"smoothed away\" beyond the 1 m grid's own noise floor.",
+			"stone_parameters": {"dem_grid_m": 1, "detection_window_m": [20, 40], "road_mesh_spacing_m": [1, 2]},
+			"varies": {},
+			"texture": {"look": "the mesh follows the DEM at 1-2 m spacing along the road only; terrain beyond uses the coarse lattice (T-family)."},
+			"notes": ["a convex vertical curve the car can lighten or lift over (Flugplatz, Schwedenkreuz, Pflanzgarten's Sprunghügel). Varies: nothing."]
+		},
+		{
+			"id": "R8",
+			"family": "R",
+			"title": "Dip / compression",
+			"priority": 1,
+			"canon": "same as R7. The physics dependency (compression loads) is in the car already (car.gd's springs read `sample_height`, see implementation-plan.md gravity section).",
+			"data": "as R7, negative second derivative.",
+			"stone": "as R7.",
+			"stone_parameters": {"dem_grid_m": 1, "detection_window_m": [20, 40], "road_mesh_spacing_m": [1, 2]},
+			"varies": {},
+			"texture": {"look": "as R7."},
+			"notes": ["a concave vertical curve (Fuchsröhre's bottom, Breidscheid bridge approach). Stone / Varies: as R7."]
+		},
+		{
+			"id": "R9",
+			"family": "R",
+			"title": "Banked section (the Karussell)",
+			"priority": 1,
+			"canon": "unusual but real: \"recognizable reality\". Concrete slab seams are in the texture, not the mesh; the *bank* is in the mesh because the car feels it.",
+			"data": "OSM way 414785755 `name=Karussell surface=asphalt;concrete` (live, 2026-09-23). Elevation: DGM1 is terrain-only and the bank may be smoothed at 1 m; DOM1/DOMB (surface models, same OpenData catalogue) or a manual bank profile: decided in ring-region-decisions.md §3.",
+			"stone": "banked cross-section construction (parametric: bank angle, bowl width, flat strip).",
+			"stone_parameters": {"osm_way": 414785755, "surface": "asphalt;concrete"},
+			"varies": {
+				"bank_pct": {"range": [20, 40], "default": 30, "note": "the library says banked ~30 %; the range is chosen for the catalogue. From data or the region table."},
+				"bowl_width_m": {"range": [6, 12], "default": 8, "note": "named by the library without a number; range and default chosen for the catalogue. From data or the region table."},
+				"flat_strip_m": {"range": [0.5, 2], "default": 1, "note": "\"a thin asphalt strip at the bottom\"; the surface-class table's asphalt inner 1 m. Range chosen for the catalogue."}
+			},
+			"texture": {"look": "the slab pattern is a photographic 1024 concrete texture with slab lines; no per-slab geometry.", "size_px": 1024},
+			"notes": ["a concrete bowl banked ~30 %, \"Concrete slabs (steep bank) with a thin asphalt strip at the bottom\" (docs/nordschleife-data-sources.md §2). Varies: only the parameters, from data or the region table."]
+		},
+		{
+			"id": "R10",
+			"family": "R",
+			"title": "Bridge",
+			"priority": 1,
+			"canon": "\"Coastal roads expose the sea. Industrial roads pass underneath structures.\" A bridge is a silhouette landmark; parapets are furniture (F11).",
+			"data": "`bridge=yes` + `layer=*` on the way; the deck follows the road profile, not the DEM (DGM1 shows the valley under it: the deck's elevation is interpolated from the abutments).",
+			"stone": "deck construction (slab + parapet, span from OSM geometry).",
+			"stone_parameters": {"span": "OSM geometry", "deck_elevation": "interpolated from the abutments"},
+			"varies": {
+				"parapet_style": {"choices": ["stone", "steel", "concrete"], "default": "steel", "note": "stone in villages, steel on B-roads, concrete on Autobahn. Default chosen for the catalogue: the B-road's."}
+			},
+			"texture": {"look": "a box deck and two parapet strips; piers are plain cylinders or slabs."},
+			"notes": ["road over a river, road or valley (188 `bridge=yes` highway ways in the bbox; Breidscheid's is the Ring's lowest point at ~320 m)."]
+		},
+		{
+			"id": "R11",
+			"family": "R",
+			"title": "Tunnel",
+			"priority": 1,
+			"canon": "\"A tunnel needs a convincing entrance silhouette but doesn't require individually modeled concrete imperfections.\" Portal is what matters; inside is a dark tube with lamp pools.",
+			"data": "`tunnel=yes` + `layer=-1` on the way; the terrain is NOT cut: the portal (F12) is stamped on the DEM surface and the road passes under the T-mesh.",
+			"stone": "tube cross-section and portal silhouette.",
+			"stone_parameters": {"portal": "F12", "terrain_cut": "none"},
+			"varies": {
+				"portal_face_texture": {"choices": ["stone", "concrete"], "default": "concrete", "note": "Default chosen for the catalogue."},
+				"lamp_spacing_m": {"range": [10, 40], "default": 20, "note": "named by the library without a number; range and default chosen for the catalogue."}
+			},
+			"texture": {"look": "interior is one tiling 512 concrete texture + emissive lamp quads; \"small pools of illumination\".", "size_px": 512},
+			"notes": ["road through a hill (28 `tunnel=yes` highway ways in the bbox; \"Tunnels cut directly into mountains\" in the Alps family).", "Varies also: the sound profile (deferred; user-thoughts-economy.org line 93)."]
+		},
+		{
+			"id": "R12",
+			"family": "R",
+			"title": "Embankment cut",
+			"priority": 1,
+			"canon": "\"Road embankments.\" and \"Grey rock faces.\" The cut face is a silhouette and a texture.",
+			"data": "derived: where the DGM1 cross-slope at the road exceeds ~15 %, the assembler builds a cut/fill profile so the road platform is flat across (the DEM already contains the real cut; the element gives the face its material and its edge).",
+			"stone": "platform-flattening rule (road always level across, ± crossfall).",
+			"stone_parameters": {"cross_slope_threshold_pct": 15},
+			"varies": {
+				"face_material": {"choices": ["rock T3", "grass", "retaining wall F2-stone"], "default": "rock T3", "note": "Default chosen for the catalogue: the canon's \"Grey rock faces\"."}
+			},
+			"texture": {"look": "the face is the terrain mesh with a rock texture; no boulders."},
+			"notes": ["the road cut into a slope: uphill cut face one side, downhill fill the other."]
+		},
+		{
+			"id": "R13",
+			"family": "R",
+			"title": "Motorway / dual carriageway",
+			"priority": 1,
+			"canon": "Autobahn family, \"wet grey infrastructure contrasted with the glossy car\". Not in the Ring bbox (no `highway=motorway` there; A61 is east of it); library-defined, first instantiated when focus reaches an Autobahn region.",
+			"data": "`highway=motorway|trunk` with `oneway=yes` pairs; `lanes=*`; central reservation from the gap between the two carriageways.",
+			"stone": "carriageway construction (hard shoulder 2.5 m, central barrier F13).",
+			"stone_parameters": {"hard_shoulder_m": 2.5, "central_barrier": "F13"},
+			"varies": {
+				"lanes": {"range": [2, 4], "default": 2, "note": "per carriageway, from `lanes=*`; range and default chosen for the catalogue."},
+				"wet_weather_variant": {"choices": ["off", "S6"], "default": "off", "note": "S6 is deferred past the Ring."}
+			},
+			"texture": {"look": "concrete texture with expansion joints baked in; big gantry signs as textured quads."},
+			"notes": ["\"Wide road. Concrete. Guardrails. Large road signs.\""]
+		},
+		{
+			"id": "R14",
+			"family": "R",
+			"title": "Slip road / link",
+			"priority": 1,
+			"canon": "as R13; \"Intersections\" and \"Underpasses\".",
+			"data": "`highway=motorway_link|trunk_link|primary_link|secondary_link` (B 258 has 9 primary_link ways in the bbox).",
+			"stone": "taper geometry (merge length by class).",
+			"stone_parameters": {"merge_length": "by class"},
+			"varies": {},
+			"texture": {"look": "a strip with a painted taper; the merge nose is one triangle patch."},
+			"notes": ["on/off ramps and junction links. Varies: nothing visual."]
+		},
+		{
+			"id": "R15",
+			"family": "R",
+			"title": "Village street",
+			"priority": 1,
+			"canon": "\"Roads descend toward villages.\" \"Small villages.\" Compliant: the village is where the road slows and the B-family stands by it.",
+			"data": "`highway=residential|living_street|unclassified` inside `place=village|town` / `landuse=residential` polygons; `maxspeed=30|50`.",
+			"stone": "kerb 0.12 m, footway 1.5 m optional.",
+			"stone_parameters": {"kerb_height_m": 0.12, "footway_m": 1.5},
+			"varies": {
+				"kerb": {"choices": ["on", "off"], "default": "on"},
+				"surface_texture": {"choices": ["asphalt", "cobble"], "default": "asphalt", "note": "Default chosen for the catalogue."},
+				"parked_cars_per_100m": {"range": [0, 3], "default": 1, "note": "0-3 per 100 m; canon says \"few\". Default chosen for the catalogue."}
+			},
+			"texture": {"look": "kerb is part of the road strip's cross-section (no separate mesh); cobbles are texture."},
+			"notes": ["the road inside a settlement: narrower, kerbed, houses close (\"A village can simply contain: 8 houses, church, stone wall, few parked cars, trees, road signs\")."]
+		},
+		{
+			"id": "R16",
+			"family": "R",
+			"title": "Track / gravel access",
+			"priority": 1,
+			"canon": "\"Large stretches where there simply isn't much there.\" Drivable but plain.",
+			"data": "`highway=track|service` (+ `tracktype=*`), `surface=gravel|compacted|ground`.",
+			"stone": "single-lane cross-section 3 m, no paint.",
+			"stone_parameters": {"lane_width_m": 3, "paint": "none"},
+			"varies": {
+				"surface_texture": {"choices": ["gravel", "compacted", "ground"], "default": "gravel", "note": "Default chosen for the catalogue: the surface-class table's road_gravel_512."},
+				"grass_strip_in_the_middle": {"choices": ["on", "off"], "default": "off", "note": "Default chosen for the catalogue."}
+			},
+			"texture": {"look": "one 512 gravel texture; ruts are in the texture, not the mesh. Physics: a surface friction class per `surface=*` (deferred to the world-profile work; see implementation-plan.md).", "size_px": 512},
+			"notes": ["farm and forest tracks; the Ring's gravel service roads (5 gravel raceway ways in the bbox)."]
+		},
+		{
+			"id": "R17",
+			"family": "R",
+			"title": "Circuit segment (the Nordschleife itself)",
+			"priority": 1,
+			"canon": "the Ring is the proving ground (\"Though nurburgring is where we test the cars\") and it is a *road*, not \"an artificial racing arena\": guardrails and trees, no grandstand clutter except where OSM has grandstands (B4).",
+			"data": "OSM relation 38566 `type=route route=road name=\"Nürburgring Nordschleife\"`, 52 member ways `highway=raceway oneway=yes` (live pull 2026-09-23: 20 746 m summed, 1 119 nodes, mean node spacing 19.4 m; official 20.830 km).",
+			"stone": "the centreline source (relation 38566 pinned to its snapshot), the kerb paint pattern (red/white 0.5 m kerbs on the inside of bends only), the F1 guardrail run on both sides where OSM has no `barrier=*` saying otherwise.",
+			"stone_parameters": {"centreline_relation": 38566, "kerb_width_m": 0.5, "kerb_paint": "red/white, inside of bends only", "guardrail": "F1 both sides", "guardrail_post_spacing_m": 4, "width_m": [8, 9]},
+			"varies": {},
+			"texture": {"look": "kerbs are a texture strip; guardrails are F1 instances at 4 m posts; no sponsor boards."},
+			"notes": ["a raceway way: one-way, kerbs painted, guardrail-lined, 8-9 m wide (docs/nordschleife-data-sources.md §4; note OSM carries `width=5` on 22 of its 52 ways: an open question, recorded in ring-region-decisions.md).", "Varies: nothing: the Ring is put in stone."]
+		},
+		{
+			"id": "R18",
+			"family": "R",
+			"title": "Pit lane / access link",
+			"priority": 1,
+			"canon": "this is where the proving-ground office (E11) stands; a link, not a landmark.",
+			"data": "`highway=raceway|service` ways with `name~Anbindung|Boxengasse` joined to relation 38566.",
+			"stone": "nothing beyond R15-style construction.",
+			"stone_parameters": {"construction": "R15-style"},
+			"varies": {
+				"barrier_type_at_gate": {"choices": ["barrier arm"], "default": "barrier arm", "note": "the library names the barrier arm prop only."}
+			},
+			"texture": {"look": "a barrier arm prop and a booth; \"toll infrastructure\" in the canon's words."},
+			"notes": ["the Döttinger Höhe entrance and exit to the public Nordschleife (\"Anbindung zur Nordschleife\", way 26543901, 16 nodes; T13 pit lane ways)."]
+		}
+	]
+}

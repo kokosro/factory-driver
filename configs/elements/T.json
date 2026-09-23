@@ -1,0 +1,139 @@
+{
+	"family": "T",
+	"elements": [
+		{
+			"id": "T1",
+			"family": "T",
+			"title": "Rolling hills",
+			"priority": 2,
+			"canon": "\"Rolling hills.\"",
+			"data": "DGM1 lattice; slope < 15 %",
+			"stone": "lattice spacing table.",
+			"stone_parameters": {"slope_max_pct": 15, "lattice_at_road_platform_m": 2, "lattice_within_200_m": 10, "lattice_to_2_km_m": 50, "lattice_beyond_2_km_m": 200},
+			"varies": {
+				"grass_tint": {"choices": ["muted forest green", "olive green"], "default": "muted forest green", "note": "\"muted forest / olive greens\". Default chosen for the catalogue."},
+				"field_patchwork_density": {"range": [0, 1], "default": 0.5, "note": "named by the library without a number (0 = no patchwork, 1 = every polygon its own tint); range and default chosen for the catalogue."}
+			},
+			"texture": {"look": "grass 1024 tiled, \"little/no visible normal at distance\"", "size_px": 1024},
+			"notes": ["the lattice spacing table is the T-family's (2 m at the road platform, 10 m within 200 m, 50 m to 2 km, 200 m beyond)."]
+		},
+		{
+			"id": "T2",
+			"family": "T",
+			"title": "Mountain slope",
+			"priority": 2,
+			"canon": "\"Mountain slopes.\" \"Much more vertical.\"",
+			"data": "DGM1 slope 15-45 %",
+			"stone": "forest-mass rule (V7) applies above the treeline parameter.",
+			"stone_parameters": {"slope_pct": [15, 45], "forest_mass_rule": "V7 above the treeline"},
+			"varies": {
+				"treeline_height_m": {"range": [0, 3000], "default": 3000, "note": "elevation above sea level; named by the library without a number. Range and default chosen for the catalogue: the Eifel has no treeline (Hohe Acht 747 m)."},
+				"rock_exposure_pct": {"range": [0, 100], "default": 0, "note": "named by the library without a number; range is a percentage's, default chosen for the catalogue."}
+			},
+			"texture": {"look": "one slope material blend: grass→rock by slope, no splat painting"},
+			"notes": []
+		},
+		{
+			"id": "T3",
+			"family": "T",
+			"title": "Cliff / rock face",
+			"priority": 2,
+			"canon": "\"Cliffs.\" \"Grey rock faces.\"",
+			"data": "DGM1 slope > 45 % or `natural=cliff|bare_rock`",
+			"stone": "rock material rule.",
+			"stone_parameters": {"slope_min_pct": 45},
+			"varies": {
+				"rock_palette": {"choices": ["beige", "grey", "grey slate"], "default": "grey slate", "note": "\"beige / grey\"; Eifel: grey slate."}
+			},
+			"texture": {"look": "\"photographic diffuse, low-frequency normal\""},
+			"notes": []
+		},
+		{
+			"id": "T4",
+			"family": "T",
+			"title": "Valley floor",
+			"priority": 2,
+			"canon": "\"Valleys.\"",
+			"data": "DGM1 local minima; `waterway=river|stream` for the thread",
+			"stone": "a river is a T8 strip.",
+			"stone_parameters": {"river": "T8 strip"},
+			"varies": {
+				"floor_use": {"choices": ["meadow", "field"], "default": "meadow", "note": "meadow vs field. Default chosen for the catalogue."}
+			},
+			"texture": {"look": "flat, bright: the \"bright clearing\" of the Schwarzwald rhythm"},
+			"notes": []
+		},
+		{
+			"id": "T5",
+			"family": "T",
+			"title": "Embankment",
+			"priority": 2,
+			"canon": "\"Road embankments.\"",
+			"data": "derived at R12",
+			"stone": "see R12",
+			"stone_parameters": {"derived_at": "R12"},
+			"varies": {},
+			"texture": {"look": "see R12"},
+			"notes": ["Stone / Varies: see R12 (R12's face material is the region's call)."]
+		},
+		{
+			"id": "T6",
+			"family": "T",
+			"title": "Forest wall",
+			"priority": 2,
+			"canon": "\"dark forest walls made from layered vegetation cards\"",
+			"data": "`landuse=forest` / `natural=wood` polygon edge within 60 m of a road",
+			"stone": "wall construction (V4 cards, 2-3 layers, 12-18 m tall).",
+			"stone_parameters": {"cards": "V4", "layers": [2, 3], "height_m": [12, 18], "road_distance_max_m": 60},
+			"varies": {
+				"species_tint": {"choices": ["spruce blue-green + beech"], "default": "spruce blue-green + beech", "note": "Eifel."}
+			},
+			"texture": {"look": "\"large masses of deep green and almost black\""},
+			"notes": []
+		},
+		{
+			"id": "T7",
+			"family": "T",
+			"title": "Field / meadow plane",
+			"priority": 2,
+			"canon": "\"Fields.\" \"large stretches where there simply isn't much there\"",
+			"data": "`landuse=farmland|meadow|grass`",
+			"stone": "nothing.",
+			"stone_parameters": {},
+			"varies": {
+				"patch_tints": {"range": [2, 3], "default": 3, "note": "patch tint per polygon (2-3 tints). Default chosen for the catalogue."},
+				"hedge_on_boundaries": {"choices": ["on", "off"], "default": "off", "note": "hedge (V5) on boundaries where `barrier=hedge`; V5 is off in the Eifel."}
+			},
+			"texture": {"look": "one 1024 tile per tint; no crop rows", "size_px": 1024},
+			"notes": []
+		},
+		{
+			"id": "T8",
+			"family": "T",
+			"title": "Water plane",
+			"priority": 2,
+			"canon": "\"A large blue plane with simple animated normals and specular reflection\"",
+			"data": "`natural=water`, `waterway=riverbank`, coast `natural=coastline`",
+			"stone": "the plane shader (one, canon-specified).",
+			"stone_parameters": {"shader": "one plane shader, canon-specified"},
+			"varies": {
+				"colour": {"choices": ["deep blue", "grey-green"], "default": "grey-green", "note": "\"deep blue\" sea; river grey-green. Default chosen for the catalogue: the Eifel's water is rivers."}
+			},
+			"texture": {"look": "flat quad, animated normal, specular"},
+			"notes": []
+		},
+		{
+			"id": "T9",
+			"family": "T",
+			"title": "Distant ridge",
+			"priority": 2,
+			"canon": "\"Large distant mountains can remain visible for kilometres while possessing almost no fine detail.\"",
+			"data": "DGM1 200 m lattice beyond 2 km; SRTM-30 beyond the state's DGM1 coverage",
+			"stone": "haze table S5 applied by distance.",
+			"stone_parameters": {"lattice_m": 200, "from_km": 2, "haze": "S5"},
+			"varies": {},
+			"texture": {"look": "\"very few polygons because its silhouette is what matters\""},
+			"notes": ["Varies: nothing."]
+		}
+	]
+}
