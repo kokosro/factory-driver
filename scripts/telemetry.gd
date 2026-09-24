@@ -476,7 +476,11 @@ func _file_path(context: String) -> String:
 
 
 ## The same path with a number added if something is already there (two runs
-## started inside the same second), so a file is never written over.
+## started inside the same second), so a file is never written over. "" when
+## even _99 is taken: there is no name to write to, and the caller opens
+## nothing (was: the occupied original came back after the loop, and the open
+## would have written over it - found by the codex cross-review, 2026-09-24;
+## recorded, not introduced, by this landing).
 func _unique_path(path: String) -> String:
 	if not FileAccess.file_exists(DataDir.resolve(path)):
 		return path
@@ -485,10 +489,12 @@ func _unique_path(path: String) -> String:
 		var candidate := "%s_%d.jsonl" % [stem, attempt]
 		if not FileAccess.file_exists(DataDir.resolve(candidate)):
 			return candidate
-	return path
+	return ""
 
 
 func _open(path: String) -> FileAccess:
+	if path == "":
+		return null
 	return FileAccess.open(DataDir.resolve(path), FileAccess.WRITE)
 
 

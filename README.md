@@ -1472,6 +1472,9 @@ was built and rejected). Every decision is in the output.
 **The password.** The bundle is encrypted with the password in `FD_SYNC_PASSWORD`,
 which the script never stores, never generates and never prints; it passes it to `ird`
 with `--no-input`, so nothing is ever prompted for, and refuses to run without it.
+(While `ird` runs, the password sits in its process arguments, visible to the machine's
+own process list and to a shell trace; the script keeps it out of its own output and
+temp files.)
 **Losing the password loses the bundle** (`ird`'s own warning: lost passwords are
 unrecoverable) - the same password on both machines, kept where you keep passwords.
 

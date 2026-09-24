@@ -273,6 +273,11 @@ pull() {
 	local merged=0 kept=0 file rel
 	if [ -d "$bundle/telemetry" ]; then
 		mkdir -p "$DATA_DIR/telemetry" || fail "could not make $DATA_DIR/telemetry"
+		# The listing is taken once and its status checked before any copy:
+		# a failed traversal must not pass for an empty one (codex review F4;
+		# was: the loop read < <(find ...), whose status pipefail cannot see).
+		local list="$TMP/telemetry-files"
+		find "$bundle/telemetry" -type f -print0 > "$list" || fail "could not list the bundle's telemetry/ tree"
 		while IFS= read -r -d '' file; do
 			rel="${file#"$bundle/telemetry/"}"
 			[ "$rel" != "index.json" ] || continue
@@ -280,11 +285,19 @@ pull() {
 				kept=$((kept + 1))
 			else
 				mkdir -p "$(dirname "$DATA_DIR/telemetry/$rel")" || fail "could not make a folder for telemetry/$rel"
-				cp "$file" "$DATA_DIR/telemetry/$rel" || fail "could not copy telemetry/$rel"
-				echo "merged  telemetry/$rel"
-				merged=$((merged + 1))
+				# cp -n never overwrites whatever got there between the check
+				# and the copy - the never-clobbers rule holds under a race,
+				# not only by inspection (codex review F3; was: plain cp).
+				cp -n "$file" "$DATA_DIR/telemetry/$rel" || fail "could not copy telemetry/$rel"
+				if cmp -s "$file" "$DATA_DIR/telemetry/$rel"; then
+					echo "merged  telemetry/$rel"
+					merged=$((merged + 1))
+				else
+					kept=$((kept + 1))
+					warn "telemetry/$rel appeared while copying: the local file won"
+				fi
 			fi
-		done < <(find "$bundle/telemetry" -type f -print0)
+		done < "$list"
 		echo "telemetry/: merged $merged, kept local $kept (a file already here always wins; nothing deleted)"
 	else
 		echo "telemetry/: none in the bundle, the local tree stands"
@@ -305,6 +318,32 @@ def load(path):
 		sys.exit("%s: not an issue store ({\"version\", \"next_issue_id\", \"issues\": [...]})" % path)
 	return data
 
+def key_of(record):
+	# A hashable stand-in for the id, whatever JSON value it is (codex review
+	# F2): a str id dedupes by value (the local record wins on a collision),
+	# an odd id (list, number) or a missing one by the whole record's JSON
+	# text - so a second pull of the same bundle is a no-op while distinct
+	# id-less records are never confused, and no id can crash the union.
+	if isinstance(record, dict):
+		rid = record.get("id")
+		if isinstance(rid, str):
+			return "id:" + rid
+		return "rec:" + json.dumps(record, sort_keys=True)
+	return "val:" + json.dumps(record, sort_keys=True)
+
+def counter(data):
+	# The counter is a whole number or it is not one: a float('inf') or an
+	# absurd value reads as 1 and is reported, never crashes (codex F2).
+	if not isinstance(data, dict):
+		return 1
+	try:
+		value = float(data.get("next_issue_id", 1))
+	except (TypeError, ValueError):
+		return 1
+	if value != value or value in (float("inf"), float("-inf")) or abs(value) > 1e15:
+		return 1
+	return int(value)
+
 local = load(local_path)
 bundled = load(bundled_path)
 if bundled is None:
@@ -314,38 +353,45 @@ if local is None:
 	print("issues.json: no local file, the bundle's is taken whole (a merge into nothing, not a clobber)")
 
 local_issues = list(local["issues"]) if local else []
-seen = set(r.get("id") for r in local_issues if isinstance(r, dict))
+seen = set(key_of(r) for r in local_issues)
 added = []
 collided = 0
+kept_odd = 0
 for record in bundled["issues"]:
-	rid = record.get("id") if isinstance(record, dict) else None
-	if rid in seen:
+	k = key_of(record)
+	if not isinstance(record, dict):
+		kept_odd += 1
+	if k in seen:
 		collided += 1
 		continue
+	seen.add(k)
 	added.append(record)
-	if rid is not None:
-		seen.add(rid)
 issues = local_issues + added
 highest = 0
 for record in issues:
 	m = ID.match(str(record.get("id", ""))) if isinstance(record, dict) else None
 	if m:
 		highest = max(highest, int(m.group(1)))
-def counter(data):
-	try:
-		return int(data.get("next_issue_id", 1)) if data else 1
-	except (TypeError, ValueError):
-		return 1
 next_id = max(counter(local), counter(bundled), highest + 1)
 version = (local or bundled).get("version", 1)
 out = {"version": version, "next_issue_id": next_id, "issues": issues}
-with open(local_path, "w") as f:
+# Everything is decided before anything is written, and the write goes to a
+# sibling first, then renames over the destination (atomic on the same
+# filesystem): a failed or half-finished write leaves the local store exactly
+# as it was (was: opened in place, truncated before the bytes were ready -
+# a disk-full mid-write destroyed the local file; codex review F1).
+tmp_path = local_path + ".sync-tmp"
+with open(tmp_path, "w") as f:
 	json.dump(out, f, indent=2)
 	f.write("\n")
-print("issues.json: local %d, bundled %d, same id %d (local wins), appended %d -> %d record(s), next_issue_id %d (was local %s, bundled %d)"
-	% (len(local_issues), len(bundled["issues"]), collided, len(added), len(issues), next_id, counter(local) if local else "none", counter(bundled)))
+os.replace(tmp_path, local_path)
+print("issues.json: local %d, bundled %d, already here %d (local wins), appended %d -> %d record(s), next_issue_id %d (was local %s, bundled %s)"
+	% (len(local_issues), len(bundled["issues"]), collided, len(added), len(issues), next_id, counter(local) if local else "none", counter(bundled) if bundled else "none"))
+if kept_odd:
+	print("  %d bundled record(s) are no JSON object; preserved as read (malformed records are never a crash and never a loss)" % kept_odd)
 for record in added:
-	print("  appended %s: %s" % (record.get("id"), str(record.get("description", ""))[:60]))
+	if isinstance(record, dict):
+		print("  appended %s: %s" % (record.get("id"), str(record.get("description", ""))[:60]))
 PY
 
 	# index.json: rebuilt from what is on disk now.
@@ -362,13 +408,28 @@ def load(path):
 	return data if isinstance(data, dict) else None
 
 def counter(data):
+	if not isinstance(data, dict):
+		return 1
 	try:
-		return int(data.get("next_session_id", 1)) if data else 1
+		value = float(data.get("next_session_id", 1))
 	except (TypeError, ValueError):
 		return 1
+	if value != value or value in (float("inf"), float("-inf")) or abs(value) > 1e15:
+		return 1
+	return int(value)
 
 local = load(local_path)
 bundled = load(bundled_path)
+# A local index that is there but not a JSON object is corrupt, not absent:
+# its last_test/best cannot be read, so they are not "kept local" - and the
+# bundle's are NOT adopted either (the game itself treats a corrupt index as
+# no index at all and shows no bests; adopting would write another machine's
+# bests over a file the driver may still recover by hand). The on-disk
+# session ids hold either way; the bundle's values stay in the report for
+# the driver to decide (codex review F5).
+local_valid = isinstance(local, dict)
+if local is not None and not local_valid:
+	print("index.json: the local file is there but no JSON object; treated as corrupt, not absent (its sessions come back from disk, its bests cannot be read, the bundle's are not adopted)")
 ids = set()
 if os.path.isdir(telemetry_dir):
 	for day in sorted(os.listdir(telemetry_dir)):
@@ -384,21 +445,27 @@ if os.path.isdir(telemetry_dir):
 				ids.add(int(prefix))
 sessions = sorted(ids)
 next_id = max(counter(local), counter(bundled), (sessions[-1] + 1) if sessions else 1)
-source = local if local is not None else bundled
+source = local if local_valid else None
 out = {"next_session_id": next_id, "sessions": sessions}
-if source is not None and "last_test" in source:
+if source is not None and isinstance(source.get("last_test"), str):
 	out["last_test"] = source["last_test"]
-if source is not None and "best" in source:
-	out["best"] = source["best"]
+best = source.get("best") if source is not None else None
+if isinstance(best, dict):
+	out["best"] = best
+# Atomic like the issue store: sibling first, then rename over (was: the
+# destination opened in place, truncated before the bytes were ready; codex
+# review F1).
+tmp_path = local_path + ".sync-tmp"
 os.makedirs(telemetry_dir, exist_ok=True)
-with open(local_path, "w") as f:
+with open(tmp_path, "w") as f:
 	json.dump(out, f, indent=2)
 	f.write("\n")
+os.replace(tmp_path, local_path)
 print("index.json: rebuilt from disk, %d session(s) present%s, next_session_id %d (local %s, bundled %s, disk max+1 %d); last_test and best %s"
 	% (len(sessions), (" (%d..%d)" % (sessions[0], sessions[-1])) if sessions else "", next_id,
-	   counter(local) if local else "none", counter(bundled) if bundled else "none", (sessions[-1] + 1) if sessions else 1,
-	   "kept local" if local is not None else ("adopted from the bundle (no local index)" if bundled is not None else "none on either side")))
-if bundled is not None and local is not None:
+	   (counter(local) if local_valid else ("invalid" if local is not None else "none")), counter(bundled) if bundled else "none", (sessions[-1] + 1) if sessions else 1,
+	   "kept local" if local_valid else ("none recoverable from the corrupt local file" if local is not None else ("adopted from the bundle (no local index)" if bundled is not None else "none on either side"))))
+if bundled is not None:
 	print("  the bundle's, for you to decide (not applied): last_test %s" % json.dumps(bundled.get("last_test")))
 	for title, entry in sorted((bundled.get("best") or {}).items()):
 		print("  the bundle's best %s: %s" % (title, json.dumps(entry, sort_keys=True)))

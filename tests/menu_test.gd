@@ -780,6 +780,20 @@ func _check_data_dir() -> void:
 	var sixth := DataDir.seed_folder(issues_only_dst, [issues_only_src])
 	var sixth_copied: PackedStringArray = sixth.copied
 	_check(sixth.seeded and sixth_copied == PackedStringArray(["issues.json"]) and FileAccess.file_exists(issues_only_dst.path_join("issues.json")), "... and a source holding issues.json alone counts as data and is seeded")
+	# The first source that holds ANY seeded thing wins whole (the documented
+	# policy, now that issues.json alone can be the thing that makes a source
+	# count): a later source with the rest is passed over - additive, found by
+	# the codex cross-review, 2026-09-24.
+	var precedence_src := _tmp_dir.path_join("old_issues_first")
+	var precedence_alt := _tmp_dir.path_join("old_cars_second")
+	var precedence_dst := _tmp_dir.path_join("new_precedence")
+	DirAccess.make_dir_recursive_absolute(precedence_src)
+	DirAccess.make_dir_recursive_absolute(precedence_alt.path_join("telemetry"))
+	_write(precedence_src.path_join("issues.json"), '{"version": 1, "next_issue_id": 1, "issues": []}')
+	_write(precedence_alt.path_join("cars.json"), '{"version": 1, "cars": {}}')
+	var seventh := DataDir.seed_folder(precedence_dst, [precedence_src, precedence_alt])
+	var seventh_copied: PackedStringArray = seventh.copied
+	_check(seventh.seeded and seventh.source == precedence_src and seventh_copied == PackedStringArray(["issues.json"]) and not FileAccess.file_exists(precedence_dst.path_join("cars.json")), "... and the first source that holds any seeded thing wins whole: issues.json alone ahead of a later source with cars.json and telemetry/")
 	var bootstrap_node := root.get_node_or_null("DataBootstrap")
 	_check(bootstrap_node != null and bootstrap_node.seeded.is_empty() and not OdometerStore.enabled(), "the DataBootstrap autoload ran before the scene and seeded nothing with no window (the store is off)")
 	_check(ProjectSettings.get_setting("application/config/use_custom_user_dir") == true and ProjectSettings.get_setting("application/config/custom_user_dir_name") == "factory-driver", "the project keeps user:// in a folder of its own, factory-driver")
@@ -838,10 +852,23 @@ func _check_telemetry_retention() -> void:
 	recorder.stop()
 	var stored_again := TelemetryRecorder.load_index()
 	expected.append(27)
+	# The recorder writes into whichever date folder today is: find it (was:
+	# the fixture assumed the new files land beside the 2026-09-01 ones, which
+	# only holds when the clock says otherwise than 2026-09-01 - found by the
+	# codex cross-review, 2026-09-24).
+	var fresh_dir := ""
+	for day in DirAccess.get_directories_at(telemetry_dir):
+		for file_name in DirAccess.get_files_at(telemetry_dir.path_join(day)):
+			if file_name.begins_with("0027_") or file_name.begins_with("0026_"):
+				fresh_dir = telemetry_dir.path_join(day)
+				break
+		if fresh_dir != "":
+			break
 	_check(
-		listed_after_delete == ids + [26] and started_again and _session_files_present(telemetry_dir, range(1, 11)) == 0 and _session_files_present(telemetry_dir, range(11, 26)) == 15 and _session_files_present(telemetry_dir, [26]) == 0 and _session_files_present(telemetry_dir, [27]) == 1
+		listed_after_delete == ids + [26] and started_again and fresh_dir != "" and _session_files_present(telemetry_dir, range(1, 11)) == 0 and _session_files_present(telemetry_dir, range(11, 26)) == 15 and _session_files_present(telemetry_dir, [27]) == 1
+		and _session_files_present(telemetry_dir, [26]) == (1 if fresh_dir == day_dir else 0)
 		and stored_again.get("sessions") == expected and stored_again.get("next_session_id") == 28 and stored_again.get("best") == best,
-		"... sessions whose files were deleted by hand (ten files, and a whole date folder) still load clean: the index names them, nothing opens a file by the list, the next session starts as 27 and is written, the bests kept",
+		"... sessions whose files were deleted by hand (ten files, and a whole date folder) still load clean: the index names them, nothing opens a file by the list, the next session starts as 27 and is written, the bests kept (26 survives only when today is the fixture's own date)",
 	)
 	# index.json itself deleted: recreated at the next start, the ids start
 	# over at 1 - and a name already taken is never written over.
