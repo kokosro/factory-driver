@@ -1,11 +1,11 @@
 class_name DataDir
 extends RefCounted
 ## Where the game's data lives: the per-car store (OdometerStore, cars.json),
-## the telemetry (TelemetryRecorder, telemetry/) and whatever saves come
-## later. Every one of them names its files under user:// as it always did;
-## this class says where user:// really is for this run, and resolve() turns
-## a user:// path into the path on disk that is read or written. Nothing else
-## touches a path.
+## the issue store (IssueStore, issues.json), the telemetry (TelemetryRecorder,
+## telemetry/) and whatever saves come later. Every one of them names its
+## files under user:// as it always did; this class says where user:// really
+## is for this run, and resolve() turns a user:// path into the path on disk
+## that is read or written. Nothing else touches a path.
 ##
 ## The root is read once at startup (read_root, from the DataBootstrap
 ## autoload), from two places, the first that says anything winning:
@@ -17,7 +17,7 @@ extends RefCounted
 ## user:// itself, which with use_custom_user_dir in project.godot is
 ## <the OS's data dir>/factory-driver (on macOS
 ## ~/Library/Application Support/factory-driver). A custom root is used AS
-## the data folder: cars.json and telemetry/ go straight into it.
+## the data folder: cars.json, issues.json and telemetry/ go straight into it.
 ##
 ## THE FIRST RUN IN A FOLDER COPIES (seed): a root without the MARKER_FILE in
 ## it is new to the game, and is seeded once with a COPY of the data found in
@@ -46,7 +46,10 @@ const MARKER_FILE := ".factory-driver-data"
 
 ## What a seed copies: these files and these folders (whole), relative to
 ## the root, whichever of them the source has.
-const SEEDED_FILES: Array[String] = ["cars.json"]
+# was: cars.json alone -> the issue store rides along (issues.json,
+# IssueStore.PATH): a fresh data folder seeded without it lost every issue
+# the driver had flagged in the old one (2026-09-24).
+const SEEDED_FILES: Array[String] = ["cars.json", "issues.json"]
 const SEEDED_DIRS: Array[String] = ["telemetry"]
 
 ## Where the game kept its data before it had a folder of its own: Godot's

@@ -1000,7 +1000,12 @@ a store file of the test's own and the live car into the same shape; the data fo
 resolved from the variable, the bootstrap file or the default, a relative or a Godot
 path refused by name, the bootstrap file written, refused and cleared, and the one-time
 seed copying byte for byte, never over a file, never touching the source, never twice,
-the autoload having seeded nothing with no window; the bar legend naming every bar; every
+`issues.json` seeded beside `cars.json` (was: `cars.json` alone), the autoload having
+seeded nothing with no window; the telemetry kept for good - a recorder of the test's
+own started over 25 stored sessions deleting none of them (was: the oldest five), an
+index naming sessions whose files were deleted by hand loading clean and the next
+session starting, `index.json` deleted and recreated with the ids over from 1 and a
+taken name never written over; the bar legend naming every bar; every
 key the controls text names in the map, `Tab` among them; the LICENCE page's checklist
 ticking exactly the three elements a seeded record holds and all dashes on a fresh one;
 no folder dialog ever made; and, the window set to the game's own 1280 x 720, every
@@ -1386,7 +1391,8 @@ mission manager), and the free-driving telemetry file simply records what the ca
 ### Data location
 
 Everything the game keeps - the car's file `cars.json` (odometer, fuel, dashboard,
-battery, wear, licence: see [Odometer](#odometer)), the telemetry under `telemetry/`
+battery, wear, licence: see [Odometer](#odometer)), the issue store `issues.json` (see
+[The issue flag](#the-issue-flag)), the telemetry under `telemetry/`
 (see [Telemetry](#telemetry)) and whatever saves come later - lives in one data folder,
 and every one of them still names its files under `user://`: `scripts/data_dir.gd`
 says where `user://` really is for this run and resolves each path as it is read or
@@ -1407,15 +1413,17 @@ instead of Godot's generic `Godot/app_userdata/Factory Driver`. A value that is 
 absolute folder (a relative path, a `res://` or `user://` path) is reported in the log
 and the default is used, never a guess. A folder chosen in the settings takes effect at
 the next start: the run that chose it keeps the folder it read. A custom folder is used
-*as* the data folder: `cars.json` and `telemetry/` go straight into it.
+*as* the data folder: `cars.json`, `issues.json` and `telemetry/` go straight into it.
 
 **The first run in a folder copies.** A data folder without the marker file
 `.factory-driver-data` is new to the game and is seeded once, in the running game only,
 with a **copy** of what the previous location holds: the default `factory-driver` folder
 when a custom folder is used, or the pre-4A Godot default
 (`<OS data dir>/Godot/app_userdata/Factory Driver`, where everything was kept before this
-iteration) - the first of the two that holds any data. `cars.json` and the whole of
-`telemetry/` are copied file by file, never over a file the new folder already has, and
+iteration) - the first of the two that holds any data. `cars.json`, `issues.json`
+(was: `cars.json` alone - a fresh folder lost the issue store, fixed 2026-09-24) and
+the whole of `telemetry/` are copied file by file, never over a file the new folder
+already has, and
 nothing in the old location is moved or deleted: it is left exactly as it was, a backup.
 The marker is then written (its text says where the seed came from) and the folder is
 never seeded again, whatever the old location holds later. So the first start after
@@ -1443,8 +1451,31 @@ Free driving gets one file for the session, sampled every 30 ticks (2 Hz); each 
 gets a file of its own, sampled every 5 ticks (12 Hz), and the free file pauses while it
 runs. The recorder never presses a key and never touches the simulation: it only reads.
 It is on whenever there is a window to drive in, off in a headless run unless
-`FD_TELEMETRY=1` says otherwise, and the last 20 sessions' files are kept - older ones
-are deleted when a session starts.
+`FD_TELEMETRY=1` says otherwise, and **every session's files are kept for good**: the
+game never deletes telemetry. (Was: the last 20 sessions' files were kept and the
+oldest deleted when a session started; the driver's decision, 2026-09-24: "let them
+grow and let user delete any historical telemetry if they need disk space".)
+
+**Cleaning up by hand.** When disk space is wanted, delete what you like under the
+data folder's `telemetry/`:
+
+- the session files `telemetry/<YYYY-MM-DD>/<NNNN>_<HHMMSS>_<context>.jsonl` are safe
+  to delete, any of them, whole date folders included: nothing in the game opens a
+  session file by name after it is written. An issue record (see
+  [The issue flag](#the-issue-flag)) names its session by id, so deleting that
+  session's file leaves the issue without its evidence, nothing more;
+- `index.json`'s `sessions` list is informational - the ids started so far - and is
+  never used to open a file, so a listed session whose file is gone harms nothing:
+  the index loads, the next session starts, the list grows on. (The menu test proves
+  it: ten files and a whole date folder deleted under an index naming them, the next
+  session started clean, no engine error);
+- `index.json` itself can be deleted too, and then, honestly, something is lost: the
+  game recreates it at the next session start with `next_session_id` back at 1 - the
+  ids are reused, but a session file is never written over (a name already taken gets
+  `_2`, `_3`, ...) - and the best times and the last test the HUD shows are gone with
+  it (`| last: GOLD, best: 28.8 s` reads empty again until the next run). And an issue
+  record bound to session 7 then names two session 7s, the old and the new: keep
+  `index.json` unless the counter and the bests may go.
 
 A sample line holds the time and the car:
 
@@ -1473,7 +1504,8 @@ its finish, the time the medal is given for.
 <!-- was: `run_time_s` (example 31.3) was the time from the start of the test to the end
 of the run -> the run clock, see Mission mode. Times stored before the change are
 2.5 - 3.5 s longer for the same drive. --> `index.json` keeps the running summary - `next_session_id`, the `sessions`
-whose files are kept, the test driven `last_test`, and per test `best_time_s`, `runs`,
+started so far (every id, for good; was: the ids whose files were kept), the test driven
+`last_test`, and per test `best_time_s`, `runs`,
 `last_time_s` and `last_medal` (times in seconds, `best_time_s` 0 for a test never
 passed) - and that is what the HUD shows back: the idle mission line ends with
 `| last: GOLD, best: 28.8 s` and a `PASSED` banner carries

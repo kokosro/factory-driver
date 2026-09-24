@@ -13,6 +13,9 @@ extends Node
 ##   user://telemetry/<YYYY-MM-DD>/<session>_<HHMMSS>_<context>.jsonl
 ##   user://telemetry/index.json          the running summary (see load_index)
 ## e.g. 0007_103245_free.jsonl - session 7, started 10:32:45, free driving.
+## NOTHING IN THERE IS EVER DELETED BY THE GAME: the sessions accumulate for as
+## long as the driver keeps them, and historical telemetry is removed by hand
+## when disk space is wanted (README, Telemetry: what is safe to delete).
 ##
 ## Two streams. Free driving gets one session-length file at
 ## FREE_SAMPLE_STRIDE_TICKS; a mission gets a file of its own at the finer
@@ -29,6 +32,10 @@ extends Node
 ## lines, never the wall-clock ones, and its own recording goes to a fixed tmp
 ## path (see record_to_file) instead of user://: recording cannot make the suite
 ## differ from one run to the next.
+# was: the last SESSIONS_KEPT (20) sessions' files were kept and the oldest
+# deleted when a new session started -> nothing is ever deleted automatically
+# (the driver's decision, 2026-09-24: "let them grow and let user delete any
+# historical telemetry if they need disk space").
 
 ## Ticks between samples while a mission is recorded [physics ticks]: 60 Hz
 ## physics, so 12 samples a second.
@@ -43,9 +50,9 @@ const FREE_SAMPLE_STRIDE_TICKS := 30
 ## this, never a clock reading.
 const TICK_SECONDS := 1.0 / 60.0
 
-## How many sessions' files are kept on disk; the oldest are deleted when a new
-## session starts [sessions].
-const SESSIONS_KEPT := 20
+# was: `const SESSIONS_KEPT := 20`, how many sessions' files were kept on disk,
+# the oldest deleted when a new session started -> no such number: every
+# session's files stay until the driver deletes them (2026-09-24).
 
 ## Everything this node writes lives under here, and nothing outside it is ever
 ## touched. Named under user:// as ever; where that is on disk for this run
@@ -120,8 +127,15 @@ func attach(manager: Node, target_car: ArcadeCar) -> void:
 	manager.mission_aborted.connect(_on_mission_aborted)
 
 
-## Starts a normal session: takes the next session id, prunes the sessions past
-## SESSIONS_KEPT and opens the free-driving file.
+## Starts a normal session: takes the next session id, notes it in the index's
+## sessions list (which grows by one int per session, for as long as the data
+## folder lives: nothing here trims it or the files it names) and opens the
+## free-driving file.
+# was: the sessions list was trimmed to the last SESSIONS_KEPT (20) ids
+# (`while sessions.size() > SESSIONS_KEPT: sessions.pop_front()`) and
+# _prune_sessions deleted the .jsonl files of every session not in it -> the
+# list only grows and no file is deleted, ever: telemetry is kept
+# indefinitely, the driver removes what they want gone (2026-09-24).
 func start_session() -> void:
 	if recording:
 		return
@@ -129,10 +143,7 @@ func start_session() -> void:
 	index["next_session_id"] = _session_id + 1
 	var sessions: Array = index.get("sessions", [])
 	sessions.append(_session_id)
-	while sessions.size() > SESSIONS_KEPT:
-		sessions.pop_front()
 	index["sessions"] = sessions
-	_prune_sessions(sessions)
 	_save_index()
 	_session_ticks = 0
 	_free_file = _open(_unique_path(_file_path("free")))
@@ -143,7 +154,7 @@ func start_session() -> void:
 
 
 ## Debug and tests: records to this one file, wherever it is, and writes
-## nothing under user:// - no index, no pruning, no session id. The file holds
+## nothing under user:// - no index, no session id. The file holds
 ## one run: it is closed as soon as that run's result or abort is written.
 func record_to_file(path: String) -> void:
 	stop()
@@ -356,7 +367,12 @@ func _note_run(test: Dictionary, outcome: Dictionary, run_time: float, medal: St
 ## The index as it stands on disk, or empty if there is none yet:
 ##   {
 ##     "next_session_id": 8,
-##     "sessions": [1, 2, ...],          the session ids whose files are kept
+##     "sessions": [1, 2, ...],          every session id started so far (grows
+##                                       for good; INFORMATIONAL: nothing opens
+##                                       a file by it - a session whose files
+##                                       the driver has deleted stays listed
+##                                       and harms nothing; was: the ids whose
+##                                       files were kept, the rest pruned)
 ##     "last_test": "SLALOM",            the test driven last
 ##     "best": { "SLALOM": { "best_time_s": 30.9, "runs": 4,
 ##                           "last_time_s": 33.2, "last_medal": "silver" } }
@@ -499,29 +515,10 @@ func _save_index() -> void:
 	file.close()
 
 
-## Deletes the .jsonl files of sessions the index no longer keeps. Files only,
-## all of them under user://telemetry/ and named by a session: a date folder is
-## removed once it is empty, and anything else in there is left alone.
-func _prune_sessions(kept: Array) -> void:
-	# Nothing recorded yet, nothing to prune. (Asking for the contents of a
-	# folder that is not there is an engine error, and errors are what the test
-	# suite fails on.)
-	var root_on_disk := DataDir.resolve(ROOT_DIR)
-	if not DirAccess.dir_exists_absolute(root_on_disk):
-		return
-	var keep := {}
-	for id: Variant in kept:
-		keep[int(id)] = true
-	for day in DirAccess.get_directories_at(root_on_disk):
-		var dir := root_on_disk.path_join(day)
-		for file_name in DirAccess.get_files_at(dir):
-			if not file_name.ends_with(".jsonl") or not file_name.substr(0, 4).is_valid_int():
-				continue
-			if keep.has(file_name.substr(0, 4).to_int()):
-				continue
-			DirAccess.remove_absolute(dir.path_join(file_name))
-		if DirAccess.get_files_at(dir).is_empty() and DirAccess.get_directories_at(dir).is_empty():
-			DirAccess.remove_absolute(dir)
+# was: `_prune_sessions(kept: Array)` stood here, deleting every
+# telemetry/<date>/<NNNN>_*.jsonl whose session id was not in the index's
+# trimmed list and removing the date folders it emptied -> removed whole. The
+# game deletes nothing under user://telemetry/ any more (2026-09-24).
 
 
 ## "180 SPIN" -> "180_spin", for a file name.

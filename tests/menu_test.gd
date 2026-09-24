@@ -31,8 +31,12 @@ extends SceneTree
 ## against the manager's record as passes go in; the data folder's
 ## resolution (the variable, the bootstrap file, the default, what is
 ## refused), the bootstrap file, the one-time seed (copies, never
-## overwrites, never touches the source, once) and the autoload that ran
-## it (nothing seeded with no window); the bar legend naming every bar;
+## overwrites, never touches the source, once; issues.json seeded beside
+## cars.json) and the autoload that ran it (nothing seeded with no window);
+## the telemetry kept for good (a recorder started over 25 stored sessions
+## deletes none of them - was: the oldest five -, the index tolerating
+## sessions whose files are gone, a missing index.json recreated); the bar
+## legend naming every bar;
 ## the keys in the map, Tab among them; and no folder dialog ever made.
 ## Last, readability (the user's report, 2026-09-22 16:15: THE STUDY's
 ## page spanned more than the screen): the window set to the game's own
@@ -150,6 +154,8 @@ func _run() -> void:
 	_check_condition()
 	print("-- the data folder")
 	_check_data_dir()
+	print("-- the telemetry kept for good")
+	_check_telemetry_retention()
 	print("-- the bar legend and the keys")
 	_check_legend_and_keys()
 	print("-- the LICENCE page")
@@ -751,9 +757,128 @@ func _check_data_dir() -> void:
 	var empty_dir := _tmp_dir.path_join("empty")
 	var fourth := DataDir.seed_folder(empty_dir, [_tmp_dir.path_join("nowhere")])
 	_check(not fourth.seeded and fourth.reason == "nothing to copy" and FileAccess.file_exists(empty_dir.path_join(DataDir.MARKER_FILE)), "... with nothing to copy from the folder is marked fresh and left empty")
+	# The issue store rides along (was: cars.json alone in SEEDED_FILES, and a
+	# fresh folder lost every issue flagged in the old one; 2026-09-24). A
+	# second source of its own: the fixture above holds no issues.json and its
+	# pinned copied-list stays as it is.
+	var issues_src := _tmp_dir.path_join("old_with_issues")
+	var issues_dst := _tmp_dir.path_join("new_with_issues")
+	DirAccess.make_dir_recursive_absolute(issues_src)
+	_write(issues_src.path_join("cars.json"), '{"version": 1, "cars": {}}')
+	_write(issues_src.path_join("issues.json"), '{"version": 1, "next_issue_id": 2, "issues": [{"id": "issue-0001", "status": "open", "description": "kept"}]}')
+	var fifth := DataDir.seed_folder(issues_dst, [issues_src])
+	var fifth_copied: PackedStringArray = fifth.copied
+	fifth_copied.sort()
+	_check(
+		DataDir.SEEDED_FILES.has("issues.json") and fifth.seeded and fifth_copied == PackedStringArray(["cars.json", "issues.json"]) and _read(issues_dst.path_join("issues.json")) == _read(issues_src.path_join("issues.json")) and FileAccess.file_exists(issues_src.path_join("issues.json")),
+		"... issues.json is seeded beside cars.json, byte for byte, the source's copy left where it was (was: cars.json alone, the issue store lost to a fresh folder)",
+	)
+	var issues_only_src := _tmp_dir.path_join("old_issues_only")
+	var issues_only_dst := _tmp_dir.path_join("new_issues_only")
+	DirAccess.make_dir_recursive_absolute(issues_only_src)
+	_write(issues_only_src.path_join("issues.json"), '{"version": 1, "next_issue_id": 1, "issues": []}')
+	var sixth := DataDir.seed_folder(issues_only_dst, [issues_only_src])
+	var sixth_copied: PackedStringArray = sixth.copied
+	_check(sixth.seeded and sixth_copied == PackedStringArray(["issues.json"]) and FileAccess.file_exists(issues_only_dst.path_join("issues.json")), "... and a source holding issues.json alone counts as data and is seeded")
 	var bootstrap_node := root.get_node_or_null("DataBootstrap")
 	_check(bootstrap_node != null and bootstrap_node.seeded.is_empty() and not OdometerStore.enabled(), "the DataBootstrap autoload ran before the scene and seeded nothing with no window (the store is off)")
 	_check(ProjectSettings.get_setting("application/config/use_custom_user_dir") == true and ProjectSettings.get_setting("application/config/custom_user_dir_name") == "factory-driver", "the project keeps user:// in a folder of its own, factory-driver")
+
+
+## The telemetry is kept for good (the driver's decision, 2026-09-24: "let
+## them grow and let user delete any historical telemetry if they need disk
+## space"; was: the last 20 sessions' files kept, the oldest deleted when a
+## session started). A TelemetryRecorder of the test's own, outside the tree
+## (no _physics_process, and start_session needs no car), over a data folder
+## of the test's own holding 25 stored sessions; then the same folder with
+## sessions' files deleted by hand and its index still naming them; then
+## with index.json itself deleted. The suite fails any step whose output
+## carries an engine error, so a clean pass here is the proof that nothing
+## dereferences the index's sessions list.
+func _check_telemetry_retention() -> void:
+	var root_before := DataDir.root()
+	var data_dir := _tmp_dir.path_join("retention")
+	var telemetry_dir := data_dir.path_join("telemetry")
+	var day_dir := telemetry_dir.path_join("2026-09-01")
+	DirAccess.make_dir_recursive_absolute(day_dir)
+	var ids: Array = []
+	for id in range(1, 26):
+		ids.append(id)
+		_write(day_dir.path_join("%04d_000000_free.jsonl" % id), '{"event": "session_start", "session_id": %d}' % id)
+	var best := {"SLALOM": {"best_time_s": 30.9, "runs": 4, "last_time_s": 33.2, "last_medal": "silver"}}
+	_write(telemetry_dir.path_join("index.json"), JSON.stringify({"next_session_id": 26, "sessions": ids, "last_test": "SLALOM", "best": best}, "  "))
+	DataDir.apply_root(data_dir)
+	var recorder := TelemetryRecorder.new()
+	recorder.index = TelemetryRecorder.load_index()
+	recorder.start_session()
+	var started := recorder.recording and recorder._session_id == 26
+	recorder.stop()
+	var stored := TelemetryRecorder.load_index()
+	var expected: Array = ids.duplicate()
+	expected.append(26)
+	_check(
+		started and _session_files_present(telemetry_dir, ids) == 25 and _session_files_present(telemetry_dir, [26]) == 1
+		and stored.get("sessions") == expected and stored.get("next_session_id") == 27 and stored.get("last_test") == "SLALOM" and stored.get("best") == best,
+		"retention abolished: a session started over 25 stored sessions leaves all 25 files where they are (was: the oldest five deleted past 20), the index lists 26 sessions, the new file exists, next_session_id 27, the bests and the last test as they were",
+	)
+	_check(not "SESSIONS_KEPT" in recorder.get_script().get_script_constant_map() and not recorder.has_method("_prune_sessions"), "... the recorder has no SESSIONS_KEPT and no _prune_sessions any more")
+	# The driver deletes by hand: ten sessions' files, and the whole date
+	# folder the new session went into. The index still names every one.
+	for id in range(1, 11):
+		DirAccess.remove_absolute(day_dir.path_join("%04d_000000_free.jsonl" % id))
+	for day in DirAccess.get_directories_at(telemetry_dir):
+		if day != "2026-09-01":
+			_remove_tree(telemetry_dir.path_join(day))
+	var after_delete := TelemetryRecorder.load_index()
+	# The list as loaded, copied: start_session appends to the very dictionary.
+	var listed_after_delete: Array = (after_delete.get("sessions") as Array).duplicate()
+	recorder.index = after_delete
+	recorder.start_session()
+	var started_again := recorder.recording and recorder._session_id == 27
+	recorder.stop()
+	var stored_again := TelemetryRecorder.load_index()
+	expected.append(27)
+	_check(
+		listed_after_delete == ids + [26] and started_again and _session_files_present(telemetry_dir, range(1, 11)) == 0 and _session_files_present(telemetry_dir, range(11, 26)) == 15 and _session_files_present(telemetry_dir, [26]) == 0 and _session_files_present(telemetry_dir, [27]) == 1
+		and stored_again.get("sessions") == expected and stored_again.get("next_session_id") == 28 and stored_again.get("best") == best,
+		"... sessions whose files were deleted by hand (ten files, and a whole date folder) still load clean: the index names them, nothing opens a file by the list, the next session starts as 27 and is written, the bests kept",
+	)
+	# index.json itself deleted: recreated at the next start, the ids start
+	# over at 1 - and a name already taken is never written over.
+	DirAccess.remove_absolute(telemetry_dir.path_join("index.json"))
+	var no_index := TelemetryRecorder.load_index()
+	var no_index_was_empty := no_index.is_empty()
+	recorder.index = no_index
+	recorder.start_session()
+	var restarted := recorder.recording and recorder._session_id == 1
+	var taken := "user://telemetry/2026-09-01/0011_000000_free.jsonl"
+	var unique := recorder._unique_path(taken)
+	recorder.stop()
+	var recreated := TelemetryRecorder.load_index()
+	_check(
+		no_index_was_empty and restarted and FileAccess.file_exists(telemetry_dir.path_join("index.json")) and recreated.get("sessions") == [1] and recreated.get("next_session_id") == 2 and not recreated.has("best") and not recreated.has("last_test")
+		and _session_files_present(telemetry_dir, [1]) == 1 and _session_files_present(telemetry_dir, range(11, 26)) == 15
+		and unique == "user://telemetry/2026-09-01/0011_000000_free_2.jsonl" and FileAccess.file_exists(DataDir.resolve(taken)),
+		"... index.json deleted: recreated at the next session start with the ids over from 1 (the bests and the last test are gone with it, honestly), the stored files untouched, and a taken name gets _2 instead of being written over",
+	)
+	recorder.free()
+	DataDir.apply_root(root_before)
+
+
+## How many of `ids` have a session file (<NNNN>_*.jsonl, the recorder's own
+## naming) in any date folder under `telemetry_dir`; an id with several
+## files counts once.
+func _session_files_present(telemetry_dir: String, ids: Array) -> int:
+	var present := 0
+	for id: Variant in ids:
+		var prefix := "%04d_" % int(id)
+		var found := false
+		for day in DirAccess.get_directories_at(telemetry_dir):
+			for file_name in DirAccess.get_files_at(telemetry_dir.path_join(day)):
+				found = found or (file_name.begins_with(prefix) and file_name.ends_with(".jsonl"))
+		if found:
+			present += 1
+	return present
 
 
 func _write(path: String, text: String) -> void:
