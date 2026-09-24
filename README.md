@@ -12,7 +12,9 @@ geometry is generated in-engine.
 `run.sh` uses `godot` from your `PATH` (falling back to `/opt/homebrew/bin/godot`) and
 imports the project on first launch. Alternatively, open the folder in the Godot 4.7
 editor (*Import* → select `project.godot`) and press **F5**.
-The game starts fullscreen (exclusive fullscreen, `display/window/size/mode` 4 in `project.godot`; was windowed).
+The game starts fullscreen (exclusive fullscreen, `display/window/size/mode` 4 in `project.godot`; was windowed) - the default
+returns to windowed with the next commit (REVISION 2026-09-24: the driver remote-desktops into the dev machine, which fights
+exclusive fullscreen; fullscreen stays available).
 
 ### Controls
 
@@ -30,7 +32,7 @@ The game starts fullscreen (exclusive fullscreen, `display/window/size/mode` 4 i
 | Stability control on / off              | `K`             |
 | Clutch pedal (hold; manual mode only)   | `Left Shift`    |
 | Starter (press to crank; hold to keep cranking) | `I`     |
-| Reset the car to the start line         | `R`             |
+| Reset the car: on the pad to the start line; on a world map (the Ring) to the last place all four wheels were supported on the road, heading along it, the velocity zeroed - the fuel, the heat and the wear kept, nothing else touched (was the start line everywhere, 2026-09-24) | `R` |
 | Flip an overturned car back on to its wheels (only overturned, and at rest) | `F` |
 | Cycle camera: cockpit, front, overhead, wheel, chase (it starts where the car was left) | `C` |
 | Look back (hold)                        | `B`             |
@@ -1030,6 +1032,26 @@ id left out by position, a counter behind the ids brought up past them, an id al
 taken re-issued from the counter and a free one kept; and a bare HUD in a scene with no
 recorder (the Ring's case), the main scene's recorder recording all the while and not
 found, binding to the odometer and the clock and filing to its own file.
+
+And the reset memory (`tests/reset_test.gd`; `R` on a world map returns to the last place
+all four wheels were supported on the road - was the spawn everywhere, the user's complaint
+on the Ring, 2026-09-23): the pad's car with the flag off and a plain `RoadProfile` never
+records, and `R` at the spawn, after a drive through the car's own `reset_car` and after
+a drive through a tap of the action puts it on the start line as before; a synthetic
+`WorldRoadProfile` built in memory (one straight over a level plane) handed to the pad's
+car with the flag on: no pose until it stands on the road, then its x, z and heading as a
+yaw-only basis with origin.y exactly 0 (not the car's own transform: `reset_to` stands the
+car that height over the road), nothing recorded 30 m beside the road with all four wheels
+supported on the plane (the on-road gate, not the wheels), `R` from the field landing on
+the road at the recorded pose; the Ring with the flag set by `RoadBuilder` beside the
+profile: nothing recorded before the first tick, the settled car recording the pit and the
+first `R` landing on the spawn, the scripted follower driving 400 m from Döttinger Höhe on
+four wheels every tick with the recorded pose within one tick's way of the car, the stopped
+car's recorded pose its own to the millimetre, the pose kept while the car is put in the
+field (the spot probed off every road: 30 m to the right there is a side road), a tap of `R`
+putting it back there on the road at rest in 1st automatic with the fuel the drive left,
+2.4 km from the spawn, and driving on from it; a second Ring instanced fresh holding no
+pose and its first `R` landing on the spawn.
 
 ### Handling tests
 

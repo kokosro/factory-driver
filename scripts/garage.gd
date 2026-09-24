@@ -54,7 +54,7 @@ const PAGE_TITLES: Array[String] = ["DRIVE", "THE STUDY", "CAR", "LICENCE", "SET
 ## said so -> the Ring row and the change (4B-4).
 const MAPS: Array[Dictionary] = [
 	{"id": "factory_test_pad", "title": "Factory test pad", "scene": "res://scenes/main.tscn", "hint": "The pad as it is; R puts the car back on the start line."},
-	{"id": "eifel_ring", "title": "Nordschleife (bare road)", "scene": "res://scenes/eifel_ring.tscn", "hint": "The Ring's road alone, no dressing yet; the car starts at the pit area by T13 and R puts it back there."},
+	{"id": "eifel_ring", "title": "Nordschleife (bare road)", "scene": "res://scenes/eifel_ring.tscn", "hint": "The Ring's road alone, no dressing yet; the car starts at the pit area by T13; R puts it back at the last place all four wheels stood on the road (was: back at the pit, 2026-09-24)."},
 ]
 
 ## The road data's attribution, shown on the SETTINGS page as OpenStreetMap
@@ -94,7 +94,7 @@ Left / A, Right / D  steer      Space  handbrake (hold mid-corner to slide)
 Q / E  shift down / up (switches to manual; under neutral: reverse)      M  automatic / manual
 N  sport / comfort / eco program (and its driver)      T  TCS      G  ABS      K  SC (licensed only)
 Left Shift  clutch pedal (hold; manual, licensed only)      I  starter (tap to crank; hold to keep cranking)
-R  reset the car to the start line (keeps the fuel, the heat, the wear; aborts a run or a lesson)
+R  reset the car: on the pad to the start line, on a world map to the last place all four wheels stood on the road (keeps the fuel, the heat, the wear; aborts a run or a lesson)
 C  cycle the camera: cockpit, front, overhead, wheel, chase      B  look back (hold)      , / .  look left / right (hold)
 X  X-ray view      1 - 5  start handling test 1 - 5      Esc  abort the run / close its result
 L  licence book (1 sits the L0 exam, 2 the skid pad test while it is open; digits answer the theory)

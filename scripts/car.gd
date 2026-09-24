@@ -3149,6 +3149,30 @@ var wheel_travel: Array[float] = [0.0, 0.0, 0.0, 0.0]
 ## and by reset_to (all four on the road).
 var wheel_supported: Array[bool] = [true, true, true, true]
 
+## Whether R (reset_car) puts the car back at the last pose recorded with all
+## four wheels supported on the road (last_road_pose) rather than at the
+## scene's spawn. Off, the pad's rule: main.tscn has no road query and R is
+## the start line there (the handling, mission, licence and smoke tests tap
+## it and depend on it - the certified runs' car setup is untouched by this
+## flag, which they never set). On, a world scene's rule: RoadBuilder sets it
+## beside road_profile (scripts/road_builder.gd, the one place a scene hands
+## the car a WorldRoadProfile, the profile with an on-road query) - chosen
+## over a scene property in eifel_ring.tscn so the flag can never drift from
+## the road it needs; a scene with a RoadBuilder is a world scene, the pad
+## has none. Plain state, not exported: the world sets it, nobody edits it.
+var reset_to_last_pose := false
+
+## The last pose recorded with all four wheels supported on the road (see
+## _record_road_pose; per session: a fresh scene has none and R spawns at
+## the pit as before): the car's world x and z and its heading as a yaw-only
+## basis about Vector3.UP, origin.y exactly 0. Not the car's global_transform:
+## reset_to stands the car target.origin.y ABOVE the road (_settle_suspension
+## puts the body at that height plus the road's mean height under the
+## wheels), so the world height in it would leave the car floating. Read-only
+## outside the tick; meaningful only while last_road_pose_recorded.
+var last_road_pose := Transform3D.IDENTITY
+var last_road_pose_recorded := false
+
 ## Whether the car is in the air: no wheel carries more than
 ## AIRBORNE_LOAD_FLOOR. Ballistic then - gravity, the air's drag and downforce
 ## and nothing else: no drive, no tyre force, no rolling resistance, no hill
@@ -3839,7 +3863,10 @@ func _physics_process(delta: float) -> void:
 	if Input.is_action_just_pressed("flip_car"):
 		flip_car()
 	if Input.is_action_just_pressed("reset_car"):
-		reset_to_spawn()
+		# was reset_to_spawn() -> reset_car(): the last pose on the road where
+		# the scene keeps one, the spawn otherwise (the user's complaint on the
+		# Ring, 2026-09-23: R sent the car back to the pit 5 km in).
+		reset_car()
 	if Input.is_action_just_pressed("shift_up"):
 		shift_up()
 	if Input.is_action_just_pressed("shift_down"):
@@ -3941,6 +3968,9 @@ func _physics_process(delta: float) -> void:
 	var weight := total_mass() * _gravity
 	var downforce := DOWNFORCE_COEFF * ground_speed * ground_speed
 	_corner_forces(vertical_speed, delta)
+	#    The pose this tick's flags were read for goes to R's memory where the
+	#    scene keeps one (a pure read of state; nothing of the physics).
+	_record_road_pose()
 	front_axle_load = wheel_loads[0] + wheel_loads[1]
 	rear_axle_load = wheel_loads[2] + wheel_loads[3]
 	var carried := front_axle_load + rear_axle_load
@@ -4275,6 +4305,52 @@ func _count_odometer(delta: float) -> void:
 ## engine running, the tank as it was and nothing loaded (see reset_to).
 func reset_to_spawn() -> void:
 	reset_to(_spawn_transform)
+
+
+## What R does: puts the car back at the last pose recorded with all four
+## wheels supported on the road (last_road_pose) where the scene keeps one
+## (reset_to_last_pose, the world scenes') and one has been recorded; at the
+## scene's spawn otherwise - the pad always, a world scene before its first
+## recorded pose (R right after a load, before ever driving: the spawn, as
+## before). was reset_to_spawn() always (the user's complaint on the Ring,
+## 2026-09-23: "R resets the car back to the pit spawn - unacceptable 5 km
+## in"). Only WHERE the reset lands changed: everything else a reset means
+## is reset_to's and untouched - at rest, in 1st, automatic, the engine
+## running, the fuel, the heat and the wear kept; R is not a refuel. F flips
+## (the orientation), R resets (the position), the garage's re-entry spawns.
+func reset_car() -> void:
+	if reset_to_last_pose and last_road_pose_recorded:
+		reset_to(last_road_pose)
+	else:
+		reset_to_spawn()
+
+
+## Remembers this tick's pose for R (last_road_pose) where the scene keeps
+## one (reset_to_last_pose): called right after _corner_forces, so the pose
+## is the one this tick's four wheel_supported flags were read for (not
+## _settle_suspension's, which sets all four true after a reset) - all four
+## true, and the car's centre on a road of the world profile
+## (WorldRoadProfile.describe's on_road: within the road's half width of its
+## centreline; a wheel is "supported" on the terrain beside the road just
+## the same, and a car in a field must not be where R lands). Position and
+## heading only (the canon): x, z and the yaw, the basis rebuilt about
+## Vector3.UP the way the tests stand the car (atan2(-forward.x,
+## -forward.z): -basis.z is the nose, x east, z south), origin.y 0 - see
+## last_road_pose. A pure read of state: nothing of the physics, no
+## randomness, nothing printed. A plain RoadProfile (the pad's) has no road
+## query: nothing is ever recorded there, and nothing with the flag off.
+func _record_road_pose() -> void:
+	if not reset_to_last_pose or not road_profile is WorldRoadProfile:
+		return
+	for held: bool in wheel_supported:
+		if not held:
+			return
+	var where: Dictionary = (road_profile as WorldRoadProfile).describe(global_position.x, global_position.z)
+	if not where.get("on_road", false):
+		return
+	var forward := -global_basis.z
+	last_road_pose = Transform3D(Basis(Vector3.UP, atan2(-forward.x, -forward.z)), Vector3(global_position.x, 0.0, global_position.z))
+	last_road_pose_recorded = true
 
 
 ## How the springs have carried the body from its place at rest, in the car's

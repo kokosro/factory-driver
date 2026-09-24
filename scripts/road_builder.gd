@@ -306,6 +306,14 @@ func build() -> void:
 	profile = WorldRoadProfile.from_data(skeleton_data, drape_data)
 	if car != null:
 		car.road_profile = profile
+		# The world's R: the last pose recorded with all four wheels on the
+		# road, not the pit (ArcadeCar.reset_car; the user's complaint,
+		# 2026-09-23: R sent the car back to the pit spawn 5 km in). Set here,
+		# beside the profile, the one place a scene hands the car a
+		# WorldRoadProfile - the profile with the on-road query the recording
+		# reads (describe) - so the flag cannot drift from the road it needs;
+		# main.tscn's pad has no RoadBuilder and keeps its start-line reset.
+		car.reset_to_last_pose = true
 	_material = _asphalt_material()
 	var segments := SkeletonLoader.segments_of(skeleton_data)
 	var raw_points := _raw_points_of(skeleton_data)

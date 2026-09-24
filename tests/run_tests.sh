@@ -5,11 +5,11 @@
 # fails here, not somewhere in the smoke test), build the Ring's road and
 # drive it (the ring drive test), run the smoke test, then the handling,
 # camera, mission, battery, thermal, tyre/brake thermal, steering-feel,
-# wear, licence, menu, issue flag, minimap and airborne tests. Fails on a
-# non-zero exit code or on any engine/script error in the output.
+# wear, licence, menu, issue flag, minimap, airborne and reset tests. Fails on
+# a non-zero exit code or on any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the nineteen tests side by side
+#   tests/run_tests.sh --parallel   the import first, then the twenty tests side by side
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -137,6 +137,7 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 "$STEP" "issue flag test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/issue_flag_test.gd
 "$STEP" "minimap test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/minimap_test.gd
 "$STEP" "airborne test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/airborne_test.gd
+"$STEP" "reset test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/reset_test.gd
 if [ "$PARALLEL" -eq 1 ]; then
 	join_steps
 fi
