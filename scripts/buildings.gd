@@ -362,12 +362,14 @@ static func _check_provenance(errors: PackedStringArray, provenance: Variant) ->
 			for key: String in ["query_sha256", "answer_sha256", "attic_sha256"]:
 				if fetch.has(key) and not _is_sha(fetch[key]):
 					errors.append("provenance.fetch.%s is %s, not a sha256 hex" % [key, fetch[key]])
-			for key: String in ["tool", "date", "endpoint", "query_file", "answer_file"]:
+			for key: String in ["tool", "date", "endpoint", "served_timestamp_osm_base", "folder", "query_file", "answer_file", "attic_note"]:
 				if fetch.has(key) and not _is_text(fetch[key]):
-					errors.append("provenance.fetch.%s is empty" % key)
+					errors.append("provenance.fetch.%s is %s, not a text" % [key, fetch[key]])
 			for key: String in ["answer_bytes", "answer_elements"]:
 				if fetch.has(key) and not (_is_whole(fetch[key]) and fetch[key] > 0):
 					errors.append("provenance.fetch.%s is %s, not a count" % [key, fetch[key]])
+			if fetch.has("e11_source") and not fetch.e11_source is Dictionary:
+				errors.append("provenance.fetch.e11_source is %s, not an object" % [fetch.e11_source])
 	var decisions: Variant = provenance.get("decisions")
 	if provenance.has("decisions"):
 		if not decisions is Dictionary or not _is_text(decisions.get("doc")) or not decisions.get("lines") is Dictionary:
@@ -407,13 +409,17 @@ static func _check_social(errors: PackedStringArray, social: Variant, stations_c
 		else:
 			var named: Array[int] = []
 			for pick: Variant in picks:
-				if _is_whole(pick):
+				if not _is_whole(pick):
+					errors.append("social.picks holds %s, not an OSM id" % [pick])
+				else:
 					named.append(int(pick))
 			named.sort()
 			var flagged_sorted := flagged.duplicate()
 			flagged_sorted.sort()
 			if named != flagged_sorted:
 				errors.append("social.picks is %s, the flagged stations are %s" % [picks, flagged])
+	if social.has("arithmetic") and not _is_text(social.arithmetic):
+		errors.append("social.arithmetic is %s, not a text" % [social.arithmetic])
 	if social.has("why") and not _is_text(social.why):
 		errors.append("social.why is empty: the pick is a decision, it says why")
 

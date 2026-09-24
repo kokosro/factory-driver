@@ -354,6 +354,18 @@ func _check_broken_fixtures(data: Dictionary) -> void:
 	var bad_sha: Dictionary = data.duplicate(true)
 	bad_sha.provenance.fetch.answer_sha256 = "not-a-sha"
 	_expect_fault(bad_sha, "provenance.fetch.answer_sha256 is not-a-sha, not a sha256 hex", "a sha field that is no sha256")
+	var bad_folder: Dictionary = data.duplicate(true)
+	bad_folder.provenance.fetch.folder = 42
+	_expect_fault(bad_folder, "provenance.fetch.folder is 42, not a text", "a fetch text field that is no text (the review's fixture: it used to pass and crash the test's own get_slice)")
+	var bad_e11: Dictionary = data.duplicate(true)
+	bad_e11.provenance.fetch.e11_source = null
+	_expect_fault(bad_e11, "provenance.fetch.e11_source is <null>, not an object", "an e11_source that is no object")
+	var bad_arith: Dictionary = data.duplicate(true)
+	bad_arith.social.arithmetic = []
+	_expect_fault(bad_arith, "social.arithmetic is [], not a text", "an arithmetic line that is no text")
+	var bad_pick: Dictionary = data.duplicate(true)
+	bad_pick.social.picks = [1711333738, "garbage"]
+	_expect_fault(bad_pick, "social.picks holds garbage, not an OSM id", "a pick that is no OSM id (the review's fixture: it used to pass silently)")
 	_expect_fault(null, "not a JSON object", "a file that is not JSON")
 
 
