@@ -1433,6 +1433,47 @@ store's own switch (`OdometerStore.enabled`, the telemetry's `should_record`): t
 headless suite resolves the folder the same way but seeds nothing and writes nothing;
 its own checks run the seed on folders of the test's own.
 
+### Sync: the driver state between machines
+
+The test sessions happen on one machine and the analysis on another, so the data
+folder travels: `tools/sync_driverstate.sh` packs the driver state - the whole of
+`telemetry/`, `issues.json` and `cars.json`, nothing else - into one bundle, uploads it
+encrypted through `ird ipfs add --encrypt`, and pulls it back down on the other side
+and **merges** it into that machine's data folder. The loop:
+
+```
+# on the test machine, after driving
+FD_SYNC_PASSWORD=... tools/sync_driverstate.sh push          # prints the CID
+# on the dev machine
+FD_SYNC_PASSWORD=... tools/sync_driverstate.sh pull <cid>    # merges, reports every decision
+```
+
+The data folder is resolved exactly as the game resolves it (`FD_DATA_DIR`, else the
+bootstrap file `data_dir.txt` in the default location, else the default folder; a value
+that is no absolute folder is reported and the default used), so what the game reads is
+what is packed and what is merged into.
+
+**A pull never clobbers.** Every telemetry file the bundle holds is copied in only
+where the same relative path is not there yet; a file already on this machine wins and
+nothing is ever deleted. `issues.json` is unioned by record id: the local record wins
+on a collision, the bundle's records that are new here are appended after the local
+ones, and `next_issue_id` becomes the highest of the two files' counters and the
+highest id present plus one. `telemetry/index.json` is rebuilt from what is on disk
+after the merge: `sessions` the ids of every session file present, `next_session_id`
+the highest of both indexes' and the highest id on disk plus one, the local `last_test`
+and `best` kept (the bundle's are printed so you can decide; with no local index at all,
+the bundle's are adopted). `cars.json` stays the local one - the odometer is per-machine
+state - and the bundle's odometer per car is printed for the same reason; with no local
+`cars.json` at all the bundle's is taken whole, byte for byte (a merge into nothing, as
+for `issues.json`: the odometer is the 380 km carrier, and a fresh machine pulling the
+driver state receives it). Every decision is in the output.
+
+**The password.** The bundle is encrypted with the password in `FD_SYNC_PASSWORD`,
+which the script never stores, never generates and never prints; it passes it to `ird`
+with `--no-input`, so nothing is ever prompted for, and refuses to run without it.
+**Losing the password loses the bundle** (`ird`'s own warning: lost passwords are
+unrecoverable) - the same password on both machines, kept where you keep passwords.
+
 ### Telemetry
 
 Every drive is written down. `scripts/telemetry.gd` (a `TelemetryRecorder` the mission
