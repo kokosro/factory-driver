@@ -116,14 +116,16 @@ func _check_key() -> void:
 	_check(on_p and others.is_empty(), "the minimap's key is P (minimap_show, physical 80), no other action - the engine's built-ins included - is on plain P (%s)" % (", ".join(others) if not others.is_empty() else "none"))
 
 
-## The game starts fullscreen (the Conductor's addition to this iteration,
-## 2026-09-23): display/window/size/mode in project.godot is 4, which the
-## engine's own enum calls exclusive fullscreen
-## (DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN; the setting's editor
-## hint lists Windowed, Minimized, Maximized, Fullscreen, Exclusive
-## Fullscreen - verified on 4.7.2 headless, chosen for the minimap
-## iteration). Read off ProjectSettings, honestly: headless there is no
-## window to be full.
+## The game starts windowed: display/window/size/mode in project.godot is
+## 0, which the engine's own enum calls windowed
+## (DisplayServer.WINDOW_MODE_WINDOWED; the setting's editor hint lists
+## Windowed, Minimized, Maximized, Fullscreen, Exclusive Fullscreen -
+## verified on 4.7.2 headless). was 4, Exclusive Fullscreen (the minimap
+## iteration's approved extra, 2026-09-23); REVISION 2026-09-24: the driver
+## remote-desktops into the dev machine, which fights exclusive fullscreen -
+## the default is windowed again, fullscreen stays available (nothing
+## removed, only the default). Read off ProjectSettings, honestly, the
+## setting, the enum and the hint together: headless there is no window.
 func _check_fullscreen() -> void:
 	var mode: int = ProjectSettings.get_setting("display/window/size/mode", -1)
 	var names := PackedStringArray()
@@ -131,7 +133,7 @@ func _check_fullscreen() -> void:
 		if property.name == "display/window/size/mode":
 			names = String(property.hint_string).split(",")
 	var mode_name := names[mode] if mode >= 0 and mode < names.size() else "?"
-	_check(mode == 4 and mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN and mode_name == "Exclusive Fullscreen", "the game starts fullscreen: display/window/size/mode is %d, the engine's WINDOW_MODE_EXCLUSIVE_FULLSCREEN (%d), which the setting's own hint names %s (was 0, Windowed)" % [mode, DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN, mode_name])
+	_check(mode == 0 and mode == DisplayServer.WINDOW_MODE_WINDOWED and mode_name == "Windowed", "the game starts windowed: display/window/size/mode is %d, the engine's WINDOW_MODE_WINDOWED (%d), which the setting's own hint names %s (was 4, Exclusive Fullscreen (the minimap iteration's approved extra, 2026-09-23); REVISION 2026-09-24: the driver remote-desktops into the dev machine - the default is windowed again, fullscreen stays available)" % [mode, DisplayServer.WINDOW_MODE_WINDOWED, mode_name])
 
 
 # =============================================================================

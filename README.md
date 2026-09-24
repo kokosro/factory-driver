@@ -12,9 +12,10 @@ geometry is generated in-engine.
 `run.sh` uses `godot` from your `PATH` (falling back to `/opt/homebrew/bin/godot`) and
 imports the project on first launch. Alternatively, open the folder in the Godot 4.7
 editor (*Import* → select `project.godot`) and press **F5**.
-The game starts fullscreen (exclusive fullscreen, `display/window/size/mode` 4 in `project.godot`; was windowed) - the default
-returns to windowed with the next commit (REVISION 2026-09-24: the driver remote-desktops into the dev machine, which fights
-exclusive fullscreen; fullscreen stays available).
+The game starts windowed (`display/window/size/mode` 0 in `project.godot`; was 4, exclusive
+fullscreen, the minimap iteration's approved extra, 2026-09-23; REVISION 2026-09-24: the driver
+remote-desktops into the dev machine, which fights exclusive fullscreen - the default is windowed
+again, fullscreen stays available: set the mode to 4, nothing was removed).
 
 ### Controls
 
