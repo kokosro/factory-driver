@@ -1,0 +1,798 @@
+{
+ "region": "eifel_ring",
+ "provenance": {
+  "osm_base": "2026-09-22T08:45:51Z",
+  "bbox": [
+   50.3,
+   6.8,
+   50.45,
+   7.1
+  ],
+  "fetch": {
+   "tool": "python3 tools/world/extract_osm.py --out /Users/kokos/games/fd-port/fd-4B5-osm --only q3_economy (the attic date pinned in the query)",
+   "date": "2026-09-24",
+   "endpoint": "https://lz4.overpass-api.de/api/interpreter",
+   "served_timestamp_osm_base": "2026-09-24T19:51:59Z",
+   "folder": "/Users/kokos/games/fd-port/fd-4B5-osm/ring_2026-09-22T08-45-51Z (outside the repo: raw pulls live beside it, data-pipeline.md §2.1; manifest.json there records the same numbers)",
+   "query_file": "q3_economy.ql",
+   "query_sha256": "961b7c2c2583afc7365f676d552e78620a65aac784ce88ecb0cd1372df1260d8",
+   "answer_file": "q3_economy.json",
+   "answer_sha256": "146d74655d35a011d904f17b434af1dd72e5b8dacba4853631f497f2f33d9885",
+   "answer_bytes": 867778,
+   "answer_elements": 1049,
+   "attic_sha256": "edd99baba9ed09b02b8a19f4e3eb496a5146ef49d9290f5b024026450c703ec0",
+   "attic_note": "the 4B-2 manifest (fd-4B2-osm/manifest.json, its q3_economy entry: 867778 bytes, 1049 elements, served 2026-09-23T00:58:32Z) recorded attic_sha256; that file is no longer on disk. The re-fetch of 2026-09-24 is the same attic state: its bytes differ from the recorded ones in exactly one field, osm3s.timestamp_osm_base (the serving database's own time, 20 bytes for 20 bytes; extract_osm.py's header documents it), and with 2026-09-23T00:58:32Z written there they hash to attic_sha256. Same byte count, same 1049 elements (node 58, relation 2, way 989). Recording both shas is the orchestrator's ruling of 2026-09-24 (4B-5): the tool accepted the answer (EXTRACT OK), the byte count, the element counts and the substituted-byte hash prove the attic data identical to the 4B-2 pull; this header is the honesty chain, not a workaround. The test verifies answer_sha256 against the file where the store exists and the attic chain by the substitution.",
+   "e11_source": {
+    "query_file": "q1_skeleton.ql",
+    "answer_file": "/Users/kokos/games/fd-port/fd-4B2-osm/q1_skeleton.json",
+    "answer_sha256": "e151b1f67ceed0e0f1eaae74f1f9972c88cb2a74e8020fac20a661699b7d4e2d",
+    "way": 26543901,
+    "first_node": 290934599,
+    "note": "way 26543901's first node and its lat/lon as the 4B-2 q1 pull records them (the way the skeleton was built from; skeleton.json's segment 26543901-0 starts on this node)"
+   }
+  },
+  "decisions": {
+   "doc": "docs/design/4b/ring-region-decisions.md",
+   "section": "4. WHAT EXISTS AROUND THE RING",
+   "lines": {
+    "petrol_stations": 114,
+    "workshops": 115,
+    "porsche_dealership": 116,
+    "general_dealership": 117,
+    "test_centre": 118,
+    "proving_ground_office": 119
+   },
+   "note": "every record cites its line in stone.line; the doc is never edited by this file's landing. Names and brands are carried as OSM records them for provenance only: in-game the workshops are their serial ids and no brand is shown ('no trademarks')"
+  }
+ },
+ "social": {
+  "share": 0.1,
+  "n": 9,
+  "arithmetic": "round(0.1 x 9) = 1",
+  "count": 1,
+  "picks": [
+   1711333738
+  ],
+  "why": "ring-region-decisions.md §4 line 114: the one at Döttinger Höhe (node 1711333738), because it stands at the Ring's gate where cats and drivers meet (the driver's open experiment: 'see if the stray cats will gather more on the social gas stations'). DECIDED, REVISITABLE - the pick; PUT IN STONE - the count. The library's 'chosen deterministically (seeded by OSM id)' is realised as this table naming the pick by OSM id: the table is the seed, and the same file yields the same id every run"
+ },
+ "records": [
+  {
+   "id": "E2.1",
+   "element": "E2",
+   "shell": "B6",
+   "osm": {
+    "type": "node",
+    "id": 12023011572
+   },
+   "osm_name": "Aral",
+   "osm_tags": {
+    "amenity": "fuel",
+    "brand": "Aral",
+    "name": "Aral"
+   },
+   "position": {
+    "lat": 50.3780403,
+    "lon": 6.9492187
+   },
+   "privileges": [
+    "sell_fuel"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "social": false,
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 114,
+    "status": "PUT IN STONE (the nine; the social pick DECIDED, REVISITABLE)"
+   },
+   "note": "node 12023011572 and way 1023567856 are one Aral forecourt tagged twice in OSM (about 10 m apart); the stone table counts both among its nine, so both are records"
+  },
+  {
+   "id": "E2.2",
+   "element": "E2",
+   "shell": "B6",
+   "osm": {
+    "type": "node",
+    "id": 1711333738
+   },
+   "osm_name": "Döttinger Höhe",
+   "osm_tags": {
+    "amenity": "fuel",
+    "brand": "ED",
+    "name": "Döttinger Höhe"
+   },
+   "position": {
+    "lat": 50.3514218,
+    "lon": 6.9812836
+   },
+   "privileges": [
+    "sell_fuel",
+    "sell_tuna"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "social": true,
+   "extra_privileges": "the social station: sell_tuna and free fuel (element-library.md §5, E2: '10 % also sell_tuna + free fuel (SOCIAL)'); the pick is ring-region-decisions.md §4's, at the Ring's gate where cats and drivers meet",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 114,
+    "status": "PUT IN STONE (the nine; the social pick DECIDED, REVISITABLE)"
+   }
+  },
+  {
+   "id": "E2.3",
+   "element": "E2",
+   "shell": "B6",
+   "osm": {
+    "type": "way",
+    "id": 1497869198
+   },
+   "osm_name": "24h Tankstelle Hoffmann",
+   "osm_tags": {
+    "amenity": "fuel",
+    "name": "24h Tankstelle Hoffmann"
+   },
+   "position": {
+    "lat": 50.37114325,
+    "lon": 6.95512755
+   },
+   "bounds": {
+    "minlat": 50.371075,
+    "minlon": 6.955001,
+    "maxlat": 50.3712115,
+    "maxlon": 6.9552541
+   },
+   "privileges": [
+    "sell_fuel"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "social": false,
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 114,
+    "status": "PUT IN STONE (the nine; the social pick DECIDED, REVISITABLE)"
+   }
+  },
+  {
+   "id": "E2.4",
+   "element": "E2",
+   "shell": "B6",
+   "osm": {
+    "type": "way",
+    "id": 114676264
+   },
+   "osm_name": "Total",
+   "osm_tags": {
+    "amenity": "fuel",
+    "brand": "TotalEnergies",
+    "name": "Total"
+   },
+   "position": {
+    "lat": 50.3364249,
+    "lon": 6.94803805
+   },
+   "bounds": {
+    "minlat": 50.3363464,
+    "minlon": 6.9479312,
+    "maxlat": 50.3365034,
+    "maxlon": 6.9481449
+   },
+   "privileges": [
+    "sell_fuel"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "social": false,
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 114,
+    "status": "PUT IN STONE (the nine; the social pick DECIDED, REVISITABLE)"
+   }
+  },
+  {
+   "id": "E2.5",
+   "element": "E2",
+   "shell": "B6",
+   "osm": {
+    "type": "node",
+    "id": 483724476
+   },
+   "osm_name": "TC Tankstelle",
+   "osm_tags": {
+    "amenity": "fuel",
+    "name": "TC Tankstelle"
+   },
+   "position": {
+    "lat": 50.3574275,
+    "lon": 6.8585806
+   },
+   "privileges": [
+    "sell_fuel"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "social": false,
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 114,
+    "status": "PUT IN STONE (the nine; the social pick DECIDED, REVISITABLE)"
+   }
+  },
+  {
+   "id": "E2.6",
+   "element": "E2",
+   "shell": "B6",
+   "osm": {
+    "type": "node",
+    "id": 483724477
+   },
+   "osm_name": "Aral",
+   "osm_tags": {
+    "amenity": "fuel",
+    "name": "Aral"
+   },
+   "position": {
+    "lat": 50.357554,
+    "lon": 6.8572142
+   },
+   "privileges": [
+    "sell_fuel"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "social": false,
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 114,
+    "status": "PUT IN STONE (the nine; the social pick DECIDED, REVISITABLE)"
+   }
+  },
+  {
+   "id": "E2.7",
+   "element": "E2",
+   "shell": "B6",
+   "osm": {
+    "type": "node",
+    "id": 732711989
+   },
+   "osm_name": "ED",
+   "osm_tags": {
+    "amenity": "fuel",
+    "brand": "ED",
+    "name": "ED"
+   },
+   "position": {
+    "lat": 50.4029721,
+    "lon": 6.9241992
+   },
+   "privileges": [
+    "sell_fuel"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "social": false,
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 114,
+    "status": "PUT IN STONE (the nine; the social pick DECIDED, REVISITABLE)"
+   }
+  },
+  {
+   "id": "E2.8",
+   "element": "E2",
+   "shell": "B6",
+   "osm": {
+    "type": "node",
+    "id": 1335615680
+   },
+   "osm_name": "",
+   "osm_tags": {
+    "amenity": "fuel",
+    "brand": "Independent"
+   },
+   "position": {
+    "lat": 50.4454692,
+    "lon": 6.8108026
+   },
+   "privileges": [
+    "sell_fuel"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "social": false,
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 114,
+    "status": "PUT IN STONE (the nine; the social pick DECIDED, REVISITABLE)"
+   }
+  },
+  {
+   "id": "E2.9",
+   "element": "E2",
+   "shell": "B6",
+   "osm": {
+    "type": "way",
+    "id": 1023567856
+   },
+   "osm_name": "Aral",
+   "osm_tags": {
+    "amenity": "fuel",
+    "brand": "Aral",
+    "name": "Aral"
+   },
+   "position": {
+    "lat": 50.3779727,
+    "lon": 6.94934075
+   },
+   "bounds": {
+    "minlat": 50.3777221,
+    "minlon": 6.9490486,
+    "maxlat": 50.3782233,
+    "maxlon": 6.9496329
+   },
+   "privileges": [
+    "sell_fuel"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "social": false,
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 114,
+    "status": "PUT IN STONE (the nine; the social pick DECIDED, REVISITABLE)"
+   },
+   "note": "node 12023011572 and way 1023567856 are one Aral forecourt tagged twice in OSM (about 10 m apart); the stone table counts both among its nine, so both are records"
+  },
+  {
+   "id": "E1.1",
+   "element": "E1",
+   "shell": "B7",
+   "osm": {
+    "type": "way",
+    "id": 304343082
+   },
+   "osm_name": "Teichmann Racing",
+   "osm_tags": {
+    "shop": "car_repair",
+    "name": "Teichmann Racing"
+   },
+   "position": {
+    "lat": 50.37749395,
+    "lon": 6.94815015
+   },
+   "bounds": {
+    "minlat": 50.3772507,
+    "minlon": 6.9477044,
+    "maxlat": 50.3777372,
+    "maxlon": 6.9485959
+   },
+   "privileges": [
+    "build_cars",
+    "build_components",
+    "repair"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 115,
+    "status": "PUT IN STONE"
+   }
+  },
+  {
+   "id": "E1.2",
+   "element": "E1",
+   "shell": "B7",
+   "osm": {
+    "type": "node",
+    "id": 2573632801
+   },
+   "osm_name": "Matech Sports",
+   "osm_tags": {
+    "shop": "car_repair",
+    "name": "Matech Sports"
+   },
+   "position": {
+    "lat": 50.3839012,
+    "lon": 6.9263613
+   },
+   "privileges": [
+    "build_cars",
+    "build_components",
+    "repair"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 115,
+    "status": "PUT IN STONE"
+   }
+  },
+  {
+   "id": "E1.3",
+   "element": "E1",
+   "shell": "B7",
+   "osm": {
+    "type": "way",
+    "id": 533640757
+   },
+   "osm_name": "fawerk.de",
+   "osm_tags": {
+    "shop": "car_repair",
+    "name": "fawerk.de"
+   },
+   "position": {
+    "lat": 50.3813116,
+    "lon": 6.93617745
+   },
+   "bounds": {
+    "minlat": 50.381251,
+    "minlon": 6.9360457,
+    "maxlat": 50.3813722,
+    "maxlon": 6.9363092
+   },
+   "privileges": [
+    "build_cars",
+    "build_components",
+    "repair"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 115,
+    "status": "PUT IN STONE"
+   }
+  },
+  {
+   "id": "E1.4",
+   "element": "E1",
+   "shell": "B7",
+   "osm": {
+    "type": "way",
+    "id": 533642836
+   },
+   "osm_name": "Nico Lieder - Auto- und Motorradteile",
+   "osm_tags": {
+    "shop": "car_repair",
+    "name": "Nico Lieder - Auto- und Motorradteile"
+   },
+   "position": {
+    "lat": 50.3819835,
+    "lon": 6.938448
+   },
+   "bounds": {
+    "minlat": 50.38193,
+    "minlon": 6.93823,
+    "maxlat": 50.382037,
+    "maxlon": 6.938666
+   },
+   "privileges": [
+    "build_cars",
+    "build_components",
+    "repair"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 115,
+    "status": "PUT IN STONE"
+   }
+  },
+  {
+   "id": "E1.5",
+   "element": "E1",
+   "shell": "B7",
+   "osm": {
+    "type": "way",
+    "id": 948590128
+   },
+   "osm_name": "KFZ Bongard",
+   "osm_tags": {
+    "shop": "car_repair",
+    "name": "KFZ Bongard"
+   },
+   "position": {
+    "lat": 50.3719215,
+    "lon": 6.9540583
+   },
+   "bounds": {
+    "minlat": 50.3717359,
+    "minlon": 6.9537355,
+    "maxlat": 50.3721071,
+    "maxlon": 6.9543811
+   },
+   "privileges": [
+    "build_cars",
+    "build_components",
+    "repair"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 115,
+    "status": "PUT IN STONE"
+   }
+  },
+  {
+   "id": "E1.6",
+   "element": "E1",
+   "shell": "B7",
+   "osm": {
+    "type": "node",
+    "id": 12047929770
+   },
+   "osm_name": "Autoservice Gebauer",
+   "osm_tags": {
+    "shop": "car_repair",
+    "name": "Autoservice Gebauer"
+   },
+   "position": {
+    "lat": 50.4477636,
+    "lon": 6.8850334
+   },
+   "privileges": [
+    "build_cars",
+    "build_components",
+    "repair"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 115,
+    "status": "PUT IN STONE"
+   }
+  },
+  {
+   "id": "E1.7",
+   "element": "E1",
+   "shell": "B7",
+   "osm": {
+    "type": "way",
+    "id": 410078995
+   },
+   "osm_name": "Renaul Autohaus Kirfel",
+   "osm_tags": {
+    "shop": "car_repair",
+    "name": "Renaul Autohaus Kirfel"
+   },
+   "position": {
+    "lat": 50.3838685,
+    "lon": 6.9226225
+   },
+   "bounds": {
+    "minlat": 50.383777,
+    "minlon": 6.922479,
+    "maxlat": 50.38396,
+    "maxlon": 6.922766
+   },
+   "privileges": [
+    "build_cars",
+    "build_components",
+    "repair"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 115,
+    "status": "PUT IN STONE"
+   }
+  },
+  {
+   "id": "E1.8",
+   "element": "E1",
+   "shell": "B7",
+   "osm": {
+    "type": "way",
+    "id": 1182024168
+   },
+   "osm_name": "Porsche Service Zentrum Meuspath",
+   "osm_tags": {
+    "shop": "car_repair",
+    "brand": "Porsche",
+    "name": "Porsche Service Zentrum Meuspath"
+   },
+   "position": {
+    "lat": 50.3505104,
+    "lon": 6.98171095
+   },
+   "bounds": {
+    "minlat": 50.3500466,
+    "minlon": 6.9811799,
+    "maxlat": 50.3509742,
+    "maxlon": 6.982242
+   },
+   "privileges": [
+    "build_cars",
+    "build_components",
+    "repair"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 115,
+    "status": "PUT IN STONE"
+   },
+   "note": "the Porsche Service Zentrum Meuspath: kept as a startup ('all nine exist as startups') and promoted to the region's E3 as well, record E3.1 at the same way"
+  },
+  {
+   "id": "E1.9",
+   "element": "E1",
+   "shell": "B7",
+   "osm": {
+    "type": "node",
+    "id": 1346072157
+   },
+   "osm_name": "",
+   "osm_tags": {
+    "shop": "car_repair"
+   },
+   "position": {
+    "lat": 50.3108488,
+    "lon": 7.0129063
+   },
+   "privileges": [
+    "build_cars",
+    "build_components",
+    "repair"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 115,
+    "status": "PUT IN STONE"
+   },
+   "note": "the stone table's 'one unnamed in Boos': the ninth shop=car_repair of the answer, untagged with a name"
+  },
+  {
+   "id": "E3.1",
+   "element": "E3",
+   "shell": "B8",
+   "osm": {
+    "type": "way",
+    "id": 1182024168
+   },
+   "osm_name": "Porsche Service Zentrum Meuspath",
+   "osm_tags": {
+    "shop": "car_repair",
+    "brand": "Porsche",
+    "name": "Porsche Service Zentrum Meuspath"
+   },
+   "position": {
+    "lat": 50.3505104,
+    "lon": 6.98171095
+   },
+   "bounds": {
+    "minlat": 50.3500466,
+    "minlon": 6.9811799,
+    "maxlat": 50.3509742,
+    "maxlon": 6.982242
+   },
+   "privileges": [
+    "sell_cars",
+    "buy_cars",
+    "rent_car"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 116,
+    "status": "DECIDED, REVISITABLE"
+   },
+   "note": "promoted from E1 to E3: the region's one Porsche house, by the Ring; the E1 record E1.8 stands at the same way"
+  },
+  {
+   "id": "E4.1",
+   "element": "E4",
+   "shell": "B8",
+   "osm": {
+    "type": "way",
+    "id": 831174023
+   },
+   "osm_name": "Autohaus Rausch",
+   "osm_tags": {
+    "shop": "car",
+    "brand": "Nissan",
+    "name": "Autohaus Rausch"
+   },
+   "position": {
+    "lat": 50.3842185,
+    "lon": 6.925382
+   },
+   "bounds": {
+    "minlat": 50.384105,
+    "minlon": 6.92513,
+    "maxlat": 50.384332,
+    "maxlon": 6.925634
+   },
+   "privileges": [
+    "sell_cars",
+    "buy_cars",
+    "rent_car"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 117,
+    "status": "PUT IN STONE"
+   },
+   "note": "the first-run voucher's dealership for this region (first-run-flow.md §5); unbranded in-game"
+  },
+  {
+   "id": "E8.1",
+   "element": "E8",
+   "shell": "B9",
+   "osm": {
+    "type": "way",
+    "id": 667524970
+   },
+   "osm_name": "Fahrschule Hecken",
+   "osm_tags": {
+    "amenity": "driving_school",
+    "name": "Fahrschule Hecken"
+   },
+   "position": {
+    "lat": 50.3820605,
+    "lon": 6.9316085
+   },
+   "bounds": {
+    "minlat": 50.382023,
+    "minlon": 6.931516,
+    "maxlat": 50.382098,
+    "maxlon": 6.931701
+   },
+   "privileges": [
+    "exam"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 118,
+    "status": "DECIDED, REVISITABLE"
+   },
+   "note": "the region's test centre where OSM has the school; the yard's flattest patch within 300 m is 4B-6's/4B-8's to place, the building stays a B9"
+  },
+  {
+   "id": "E11.1",
+   "element": "E11",
+   "shell": "B9",
+   "osm": {
+    "type": "node",
+    "id": 290934599
+   },
+   "osm_name": "",
+   "osm_tags": {
+    "way": "26543901",
+    "highway": "raceway",
+    "name": "Anbindung zur Nordschleife"
+   },
+   "position": {
+    "lat": 50.3377052,
+    "lon": 6.9491896
+   },
+   "privileges": [
+    "ring_booking",
+    "telemetry_desk"
+   ],
+   "demand": [],
+   "owner": "npc",
+   "stone": {
+    "doc": "docs/design/4b/ring-region-decisions.md",
+    "line": 119,
+    "status": "PUT IN STONE"
+   },
+   "note": "by rule at way 26543901 (the Döttinger Höhe entrance, R18): the record sits on the way's first node 290934599 as OSM records it; the booth's offset off the carriageway is 4B-8's, when the shell is built"
+  }
+ ]
+}

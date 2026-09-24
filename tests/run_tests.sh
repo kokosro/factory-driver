@@ -1,15 +1,16 @@
 #!/usr/bin/env bash
 # Headless checks: import the project, check the car configs, the element
-# catalogue, the Ring skeleton and the Ring's drape through the world
-# profile (seconds: a broken config, catalogue entry, skeleton or drape
-# fails here, not somewhere in the smoke test), build the Ring's road and
+# catalogue, the Ring skeleton, the Ring's drape through the world profile
+# and the Ring's typed buildings (seconds: a broken config, catalogue entry,
+# skeleton, drape or building record fails here, not somewhere in the smoke
+# test), build the Ring's road and
 # drive it (the ring drive test), run the smoke test, then the handling,
 # camera, mission, battery, thermal, tyre/brake thermal, steering-feel,
 # wear, licence, menu, issue flag, minimap, airborne and reset tests. Fails on
 # a non-zero exit code or on any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the twenty tests side by side
+#   tests/run_tests.sh --parallel   the import first, then the twenty-one tests side by side
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -120,6 +121,7 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 "$STEP" "element catalogue test" "$GODOT" --headless --path "$ROOT" --script res://tests/element_catalogue_test.gd
 "$STEP" "skeleton test" "$GODOT" --headless --path "$ROOT" --script res://tests/skeleton_test.gd
 "$STEP" "world profile test" "$GODOT" --headless --path "$ROOT" --script res://tests/world_profile_test.gd
+"$STEP" "buildings test" "$GODOT" --headless --path "$ROOT" --script res://tests/buildings_test.gd
 # --fixed-fps: same 1/60 s physics steps, without waiting for the wall clock.
 # Every wait in these tests is counted in physics ticks.
 "$STEP" "ring drive test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/ring_drive_test.gd

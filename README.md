@@ -722,6 +722,31 @@ DEM in another CRS, an unverified tile, a segment the skeleton lacks, a dense li
 station, a covered segment with a missing height, a label of an unknown kind or within the
 threshold or of the wrong sign, a bank not filling the width, a crossfall beyond every rule,
 segments out of order, a file that is not JSON) naming the thing and the field. Then
+`tests/buildings_test.gd`: the Ring's focus table under `data/regions/eifel_ring/` (the
+region's put-in-stone table of typed buildings, `docs/design/4b/ring-region-decisions.md` §4
+as data: the nine gas stations, the nine workshops, the two dealerships, the test centre and
+the proving-ground office, each with its library element, its OSM id, its WGS84 position as
+OSM records it and its privileges; implementation-plan.md §4B-5) read the way `Buildings`
+reads it and put through its validation, in seconds and before anything drives; then held to
+what the plan asks: exactly nine E2 and exactly the stone table's nine amenity=fuel ids;
+exactly one social station by the library's round(0.1 × 9) = 1, the stone table's node
+1711333738, the same id on a second derivation; every E1 holding `build_cars`, none holding
+`sell_fuel` (the file says so for none); the E11 within 50 m of way 26543901's first node,
+the record projected through `SkeletonLoader` and the node from the checked-in skeleton (it
+sits on the node: 0.000 m); every record's shell a B entry of the catalogue and its element's
+own, with the placeholder footprint the library states (B6 12 × 8, B7 15 × 10, B8 20 × 12 m;
+B9 none); `can()` refusing a name outside the vocabulary with the reason, the vocabulary
+`ElementCatalogue.PRIVILEGES` referenced and never copied; the provenance header held to what
+it cites (the query text's sha256, the fetched answer's where the snapshot store is on the
+machine, the attic chain to the 4B-2 manifest's sha); and `validate()` on twenty fixtures
+broken in code (a privilege outside the vocabulary or held twice, an E1 without `build_cars`
+or selling fuel without the file saying so, a shell naming no B entry, not the element's or no
+B id, an element the catalogue lacks, an owner outside none|driver|npc, a position outside the
+bbox, a social flag on a workshop, two or no social stations among nine, a duplicate id, one
+element placed twice from one OSM id, a key outside the schema, a record without its stone
+citation, an unpinned snapshot, a sha field that is no sha256, a file that is not JSON)
+naming the record and the field, and one mended (an E1 selling fuel with the file saying so)
+accepted. Then
 `tests/ring_drive_test.gd`: the Nordschleife as a drivable road (`scenes/eifel_ring.tscn`,
 built headless at load by `scripts/road_builder.gd` from the checked-in skeleton and drape,
 implementation-plan.md §4B-4): drape.json pinned by sha256 (the two transforms below correct
