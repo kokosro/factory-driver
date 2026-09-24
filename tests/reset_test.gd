@@ -24,16 +24,22 @@ extends SceneTree
 ## (describe's on_road gates it); R from the field lands on the road at
 ## the recorded pose, heading along it. THE RING (eifel_ring.tscn): the
 ## flag is on (RoadBuilder set it beside the profile) and nothing is
-## recorded before the first tick; the settled car at the pit records
-## the pit and the first R lands on the spawn; the scripted follower
+## recorded before the first tick; R with no pose recorded lands on the
+## spawn (the fallback branch, the codex cross-review's F3 fence); the
+## settled car at the pit records the pit and the first R lands on the
+## spawn; the scripted follower
 ## (tests/ring_drive_test.gd's LoopDriver, the proven idiom) drives 400 m
 ## from Döttinger Höhe with all four wheels supported every tick while the
-## recorded pose follows the car within one tick's way; stopped, the
-## recorded pose is the car's own to the millimetre; placed in the field
+## recorded pose follows the car within one tick's way (FOLLOW_M, a
+## measured 0.292 m at the cruise; was asserted at 1.0 m, several ticks' way
+## - the codex cross-review's F2); stopped, the recorded pose is the car's
+## own within LAND_M (a centimetre; the printed measurements read finer);
+## placed in the field
 ## beside the road the pose stays; a tap of R puts the car back at it -
 ## the position, the heading, on the road, at rest, in 1st, automatic,
 ## the fuel the drive left (no refuel), not the spawn, not the drive's
-## start - and it drives on from there on four wheels; a second scene
+## start, the collision floor following the reset the same tick (the codex
+## cross-review's F1 fence) - and it drives on from there on four wheels; a second scene
 ## instanced fresh holds no pose before its first tick and its first R
 ## lands on the spawn (per-session memory). Exits 0 on success, 1 on any
 ## failed check.
@@ -77,8 +83,10 @@ const ROLL_AFTER_TAP_MPS := 0.5
 const IDLE_BURN_TAP_L := 0.001
 
 ## The recorded pose follows the car within one tick's way at the cruise
-## (18 m/s / 60 = 0.3 m) and within this heading [rad].
-const FOLLOW_M := 1.0
+## (18 m/s / 60 = 0.3 m, measured worst 0.292 m) and within this heading
+## [rad]. was 1.0 m - several ticks' way, not the claim (the codex
+## cross-review's F2, 2026-09-24).
+const FOLLOW_M := 0.35
 const FOLLOW_RAD := 0.05
 
 ## A restored position is the recorded one within this [m] and this [rad].
@@ -269,8 +277,13 @@ func _check_ring() -> void:
 		return
 	# Before the first tick: the flag is the world's, the memory empty.
 	_check(car.reset_to_last_pose and car.road_profile == road.profile and not car.last_road_pose_recorded, "the Ring: RoadBuilder set reset_to_last_pose beside the car's WorldRoadProfile; nothing recorded before the first tick")
-	await _step(SETTLE_FRAMES)
 	var spawn := car.get_spawn_transform()
+	# The fallback branch, never exercised before (the codex cross-review's
+	# F3): R with the flag on and no pose recorded lands on the spawn.
+	car.reset_car()
+	await _step(2)
+	_check(_at(car, spawn), "the Ring: R with the flag on and no pose recorded lands on the spawn - the fallback, as before")
+	await _step(SETTLE_FRAMES)
 	var profile := road.profile
 	_check(car.last_road_pose_recorded and _at(car, car.last_road_pose), "settled at the pit for %d ticks the car has recorded the pit lane pose it stands in (%.4f m, %.5f rad off its own)" % [SETTLE_FRAMES, _xz_off(car, car.last_road_pose), _yaw_off(car, car.last_road_pose)])
 	await _tap("reset_car")
@@ -302,7 +315,7 @@ func _check_ring() -> void:
 		follow_worst_rad = maxf(follow_worst_rad, _yaw_off(car, car.last_road_pose))
 	var covered: float = driver.progress - RingDrive.DRIVE_START_CHAINAGE_M
 	_check(covered >= DRIVE_DISTANCE_M and unsupported_ticks == 0, "the follower drove %.0f m of the loop from %s in %d ticks with all four wheels supported every tick (%d ticks with one unsupported)" % [covered, RingDrive.DRIVE_START_SEGMENT, ticks, unsupported_ticks])
-	_check(ticks > 0 and follow_worst_m < FOLLOW_M and follow_worst_rad < FOLLOW_RAD, "the recorded pose followed the car every tick of the drive: at most %.3f m and %.4f rad behind it (one tick's way at the cruise)" % [follow_worst_m, follow_worst_rad])
+	_check(ticks > 0 and follow_worst_m < FOLLOW_M and follow_worst_rad < FOLLOW_RAD, "the recorded pose followed the car every tick of the drive: at most %.3f m and %.4f rad behind it (one tick's way at the cruise; was asserted at 1.0 m, several ticks' way - the codex cross-review's F2)" % [follow_worst_m, follow_worst_rad])
 
 	# Stopped: the recorded pose is the car's own.
 	car.set_driver_input(0.0, 1.0, 0.0, true)
@@ -334,14 +347,28 @@ func _check_ring() -> void:
 	_check(not beside.get("on_road", false) and car.last_road_pose == recorded, "put %.0f m to the %s of the road, in the field (describe: covered %s, on_road %s, nearest road '%s'; the wheels %s on the terrain there; 30 m to the right is the side road 159029020-0, so the spot was probed), the recorded pose stays the one on the road over %d ticks" % [chosen.y, "right" if chosen.x > 0.0 else "left", beside.get("covered", false), beside.get("on_road", false), beside.get("road", ""), "all four supported" if field_supported else "not all supported", SETTLE_FRAMES])
 
 	# R: back at the recorded pose, on the road, as reset_to leaves a car.
+	# The floor-follows-reset fence (the codex cross-review's F1,
+	# ROAD-SIDE RESET MEMORY 2026-09-24: the road-side reset memory broke
+	# the slab's old assumption that a slab left behind on the old ground is
+	# never under the car - a reset to a pose recorded near where the car was
+	# put can land it inside the stale slab's 40 m footprint): the reset
+	# announces itself and the floor re-places the same tick, read directly
+	# after the action's tick, before the car's own step.
 	car.gear = 3
 	car.automatic = false
 	var fuel_before := car.fuel_l
 	var resets_before := car.reset_counter
-	await _tap("reset_car")
+	Input.action_press("reset_car")
+	await physics_frame
+	var slab_at := (road.get_node("Floor") as Node3D).global_position
+	var car_at := car.global_position
+	Input.action_release("reset_car")
+	await _step(2)
 	var over := car.global_position.y - profile.sample_height(car.global_position.x, car.global_position.z)
+	var slab_off := Vector2(slab_at.x - car_at.x, slab_at.z - car_at.z).length()
 	_check(_at(car, recorded) and _at(car, rest), "R from the field puts the car back at the recorded pose: %.4f m and %.5f rad off the pose it stopped in" % [_xz_off(car, rest), _yaw_off(car, rest)])
 	_check(_on_road(car, profile) and over > RIDE_HEIGHT_MIN_M and over < RIDE_HEIGHT_MAX_M and _all_supported(car), "on the road, %.3f m over it, all four wheels supported" % over)
+	_check(slab_off < 0.5, "the floor followed the reset the same tick: the slab %.3f m from the car at the action's tick (the codex cross-review's F1: a nearby reset could land inside the stale slab's 40 m footprint and be shoved)" % slab_off)
 	_check(car.reset_counter == resets_before + 1 and absf(car.forward_speed) < ROLL_AFTER_TAP_MPS and car.velocity.length() < ROLL_AFTER_TAP_MPS and car.gear == 1 and car.automatic and car.engine_running, "one reset (reset_counter %d -> %d); the velocity zeroed - %.3f m/s after the tap's ticks on the grade -, in 1st (gear %d), automatic (%s), the engine running (%s): reset_to's own semantics, unchanged; the gearbox was put in 3rd manual before the tap" % [resets_before, car.reset_counter, car.forward_speed, car.gear, car.automatic, car.engine_running])
 	_check(car.fuel_l <= fuel_before and fuel_before - car.fuel_l < IDLE_BURN_TAP_L and car.fuel_l < ArcadeCar.FUEL_TANK_CAPACITY_L, "the fuel is what it was at the tap less the idle's burn over the tap's ticks (%.5f -> %.5f l of %.0f; the drive burnt the rest): R is not a refuel" % [fuel_before, car.fuel_l, ArcadeCar.FUEL_TANK_CAPACITY_L])
 	_check(_xz_off(car, spawn) > 100.0 and _xz_off(car, start) > DRIVE_DISTANCE_M * 0.5, "not the pit spawn (%.0f m away) and not the drive's start (%.0f m away) - was the spawn" % [_xz_off(car, spawn), _xz_off(car, start)])

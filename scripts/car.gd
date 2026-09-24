@@ -4301,6 +4301,16 @@ func _count_odometer(delta: float) -> void:
 		OdometerStore.save_car(CAR_ID, odometer_m, fuel_l, OdometerStore.PATH, driver_settings(), battery_settings(), wear_settings())
 
 
+## Announced by reset_to when it has stood the car somewhere new: what
+## follows the car (the Ring Road's floor slab, _follow_car) re-places
+## itself the same tick, before the car's step - the road-side reset memory
+## broke the slab's old assumption that a slab left behind on the old
+## ground is never under the car: a reset to a pose recorded near where the
+## car was put can land it inside the stale slab's 40 m footprint (the
+## codex cross-review's F1, ROAD-SIDE RESET MEMORY, 2026-09-24).
+signal reset_performed
+
+
 ## Puts the car back where the scene placed it, at rest, in 1st, automatic, the
 ## engine running, the tank as it was and nothing loaded (see reset_to).
 func reset_to_spawn() -> void:
@@ -4487,6 +4497,9 @@ func reset_to(target: Transform3D) -> void:
 	_update_visuals(0.0)
 	reset_physics_interpolation()
 	reset_counter += 1
+	# The car stands somewhere new: the world re-places what follows it the
+	# same tick (RoadBuilder._follow_car on reset_performed; see the signal).
+	reset_performed.emit()
 
 
 ## What the car weighs right now [kg]: the base car, the fuel in its tank and

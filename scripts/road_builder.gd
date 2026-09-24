@@ -279,6 +279,15 @@ func _ready() -> void:
 	# (see _follow_car): a reset onto lower ground would otherwise leave
 	# the plane over the car for a tick and eject it.
 	process_physics_priority = -1
+	# A reset stands the car somewhere new: the floor follows it the same
+	# tick (ArcadeCar.reset_performed; the codex cross-review's F1,
+	# ROAD-SIDE RESET MEMORY, 2026-09-24: the road-side reset memory broke
+	# the slab's old assumption that a slab left behind on the old ground is
+	# never under the car - a reset to a pose recorded near where the car was
+	# put can land it inside the stale slab's 40 m footprint and the field
+	# under it can be higher than the destination's road).
+	if car != null:
+		car.reset_performed.connect(_follow_car)
 	build()
 
 
