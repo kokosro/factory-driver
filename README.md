@@ -1464,9 +1464,10 @@ the highest of both indexes' and the highest id on disk plus one, the local `las
 and `best` kept (the bundle's are printed so you can decide; with no local index at all,
 the bundle's are adopted). `cars.json` stays the local one - the odometer is per-machine
 state - and the bundle's odometer per car is printed for the same reason; with no local
-`cars.json` at all the bundle's is taken whole, byte for byte (a merge into nothing, as
-for `issues.json`: the odometer is the 380 km carrier, and a fresh machine pulling the
-driver state receives it). Every decision is in the output.
+`cars.json` at all the bundle's is **not** written either (the game seeds this machine's
+own at its first drive; copy it by hand if this machine should start from the other
+one's odometer - the Conductor's ruling, 2026-09-24, after the take-it-whole variant
+was built and rejected). Every decision is in the output.
 
 **The password.** The bundle is encrypted with the password in `FD_SYNC_PASSWORD`,
 which the script never stores, never generates and never prints; it passes it to `ird`

@@ -45,9 +45,8 @@
 #                  are printed for the driver to decide) - adopted from the
 #                  bundle only when there is no local index at all.
 #   cars.json      the local one stays (the odometer is per-machine state);
-#                  the bundle's odometer per car is printed. None here: the
-#                  bundle's is taken whole (a merge into nothing; the
-#                  odometer is the 380 km carrier).
+#                  the bundle's odometer per car is printed; none here either,
+#                  the bundle's is NOT written (copy it by hand if wanted).
 # Every decision is printed. Exit 2 on usage, 1 on any failure, with a message.
 #
 # Needs bash, python3 (3.9, the stock macOS one, is enough), ird, cp, find.
@@ -405,12 +404,11 @@ if bundled is not None and local is not None:
 		print("  the bundle's best %s: %s" % (title, json.dumps(entry, sort_keys=True)))
 PY
 
-	# cars.json: the local one stays, the bundle's odometers for the record;
-	# none here: the bundle's is copied byte for byte (a merge into nothing).
-	if [ ! -f "$DATA_DIR/cars.json" ] && [ -f "$bundle/cars.json" ]; then
-		cp "$bundle/cars.json" "$DATA_DIR/cars.json" || fail "could not copy cars.json"
-		echo "cars.json: no local file, the bundle's is taken whole (a merge into nothing; the odometer is the 380 km carrier)"
-	fi
+	# cars.json: the local one stays; the bundle's odometers for the record.
+	# The Conductor's ruling, 2026-09-24: with no local cars.json at all the
+	# bundle's is NOT written - the odometer is per-machine state and the
+	# game seeds this machine's own at its first drive; the driver copies it
+	# by hand if wanted.
 	python3 - "$DATA_DIR/cars.json" "$bundle/cars.json" <<'PY' || fail "cars.json report failed"
 import json, os, sys
 local_path, bundled_path = sys.argv[1], sys.argv[2]
@@ -430,9 +428,9 @@ if bundled is None:
 if local is not None and open(local_path, "rb").read() == open(bundled_path, "rb").read():
 	print("cars.json: local and bundled are the same bytes")
 else:
-	print("cars.json: kept local (the odometer is per-machine state; the bundle's is not applied)")
+	print("cars.json: kept local (the odometer is per-machine state; the bundle's is not applied)" if local is not None else "cars.json: no local file, and the bundle's is NOT written (copy it by hand if this machine should start from it)")
 for car_id, entry in sorted(bundled.items()):
-	mine = (local or {}).get(car_id, {})
+	mine = (local or {}).get(car_id, {}) if local else {}
 	print("  the bundle's %s: odometer_m %s (local %s)" % (car_id, entry.get("odometer_m") if isinstance(entry, dict) else "?", mine.get("odometer_m", "none") if isinstance(mine, dict) else "?"))
 PY
 	echo "pull done: nothing overwritten, nothing deleted"
