@@ -221,7 +221,11 @@ move", 0009/0010 "road work", 0014/0015/0016 the Karussell's seams):
     rigid tilt AT THE JUNCTION, as a rigid participant there (rigid_pick
     among the rigid ones): it cannot run a tilt off within its length,
     so the deck's tilt goes through it to the node and the plain roads
-    meeting there run it off inside themselves. Measured need: the 4.13 m
+    meeting there run it off inside themselves; a genuine rigid
+    participant at the node outranks a held stub, and a node with nothing
+    but rigid participants and held stubs is still written (the codex
+    cross-review's F1: it was skipped, three stubs kept 0 against their
+    decks). Measured need: the 4.13 m
     loop stub 41395670-0 between the Hohenrain deck (level) and the
     four-way T13 node (the node's mean -0.0286 in its frame) was the last
     loop chord over the fence at 0.0294 m/m; 36 such stubs stand in the
@@ -1101,15 +1105,30 @@ def stitch_junctions(skeleton, raw_records, stats=None):
             tilt = held if held is not None else (e * right[0], e * right[1])
             tilted.append((segment, record, end, right, tilt, bank, held is not None))
         if len(tilted) >= 2:
-            rigid_tilts = [t for t in tilted if t[1]["rigid"] or not t[1]["covered"] or t[6]]
+            # The node's tilt: a genuine rigid participant's (rigid_pick
+            # among them), else a held stub's (rigid_pick among the stubs:
+            # a stub never outranks the deck it stands beside - the codex
+            # cross-review of this landing, F1), else the plain winners'
+            # mean. Written to every plain, held and bank end; a node with
+            # nothing writable is skipped, and so is one with nothing to
+            # take a tilt from (banks alone). was: a node holding only rigid
+            # participants and held stubs was skipped altogether, so the
+            # stub's end kept its own 0 against the deck's tilt (F1: three
+            # such nodes, 1113009325-1 at 10183185738 among them, a 0.25 m
+            # edge stair that the old file did not have).
+            genuine_tilts = [t for t in tilted if t[1]["rigid"] or not t[1]["covered"]]
+            stub_tilts = [t for t in tilted if t[6]]
             plain_tilts = [t for t in tilted if t[1]["covered"] and not t[1]["rigid"] and not t[5] and not t[6]]
             bank_tilts = [t for t in tilted if t[1]["covered"] and not t[1]["rigid"] and t[5]]
-            if not plain_tilts and not (bank_tilts and rigid_tilts):
+            rigid_tilts = genuine_tilts if genuine_tilts else stub_tilts
+            if not plain_tilts and not bank_tilts and not stub_tilts:
+                continue
+            if not rigid_tilts and not plain_tilts:
                 continue
             if rigid_tilts:
                 target_vector = rigid_pick([(t[0], t[4], t[2]) for t in rigid_tilts], loop_ids)[1]
                 crossfall_rigid_nodes += 1
-                if any(t[6] for t in rigid_tilts):
+                if stub_tilts:
                     stub_nodes += 1
             else:
                 winners = winners_of([(t[0], t[4]) for t in plain_tilts], loop_ids)
@@ -1544,8 +1563,8 @@ def selftest():
         ok("without a finite height" in refused, "assemble refuses %s: %s" % (name, refused[:60]))
     ok(re.search(r"-0\.0(?![0-9])", first) is None, "no -0.0 in the file")
     # THE KARUSSELL BLEND through finish(): the fixture's Karussell way (an
-    # L of two 100 m legs, a left-hander) - the label at 20 / to 180 /
-    # ramp_m 20, the array ramped from the ends' own plane value (0.06:
+    # L of two 100 m legs, a left-hander) - the label at 30 / to 170 /
+    # ramp_m 30, the array ramped from the ends' own plane value (0.06:
     # the corner over the 20 m window; a junction's stitched tilt in the
     # real build) to 0.30 at the corner; the same numbers
     # tests/world_profile_test.gd's mirror pins.
@@ -1799,13 +1818,32 @@ def selftest_junctions(ok):
     ry2 = raw_record(y2, [90.0] * 4)
     ry3 = raw_record(y3, [90.0] * 101)
     skeleton = {"segments": [y1, y2, y3], "junctions": [{"id": "11", "x": 100.0, "z": -100.0, "segments": ["21-0", "22-0"]}, {"id": "12", "x": 100.0, "z": -105.0, "segments": ["22-0", "23-0"]}], "loops": []}
-    stats = {}
-    stitch_junctions(skeleton, [ry1, ry2, ry3], stats)
+    stats_y = {}
+    stitch_junctions(skeleton, [ry1, ry2, ry3], stats_y)
     bridge_tilt = ry1["crossfall"][-1] * end_right_normal(y1["points"], -1)[0], ry1["crossfall"][-1] * end_right_normal(y1["points"], -1)[1]
     stub_right = end_right_normal(y2["points"], -1)
     held = bridge_tilt[0] * stub_right[0] + bridge_tilt[1] * stub_right[1]
+    # F1 (the codex cross-review): a 5 m track between TWO bridges - at
+    # each node the only participants are a bridge and the held stub, so
+    # the node used to be skipped and the stub kept its own 0 against the
+    # deck's tilt; now the genuine deck holds the node and the stub's end
+    # is written its tilt (the other deck's, held through, never outranks
+    # the deck that stands there).
+    z1 = segment("24-0", "primary", [[0.0, 0.0], [100.0, 0.0], [100.0, -100.0]], bridge="yes", layer="1")
+    z2 = segment("25-0", "primary", [[100.0, -100.0], [100.0, -105.0]])
+    z3 = segment("26-0", "primary", [[100.0, -105.0], [100.0, -205.0], [200.0, -205.0]], bridge="yes", layer="1")
+    rz1 = raw_record(z1, [90.0] * 101, rigid=True)
+    rz2 = raw_record(z2, [90.0] * 4)
+    rz3 = raw_record(z3, [90.0] * 101, rigid=True)
+    skeleton = {"segments": [z1, z2, z3], "junctions": [{"id": "13", "x": 100.0, "z": -100.0, "segments": ["24-0", "25-0"]}, {"id": "14", "x": 100.0, "z": -105.0, "segments": ["25-0", "26-0"]}], "loops": []}
+    stats = {}
+    stitch_junctions(skeleton, [rz1, rz2, rz3], stats)
+    z_right = end_right_normal(z2["points"], 0)
+    z1_tilt = (rz1["crossfall"][-1] * end_right_normal(z1["points"], -1)[0], rz1["crossfall"][-1] * end_right_normal(z1["points"], -1)[1])
+    z3_tilt = (rz3["crossfall"][0] * end_right_normal(z3["points"], 0)[0], rz3["crossfall"][0] * end_right_normal(z3["points"], 0)[1])
+    ok(stats["stub_nodes"] == 2 and stats["crossfall_nodes"] == 2 and abs(rz2["crossfall"][0] - (z1_tilt[0] * z_right[0] + z1_tilt[1] * z_right[1])) < 1e-12 and abs(rz2["crossfall"][-1] - (z3_tilt[0] * z_right[0] + z3_tilt[1] * z_right[1])) < 1e-12 and abs(rz2["crossfall"][0] - 0.06) < 1e-12 and abs(rz2["crossfall"][-1] + 0.06) < 1e-12, "F1: a 5 m track between two bridges (a left-hander's deck ending +0.06 rising to +x, a right-hander's starting -0.06) is written each deck's tilt at the node it stands at (%.4f / %.4f in its frame; was 0 and 0: the node with only rigid and held participants was skipped), the two nodes counted as stub nodes (%d)" % (rz2["crossfall"][0], rz2["crossfall"][-1], stats["stub_nodes"]))
     bend_right = end_right_normal(y3["points"], 0)
-    ok(stats["stub_nodes"] == 1 and abs(ry2["crossfall"][0] - held) < 1e-12 and abs(ry2["crossfall"][-1] - held) < 1e-12 and abs(ry3["crossfall"][0] - (bridge_tilt[0] * bend_right[0] + bridge_tilt[1] * bend_right[1])) < 1e-12 and abs(held - 0.06) < 1e-12, "the stub rule: a 5 m track between a bridge's end (tilt %s) and a node holds the bridge's tilt at both its ends (%.4f in its frame, no twist across it) and the left-hander leaving that node takes it (%.4f, its own corner value 0.06 kept 100 m on; the node counts as rigid: %d stub node; was the node's mean, a tilt the stub cannot run off)" % (bridge_tilt, ry2["crossfall"][-1], ry3["crossfall"][0], stats["stub_nodes"]))
+    ok(stats_y["stub_nodes"] == 1 and abs(ry2["crossfall"][0] - held) < 1e-12 and abs(ry2["crossfall"][-1] - held) < 1e-12 and abs(ry3["crossfall"][0] - (bridge_tilt[0] * bend_right[0] + bridge_tilt[1] * bend_right[1])) < 1e-12 and abs(held - 0.06) < 1e-12, "the stub rule: a 5 m track between a bridge's end (tilt %s) and a node holds the bridge's tilt at both its ends (%.4f in its frame, no twist across it) and the left-hander leaving that node takes it (%.4f, its own corner value 0.06 kept 100 m on; the node counts as rigid: %d stub node; was the node's mean, a tilt the stub cannot run off)" % (bridge_tilt, ry2["crossfall"][-1], ry3["crossfall"][0], stats_y["stub_nodes"]))
     # F2: a zero-length participant is written nothing and does not crash.
     w = segment("19-0", "track", [[100.0, 0.0], [100.0, 0.0]])
     x_ = segment("20-0", "primary", [[100.0, 0.0], [200.0, 0.0]])

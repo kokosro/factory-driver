@@ -323,8 +323,11 @@ These are German road-design values (RAL/RASt), not measured: open question 2 in
   junction 0.038 / 0.034 m. 30 m, not the doc's first candidate 20: measured, 20 m read 0.053 m
   at the entry against the 0.05 m fence (the crown's fade where the ramped crossfall passes
   through zero adds its own edge kink). The centre heights are untouched: the regenerated file
-  (aac02239...) differs from f3ca142b... only in 2 813 segments' crossfall arrays (12 871 of
-  22 215 points) and the one bank label.
+  (d36ccf27...; aac02239... at the landing, before the codex cross-review's F1 wrote the three
+  stub nodes it had skipped) differs from f3ca142b... only in 2 809 segments' crossfall arrays
+  (12 863 of 22 215 points) and the one bank label. The stub rule's fine print: a genuine rigid
+  participant at a node outranks a held stub, and a node with nothing but rigid participants
+  and held stubs is still written.
 
 ## 6. REGION DRESSING PASSES
 

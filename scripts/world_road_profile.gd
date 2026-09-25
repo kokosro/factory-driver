@@ -215,6 +215,13 @@ class Road:
 	var bank_at: float = 0.0
 	var bank_ramp: float = 0.0
 	var bank_sign: float = 1.0
+	## Whether the label carries ramp_m at all: a label without it is a
+	## 4B-3 label and reads through the 4B-3 branch verbatim - the bowl
+	## from chainage 0 to `to` whatever `at` says, the side from the
+	## crossfall at the read point (the codex cross-review of the
+	## ROAD-GEOMETRY landing, F4: the additive promise held only for
+	## at = 0 labels before this).
+	var bank_ramped: bool = false
 
 	## How far from the centreline the road has a say [m]: the paved half
 	## width plus the blend band.
@@ -347,6 +354,7 @@ static func _road_of(raw: Dictionary, segment: SkeletonLoader.Segment, points: A
 			road.bank_strip = float(label.get("strip_m", 0.0))
 			road.bank_at = float(label.get("at", 0.0))
 			road.bank_ramp = float(label.get("ramp_m", 0.0))
+			road.bank_ramped = label.has("ramp_m")
 			road.bank_sign = 1.0 if crossfall_at(road, 0.5 * (road.bank_at + road.bank_to)) >= 0.0 else -1.0
 	return road
 
@@ -517,6 +525,13 @@ func _platform_height(road: Road, chainage: float, offset: float) -> float:
 	var o := clampf(offset, -road.half_width, road.half_width)
 	var centre := centre_height(road, chainage)
 	var e := crossfall_at(road, chainage)
+	if road.bank and not road.bank_ramped and chainage <= road.bank_to:
+		# The 4B-3 branch, verbatim, for a label without ramp_m (F4): the
+		# bowl from chainage 0 to `to`, the side the crossfall's at the
+		# read point.
+		var u := signf(e) * o + road.half_width
+		var low := centre - road.bank_slope * maxf(road.half_width - road.bank_strip, 0.0)
+		return low + road.bank_slope * maxf(u - road.bank_strip, 0.0)
 	var weight := bank_weight(road, chainage)
 	if weight >= 1.0:
 		return _bowl_height(road, centre, o)
@@ -538,12 +553,11 @@ static func _bowl_height(road: Road, centre: float, o: float) -> float:
 
 ## The bowl's share of the platform at a chainage: 1 over [bank_at,
 ## bank_to], falling linearly to 0 over the ramp before bank_at and the
-## ramp after bank_to, 0 elsewhere; a road without a bank, or a bank
-## without a ramp outside [bank_at, bank_to], reads 0 (a label without
-## ramp_m and at 0: the bowl to `to` and a step there, as before the
-## blend).
+## ramp after bank_to, 0 elsewhere; a road without a bank reads 0, and so
+## does a bank whose label has no ramp_m (a 4B-3 label: _platform_height
+## takes its own verbatim branch before asking, F4).
 static func bank_weight(road: Road, chainage: float) -> float:
-	if not road.bank:
+	if not road.bank or not road.bank_ramped:
 		return 0.0
 	if chainage >= road.bank_at and chainage <= road.bank_to:
 		return 1.0

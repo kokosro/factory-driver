@@ -696,9 +696,18 @@ func _check_smoothing(skeleton: Dictionary, drape: Dictionary, raw_points: Dicti
 				e["stub"] = true
 				e["tilt"] = rigid_tilt_at[other]
 		var plain: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return not e.rigid and not e.bank and not e.stub)
-		var rigid_ends: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return e.rigid or e.stub)
+		var genuine: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return e.rigid)
+		var stubs: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return e.stub)
+		# A genuine rigid participant outranks a held stub; a node with
+		# nothing writable (plain, stub or bank) is skipped, and so is one
+		# with nothing to take a tilt from (the codex cross-review's F1:
+		# a node holding only rigid participants and held stubs used to be
+		# skipped and the stub kept its 0 against the deck).
+		var rigid_ends: Array[Dictionary] = genuine if not genuine.is_empty() else stubs
 		var banks: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return e.bank and not e.rigid)
-		if plain.is_empty() and (banks.is_empty() or rigid_ends.is_empty()):
+		if plain.is_empty() and banks.is_empty() and stubs.is_empty():
+			continue
+		if plain.is_empty() and rigid_ends.is_empty():
 			continue
 		var target := Vector2.ZERO
 		if not rigid_ends.is_empty():
@@ -1156,6 +1165,7 @@ func _check_fixture() -> void:
 	_ok(karussell_record.id == "414785755-0" and karussell_record.crossfall == [0.06, 0.3, 0.06] and bank_label == {"at": 30.0, "kind": "bank", "to": 170.0, "bank": 0.3, "bowl_m": 6.5, "strip_m": 1.0, "ramp_m": 30.0} and absf(bowl_strip - bowl_inside) < MM and absf(bowl_outside - bowl_inside - 1.95) < MM and absf(bowl_centre - _plane(2050.0, -2600.0)) < MM, "fixture: way 414785755 takes the bank: the array ramped [0.06, 0.3, 0.06] with the label at 30 / to 170 / ramp_m 30 (was 0.3 at every point, at 0 / to 200), and at chainage 50 flat over the 1 m strip, 1.95 m up at the outside edge, the centre on the ground", "bank: crossfall %s, label %s, across %.3f %.3f %.3f %.3f" % [karussell_record.crossfall, bank_label, bowl_inside, bowl_strip, bowl_centre, bowl_outside])
 	_check_fixture_blend(profile)
 	_check_twist_rule(profile)
+	_check_legacy_bank(skeleton, drape)
 	# The 14 m road (travel east: right is +z): its full band, no step at the old 10.25 m cutoff.
 	var wide_centre := profile.sample_height(2550.0, -2200.0)
 	var wide_edge := profile.sample_height(2550.0, -2193.0)
@@ -1223,6 +1233,30 @@ func _check_fixture_blend(profile: WorldRoadProfile) -> void:
 		var b := profile.sample_height(2000.0 + s + 0.25, -2596.25)
 		largest = maxf(largest, absf(b - a))
 	_ok(largest < 0.03, "fixture blend: along the outside edge from chainage 25 to 45 (through the ramp's end at 30) no 0.25 m step over 3 cm (the largest %.4f m: the plane's edge lift arriving over 30 m plus the ground's slope)" % largest, "edge step %.4f" % largest)
+
+
+## F4 (the codex cross-review of the ROAD-GEOMETRY landing): a bank label
+## WITHOUT ramp_m reads through the 4B-3 branch verbatim whatever its
+## `at` says - the bowl from chainage 0 to `to`, the side from the
+## crossfall at the read point - and the plane past `to`; the fixture's
+## Karussell with its label rewritten to at 30 / to 120 and no ramp_m.
+func _check_legacy_bank(skeleton: Dictionary, drape: Dictionary) -> void:
+	var legacy: Dictionary = drape.duplicate(true)
+	var label: Dictionary = legacy.segments[4].labels.back()
+	label.erase("ramp_m")
+	label.at = 30.0
+	label.to = 120.0
+	var errors := WorldRoadProfile.validate(legacy, skeleton)
+	var profile := WorldRoadProfile.from_data(skeleton, legacy)
+	var c0 := _plane(2000.0, -2600.0)
+	var inside0 := profile.sample_height(2000.0, -2603.75)
+	var outside0 := profile.sample_height(2000.0, -2596.25)
+	var c50 := _plane(2050.0, -2600.0)
+	var inside50 := profile.sample_height(2050.0, -2603.75)
+	var c150 := _plane(2100.0, -2650.0)
+	var e150 := 0.3 + (0.06 - 0.3) * 0.5
+	var right150 := profile.sample_height(2103.75, -2650.0)
+	_ok(errors.is_empty() and absf(inside0 - (c0 - 0.825)) < MM and absf(outside0 - (c0 + 1.125)) < MM and absf(inside50 - (c50 - 0.825)) < MM and absf(right150 - (c150 + e150 * 3.75)) < MM, "F4: a bank label without ramp_m (at 30, to 120) validates and reads as 4B-3 read it: the bowl from chainage 0 (inside edge -0.825, outside +1.125 m about the centre) through 50, the plane past `to` (chainage 150: +%.3f m at +3.75, the array's lerped crossfall %.3f) - was the plane at chainage 0 for such a label (-1.125 at the inside edge, a 0.30 m step at 30 where the bowl began)" % [e150 * 3.75, e150], "legacy bank: errors %s, at 0 %.3f / %.3f (centre %.3f), at 50 %.3f (centre %.3f), at 150 %.3f (centre %.3f)" % [errors, inside0, outside0, c0, inside50, c50, right150, c150])
 
 
 ## The crossfall-twist rule through the mirror (WorldRoadProfile.crossfall_of

@@ -735,8 +735,9 @@ the ground at its portal and 6 m under it inside, the crest labelled at its top,
 bowl on way 414785755 with its 30 m ramps blended from the plane at both ends (the array
 [0.06, 0.3, 0.06], the label at 30 / to 170 / ramp_m 30; the platform at a third of the ramp
 the plane and the bowl mixed 2:1 at every offset, no 0.25 m step over 3 cm along the edge
-through the ramp's end), the runoff on a spike, a straight still 0, the fallback outside the
-box; and `validate()` on twenty-two fixtures
+through the ramp's end), a 4B-3 bank label without `ramp_m` reading through the 4B-3 branch
+verbatim whatever its `at` says, the runoff on a spike, a straight still 0, the fallback
+outside the box; and `validate()` on twenty-two fixtures
 broken in code (an unpinned snapshot, another pipeline's version, another skeleton's
 queries, other rules, a lattice short of a height or off the coverage, an empty coverage, a
 DEM in another CRS, an unverified tile, a segment the skeleton lacks, a dense list short of a
@@ -772,11 +773,12 @@ naming the record and the field, and one mended (an E1 selling fuel with the fil
 accepted. Then
 `tests/ring_drive_test.gd`: the Nordschleife as a drivable road (`scenes/eifel_ring.tscn`,
 built headless at load by `scripts/road_builder.gd` from the checked-in skeleton and drape,
-implementation-plan.md §4B-4): drape.json pinned by sha256 (aac02239..., the ROAD-GEOMETRY
-FIX-NOW regeneration; was ROAD-SMOOTHING's f3ca142b...; the two transforms below correct
+implementation-plan.md §4B-4): drape.json pinned by sha256 (d36ccf27..., the ROAD-GEOMETRY
+FIX-NOW regeneration after its codex cross-review; was aac02239... at the landing and
+ROAD-SMOOTHING's f3ca142b... before; the two transforms below correct
 parsed data, never the file); the rim rule and the loop's right of way pure functions of the
 parsed data (twice, the same); the scene loads with every covered segment but the ten
-crossing structures swept (3 304 roads, 361 354 sections, 1 085 528 vertices, 1 435 130
+crossing structures swept (3 304 roads, 361 393 sections, 1 085 645 vertices, 1 435 286
 triangles - was 378 093 / 1 134 279 / 1 499 156 before the crossfall-twist rule's runoff
 took the short-chord twists out of the arrays and the Karussell strip gained a fourth vertex
 on its crown line for the blend; 329 394 / 988 182 / 1 304 320 before ROAD-SMOOTHING's crossfall stitch put a
@@ -799,7 +801,11 @@ bridge's abutment spike before and after through `ramp_gradient` (65 % -> 5.0 %,
 amendment 2's continuation through the T13 junction, 61 % -> 2.9 %, 41395681-0 already clean;
 the "before" numbers are the smoothed file's abutment walls, was 64 / 32 / 61 / 52 / 59 / 54 %
 on the raw file), the rim fence - within 15 m of every lifted rim on the loop the grade along
-the road changes by at most 3.5 %/m, under 5 (was 12.7 and 11.8 %/m at the two humps) -, the
+the road changes by at most 3.5 %/m, under 5 (was 12.7 and 11.8 %/m at the two humps; read
+along the walked chain - the deck inward, the approaches outward through their junctions, at
+least 26 of 31 readings per rim, the boundaries compared over the real gap; was clamped to the
+rim's own segment) -, the look-ahead's own fixture (a walk ending with one onward slope gives
+no rim, one more station gives one at 4.0 m), the
 whole lifts table (15 bridges, was 13: every one still lifts, two tracks join), no station on
 the loop's own field at
 20 % or more, every deck a straight line in the mesh, 41226730-0 untouched and below the

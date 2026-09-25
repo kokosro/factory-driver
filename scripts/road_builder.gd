@@ -321,6 +321,10 @@ class Road:
 	var bank_sign: float = 1.0
 	var bank_slope: float = 0.0
 	var bank_strip: float = 0.0
+	## A label without ramp_m (a 4B-3 label) sweeps through the 4B-3 path
+	## verbatim: three offsets, the strip's side from the array's first
+	## point, no crossings, no split (F4, as the profile's own branch).
+	var bank_ramped: bool = false
 	var offsets: PackedFloat64Array
 
 
@@ -447,12 +451,16 @@ func _road_of(raw: Dictionary, segment: SkeletonLoader.Segment, points: Array) -
 			road.bank_at = float(label.get("at", 0.0))
 			road.bank_to = float(label.get("to", road.length))
 			road.bank_ramp = float(label.get("ramp_m", 0.0))
+			road.bank_ramped = label.has("ramp_m")
 			road.bank_sign = 1.0 if _crossfall_at(road, 0.5 * (road.bank_at + road.bank_to)) >= 0.0 else -1.0
 			road.bank_slope = float(label.get("bank", 0.0))
 			road.bank_strip = float(label.get("strip_m", 0.0))
 			var strip_edge := float(label.get("strip_m", 0.0)) - road.half_width
-			road.offsets = PackedFloat64Array([-road.half_width, road.bank_sign * strip_edge, 0.0, road.half_width])
-			road.offsets.sort()
+			if not road.bank_ramped:
+				road.offsets[1] = strip_edge if road.crossfall[0] >= 0.0 else -strip_edge
+			else:
+				road.offsets = PackedFloat64Array([-road.half_width, road.bank_sign * strip_edge, 0.0, road.half_width])
+				road.offsets.sort()
 	return road
 
 
@@ -523,13 +531,15 @@ func _section_chainages(road: Road) -> PackedFloat64Array:
 	var breakpoints := WorldRoadProfile.station_chainages(road.length)
 	for i: int in range(1, road.chain.size() - 1):
 		breakpoints.append(road.chain[i])
-	for i: int in range(1, road.chain.size()):
-		var e0 := road.crossfall[i - 1]
-		var e1 := road.crossfall[i]
-		for level: float in [-WorldRoadProfile.CROWN, 0.0, WorldRoadProfile.CROWN]:
-			if (e0 - level) * (e1 - level) < 0.0:
-				breakpoints.append(road.chain[i - 1] + (level - e0) / (e1 - e0) * (road.chain[i] - road.chain[i - 1]))
-	if road.bank:
+	var legacy_bank := road.bank and not road.bank_ramped
+	if not legacy_bank:
+		for i: int in range(1, road.chain.size()):
+			var e0 := road.crossfall[i - 1]
+			var e1 := road.crossfall[i]
+			for level: float in [-WorldRoadProfile.CROWN, 0.0, WorldRoadProfile.CROWN]:
+				if (e0 - level) * (e1 - level) < 0.0:
+					breakpoints.append(road.chain[i - 1] + (level - e0) / (e1 - e0) * (road.chain[i] - road.chain[i - 1]))
+	if road.bank and road.bank_ramped:
 		for s: float in [road.bank_at - road.bank_ramp, road.bank_at, road.bank_to, road.bank_to + road.bank_ramp]:
 			if s > 0.0 and s < road.length:
 				breakpoints.append(s)
@@ -547,10 +557,11 @@ func _section_chainages(road: Road) -> PackedFloat64Array:
 		while cursor < road.xs.size() - 2 and road.chain[cursor + 1] < s:
 			cursor += 1
 		var e := _crossfall_on(road, s, cursor)
-		var pieces := _twist_pieces(road, previous_e, e, previous, s)
-		for p: int in range(1, pieces):
-			out.append(previous + (s - previous) * p / pieces)
-			split_count += 1
+		if not legacy_bank:
+			var pieces := _twist_pieces(road, previous_e, e, previous, s)
+			for p: int in range(1, pieces):
+				out.append(previous + (s - previous) * p / pieces)
+				split_count += 1
 		previous_e = e
 		out.append(s)
 	return out
@@ -609,6 +620,7 @@ static func _profile_road_stub(road: Road) -> WorldRoadProfile.Road:
 	stub.bank_at = road.bank_at
 	stub.bank_to = road.bank_to
 	stub.bank_ramp = road.bank_ramp
+	stub.bank_ramped = road.bank_ramped
 	return stub
 
 
@@ -1133,13 +1145,17 @@ static func _rim_of(id: String, end: int, segments: Dictionary, records: Diction
 		# The rim: every one of the next RIM_LOOKAHEAD_STATIONS onward
 		# climbs under RIM_SLOPE (was the next one alone under 0.20: the
 		# hole-wall's 14.5 % tail passed and its crest stayed, see the
-		# constants). Fewer stations left in the walk than the look-ahead
-		# asks: the ones there have to pass (the reach or the walk's end
-		# truncates the look-ahead, never waives it).
+		# constants). Fewer onward stations left in the walk than the
+		# look-ahead asks: no rim there - the look-ahead is never waived,
+		# the walk's last stations cannot be rims (the codex cross-review
+		# of this landing, F2: the truncation used to pass a station with
+		# one onward slope; no bridge on this tree exercised it, the 15
+		# lifts are the same).
 		var eases := true
 		for j: int in RIM_LOOKAHEAD_STATIONS:
 			var i := k + j
 			if i + 1 >= distances.size():
+				eases = false
 				break
 			var slope := (heights[i + 1] - heights[i]) / (distances[i + 1] - distances[i])
 			if slope >= RIM_SLOPE:

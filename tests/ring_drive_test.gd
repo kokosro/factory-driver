@@ -59,11 +59,13 @@ const RING_SCENE := "res://scenes/eifel_ring.tscn"
 ## data, every junction's ends stitched in height and crossfall;
 ## tools/world/drape.py's header, docs/design/4b/data-pipeline.md §5).
 ## was ROAD-SMOOTHING's f3ca142b... (5 401 198 bytes) -> aac02239...
-## (5 402 717 bytes), the ROAD-GEOMETRY FIX-NOW landing's regeneration:
+## (5 402 717 bytes), the ROAD-GEOMETRY FIX-NOW landing's regeneration,
+## -> d36ccf27... (5 402 726 bytes), its post-review fix-forward (the
+## codex cross-review's F1: three stub nodes written that were skipped):
 ## the crossfall-twist rule's arrays and the Karussell blend's ramped
 ## array and label, nothing else (the dense heights, the lattice and every
 ## other label byte-equal, proven by a structural diff at the landing).
-const DRAPE_SHA256 := "aac02239e450343e4ddf859f5fa3f7d9335f2c80469c14692cce271f6c9683bf"
+const DRAPE_SHA256 := "d36ccf27690be2596d39b28258e7ab4564eecf5503b467d5a3e47764e7233ea0"
 
 ## The drape's covered segments (tests/world_profile_test.gd's count) and
 ## the loop's (tests/skeleton_test.gd's): every one swept but the ten
@@ -286,6 +288,7 @@ func _run() -> void:
 	_check_files()
 	var raw_profile := WorldRoadProfile.from_data(_skeleton, _drape)
 	_check_rule_purity()
+	_check_lookahead_fixture()
 	print("-- the scene")
 	var scene := await _load_scene()
 	if scene == null:
@@ -770,12 +773,24 @@ func _check_rim_rule(road: RoadBuilder, raw_profile: WorldRoadProfile) -> void:
 ## or a reading was not finite - the slope is then no measurement, and a
 ## caller must not take its 0.0 for a clean reading).
 ## The rim fence (see RIM_FENCE_MAX_PER_M): every lifted rim that stands
-## on a loop segment, the grade along the road read every metre on that
-## approach's own centreline within RIM_FENCE_REACH_M of the rim (the
-## corrected profile's ramp_gradient, the car's own call; only stations
-## the approach's own field answers), the largest change between two
-## consecutive readings per metre held under the bound. And the whole
+## on a loop segment, the grade along the road read every metre within
+## RIM_FENCE_REACH_M of the rim ALONG THE WALKED CHAIN - inward onto the
+## bridge's own deck, outward along the approaches the rim walk entered,
+## through their junctions (the codex cross-review of this landing, F3:
+## the window used to clamp to the rim's own segment, so a rim 2 m into
+## a 6 m approach saw 6 m, not 30, and the boundary onto the next road
+## was never read) - through the corrected profile's ramp_gradient (the
+## car's own call) along the chain's outward direction, only where the
+## sampled road's own field answers; consecutive readings compared
+## across the segments' boundaries too; the largest change per metre
+## held under the bound and every rim's coverage held to
+## RIM_FENCE_MIN_READINGS of its RIM_FENCE_SAMPLES samples. And the whole
 ## lifts table, one line, for the record.
+const RIM_FENCE_SAMPLES := 31
+const RIM_FENCE_MIN_READINGS := 24
+const RIM_FENCE_GAP_MAX_M := 3.0
+
+
 func _check_rim_fence(road: RoadBuilder) -> void:
 	var loop_ids := {}
 	for id: String in _loop.segments:
@@ -784,6 +799,9 @@ func _check_rim_fence(road: RoadBuilder) -> void:
 	var worst := 0.0
 	var worst_where := ""
 	var readings := 0
+	var least := RIM_FENCE_SAMPLES
+	var least_where := ""
+	var boundary_pairs := 0
 	var non_finite := 0
 	var table := ""
 	for lift: Dictionary in road.lifts:
@@ -792,42 +810,111 @@ func _check_rim_fence(road: RoadBuilder) -> void:
 			var rim: Dictionary = lift.start if end == 0 else lift.end
 			if rim.rim_m <= 0.0:
 				continue
-			# The approach the rim stands on and its chainage there.
-			var on := ""
-			var at := 0.0
-			for approach: Dictionary in rim.approaches:
-				var length: float = _geometry_of(approach.id).length
-				if rim.rim_m >= approach.offset - 1e-6 and rim.rim_m <= approach.offset + length + 1e-6:
-					on = approach.id
-					at = rim.rim_m - approach.offset if approach.from_start else length - (rim.rim_m - approach.offset)
-					break
-			if on == "" or not loop_ids.has(on):
+			var on: Array = _chain_station(lift, end, rim.rim_m)
+			if on.is_empty() or not loop_ids.has(on[2]):
 				continue
 			rims += 1
-			var geometry: Dictionary = _geometry_of(on)
+			var covered := 0
 			var previous := NAN
-			var previous_s := 0.0
-			var s := maxf(0.0, at - RIM_FENCE_REACH_M)
-			while s <= minf(geometry.length, at + RIM_FENCE_REACH_M) + 1e-9:
-				var p := _point_on(geometry.xs, geometry.zs, geometry.chain, s)
-				var station: Array = [p[0], p[1], on, s]
-				if _own(road.profile, station):
-					var grade := road.profile.ramp_gradient(p[0], p[1]).dot(_direction_on(geometry.xs, geometry.zs, geometry.chain, s))
-					readings += 1
-					if not is_finite(grade):
-						non_finite += 1
-					elif is_finite(previous):
-						var change := absf(grade - previous) / (s - previous_s)
-						if change > worst:
-							worst = change
-							worst_where = "%s chainage %.0f (the %s rim of %s at %.2f m out)" % [on, s, "west" if end == 0 else "east", lift.bridge, rim.rim_m]
-					previous = grade
-					previous_s = s
-				else:
-					previous = NAN
-				s += RIM_FENCE_STEP_M
-	_ok(rims > 0 and readings > 0 and non_finite == 0 and worst <= RIM_FENCE_MAX_PER_M, "the rim fence: at the %d lifted rims on the loop the grade along the road, read every %.0f m within %.0f m of the rim on the approach's own field (%d readings), changes by at most %.1f %%/m, at %s - under %.0f %%/m (was 12.7 %%/m at Breidscheid's east rim and 11.8 %%/m at Döttinger Höhe's: the hole-wall tails the 20 %% criterion let through, issues 0011 and 0020)" % [rims, RIM_FENCE_STEP_M, RIM_FENCE_REACH_M, readings, 100.0 * worst, worst_where, 100.0 * RIM_FENCE_MAX_PER_M], "the grade changes %.3f/m at %s (%d rims, %d readings, %d not finite)" % [worst, worst_where, rims, readings, non_finite])
+			var previous_d := 0.0
+			var previous_id := ""
+			for k: int in RIM_FENCE_SAMPLES:
+				var d: float = rim.rim_m - RIM_FENCE_REACH_M + k * RIM_FENCE_STEP_M
+				var station: Array = _chain_station(lift, end, d)
+				if station.is_empty() or not _own(road.profile, [station[0], station[1], station[2], station[3]]):
+					# Not this road's own field here (the node itself, where
+					# the neighbour's centreline is as near): the next own
+					# reading is still compared with the last one over the
+					# real distance between them, RIM_FENCE_GAP_MAX_M at most
+					# - that is how the boundary between two segments is read.
+					if is_finite(previous) and d - previous_d >= RIM_FENCE_GAP_MAX_M:
+						previous = NAN
+					continue
+				var grade := road.profile.ramp_gradient(station[0], station[1]).dot(station[4])
+				readings += 1
+				covered += 1
+				if not is_finite(grade):
+					non_finite += 1
+				elif is_finite(previous):
+					if previous_id != station[2]:
+						boundary_pairs += 1
+					var change := absf(grade - previous) / (d - previous_d)
+					if change > worst:
+						worst = change
+						worst_where = "%s chainage %.0f (%.0f m from the %s rim of %s at %.2f m out)" % [station[2], station[3], d - rim.rim_m, "west" if end == 0 else "east", lift.bridge, rim.rim_m]
+				previous = grade
+				previous_d = d
+				previous_id = station[2]
+			if covered < least:
+				least = covered
+				least_where = "the %s rim of %s (on %s)" % ["west" if end == 0 else "east", lift.bridge, on[2]]
+	_ok(rims > 0 and readings > 0 and non_finite == 0 and worst <= RIM_FENCE_MAX_PER_M and least >= RIM_FENCE_MIN_READINGS, "the rim fence: at the %d lifted rims on the loop the grade along the road, read every %.0f m within %.0f m of the rim along the walked chain - the deck inward, the approaches outward through their junctions (%d readings, at least %d of %d per rim at %s, %d readings compared across a segment boundary over the real distance between them) - changes by at most %.1f %%/m, at %s - under %.0f %%/m (was 12.7 %%/m at Breidscheid's east rim and 11.8 %%/m at Döttinger Höhe's: the hole-wall tails the 20 %% criterion let through, issues 0011 and 0020)" % [rims, RIM_FENCE_STEP_M, RIM_FENCE_REACH_M, readings, least, RIM_FENCE_SAMPLES, least_where, boundary_pairs, 100.0 * worst, worst_where, 100.0 * RIM_FENCE_MAX_PER_M], "the grade changes %.3f/m at %s (%d rims, %d readings, the least coverage %d at %s, %d not finite)" % [worst, worst_where, rims, readings, least, least_where, non_finite])
 	_ok(road.lifts.size() == 15, "the lifts table (%d bridges lifted; was 13 under the 20 %% criterion - 41795617-0, a track crossing under the loop the right of way then uncovers, and 827648314-0, a track lifted 0.237 m, join it; every one of the 13 still lifts): %s" % [road.lifts.size(), table], "%d lifts: %s" % [road.lifts.size(), table])
+
+
+## The station at outward distance `d` from bridge end `end` of `lift`
+## along the rim walk's chain: d < 0 on the bridge's own deck (|d| from
+## that abutment), d >= 0 on the approaches the walk entered (each with
+## the outward distance its near end stands at and whether its chainage
+## runs outward): [x, z, id, chainage, travel] with `travel` the chain's
+## outward direction there; empty past the chain's ends.
+func _chain_station(lift: Dictionary, end: int, d: float) -> Array:
+	var rim: Dictionary = lift.start if end == 0 else lift.end
+	if d < 0.0:
+		var bridge: Dictionary = _geometry_of(lift.bridge)
+		if -d > bridge.length + 1e-9:
+			return []
+		var s: float = -d if end == 0 else bridge.length + d
+		var p := _point_on(bridge.xs, bridge.zs, bridge.chain, s)
+		var travel := _direction_on(bridge.xs, bridge.zs, bridge.chain, s)
+		return [p[0], p[1], lift.bridge, s, -travel if end == 0 else travel]
+	for approach: Dictionary in rim.approaches:
+		var geometry: Dictionary = _geometry_of(approach.id)
+		if d >= approach.offset - 1e-9 and d <= approach.offset + geometry.length + 1e-9:
+			var s: float = d - approach.offset if approach.from_start else geometry.length - (d - approach.offset)
+			var p := _point_on(geometry.xs, geometry.zs, geometry.chain, s)
+			var travel := _direction_on(geometry.xs, geometry.zs, geometry.chain, s)
+			return [p[0], p[1], approach.id, s, travel if approach.from_start else -travel]
+	return []
+
+
+## The look-ahead at a walk's end (F2, the codex cross-review): a
+## synthetic bridge of 20 m whose start approach is flat (its own rim)
+## and whose end approach climbs 50 %, 50 %, then 5 % - with the approach
+## 6 m long the station 4 m out has ONE onward slope and is NOT a rim
+## (no lift: the look-ahead is never waived), with the approach 8 m long
+## and a further 5 % station it has two and IS (a lift with the rim at
+## 4.0 m out, 2.0 m up).
+func _check_lookahead_fixture() -> void:
+	var lifts_short: Array = RoadBuilder.apply_rim_rule(_lookahead_skeleton(6.0), _lookahead_drape([0.0, 1.0, 2.0, 2.1])).lifts
+	var lifts_long: Array = RoadBuilder.apply_rim_rule(_lookahead_skeleton(8.0), _lookahead_drape([0.0, 1.0, 2.0, 2.1, 2.2])).lifts
+	var long_right: bool = lifts_long.size() == 1 and absf(lifts_long[0].end.rim_m - 4.0) < 1e-9 and absf(lifts_long[0].end.rim_height - 2.0) < 1e-9 and lifts_long[0].end.found and lifts_long[0].start.found and lifts_long[0].start.rim_m == 0.0
+	_ok(lifts_short.is_empty() and long_right, "the look-ahead at a walk's end (F2): an approach climbing 50 %%, 50 %%, 5 %% and ending there gives its bridge no rim and no lift (the station 4 m out has one onward slope, the look-ahead asks two; was a rim there), one more 5 %% station and it is the rim at %.1f m out, %.1f m up, the bridge lifted (%d stations)" % [lifts_long[0].end.rim_m if long_right else 0.0, lifts_long[0].end.rim_height if long_right else 0.0, lifts_long[0].stations if long_right else 0], "look-ahead: short %s, long %s" % [lifts_short, lifts_long])
+
+
+static func _lookahead_skeleton(approach_m: float) -> Dictionary:
+	return {
+		"snapshot": {"osm_base": "2026-09-22T08:45:51Z", "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 1},
+		"origin": {"epsg": SkeletonLoader.EPSG, "e0": SkeletonLoader.E0, "n0": SkeletonLoader.N0},
+		"segments": [
+			{"id": "1-0", "osm_way": 1, "class": "primary", "width_m": 7.0, "width_source": "class", "bridge": "yes", "layer": "1", "points": [[0.0, 0.0], [20.0, 0.0]]},
+			{"id": "2-0", "osm_way": 2, "class": "primary", "width_m": 7.0, "width_source": "class", "points": [[20.0, 0.0], [20.0 + approach_m, 0.0]]},
+			{"id": "3-0", "osm_way": 3, "class": "primary", "width_m": 7.0, "width_source": "class", "points": [[-8.0, 0.0], [0.0, 0.0]]},
+		],
+		"junctions": [{"id": "a", "x": 0.0, "z": 0.0, "segments": ["3-0", "1-0"]}, {"id": "b", "x": 20.0, "z": 0.0, "segments": ["1-0", "2-0"]}],
+		"loops": [],
+	}
+
+
+static func _lookahead_drape(approach_heights: Array) -> Dictionary:
+	var deck: Array = []
+	for k: int in 11:
+		deck.append(0.0)
+	return {"segments": [
+		{"id": "1-0", "covered": true, "heights": [0.0, 0.0], "dense": deck, "crossfall": [0.0, 0.0], "labels": []},
+		{"id": "2-0", "covered": true, "heights": [approach_heights[0], approach_heights[approach_heights.size() - 1]], "dense": approach_heights, "crossfall": [0.0, 0.0], "labels": []},
+		{"id": "3-0", "covered": true, "heights": [0.0, 0.0], "dense": [0.0, 0.0, 0.0, 0.0, 0.0], "crossfall": [0.0, 0.0], "labels": []},
+	]}
 
 
 func _spike_near(at: Vector2, profile: WorldRoadProfile) -> Dictionary:
