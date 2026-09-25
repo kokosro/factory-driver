@@ -61,9 +61,11 @@ const KEY := KEY_U
 
 ## How near the car must stand to a station's recorded position [m]: the
 ## OSM position is the station's point (a node) or the centre of its
-## footprint (a way); the pumps stand within a few car lengths of it, the
-## forecourt within 30 m. Inclusive: at exactly RADIUS_M the station is
-## near.
+## footprint (a way; the widest bounds here reach ~35 m diagonally, E2.9),
+## and the car's origin must keep clear of the building shell - so the
+## gameplay radius is measured from the POINT, not surveyed over the
+## forecourt: 30 m of "you are at the station" is what the record can
+## honestly carry. Inclusive: at exactly RADIUS_M the station is near.
 const RADIUS_M := 30.0
 
 ## The privilege a station sells fuel by (ElementCatalogue.PRIVILEGES).

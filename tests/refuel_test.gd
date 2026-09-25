@@ -4,7 +4,7 @@ extends SceneTree
 ## from somewhere"). Run via tests/run_tests.sh, or:
 ##
 ##   godot --headless --path . --import
-##   godot --headless --fixed-fps 60 --path . --script res://tests/refuel_test.gd
+##   env FD_TELEMETRY=0 godot --headless --fixed-fps 60 --path . --script res://tests/refuel_test.gd
 ##
 ## THE KEY: refuel is U, plain (physical 85), and on no other action, the
 ## engine's built-ins walked too (the minimap test's check, on this key;
@@ -27,21 +27,29 @@ extends SceneTree
 ## R makes, origin.y 0, the car stood on the profile's height there) with
 ## the tank at 20 L and the engine off (the idle burn would otherwise
 ## move the tank under the bit-exact assertions): the line is up with the
-## exact text; the key held ~30 ticks fills the tank to exactly
-## FUEL_TANK_CAPACITY_L (the bits), one more tick and fuel_mass is exactly
-## fuel_l x FUEL_DENSITY; released and held again at a full tank: still
-## exactly capacity, no further fill counted; the wear, the battery's
-## wear and charge and the odometer set to marks by hand before the fill
-## stay at them (nothing restored but the fuel); moved 100 m off, the
-## line is down and the key fills nothing. THE PAD (main.tscn): no Refuel
-## node in the tree (by name and by class), no RefuelHint under its HUD
-## after the settle, the key held there fills nothing (the tank at 20 L
-## only ever lower), and the scene file's text names no refuel. THE
-## DETERMINISM: a fresh car (scenes/car.tscn) under a bare Refuel node at
-## E2.4 filled the same way holds the identical fuel_l bits and the
-## identical fuel_mass after a tick. No network, no python; writes
-## nothing under /tmp and nothing to the data dir (the store is off
-## headless). Exits 0 on success, 1 on any failed check.
+## exact text; the key held fills the tank to exactly
+## FUEL_TANK_CAPACITY_L on the FIRST tick the key is held with the tank
+## short (fuel_l the bits, one fill counted; fuel_mass still the part
+## tank's - the car's own tick ran before the fill - and exactly
+## fuel_l x FUEL_DENSITY one tick later); released and held again at a
+## full tank: still exactly capacity, no further fill counted; the wear,
+## the battery's wear and charge and the odometer set to marks by hand
+## before the fill stay at them (nothing restored but the fuel); moved
+## 100 m off, the line is down and the key fills nothing. THE PAD
+## (main.tscn): no Refuel node in the tree (by name and by class), no
+## RefuelHint under its HUD after the settle, the key held there fills
+## nothing (the tank at 20 L only ever lower), and the scene file's text
+## names no refuel. THE DETERMINISM: a fresh car (scenes/car.tscn) under
+## a bare Refuel node at E2.4 filled the same way holds the identical
+## fuel_l bits and the identical fuel_mass after a tick. THE STORE IS
+## PINNED OFF: FD_TELEMETRY=0 before Godot starts (the runner's step sets
+## it; the test sets it again first thing, standalone runs included) and
+## asserted off - was: nothing pinned, an inherited FD_TELEMETRY=1 would
+## let these test cars' synthetic fuel, wear, battery and odometer be
+## saved to the data folder on _exit_tree (scripts/car.gd's save) and the
+## header's "writes nothing to the data dir" was only true when the
+## variable was not inherited (the codex cross-review's F1). No network,
+## no python. Exits 0 on success, 1 on any failed check.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
 const RING_SCENE := "res://scenes/eifel_ring.tscn"
@@ -87,6 +95,12 @@ func _initialize() -> void:
 
 
 func _run() -> void:
+	# THE STORE PINNED OFF before anything loads a car: an inherited
+	# FD_TELEMETRY=1 enables persistence even headless (the codex
+	# cross-review's F1) - these test cars' synthetic fuel, wear, battery
+	# and odometer would be saved to the data folder on _exit_tree.
+	OS.set_environment("FD_TELEMETRY", "0")
+	_check(TelemetryRecorder.should_record() == false and OdometerStore.enabled() == false, "the store pinned off: FD_TELEMETRY=0 set by this test, persistence off (should_record false, OdometerStore.enabled false)")
 	_check_key()
 	_check_stations()
 	_check_core()
@@ -151,6 +165,18 @@ class OriginStation:
 		return Vector2.ZERO
 
 
+## A synthetic station at an offset from the origin: for two candidates
+## inside the radius at once - the nearer one must win, in either array
+## order (the codex cross-review's F2: the real nine are km apart, so a
+## query at any real spot holds one candidate inside the radius at a time
+## and a first-qualifying implementation would pass it).
+class OffsetStation:
+	extends Buildings.Record
+	var off := Vector2.ZERO
+	func position() -> Vector2:
+		return off
+
+
 ## A synthetic record at a real record's lat/lon: its position() is the
 ## projection's, the car set off it by hand.
 func _synthetic(id: String, like: Buildings.Record) -> Buildings.Record:
@@ -185,6 +211,21 @@ func _check_core() -> void:
 	var far := _synthetic("F", Buildings.record("E2.1"))
 	var two: Array[Buildings.Record] = [far, station]
 	_check(at != zero and Refuel.nearest_within(at + Vector2(0.0, 5.0), two, Refuel.RADIUS_M) == station and Refuel.nearest_within(far.position() + Vector2(0.0, 5.0), two, Refuel.RADIUS_M) == far, "two stations at real records' lat/lon (%s's and E2.1's): the nearer one each time" % RING_STATION_ID)
+	# Two candidates inside the radius at once, the nearer the winner in
+	# either array order (the codex cross-review's F2).
+	var near_a := OffsetStation.new()
+	near_a.id = "A"
+	near_a.element = "E2"
+	near_a.privileges = PackedStringArray(["sell_fuel"])
+	near_a.off = Vector2(0.0, 10.0)
+	var near_b := OffsetStation.new()
+	near_b.id = "B"
+	near_b.element = "E2"
+	near_b.privileges = PackedStringArray(["sell_fuel"])
+	near_b.off = Vector2(0.0, 25.0)
+	var pair_a: Array[Buildings.Record] = [near_a, near_b]
+	var pair_b: Array[Buildings.Record] = [near_b, near_a]
+	_check(Refuel.nearest_within(zero, pair_a, Refuel.RADIUS_M) == near_a and Refuel.nearest_within(zero, pair_b, Refuel.RADIUS_M) == near_a, "two stations inside the radius at once (10 m and 25 m): the nearer wins in both array orders")
 	var nearest_m := INF
 	var nearest_id := ""
 	for record: Buildings.Record in real:
@@ -252,11 +293,17 @@ func _check_ring() -> Dictionary:
 	var marks := _marks(car)
 	var fills_before := refuel.fill_count
 	Input.action_press(Refuel.ACTION)
-	await _step(HOLD_FRAMES)
-	_check(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == fills_before + 1, "the key held %d ticks: the tank is exactly FUEL_TANK_CAPACITY_L (%.6f L), filled on one tick (%d fill)" % [HOLD_FRAMES, car.fuel_l, refuel.fill_count - fills_before])
-	Input.action_release(Refuel.ACTION)
+	await _step(1)
+	# The FIRST tick with the key held and the tank short: the fill is
+	# complete here, to the bit, one fill counted. fuel_mass is still the
+	# part tank's this tick - the car's own _physics_process (which
+	# refreshes it) ran before the Refuel node's in the same tick.
+	_check(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == fills_before + 1, "the FIRST tick with the key held and the tank short: the tank is exactly FUEL_TANK_CAPACITY_L (%.6f L), one fill counted" % car.fuel_l)
+	_check(car.fuel_mass == PART_TANK_L * ArcadeCar.FUEL_DENSITY, "the same tick fuel_mass is still the part tank's (%.6f kg): the car's tick ran before the fill" % car.fuel_mass)
 	await _step(1)
 	_check(car.fuel_mass == car.fuel_l * ArcadeCar.FUEL_DENSITY and car.fuel_mass == ArcadeCar.FUEL_TANK_CAPACITY_L * ArcadeCar.FUEL_DENSITY, "one tick later fuel_mass is exactly fuel_l x FUEL_DENSITY: %.6f kg" % car.fuel_mass)
+	Input.action_release(Refuel.ACTION)
+	await _step(HOLD_FRAMES)
 	result.fuel_l = car.fuel_l
 	result.fuel_mass = car.fuel_mass
 	fills_before = refuel.fill_count

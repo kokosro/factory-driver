@@ -10,7 +10,7 @@
 # a non-zero exit code or on any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the twenty-one tests side by side
+#   tests/run_tests.sh --parallel   the import first, then the twenty-two tests side by side
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
