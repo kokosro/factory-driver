@@ -5,6 +5,7 @@
 [ext_resource type="Script" path="res://scripts/chase_camera.gd" id="3_camera"]
 [ext_resource type="PackedScene" path="res://scenes/hud.tscn" id="4_hud"]
 [ext_resource type="PackedScene" path="res://scenes/garage.tscn" id="5_garage"]
+[ext_resource type="Script" path="res://scripts/refuel.gd" id="6_refuel"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_material"]
 sky_top_color = Color(0.22, 0.42, 0.75, 1)
@@ -48,5 +49,10 @@ target = NodePath("../Car")
 car = NodePath("../Car")
 
 [node name="Garage" parent="." node_paths=PackedStringArray("car", "hud") instance=ExtResource("5_garage")]
+car = NodePath("../Car")
+hud = NodePath("../HUD")
+
+[node name="Refuel" type="Node" parent="." node_paths=PackedStringArray("car", "hud")]
+script = ExtResource("6_refuel")
 car = NodePath("../Car")
 hud = NodePath("../HUD")

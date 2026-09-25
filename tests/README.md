@@ -2,11 +2,11 @@
 
 `tests/run_tests.sh` is the gate: a headless import, then the config, element catalogue,
 skeleton, world profile, buildings, ring drive, smoke, handling, camera, mission, battery, thermal,
-tyre/brake thermal, steering-feel, wear, licence, menu, issue flag, minimap, airborne and
-reset tests, the driving ones on the tick clock (`--fixed-fps 60`), a few minutes (the ring
+tyre/brake thermal, steering-feel, wear, licence, menu, issue flag, minimap, airborne, reset
+and refuel tests, the driving ones on the tick clock (`--fixed-fps 60`), a few minutes (the ring
 drive test builds the Ring's road twice and drives 2 km on it twice; the minimap test builds
 it once more, the reset test twice more and drives 400 m).
-`tests/run_tests.sh --parallel` runs the twenty-one tests side by side after the import and
+`tests/run_tests.sh --parallel` runs the twenty-two tests side by side after the import and
 prints the same lines in the same order. What each test checks is in the main
 `README.md`.
 
@@ -36,5 +36,6 @@ the issue flag test's `/tmp/fd-3IF-issue-<pid>/`, one per process each, removed 
 test finishes (the ring drive test writes nothing:
 it reads the checked-in skeleton and drape and builds in memory; the buildings test writes
 nothing either: it reads the checked-in focus table, and the raw OSM snapshot store only
-where it is on the machine, never fetching). No test opens a window or a
+where it is on the machine, never fetching; the refuel test writes nothing: the store is off
+headless). No test opens a window or a
 native dialog: the garage's folder picker is a GUI path the menu test never takes.

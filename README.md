@@ -1084,6 +1084,26 @@ putting it back there on the road at rest in 1st automatic with the fuel the dri
 2.4 km from the spawn, and driving on from it; a second Ring instanced fresh holding no
 pose and its first `R` landing on the spawn.
 
+And the refuel at a station (`tests/refuel_test.gd`; `scripts/refuel.gd`, the one place in the
+game a tank is filled - the driver's "running low on fuel already" on the Ring): the key
+is `U`, plain, on no other action with the engine's built-ins walked (`H`, the first
+candidate, is the engine's own plain `ui_filedialog_show_hidden`, as the flagger and the
+minimap found); the focus table's nine E2 stations all `can("sell_fuel")`, the radius
+30 m; the pure core on a synthetic station at exactly (0, 0): near at 10 m and at 30 m
+(inclusive), not at 30.001 m or 4 km, the nearer of two, and the real nine at the certified
+spawn none within 30 m (E2.4 the nearest at 311 m: the Ring is inert at the spawn); the
+Ring scene with the `Refuel` node wired to the car and the HUD, its line a `Label` under the
+HUD, hidden at the spawn with nothing filled and the key dead there; the car put at E2.4
+through `reset_to` with the tank at 20 L and the engine off: the line up with the exact
+text `FUEL STATION near — hold U to fill`, the key held 30 ticks filling the tank to
+exactly `FUEL_TANK_CAPACITY_L` on one tick, `fuel_mass` exactly `fuel_l x FUEL_DENSITY` a
+tick later, a second hold at a full tank filling nothing more, the six wear marks, the
+battery's wear and charge and the odometer set by hand before the fill moving nowhere
+toward new, the line down and the key dead again 100 m off; the pad with no `Refuel` node
+by name or class, no line, the key filling nothing there and the scene file naming no
+refuel; and a fresh car under a bare `Refuel` node filled the same way holding the
+identical `fuel_l` and `fuel_mass` bits.
+
 ### Handling tests
 
 The fourth step of `tests/run_tests.sh` runs `tests/handling_test.gd`: a scripted driver
@@ -1729,9 +1749,11 @@ It is the user's car: driven half empty one day, it is half empty the next - a c
 at 8 % starts at 8 %, the bar red. The level is read once, when the car enters the scene,
 before it is stood on its springs (the fuel is weight); no entry is a new car, a full
 tank; a `fuel_l` that is no level of this tank (not a number, not finite, under 0, over
-the tank) is an error in the log and a full tank. Nothing in the game refuels the car:
-`reset_to` (`R`) keeps the tank as it finds it - resetting is not refuelling; a gas
-station or a canister will, both world content to come - and tells the file nothing; the
+the tank) is an error in the log and a full tank. One thing in the game refuels the car:
+the gas station (`scripts/refuel.gd`: on the Ring, within 30 m of a placed E2 station, `U`
+held fills the tank to capacity through this same setter, nothing else restored; was: nothing,
+"a gas station or a canister will, both world content to come"). `reset_to` (`R`) keeps the
+tank as it finds it - resetting is not refuelling - and tells the file nothing; the
 next save on the 45 s cadence writes the tank as it then stands. The headless suite and
 the certified handling runs read nothing: every car there starts on the config's full
 tank, and every handling run's start hands its car the full tank by hand before its

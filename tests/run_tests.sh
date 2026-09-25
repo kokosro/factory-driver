@@ -140,6 +140,7 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 "$STEP" "minimap test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/minimap_test.gd
 "$STEP" "airborne test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/airborne_test.gd
 "$STEP" "reset test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/reset_test.gd
+"$STEP" "refuel test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/refuel_test.gd
 if [ "$PARALLEL" -eq 1 ]; then
 	join_steps
 fi
