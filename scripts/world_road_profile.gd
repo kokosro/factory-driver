@@ -95,6 +95,44 @@ const KARUSSELL_WAY := SkeletonLoader.KARUSSELL_WAY
 const KARUSSELL_BANK := 0.30
 const KARUSSELL_BOWL_M := 6.5  # [m]
 const KARUSSELL_STRIP_M := 1.0  # [m]
+## The Karussell blend (the ROAD-GEOMETRY FIX-NOW landing,
+## docs/issues-analysis-2026-09-24.md §3.3 (a); was no ramp: the bank's
+## bowl began at chainage 0 and ended at the label's `to` as a step
+## against the neighbours' planes - an edge wall of -0.878 / +1.211 m at
+## the entry and +1.269 / -1.281 m at the exit, a 0.516 m wheel
+## differential = 16.7° of roll inside 0.25 m of travel, issues 0014, 0015
+## and 0016): the bank label's `at` is the ramp's length and `to` the
+## length less the ramp, a new key `ramp_m` carries the ramp itself, the
+## way's crossfall array ramps from each neighbour's stitched plane value
+## to the bank over the ramp (write-side, drape.py), and the platform
+## blends linearly from the plane formula to the bowl over
+## [at - ramp_m, at] and [to, to + ramp_m] (_platform_height). 30 m, the
+## doc's second candidate (the edge height moves 0.32 x 3.75 / 30 = 0.04 m
+## per metre): its first, 20 m, measured 0.053 m for the largest one-step
+## jump at +3.75 at the entry against the doc's 0.05 m fence - the
+## estimate left out the crown's fade where the ramped crossfall passes
+## through zero, an edge kink of its own on top of the ramp and the +4 %
+## grade; 30 m reads under the fence at both junctions. A label without
+## ramp_m ramps over nothing: the 4B-3 file reads exactly as before.
+const KARUSSELL_RAMP_M := 30.0  # [m]
+
+## The crossfall-twist rule (the ROAD-GEOMETRY FIX-NOW landing,
+## docs/issues-analysis-2026-09-24.md §4.2; drape.py's, mirrored here for
+## the fixture path): the signed curvature at a skeleton point is the
+## polyline's heading change over CURVATURE_WINDOW_M centred on the point
+## (clamped to the segment) divided by that length - was the three-point
+## Menger circle through the point and its two neighbours, whose sign
+## flipped on every short chord (799394513-1's points 8/9: -0.04 -> +0.04
+## -> -0.06 inside 0.45 m, a 0.94 m/m twist at the paved edge, the "stuck
+## car" of issue 0007; 19 loop chords twisted over 0.02 m/m) - and the
+## superelevation may then change by at most SUPERELEVATION_RUNOFF_PER_M
+## per metre of chainage (a 4 % superelevation runs off over 10 m, a
+## reversal over 20 m; the loop's 4.25 m half width twists at most 0.017
+## m/m): the values are projected onto that bound by the midpoint of
+## their two McShane envelopes (runoff), the ends free before the
+## junction stitch and pinned after it.
+const CURVATURE_WINDOW_M := 20.0  # [m]
+const SUPERELEVATION_RUNOFF_PER_M := 0.004  # [rise over run, per m]
 
 ## The file's rounding: heights to the centimetre, crossfall to 1e-4,
 ## curvature to 1e-5, chainage to the millimetre (drape.py, chosen there).
@@ -132,7 +170,7 @@ const LATTICE_KEYS := ["step_m", "x0", "z0", "cols", "rows", "heights"]
 const SEGMENT_KEYS := ["id", "covered", "heights", "dense", "crossfall", "labels"]
 const LABEL_KINDS := ["crest", "dip", "bank"]
 const GEOMETRY_LABEL_KEYS := ["at", "kind", "curvature_20m", "curvature_40m"]
-const BANK_LABEL_KEYS := ["at", "kind", "to", "bank", "bowl_m", "strip_m"]
+const BANK_LABEL_KEYS := ["at", "kind", "to", "bank", "bowl_m", "strip_m", "ramp_m"]
 const RULES := {
 	"station_step_m": STATION_STEP_M, "crown": CROWN,
 	"superelevation_gain_m": SUPERELEVATION_GAIN_M, "superelevation_max": SUPERELEVATION_MAX,
@@ -167,6 +205,16 @@ class Road:
 	var bank_to: float = 0.0
 	var bank_slope: float = 0.0
 	var bank_strip: float = 0.0
+	## The Karussell blend (KARUSSELL_RAMP_M): where the bowl begins in
+	## full (the label's `at`), the ramp's length either side of [at, to]
+	## (the label's `ramp_m`, 0 when the label has none: a step, as
+	## before) and the bank's side (+1 rises to the right of travel), read
+	## from the crossfall at the bank's middle - the ramped ends of the
+	## array carry the neighbours' plane values, so the sign cannot be
+	## read at a point inside a ramp.
+	var bank_at: float = 0.0
+	var bank_ramp: float = 0.0
+	var bank_sign: float = 1.0
 
 	## How far from the centreline the road has a say [m]: the paved half
 	## width plus the blend band.
@@ -297,6 +345,9 @@ static func _road_of(raw: Dictionary, segment: SkeletonLoader.Segment, points: A
 			road.bank_to = float(label.get("to", road.length))
 			road.bank_slope = float(label.get("bank", 0.0))
 			road.bank_strip = float(label.get("strip_m", 0.0))
+			road.bank_at = float(label.get("at", 0.0))
+			road.bank_ramp = float(label.get("ramp_m", 0.0))
+			road.bank_sign = 1.0 if crossfall_at(road, 0.5 * (road.bank_at + road.bank_to)) >= 0.0 else -1.0
 	return road
 
 
@@ -444,7 +495,7 @@ func centre_height(road: Road, chainage: float) -> float:
 
 
 ## The crossfall at a chainage: the points' values, linear between them.
-func crossfall_at(road: Road, chainage: float) -> float:
+static func crossfall_at(road: Road, chainage: float) -> float:
 	var s := clampf(chainage, 0.0, road.length)
 	for i: int in range(1, road.chain.size()):
 		if road.chain[i] >= s:
@@ -457,19 +508,50 @@ func crossfall_at(road: Road, chainage: float) -> float:
 ## The platform's height at a chainage and a signed offset to the right of
 ## travel [m] (clamped to the paved half width): the centre height plus the
 ## crossfall's shape (the crown fading into a plane as the superelevation
-## grows), or the bank's bowl where the road has one.
+## grows), or the bank's bowl where the road has one - blended from the
+## plane to the bowl over the ramp at each end of the bank (bank_weight;
+## the Karussell blend, KARUSSELL_RAMP_M). The plane and the bowl share
+## the centre height, so the blend touches the cross-section only, never
+## the centre line.
 func _platform_height(road: Road, chainage: float, offset: float) -> float:
 	var o := clampf(offset, -road.half_width, road.half_width)
 	var centre := centre_height(road, chainage)
 	var e := crossfall_at(road, chainage)
-	if road.bank and chainage <= road.bank_to:
-		# u: distance from the low edge; flat over the strip, then the bank;
-		# anchored so the centre sits at the DEM's centre height.
-		var u := signf(e) * o + road.half_width
-		var low := centre - road.bank_slope * maxf(road.half_width - road.bank_strip, 0.0)
-		return low + road.bank_slope * maxf(u - road.bank_strip, 0.0)
+	var weight := bank_weight(road, chainage)
+	if weight >= 1.0:
+		return _bowl_height(road, centre, o)
 	var crown_share := 1.0 - minf(absf(e) / CROWN, 1.0)
-	return centre + e * o - crown_share * CROWN * absf(o)
+	var plane := centre + e * o - crown_share * CROWN * absf(o)
+	if weight <= 0.0:
+		return plane
+	return lerpf(plane, _bowl_height(road, centre, o), weight)
+
+
+## The bank's bowl at a signed offset: u the distance from the low edge;
+## flat over the strip, then the bank; anchored so the centre sits at the
+## DEM's centre height.
+static func _bowl_height(road: Road, centre: float, o: float) -> float:
+	var u := road.bank_sign * o + road.half_width
+	var low := centre - road.bank_slope * maxf(road.half_width - road.bank_strip, 0.0)
+	return low + road.bank_slope * maxf(u - road.bank_strip, 0.0)
+
+
+## The bowl's share of the platform at a chainage: 1 over [bank_at,
+## bank_to], falling linearly to 0 over the ramp before bank_at and the
+## ramp after bank_to, 0 elsewhere; a road without a bank, or a bank
+## without a ramp outside [bank_at, bank_to], reads 0 (a label without
+## ramp_m and at 0: the bowl to `to` and a step there, as before the
+## blend).
+static func bank_weight(road: Road, chainage: float) -> float:
+	if not road.bank:
+		return 0.0
+	if chainage >= road.bank_at and chainage <= road.bank_to:
+		return 1.0
+	if road.bank_ramp <= 0.0:
+		return 0.0
+	if chainage < road.bank_at:
+		return clampf((chainage - (road.bank_at - road.bank_ramp)) / road.bank_ramp, 0.0, 1.0)
+	return clampf((road.bank_to + road.bank_ramp - chainage) / road.bank_ramp, 0.0, 1.0)
 
 
 ## The nearest chord to (x, z) among those filed under its cell and within
@@ -571,8 +653,24 @@ static func superelevation(curvature: float) -> float:
 	return e if curvature < 0.0 else -e
 
 
-## The crossfall at every point: the three-point circle at each interior
-## point, the ends their neighbour's, a two-point segment 0 (the crown).
+## The signed turn at p1 from the chord p0-p1 to the chord p1-p2 [rad],
+## negative for a left turn (the cross product's sign, as
+## signed_curvature's), 0 when a chord has no length.
+static func signed_turn(x0: float, z0: float, x1: float, z1: float, x2: float, z2: float) -> float:
+	var ax := x1 - x0
+	var az := z1 - z0
+	var bx := x2 - x1
+	var bz := z2 - z1
+	if (ax == 0.0 and az == 0.0) or (bx == 0.0 and bz == 0.0):
+		return 0.0
+	return atan2(ax * bz - az * bx, ax * bx + az * bz)
+
+
+## The crossfall at every point (the crossfall-twist rule, the constants):
+## the superelevation of the heading change over CURVATURE_WINDOW_M around
+## each point, run off at SUPERELEVATION_RUNOFF_PER_M with the ends free,
+## then the ends their neighbour's; a two-point segment 0 (the crown).
+## was the three-point circle at each interior point.
 static func crossfall_of(xs: PackedFloat64Array, zs: PackedFloat64Array) -> PackedFloat64Array:
 	var n := xs.size()
 	var out := PackedFloat64Array()
@@ -580,10 +678,61 @@ static func crossfall_of(xs: PackedFloat64Array, zs: PackedFloat64Array) -> Pack
 	out.fill(0.0)
 	if n < 3:
 		return out
+	var chain := chainages(xs, zs)
+	var length := chain[n - 1]
+	var turns := PackedFloat64Array()
+	turns.resize(n)
+	turns.fill(0.0)
 	for i: int in range(1, n - 1):
-		out[i] = superelevation(signed_curvature(xs[i - 1], zs[i - 1], xs[i], zs[i], xs[i + 1], zs[i + 1]))
+		turns[i] = signed_turn(xs[i - 1], zs[i - 1], xs[i], zs[i], xs[i + 1], zs[i + 1])
+	for i: int in n:
+		var a := maxf(0.0, chain[i] - 0.5 * CURVATURE_WINDOW_M)
+		var b := minf(length, chain[i] + 0.5 * CURVATURE_WINDOW_M)
+		if b - a <= 0.0:
+			continue
+		var total := 0.0
+		for k: int in range(1, n - 1):
+			if chain[k] >= a and chain[k] <= b:
+				total += turns[k]
+		out[i] = superelevation(total / (b - a))
+	out = runoff(out, chain, false)
 	out[0] = out[1]
 	out[n - 1] = out[n - 2]
+	return out
+
+
+## The crossfall values `e` at the chainages `chain` projected onto the
+## runoff bound (|Δe| ≤ SUPERELEVATION_RUNOFF_PER_M × Δchainage between
+## any two points): the midpoint of the lower and upper McShane envelopes
+## of the values, itself within the bound. `pinned`: the two end values
+## are kept (after the junction stitch has written them) - the interior is
+## first clamped into the cones the ends allow, and the envelopes then
+## return the ends unchanged; ends that cannot both be met (their gap over
+## the bound times the length) leave the values as they are. Fewer than
+## three points: nothing to run off.
+static func runoff(e: PackedFloat64Array, chain: PackedFloat64Array, pinned: bool) -> PackedFloat64Array:
+	var n := e.size()
+	var out := e.duplicate()
+	if n < 3:
+		return out
+	var r := SUPERELEVATION_RUNOFF_PER_M
+	var length := chain[n - 1]
+	var f := e.duplicate()
+	if pinned:
+		if absf(e[0] - e[n - 1]) > r * length + 1e-12:
+			return out
+		for i: int in range(1, n - 1):
+			var lo := maxf(e[0] - r * chain[i], e[n - 1] - r * (length - chain[i]))
+			var hi := minf(e[0] + r * chain[i], e[n - 1] + r * (length - chain[i]))
+			f[i] = minf(maxf(f[i], lo), hi)
+	for i: int in n:
+		var low := INF
+		var up := -INF
+		for j: int in n:
+			var reach := r * absf(chain[i] - chain[j])
+			low = minf(low, f[j] + reach)
+			up = maxf(up, f[j] - reach)
+		out[i] = (low + up) / 2.0
 	return out
 
 
@@ -692,14 +841,37 @@ static func drape_segment(segment: SkeletonLoader.Segment, points: Array, sample
 	for h: Variant in raw_points:
 		heights.append(null if h == null else _rounded(h, HEIGHT_DECIMALS))
 	var labels: Array[Dictionary] = labels_of(dense_packed, length) if covered else []
+	crossfall = runoff(crossfall, chain, true)
 	if segment.osm_way == KARUSSELL_WAY:
 		var total := 0.0
 		for e: float in crossfall:
 			total += e
 		var sign := 1.0 if total >= 0.0 else -1.0
-		crossfall.fill(sign * KARUSSELL_BANK)
-		labels.append({"at": 0.0, "kind": "bank", "to": _rounded(length, CHAINAGE_DECIMALS), "bank": KARUSSELL_BANK, "bowl_m": KARUSSELL_BOWL_M, "strip_m": KARUSSELL_STRIP_M})
+		crossfall = karussell_crossfall(crossfall, chain, sign * KARUSSELL_BANK)
+		labels.append({"at": KARUSSELL_RAMP_M, "kind": "bank", "to": _rounded(length - KARUSSELL_RAMP_M, CHAINAGE_DECIMALS), "bank": KARUSSELL_BANK, "bowl_m": KARUSSELL_BOWL_M, "strip_m": KARUSSELL_STRIP_M, "ramp_m": KARUSSELL_RAMP_M})
 	return {"id": segment.id, "covered": covered, "heights": heights, "dense": dense, "crossfall": _rounded_all(crossfall, CROSSFALL_DECIMALS), "labels": labels}
+
+
+## The Karussell's crossfall array (the Karussell blend): the bank over the
+## plateau, ramped linearly over KARUSSELL_RAMP_M at each end from the
+## end point's own plane value (the junction's stitched tilt in the
+## pipeline; here, the end's own) to the bank; the end points keep their
+## plane values. was the bank at every point.
+static func karussell_crossfall(crossfall: PackedFloat64Array, chain: PackedFloat64Array, bank: float) -> PackedFloat64Array:
+	var n := crossfall.size()
+	var out := crossfall.duplicate()
+	var length := chain[n - 1]
+	var e_start := crossfall[0]
+	var e_end := crossfall[n - 1]
+	for i: int in n:
+		var s := chain[i]
+		if s < KARUSSELL_RAMP_M:
+			out[i] = e_start + (bank - e_start) * (s / KARUSSELL_RAMP_M)
+		elif s > length - KARUSSELL_RAMP_M:
+			out[i] = e_end + (bank - e_end) * ((length - s) / KARUSSELL_RAMP_M)
+		else:
+			out[i] = bank
+	return out
 
 
 ## The point at chainage s as [x, z] in 64-bit floats: the mirror's station
@@ -1025,6 +1197,19 @@ static func _check_labels(errors: PackedStringArray, id: String, labels: Variant
 				errors.append("segment %s bank: strip %s + bowl %s is not the paved width %s" % [id, label.strip_m, label.bowl_m, width])
 			if _is_number(label.get("bank")) and (label.bank <= 0.0 or label.bank > 1.0):
 				errors.append("segment %s bank is %s, not a rise over run in (0, 1]" % [id, label.bank])
+			# The Karussell blend's ramp (additive: a label without ramp_m
+			# is the 4B-3 file's, checked as before): a length that fits
+			# before `at` and after `to`, and at before to.
+			if label.has("ramp_m"):
+				if not (_is_number(label.get("ramp_m")) and label.ramp_m >= 0.0):
+					errors.append("segment %s bank ramp_m is %s, not a length" % [id, label.get("ramp_m")])
+				elif _is_number(label.get("at")) and _is_number(label.get("to")):
+					if label.at + 1e-6 < label.ramp_m:
+						errors.append("segment %s bank: the ramp %s does not fit before at %s" % [id, label.ramp_m, label.at])
+					if label.to + label.ramp_m > length + 1e-3:
+						errors.append("segment %s bank: the ramp %s does not fit after to %s (the segment is %.3f)" % [id, label.ramp_m, label.to, length])
+			if _is_number(label.get("at")) and _is_number(label.get("to")) and label.at > label.to + 1e-6:
+				errors.append("segment %s bank: at %s is past to %s" % [id, label.at, label.to])
 		else:
 			if not _is_number(label.get("curvature_20m")):
 				errors.append("segment %s.labels[%d].curvature_20m is %s, not a number" % [id, j, label.get("curvature_20m")])

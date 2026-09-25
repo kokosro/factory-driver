@@ -58,7 +58,12 @@ const RING_SCENE := "res://scenes/eifel_ring.tscn"
 ## Whittaker-smoothed at lambda 5 with the crest/dip runs held to the raw
 ## data, every junction's ends stitched in height and crossfall;
 ## tools/world/drape.py's header, docs/design/4b/data-pipeline.md §5).
-const DRAPE_SHA256 := "f3ca142bcc1a3a36ec559889f4d4261a36ee583c4fd52381f64fa09aae64354a"
+## was ROAD-SMOOTHING's f3ca142b... (5 401 198 bytes) -> aac02239...
+## (5 402 717 bytes), the ROAD-GEOMETRY FIX-NOW landing's regeneration:
+## the crossfall-twist rule's arrays and the Karussell blend's ramped
+## array and label, nothing else (the dense heights, the lattice and every
+## other label byte-equal, proven by a structural diff at the landing).
+const DRAPE_SHA256 := "aac02239e450343e4ddf859f5fa3f7d9335f2c80469c14692cce271f6c9683bf"
 
 ## The drape's covered segments (tests/world_profile_test.gd's count) and
 ## the loop's (tests/skeleton_test.gd's): every one swept but the ten
@@ -341,7 +346,7 @@ func _step(frames: int) -> void:
 
 func _check_files() -> void:
 	_ok(_skeleton is Dictionary and _drape is Dictionary, "the skeleton and the drape read as JSON")
-	_ok(FileAccess.get_sha256(WorldRoadProfile.PATH) == DRAPE_SHA256, "drape.json is byte-identical to ROAD-SMOOTHING's (sha256 %s; was 4B-3's b8d4e531...): the rim rule corrects parsed data, never the file" % DRAPE_SHA256.left(12), "drape.json's sha256 is %s" % FileAccess.get_sha256(WorldRoadProfile.PATH))
+	_ok(FileAccess.get_sha256(WorldRoadProfile.PATH) == DRAPE_SHA256, "drape.json is byte-identical to the ROAD-GEOMETRY FIX-NOW regeneration's (sha256 %s; was ROAD-SMOOTHING's f3ca142b..., before that 4B-3's b8d4e531...): the rim rule corrects parsed data, never the file" % DRAPE_SHA256.left(12), "drape.json's sha256 is %s" % FileAccess.get_sha256(WorldRoadProfile.PATH))
 	var entry: Dictionary = Garage.MAPS[Garage.MAPS.size() - 1] if Garage.MAPS.size() == 2 else {}
 	_ok(Garage.MAPS.size() == 2 and entry.get("id") == "eifel_ring" and entry.get("scene") == RING_SCENE and ResourceLoader.exists(RING_SCENE), "Garage.MAPS lists the Ring after the pad: id %s, scene %s, and the scene file exists (was one map, the Ring row a push_error)" % [entry.get("id"), entry.get("scene")], "Garage.MAPS is %s" % [Garage.MAPS])
 

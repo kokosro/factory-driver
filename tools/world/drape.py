@@ -175,6 +175,89 @@ as the Conductor adjudicated it, its numbers verified here):
     untouched, the file's schema and `rules` the same (the reader refuses
     other rules and another pipeline_version, so PIPELINE_VERSION stays 1
     and the smoothing's constants live here and in data-pipeline.md §5).
+
+THE CROSSFALL-TWIST RULE AND THE KARUSSELL BLEND (2026-09-25, the
+ROAD-GEOMETRY FIX-NOW landing after docs/issues-analysis-2026-09-24.md §3.3
+(a) and §4.2; the driver's issues 0007/0013 "rear tyres suspended, can't
+move", 0009/0010 "road work", 0014/0015/0016 the Karussell's seams):
+  * THE CURVATURE WINDOW - was the three-point Menger circle through each
+    interior skeleton point and its two neighbours, whose sign flipped on
+    every short chord (799394513-1's points 8/9: -0.04 -> +0.04 -> -0.06
+    inside 0.45 m, a 0.94 m/m twist at the paved edge, a 0.34 m saw-tooth
+    the car's rear wheels read as unsupported; 19 loop chords twisted over
+    0.02 m/m, 7 over 0.05) -> the signed curvature at a point is the
+    polyline's heading change (the signed turns at the skeleton points)
+    over CURVATURE_WINDOW_M centred on it, clamped to the segment, divided
+    by that length: the turning per metre of road, the labels' own 20 m
+    window, the chord lengths no longer in it (a 90° corner between two
+    100 m chords reads R 12.7 m and the hairpin cap, not the circle's
+    R 70.7 m: the selftest's and the fixture's bend re-pinned 0.04 ->
+    0.06). The superelevation rule (GAIN / R, the two caps) is unchanged.
+  * THE RUNOFF - the superelevation may change by at most
+    SUPERELEVATION_RUNOFF_PER_M (0.004) per metre of chainage, the road
+    design notion of a superelevation runoff (a 4 % bank runs off over
+    10 m, a reversal over 20 m; the loop's 4.25 m half width then twists
+    at most 0.017 m/m at the edge, under the doc's 0.02 fence with the
+    rounding's margin): runoff() projects a segment's values onto the
+    bound by the midpoint of their lower and upper McShane envelopes
+    (min_j e_j + r|s_i - s_j| and max_j e_j - r|s_i - s_j|, each
+    r-Lipschitz, so their mean is; a value already within the bound comes
+    back bit for bit). Twice: in crossfall_of with the ends free, before
+    the junction stitch (then the ends take their neighbour's value, as
+    before, so an end's pre-stitch tilt is still its neighbour point's -
+    the junction rule and its test read it there), and in finish() with
+    the ends pinned to what the stitch wrote (the interior first clamped
+    into the cones the two ends allow, the envelopes then returning the
+    ends unchanged) - a stitch that moved an end by 0.03 across a 0.76 m
+    first chord (799394505-1) would otherwise be the twist it had just
+    removed. Ends that cannot both be met (their gap over r x length: a
+    short segment between two junctions of different tilt) are left as
+    they are, counted in stats["runoff_unmet"] and reported.
+  * THE STUB RULE - a plain covered segment shorter than STUB_M (15 m, the
+    runoff a hairpin's 6 % needs) between a rigid participant at one end
+    (a bridge's deck end, a tunnel's portal, a partly covered segment:
+    their tilts are never written by the stitch, so this is the same
+    whatever the junctions' order) and a junction at the other holds the
+    rigid tilt AT THE JUNCTION, as a rigid participant there (rigid_pick
+    among the rigid ones): it cannot run a tilt off within its length,
+    so the deck's tilt goes through it to the node and the plain roads
+    meeting there run it off inside themselves. Measured need: the 4.13 m
+    loop stub 41395670-0 between the Hohenrain deck (level) and the
+    four-way T13 node (the node's mean -0.0286 in its frame) was the last
+    loop chord over the fence at 0.0294 m/m; 36 such stubs stand in the
+    core, two on the loop.
+  * THE KARUSSELL BLEND - was the bank's 0.30 at every point of way
+    414785755 and the label at 0 / to length, the way excluded from the
+    crossfall stitch, so the bowl met the neighbours' planes (-0.0193 and
+    -0.04) as a step: an edge wall of -0.878 / +1.211 m at the entry and
+    +1.269 / -1.281 m at the exit, a 0.516 m wheel differential = 16.7° of
+    roll inside 0.25 m of travel (§2.2 of the doc) -> the way's ends are
+    written the node's tilt like any plain participant (it still does not
+    vote: the bank is not a bend's superelevation), its array ramps
+    linearly over KARUSSELL_RAMP_M (20 m) from each end's stitched plane
+    value to the bank, evaluated at the skeleton's points (the reader
+    lerps between them), the label reads at 30 / to length - 30 and a new
+    key ramp_m 30 (additive: the reader's BANK_LABEL_KEYS gains it, a
+    label without it reads as before), and the reader blends the platform
+    from the plane to the bowl over [at - ramp_m, at] and [to, to +
+    ramp_m] (WorldRoadProfile._platform_height / bank_weight, RoadBuilder
+    following through the profile's own sample_height with sections at
+    the ramps' ends and a fourth vertex on the crown line). 30 m, the
+    doc's second candidate (the edge moves 0.32 x 3.75 / 30 = 0.04 m per
+    metre): the first, 20 m, was measured through the reader at 0.053 m
+    for the largest one-step at +3.75 at the entry against the doc's
+    0.05 m fence - the doc's estimate left out the crown's fade where the
+    ramped crossfall passes through zero, its own 0.075 m edge kink over
+    a metre or two on top of the ramp's 0.06 m/m and the +4 % grade; 30 m
+    reads under the fence at both junctions. The centre heights are
+    untouched by any of this: the
+    regenerated file differs from f3ca142b... only in crossfall arrays and
+    the one bank label (proven by a structural diff at the landing).
+  * Reader-side, this time: world_road_profile.gd mirrors crossfall_of
+    (signed_turn, the window, runoff) and karussell_crossfall for the
+    fixture path and reads the blend; road_builder.gd's mesh follows the
+    profile. PIPELINE_VERSION stays 1: the schema is additive and the
+    reader reads both files.
 """
 
 import argparse
@@ -223,6 +306,18 @@ SUPERELEVATION_GAIN_M = 8.0  # e = GAIN / R: R 200 m -> 4 %, R 400 m -> 2 %
 SUPERELEVATION_MAX = 0.04  # R2: ≤ 4 % on public roads
 HAIRPIN_RADIUS_M = 30.0  # R3: a hairpin has R < 30 m ...
 HAIRPIN_SUPERELEVATION_MAX = 0.06  # ... and crossfall 6 % max
+# THE CROSSFALL-TWIST RULE (the header): the curvature at a skeleton point
+# is the heading change over this window centred on it (clamped to the
+# segment) over that length; the superelevation may then change by at most
+# SUPERELEVATION_RUNOFF_PER_M per metre of chainage (a 4 % superelevation
+# runs off over 10 m, a reversal over 20 m; the loop's 4.25 m half width
+# twists at most 0.017 m/m at the edge); a plain segment shorter than
+# STUB_M - the runoff a hairpin's 6 % needs - standing between a rigid
+# participant (a bridge's deck, a tunnel's portal) and a junction cannot
+# run a tilt off and carries the rigid tilt through to the node.
+CURVATURE_WINDOW_M = 20.0  # [m]
+SUPERELEVATION_RUNOFF_PER_M = 0.004  # [rise over run, per m of chainage]
+STUB_M = HAIRPIN_SUPERELEVATION_MAX / SUPERELEVATION_RUNOFF_PER_M  # 15 m
 # chosen for the drape: the crown's share fades as the superelevation grows,
 # 1 - min(|e| / CROWN, 1), so the platform's shape is continuous from a
 # crowned straight (e = 0) to a plane tilted at e (|e| ≥ 2 %):
@@ -261,6 +356,18 @@ KARUSSELL_WAY = 414785755
 KARUSSELL_BANK = 0.30  # rise over run
 KARUSSELL_BOWL_M = 6.5  # [m]
 KARUSSELL_STRIP_M = 1.0  # [m]
+# THE KARUSSELL BLEND (the header): the bank label's `at` is this ramp and
+# `to` the length less it, `ramp_m` carries the ramp itself; the way's
+# crossfall array ramps linearly from each end's stitched plane value to
+# the bank over the ramp (evaluated at the skeleton's points), and the
+# reader blends the platform from the plane to the bowl over the same
+# stretch. was no ramp: at 0, to the length, 0.30 at every point. 30 m,
+# not the doc's first candidate 20: measured through the reader at the
+# entry, a 20 m ramp's largest one-step at +3.75 was 0.053 m - the doc's
+# 0.06 m/m estimate left out the crown's fade where the ramped crossfall
+# passes through zero, which adds its own 0.075 m edge kink over a metre
+# or two - against the 0.05 m fence; 30 m reads under it at both ends.
+KARUSSELL_RAMP_M = 30.0  # [m]
 
 # Rounding (§7's mm rule, adapted: chosen for the drape, heights to the
 # centimetre — the DGM1's stated accuracy is ±10 cm + 5 % of the grid, so a
@@ -550,18 +657,108 @@ def superelevation(curvature):
     return e if curvature < 0.0 else -e
 
 
+def signed_turn(p0, p1, p2):
+    """The signed turn at p1 from the chord p0-p1 to the chord p1-p2 [rad],
+    negative for a left turn (the cross product's sign, signed_curvature's),
+    0 when a chord has no length."""
+    ax = p1[0] - p0[0]
+    az = p1[1] - p0[1]
+    bx = p2[0] - p1[0]
+    bz = p2[1] - p1[1]
+    if (ax == 0.0 and az == 0.0) or (bx == 0.0 and bz == 0.0):
+        return 0.0
+    return math.atan2(ax * bz - az * bx, ax * bx + az * bz)
+
+
 def crossfall_of(points):
-    """The crossfall at every point of a segment: the three-point circle
-    through each interior point and its neighbours; the ends take their
-    neighbour's value; a two-point segment is a crowned straight (0)."""
+    """The crossfall at every point of a segment (THE CROSSFALL-TWIST RULE):
+    the superelevation of the polyline's heading change over
+    CURVATURE_WINDOW_M centred on the point (clamped to the segment) over
+    that length, run off at SUPERELEVATION_RUNOFF_PER_M with the ends free,
+    then the ends take their neighbour's value; a two-point segment is a
+    crowned straight (0). was the three-point circle through each interior
+    point and its neighbours, whose sign flipped on every short chord."""
     n = len(points)
     if n < 3:
         return [0.0] * n
-    out = [0.0] * n
+    chain = chainages(points)
+    length = chain[-1]
+    turns = [0.0] * n
     for i in range(1, n - 1):
-        out[i] = superelevation(signed_curvature(points[i - 1], points[i], points[i + 1]))
+        turns[i] = signed_turn(points[i - 1], points[i], points[i + 1])
+    out = [0.0] * n
+    for i in range(n):
+        a = max(0.0, chain[i] - 0.5 * CURVATURE_WINDOW_M)
+        b = min(length, chain[i] + 0.5 * CURVATURE_WINDOW_M)
+        if b - a <= 0.0:
+            continue
+        total = 0.0
+        for k in range(1, n - 1):
+            if a <= chain[k] <= b:
+                total += turns[k]
+        out[i] = superelevation(total / (b - a))
+    out, _applied = runoff(out, chain, False)
     out[0] = out[1]
     out[n - 1] = out[n - 2]
+    return out
+
+
+def runoff(e, chain, pinned):
+    """The crossfall values `e` at the chainages `chain` projected onto the
+    runoff bound (|Δe| ≤ SUPERELEVATION_RUNOFF_PER_M × Δchainage between any
+    two points): the midpoint of the values' lower and upper McShane
+    envelopes, itself within the bound. `pinned`: the two end values are
+    kept (the junction stitch has written them) - the interior is first
+    clamped into the cones the ends allow and the envelopes then return the
+    ends unchanged; ends that cannot both be met (their gap over the bound
+    times the length) leave the values as they are, and the second value
+    returned says whether anything was applied. Fewer than three points:
+    nothing to run off. The same arithmetic, in the same order, as
+    world_road_profile.gd's runoff()."""
+    n = len(e)
+    out = list(e)
+    if n < 3:
+        return out, False
+    r = SUPERELEVATION_RUNOFF_PER_M
+    length = chain[-1]
+    f = list(e)
+    if pinned:
+        if abs(e[0] - e[n - 1]) > r * length + 1e-12:
+            return out, False
+        for i in range(1, n - 1):
+            lo = max(e[0] - r * chain[i], e[n - 1] - r * (length - chain[i]))
+            hi = min(e[0] + r * chain[i], e[n - 1] + r * (length - chain[i]))
+            f[i] = min(max(f[i], lo), hi)
+    for i in range(n):
+        low = math.inf
+        up = -math.inf
+        for j in range(n):
+            reach = r * abs(chain[i] - chain[j])
+            low = min(low, f[j] + reach)
+            up = max(up, f[j] - reach)
+        out[i] = (low + up) / 2.0
+    return out, True
+
+
+def karussell_crossfall(crossfall, chain, bank):
+    """The Karussell's crossfall array (THE KARUSSELL BLEND): the bank over
+    the plateau, ramped linearly over KARUSSELL_RAMP_M at each end from the
+    end point's own plane value (the junction's stitched tilt) to the bank;
+    the end points keep their plane values. was the bank at every point.
+    The same arithmetic as world_road_profile.gd's karussell_crossfall()."""
+    n = len(crossfall)
+    out = list(crossfall)
+    length = chain[-1]
+    e_start = crossfall[0]
+    e_end = crossfall[-1]
+    for i in range(n):
+        s = chain[i]
+        if s < KARUSSELL_RAMP_M:
+            out[i] = e_start + (bank - e_start) * (s / KARUSSELL_RAMP_M)
+        elif s > length - KARUSSELL_RAMP_M:
+            out[i] = e_end + (bank - e_end) * ((length - s) / KARUSSELL_RAMP_M)
+        else:
+            out[i] = bank
     return out
 
 
@@ -832,10 +1029,13 @@ def stitch_junctions(skeleton, raw_records, stats=None):
     loop_ids = set()
     for loop in skeleton.get("loops", []):
         loop_ids.update(loop["segments"])
+    junction_at_end = junction_ends_of(skeleton, by_id)
     nodes = 0
     ends_blended = 0
     crossfall_nodes = 0
     crossfall_rigid_nodes = 0
+    stub_nodes = 0
+    bank_ends = 0
     largest = 0.0
     largest_where = ""
     largest_e = 0.0
@@ -881,37 +1081,111 @@ def stitch_junctions(skeleton, raw_records, stats=None):
                     d = s if end == 0 else length - s
                     if d <= radius:
                         record["raw"][k] += smoothstep(1.0 - d / radius) * offset
-        # The crossfall, as a world-space tilt.
-        tilted = []  # (segment, record, end, right normal, tilt vector)
+        # The crossfall, as a world-space tilt. A bank participant (the
+        # Karussell) does not vote and is written the node's tilt at its
+        # end - the plane value its ramp starts from (THE KARUSSELL BLEND;
+        # was: neither voting nor moving, so the bank met the neighbour's
+        # plane as a step). A short plain participant standing between a
+        # rigid participant at its other end and this node holds that
+        # rigid tilt here (the stub rule, THE CROSSFALL-TWIST RULE).
+        tilted = []  # (segment, record, end, right normal, tilt vector, bank, held)
         for segment, record, end in ends:
-            if segment["osm_way"] == KARUSSELL_WAY:
-                continue
             right = end_right_normal(segment["points"], end)
             if right is None:
                 continue
             e = record["crossfall"][end]
-            tilted.append((segment, record, end, right, (e * right[0], e * right[1])))
+            bank = segment["osm_way"] == KARUSSELL_WAY
+            held = None
+            if record["covered"] and not record["rigid"] and not bank:
+                held = stub_tilt(segment, record, end, junction, junction_at_end, by_id, segments, loop_ids)
+            tilt = held if held is not None else (e * right[0], e * right[1])
+            tilted.append((segment, record, end, right, tilt, bank, held is not None))
         if len(tilted) >= 2:
-            rigid_tilts = [t for t in tilted if t[1]["rigid"] or not t[1]["covered"]]
-            plain_tilts = [t for t in tilted if t[1]["covered"] and not t[1]["rigid"]]
-            if not plain_tilts:
+            rigid_tilts = [t for t in tilted if t[1]["rigid"] or not t[1]["covered"] or t[6]]
+            plain_tilts = [t for t in tilted if t[1]["covered"] and not t[1]["rigid"] and not t[5] and not t[6]]
+            bank_tilts = [t for t in tilted if t[1]["covered"] and not t[1]["rigid"] and t[5]]
+            if not plain_tilts and not (bank_tilts and rigid_tilts):
                 continue
             if rigid_tilts:
                 target_vector = rigid_pick([(t[0], t[4], t[2]) for t in rigid_tilts], loop_ids)[1]
                 crossfall_rigid_nodes += 1
+                if any(t[6] for t in rigid_tilts):
+                    stub_nodes += 1
             else:
                 winners = winners_of([(t[0], t[4]) for t in plain_tilts], loop_ids)
                 target_vector = (mean_of([v[0] for _s, v in winners]), mean_of([v[1] for _s, v in winners]))
             crossfall_nodes += 1
-            for segment, record, end, right, _tilt in plain_tilts:
+            for segment, record, end, right, _tilt, bank, held in tilted:
+                if not (record["covered"] and not record["rigid"]):
+                    continue
                 target_e = target_vector[0] * right[0] + target_vector[1] * right[1]
-                gap = abs(record["crossfall"][end] - target_e)
-                if gap > largest_e:
-                    largest_e = gap
-                    largest_e_where = "%s %s" % (segment["id"], "start" if end == 0 else "end")
+                if not bank and not held:
+                    gap = abs(record["crossfall"][end] - target_e)
+                    if gap > largest_e:
+                        largest_e = gap
+                        largest_e_where = "%s %s" % (segment["id"], "start" if end == 0 else "end")
+                if bank:
+                    bank_ends += 1
                 record["crossfall"][end] = target_e
     if stats is not None:
-        stats.update({"junction_nodes": nodes, "ends_blended": ends_blended, "largest_end_offset_m": largest, "largest_end_offset_where": largest_where, "crossfall_nodes": crossfall_nodes, "crossfall_rigid_nodes": crossfall_rigid_nodes, "largest_crossfall_gap": largest_e, "largest_crossfall_gap_where": largest_e_where})
+        stats.update({"junction_nodes": nodes, "ends_blended": ends_blended, "largest_end_offset_m": largest, "largest_end_offset_where": largest_where, "crossfall_nodes": crossfall_nodes, "crossfall_rigid_nodes": crossfall_rigid_nodes, "largest_crossfall_gap": largest_e, "largest_crossfall_gap_where": largest_e_where, "stub_nodes": stub_nodes, "bank_ends": bank_ends})
+
+
+def junction_ends_of(skeleton, by_id):
+    """{(segment id, end index 0 | -1): junction} for every draped
+    segment's end that stands on a junction node."""
+    segments = {segment["id"]: segment for segment in skeleton["segments"]}
+    out = {}
+    for junction in skeleton.get("junctions", []):
+        node = (junction["x"], junction["z"])
+        for sid in junction["segments"]:
+            if sid not in by_id:
+                continue
+            points = segments[sid]["points"]
+            if chord_length(points[0], node) < 1e-6:
+                out[(sid, 0)] = junction
+            if len(points) > 1 and chord_length(points[-1], node) < 1e-6:
+                out[(sid, -1)] = junction
+    return out
+
+
+def rigid_tilt_at(junction, by_id, segments, loop_ids):
+    """The tilt vector a rigid participant holds at `junction` (rigid_pick's
+    choice among the bridges, tunnels and partly covered segments ending
+    there, read from their own crossfall - never written by the stitch, so
+    the same whatever the junctions' order), or None when none stands
+    there."""
+    node = (junction["x"], junction["z"])
+    candidates = []
+    for sid in junction["segments"]:
+        record = by_id.get(sid)
+        if record is None or not (record["rigid"] or not record["covered"]):
+            continue
+        points = segments[sid]["points"]
+        for end in (0, -1):
+            if (end == 0 and chord_length(points[0], node) < 1e-6) or (end == -1 and len(points) > 1 and chord_length(points[-1], node) < 1e-6):
+                right = end_right_normal(points, end)
+                if right is None:
+                    continue
+                e = record["crossfall"][end]
+                candidates.append((segments[sid], (e * right[0], e * right[1]), end))
+    if not candidates:
+        return None
+    return rigid_pick(candidates, loop_ids)[1]
+
+
+def stub_tilt(segment, record, end, junction, junction_at_end, by_id, segments, loop_ids):
+    """The stub rule: the tilt a plain covered segment shorter than STUB_M
+    holds at `junction` when its OTHER end stands at a junction with a
+    rigid participant - that rigid tilt (it cannot run a tilt off within
+    its length, so the deck's tilt goes through to the node); None
+    otherwise. `junction_at_end` is junction_ends_of()'s map."""
+    if record["stations"][-1] >= STUB_M:
+        return None
+    other = junction_at_end.get((segment["id"], -1 if end == 0 else 0))
+    if other is None or other is junction:
+        return None
+    return rigid_tilt_at(other, by_id, segments, loop_ids)
 
 
 def drape_raw(segment, sample, stats=None):
@@ -966,12 +1240,13 @@ def drape_raw(segment, sample, stats=None):
     }
 
 
-def finish(segment, record):
+def finish(segment, record, stats=None):
     """The file's record of a raw one: the dense heights rounded, the point
     heights the field's value at the points (the rounded dense interpolated
     at the point's chainage, what world_road_profile.gd answers there; a
     partly covered segment keeps its samples, None outside), the crossfall
-    rounded, the labels of the final heights, the Karussell's bank."""
+    run off between its stitched ends and rounded, the labels of the final
+    heights, the Karussell's bank ramped."""
     dense = [None if h is None else rounded(h, HEIGHT_DECIMALS) for h in record["raw"]]
     covered = record["covered"]
     length = record["chain"][-1]
@@ -988,14 +1263,20 @@ def finish(segment, record):
                 heights.append(dense[k])
     else:
         heights = [None if h is None else rounded(h, HEIGHT_DECIMALS) for h in record["raw_points"]]
-    crossfall = list(record["crossfall"])
+    # THE CROSSFALL-TWIST RULE after the stitch: the ends as the junction
+    # rule wrote them, the interior run off between them.
+    crossfall, applied = runoff(record["crossfall"], record["chain"], True)
+    if stats is not None and len(record["crossfall"]) >= 3 and not applied:
+        stats["runoff_unmet"] = stats.get("runoff_unmet", 0) + 1
     labels = labels_of(dense, length) if covered else []
     if segment["osm_way"] == KARUSSELL_WAY:
         # Branch (c): the bank's sign from the bend's own direction (a
-        # left-hander rises to the right), its size the R9 element's.
+        # left-hander rises to the right), its size the R9 element's; THE
+        # KARUSSELL BLEND: ramped over KARUSSELL_RAMP_M from each end's
+        # stitched plane value.
         sign = 1.0 if sum(crossfall) >= 0.0 else -1.0
-        crossfall = [sign * KARUSSELL_BANK] * len(crossfall)
-        labels.append({"at": 0.0, "kind": "bank", "to": rounded(length, CHAINAGE_DECIMALS), "bank": KARUSSELL_BANK, "bowl_m": KARUSSELL_BOWL_M, "strip_m": KARUSSELL_STRIP_M})
+        crossfall = karussell_crossfall(crossfall, record["chain"], sign * KARUSSELL_BANK)
+        labels.append({"at": KARUSSELL_RAMP_M, "kind": "bank", "to": rounded(length - KARUSSELL_RAMP_M, CHAINAGE_DECIMALS), "bank": KARUSSELL_BANK, "bowl_m": KARUSSELL_BOWL_M, "strip_m": KARUSSELL_STRIP_M, "ramp_m": KARUSSELL_RAMP_M})
     return {
         "id": segment["id"],
         "covered": covered,
@@ -1038,7 +1319,7 @@ def build_drape(skeleton, skeleton_sha, mosaic, pins, source, stats=None):
         if record is not None:
             raws.append((segment, record))
     stitch_junctions(skeleton, [record for _segment, record in raws], stats)
-    segments = [finish(segment, record) for segment, record in raws]
+    segments = [finish(segment, record, stats) for segment, record in raws]
     snapshot = dict(skeleton["snapshot"])
     return {
         "snapshot": {
@@ -1118,7 +1399,7 @@ def report(skeleton, drape, mosaic, stats=None):
     print("lattice %d × %d at %.0f m = %d heights" % (drape["lattice"]["cols"], drape["lattice"]["rows"], drape["lattice"]["step_m"], len(drape["lattice"]["heights"])))
     if stats:
         print("smoothing: lambda %g, %d plain covered segments smoothed, %d stations held to the raw heights in %d crest/dip runs (pin weight %g, flank %d)" % (LAMBDA, stats.get("smoothed", 0), stats.get("pinned", 0), stats.get("runs", 0), PIN_WEIGHT, PIN_FLANK))
-        print("junctions: %d nodes' heights stitched, %d ends blended over %.0f m (the largest end offset %.3f m at %s); the crossfall stitched as a world-space tilt at %d nodes, %d of them held by a rigid participant (the largest change written %.4f at %s)" % (stats.get("junction_nodes", 0), stats.get("ends_blended", 0), BLEND_RADIUS_M, stats.get("largest_end_offset_m", 0.0), stats.get("largest_end_offset_where", "-"), stats.get("crossfall_nodes", 0), stats.get("crossfall_rigid_nodes", 0), stats.get("largest_crossfall_gap", 0.0), stats.get("largest_crossfall_gap_where", "-")))
+        print("junctions: %d nodes' heights stitched, %d ends blended over %.0f m (the largest end offset %.3f m at %s); the crossfall stitched as a world-space tilt at %d nodes, %d of them held by a rigid participant (the largest change written %.4f at %s), %d of them through a short stub holding a rigid tilt (the stub rule), the bank's %d ends written; the runoff after the stitch could not meet both ends on %d segments" % (stats.get("junction_nodes", 0), stats.get("ends_blended", 0), BLEND_RADIUS_M, stats.get("largest_end_offset_m", 0.0), stats.get("largest_end_offset_where", "-"), stats.get("crossfall_nodes", 0), stats.get("crossfall_rigid_nodes", 0), stats.get("largest_crossfall_gap", 0.0), stats.get("largest_crossfall_gap_where", "-"), stats.get("stub_nodes", 0), stats.get("bank_ends", 0), stats.get("runoff_unmet", 0)))
 
 
 def section(skeleton, mosaic, way, offsets=range(-8, 9), every=5.0):
@@ -1218,7 +1499,23 @@ def selftest():
     ok(abs(record["dense"][0] - mosaic.sample(700.0, -800.0)) < 0.006 and abs(record["dense"][50] - (mosaic.sample(800.0, -800.0) - 6.0)) < 0.006, "a tunnel is at the DEM at its portal and 6 m under it 100 m in")
     # -z is north (z = -(N - N0)): east then towards -z is a left-hander.
     bend = {"id": "4-0", "osm_way": 4, "class": "secondary", "width_m": 6.5, "width_source": "class", "points": [[100.0, -100.0], [200.0, -100.0], [200.0, -200.0]]}
-    ok(crossfall_of(bend["points"])[1] > 0.0 and abs(crossfall_of(bend["points"])[1]) == SUPERELEVATION_MAX, "a left-hand bend (east then north) rises to the right, capped at 4 %%: e = %.3f" % crossfall_of(bend["points"])[1])
+    ok(crossfall_of(bend["points"])[1] > 0.0 and abs(crossfall_of(bend["points"])[1]) == HAIRPIN_SUPERELEVATION_MAX, "a left-hand bend (east then north) rises to the right: a 90° turn over the 20 m window is R 12.7 m, under the hairpin radius, capped at 6 %%: e = %.3f (was 4 %%: the three-point circle through the corner's neighbours 100 m away read R 70.7 m)" % crossfall_of(bend["points"])[1])
+    # THE CROSSFALL-TWIST RULE: a zig-zag on short chords (the 0007 site's
+    # shape: a small turn one way then a large one back inside 0.45 m)
+    # reads one sign and changes under the runoff bound; the runoff itself.
+    zigzag = [[0.0, 0.0], [30.0, 0.0], [30.3, 0.4], [40.0, 0.4], [40.0, 30.0]]
+    ze = crossfall_of(zigzag)
+    zc = chainages(zigzag)
+    z_rate = max(abs(ze[i] - ze[i - 1]) / (zc[i] - zc[i - 1]) for i in range(1, len(ze)))
+    menger = [superelevation(signed_curvature(zigzag[i - 1], zigzag[i], zigzag[i + 1])) for i in range(1, len(zigzag) - 1)]
+    ok(len(set(math.copysign(1.0, v) for v in ze[1:4])) == 1 and z_rate <= SUPERELEVATION_RUNOFF_PER_M + 1e-12, "the twist rule: a zig-zag (a 53° turn one way, 51° back over a 0.5 m chord, then 90°) reads one sign at its three interior points (%s; the three-point circle read %s) and changes by at most %.5f per metre, under the runoff %.3f" % (", ".join("%+.4f" % v for v in ze[1:4]), ", ".join("%+.4f" % v for v in menger), z_rate, SUPERELEVATION_RUNOFF_PER_M))
+    spike_chain = [0.0, 10.0, 10.5, 11.0, 40.0]
+    spike, applied = runoff([0.0, 0.0, 0.06, 0.0, 0.0], spike_chain, True)
+    spike_rate = max(abs(spike[i] - spike[i - 1]) / (spike_chain[i] - spike_chain[i - 1]) for i in range(1, 5))
+    again, _applied = runoff(spike, spike_chain, True)
+    free, _applied = runoff([0.04, 0.0, 0.0], [0.0, 5.0, 40.0], False)
+    unmet, unmet_applied = runoff([0.0, 0.0, 0.06], [0.0, 1.0, 2.0], True)
+    ok(applied and spike[0] == 0.0 and spike[4] == 0.0 and 0.0 < spike[2] < 0.06 and spike_rate <= SUPERELEVATION_RUNOFF_PER_M + 1e-12 and max(abs(a - b) for a, b in zip(again, spike)) < 1e-12 and free[0] < 0.04 and not unmet_applied and unmet == [0.0, 0.0, 0.06], "runoff: a 0.06 spike between points 0.5 m apart on a 40 m straight is spread under the bound with the ends pinned at 0 (%s), a bounded array comes back the same within 1e-12 (a chord exactly at the bound may round in its last bit), a free end moves (%.4f from 0.04), and ends that cannot both be met (0 and 0.06 two metres apart) are left as they are" % (", ".join("%.4f" % v for v in spike), free[0]))
     right = {"id": "5-0", "osm_way": 5, "class": "secondary", "width_m": 6.5, "width_source": "class", "points": [[100.0, -100.0], [200.0, -100.0], [200.0, -50.0]]}
     ok(crossfall_of(right["points"])[1] < 0.0, "a right-hand bend (east then south) rises to the left: e = %.3f" % crossfall_of(right["points"])[1])
     hairpin = [[0.0, 0.0], [20.0, -10.0], [0.0, -20.0]]
@@ -1246,6 +1543,17 @@ def selftest():
             refused = str(error)
         ok("without a finite height" in refused, "assemble refuses %s: %s" % (name, refused[:60]))
     ok(re.search(r"-0\.0(?![0-9])", first) is None, "no -0.0 in the file")
+    # THE KARUSSELL BLEND through finish(): the fixture's Karussell way (an
+    # L of two 100 m legs, a left-hander) - the label at 20 / to 180 /
+    # ramp_m 20, the array ramped from the ends' own plane value (0.06:
+    # the corner over the 20 m window; a junction's stitched tilt in the
+    # real build) to 0.30 at the corner; the same numbers
+    # tests/world_profile_test.gd's mirror pins.
+    karussell = {"id": "414785755-0", "osm_way": KARUSSELL_WAY, "class": "raceway", "width_m": 7.5, "width_source": "class", "points": [[2000.0, -2600.0], [2100.0, -2600.0], [2100.0, -2700.0]]}
+    record = drape_segment(karussell, mosaic.sample)
+    ok(record["crossfall"] == [0.06, 0.3, 0.06] and record["labels"][-1] == {"at": 30.0, "kind": "bank", "to": 170.0, "bank": 0.3, "bowl_m": 6.5, "strip_m": 1.0, "ramp_m": 30.0}, "the Karussell blend: the way's crossfall is ramped [0.06, 0.3, 0.06] and its bank label reads at 30, to 170, ramp_m 30 (was 0.3 at every point, at 0, to 200): %s, %s" % (record["crossfall"], record["labels"][-1]))
+    ramped = karussell_crossfall([0.01, 0.0, 0.0, 0.0, 0.0, 0.0, -0.04], [0.0, 5.0, 10.0, 30.0, 50.0, 85.0, 100.0], 0.3)
+    ok(max(abs(a - b) for a, b in zip(ramped, [0.01, 0.01 + 0.29 * (5.0 / 30.0), 0.01 + 0.29 * (10.0 / 30.0), 0.3, 0.3, -0.04 + 0.34 * (15.0 / 30.0), -0.04])) < 1e-12, "the ramp is linear in chainage from each end's own value to the bank over 30 m, the ends kept, the plateau the bank: %s" % ramped)
     selftest_smoothing(ok, plane)
     selftest_junctions(ok)
     print("DRAPE SELFTEST PASSED" if failures == 0 else "DRAPE SELFTEST FAILED: %d fault(s)" % failures)
@@ -1456,7 +1764,7 @@ def selftest_junctions(ok):
     skeleton = {"segments": [n, o, q], "junctions": [{"id": "7", "x": 100.0, "z": 0.0, "segments": ["13-0", "14-0", "414785755-0"]}], "loops": [{"id": "l", "rel": 1, "segments": ["13-0", "14-0"]}]}
     stats = {}
     stitch_junctions(skeleton, [rn, ro, rq], stats)
-    ok(rn["crossfall"] == [0.0, 0.02] and ro["crossfall"][0] == 0.02 and ro["crossfall"][1] == 0.04 and rq["crossfall"] == bank_before and stats["crossfall_nodes"] == 1 and abs(stats["largest_crossfall_gap"] - 0.02) < 1e-12, "junction rule: a crowned straight (0) meeting a left-hander's end (+0.04) at a node: both end points take the mean 0.02, the bend's next point keeps 0.04; the Karussell's way at the same node neither votes nor moves")
+    ok(rn["crossfall"] == [0.0, 0.03] and ro["crossfall"][0] == 0.03 and ro["crossfall"][1] == 0.06 and rq["crossfall"][0] == 0.0 and rq["crossfall"][1:] == bank_before[1:] and bank_before[0] == 0.06 and stats["crossfall_nodes"] == 1 and stats["bank_ends"] == 1 and abs(stats["largest_crossfall_gap"] - 0.03) < 1e-12, "junction rule: a crowned straight (0) meeting a left-hander's end (+0.06: its 90° corner 10 m in, over the 20 m window) at a node: both end points take the mean 0.03, the bend's next point keeps 0.06 (was 0.02 / 0.04 from the three-point circle); the Karussell's way at the same node does not vote and takes the node's tilt at its end - %.4f in its own frame (the tilt rises to +z, its right is -x; was its own 0.06 untouched: neither voting nor moving), its corner keeping its own %.2f" % (rq["crossfall"][0], rq["crossfall"][1]))
     # F1 (the codex review): two primaries both STARTING at the node in
     # opposite directions - the same signed crossfall would be opposite
     # tilts; the world-space stitch writes opposite signs for one tilt.
@@ -1466,7 +1774,7 @@ def selftest_junctions(ok):
     rt = raw_record(t, [70.0] * 51)
     skeleton = {"segments": [r, t], "junctions": [{"id": "8", "x": 100.0, "z": 0.0, "segments": ["15-0", "16-0"]}], "loops": []}
     stitch_junctions(skeleton, [rr, rt])
-    ok(abs(rr["crossfall"][0] - 0.02) < 1e-12 and abs(rt["crossfall"][0] + 0.02) < 1e-12 and end_right_normal(r["points"], 0) == (0.0, 1.0) and end_right_normal(t["points"], 0) == (0.0, -1.0), "junction rule (F1): two primaries leaving a node in opposite directions, a left-hander east (+0.04, rising to +z) and a straight west (0): the world tilt's mean rises 0.02 to +z, written %+.4f to the eastbound and %+.4f to the westbound (their right normals %s and %s) - one tilt, the platform's world-side edges level; the same signed value would have been two opposite tilts" % (rr["crossfall"][0], rt["crossfall"][0], end_right_normal(r["points"], 0), end_right_normal(t["points"], 0)))
+    ok(abs(rr["crossfall"][0] - 0.03) < 1e-12 and abs(rt["crossfall"][0] + 0.03) < 1e-12 and end_right_normal(r["points"], 0) == (0.0, 1.0) and end_right_normal(t["points"], 0) == (0.0, -1.0), "junction rule (F1): two primaries leaving a node in opposite directions, a left-hander east (+0.06, rising to +z; was +0.04 before the 20 m window) and a straight west (0): the world tilt's mean rises 0.03 to +z, written %+.4f to the eastbound and %+.4f to the westbound (their right normals %s and %s) - one tilt, the platform's world-side edges level; the same signed value would have been two opposite tilts" % (rr["crossfall"][0], rt["crossfall"][0], end_right_normal(r["points"], 0), end_right_normal(t["points"], 0)))
     # F4: a rigid participant holds its end tilt; the plain ones take it.
     u = segment("17-0", "track", [[0.0, 0.0], [100.0, 0.0]])
     v = segment("18-0", "primary", [[100.0, 0.0], [200.0, 0.0], [200.0, -100.0]], bridge="yes", layer="1")
@@ -1476,7 +1784,28 @@ def selftest_junctions(ok):
     skeleton = {"segments": [u, v], "junctions": [{"id": "9", "x": 100.0, "z": 0.0, "segments": ["17-0", "18-0"]}], "loops": []}
     stats = {}
     stitch_junctions(skeleton, [ru, rv], stats)
-    ok(rv["crossfall"] == bridge_before and abs(ru["crossfall"][-1] - 0.04) < 1e-12 and stats["crossfall_rigid_nodes"] == 1, "junction rule (F4): a bridge (rigid) ending a node with +0.04 keeps it and the track meeting it takes +0.04 (was the mean of the two, the bridge moved by a track)")
+    ok(rv["crossfall"] == bridge_before and abs(ru["crossfall"][-1] - 0.06) < 1e-12 and stats["crossfall_rigid_nodes"] == 1, "junction rule (F4): a bridge (rigid) ending a node with +0.06 (its corner over the 20 m window; was +0.04) keeps it and the track meeting it takes +0.06 (was the mean of the two, the bridge moved by a track)")
+    # The stub rule (THE CROSSFALL-TWIST RULE): a 5 m track between a
+    # bridge's end (rigid, +0.06 at that end) and a node where a left-hand
+    # bend arrives (its end +0.06 rising to +z, the same world tilt as the
+    # bridge's? no: the bridge runs east, the bend arrives from the south
+    # going north with its right +x) holds the bridge's tilt at the node
+    # and the bend's end takes it; without the rule the node's mean would
+    # give the 5 m stub a tilt it cannot run off (was: 0.03 across 5 m).
+    y1 = segment("21-0", "primary", [[0.0, 0.0], [100.0, 0.0], [100.0, -100.0]], bridge="yes", layer="1")
+    y2 = segment("22-0", "track", [[100.0, -100.0], [100.0, -105.0]])
+    y3 = segment("23-0", "primary", [[100.0, -105.0], [100.0, -205.0], [200.0, -205.0]])
+    ry1 = raw_record(y1, [90.0] * 101, rigid=True)
+    ry2 = raw_record(y2, [90.0] * 4)
+    ry3 = raw_record(y3, [90.0] * 101)
+    skeleton = {"segments": [y1, y2, y3], "junctions": [{"id": "11", "x": 100.0, "z": -100.0, "segments": ["21-0", "22-0"]}, {"id": "12", "x": 100.0, "z": -105.0, "segments": ["22-0", "23-0"]}], "loops": []}
+    stats = {}
+    stitch_junctions(skeleton, [ry1, ry2, ry3], stats)
+    bridge_tilt = ry1["crossfall"][-1] * end_right_normal(y1["points"], -1)[0], ry1["crossfall"][-1] * end_right_normal(y1["points"], -1)[1]
+    stub_right = end_right_normal(y2["points"], -1)
+    held = bridge_tilt[0] * stub_right[0] + bridge_tilt[1] * stub_right[1]
+    bend_right = end_right_normal(y3["points"], 0)
+    ok(stats["stub_nodes"] == 1 and abs(ry2["crossfall"][0] - held) < 1e-12 and abs(ry2["crossfall"][-1] - held) < 1e-12 and abs(ry3["crossfall"][0] - (bridge_tilt[0] * bend_right[0] + bridge_tilt[1] * bend_right[1])) < 1e-12 and abs(held - 0.06) < 1e-12, "the stub rule: a 5 m track between a bridge's end (tilt %s) and a node holds the bridge's tilt at both its ends (%.4f in its frame, no twist across it) and the left-hander leaving that node takes it (%.4f, its own corner value 0.06 kept 100 m on; the node counts as rigid: %d stub node; was the node's mean, a tilt the stub cannot run off)" % (bridge_tilt, ry2["crossfall"][-1], ry3["crossfall"][0], stats["stub_nodes"]))
     # F2: a zero-length participant is written nothing and does not crash.
     w = segment("19-0", "track", [[100.0, 0.0], [100.0, 0.0]])
     x_ = segment("20-0", "primary", [[100.0, 0.0], [200.0, 0.0]])

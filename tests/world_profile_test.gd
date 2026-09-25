@@ -88,8 +88,13 @@ const HEIGHT_ROUNDING_M := 0.005
 ## bab692ef... (ROAD-SMOOTHING, 2026-09-23: the file's heights changed -
 ## the plain segments Whittaker-smoothed, the junctions stitched - the
 ## profile's arithmetic did not) -> e5b34889... (the codex review's
-## fix-forward: the crossfall stitched as a world-space tilt, F1/F4).
-const SAMPLES_DIGEST := "e5b348893166f20295e3778d11bab28891694fcabe3f9fa4c2e813b3e1ab1380"
+## fix-forward: the crossfall stitched as a world-space tilt, F1/F4) ->
+## 647200ff... (the ROAD-GEOMETRY FIX-NOW landing, 2026-09-25: the file's
+## crossfall arrays regenerated under the crossfall-twist rule and the
+## Karussell blend - the heights untouched; the profile's arithmetic
+## changed only inside the Karussell's two 30 m ramps, where the plane is
+## blended into the bowl).
+const SAMPLES_DIGEST := "647200ff7f718f029180abf4c45407e2fb0d10eefd1b0d6153b5ebe2e4efecd9"
 
 ## The codex review's precision repro: the segment and the pipeline's value.
 const MIRROR_SEGMENT := "1017207289-0"
@@ -134,6 +139,7 @@ func _initialize() -> void:
 		_check_fallback(profile)
 		_check_ring(profile)
 		_check_smoothing(skeleton, drape, raw_points, profile)
+		_check_geometry_fences(skeleton, drape, raw_points, profile)
 	_check_fixture()
 	_check_broken_fixtures()
 	print("WORLD PROFILE TEST PASSED" if _failures == 0 else "WORLD PROFILE TEST FAILED: %d fault(s)" % _failures)
@@ -283,9 +289,14 @@ func _check_bridges(drape: Dictionary, segments: Dictionary, raw_points: Diction
 	_ok(bridges > 0, "%d bridge segments draped in the core" % bridges)
 
 
-## The Karussell: crossfall 30 % everywhere, the one bank label with the
-## R9 numbers, and the bowl read across the platform: a flat 1 m strip at
-## the inside, 1.95 m up to the outside edge, the centre at the DEM's.
+## The Karussell: the bank's crossfall 30 % over the plateau, ramped over
+## 30 m at each end from the neighbours' stitched plane values (the
+## Karussell blend: the array is the mirror's karussell_crossfall of its
+## own two end values, to the file's rounding), the one bank label with
+## the R9 numbers and at 30 / to length - 30 / ramp_m 30, and the bowl
+## read across the platform: a flat 1 m strip at the inside, 1.95 m up to
+## the outside edge, the centre at the DEM's. was crossfall +0.30 at all
+## 29 points and the label at 0 / to 152.915 (no ramp).
 func _check_karussell(drape: Dictionary, profile: WorldRoadProfile) -> void:
 	var record: Dictionary = {}
 	for raw: Dictionary in drape.segments:
@@ -295,7 +306,26 @@ func _check_karussell(drape: Dictionary, profile: WorldRoadProfile) -> void:
 		_ok(false, "", "the Karussell (way %d) is not in the drape" % SkeletonLoader.KARUSSELL_WAY)
 		return
 	var banks: Array = record.labels.filter(func(label: Dictionary) -> bool: return label.kind == "bank")
-	_ok(record.crossfall.count(0.3) == record.crossfall.size() and banks.size() == 1 and banks[0].bank == 0.3 and banks[0].bowl_m == 6.5 and banks[0].strip_m == 1.0 and banks[0].at == 0.0, "the Karussell (%s): crossfall +0.30 at all %d points, one bank label 30 %% over 6.5 m with a 1 m strip (branch (c), ring-region-decisions.md §3)" % [record.id, record.crossfall.size()], "the Karussell's crossfall %s, labels %s" % [record.crossfall, record.labels])
+	var xs := PackedFloat64Array()
+	var zs := PackedFloat64Array()
+	for point: Array in _raw_points(SkeletonLoader.read_file())[record.id]:
+		xs.append(point[0])
+		zs.append(point[1])
+	var chain := WorldRoadProfile.chainages(xs, zs)
+	var length := chain[chain.size() - 1]
+	var expected := WorldRoadProfile.karussell_crossfall(PackedFloat64Array(record.crossfall), chain, 0.3)
+	var ramped_right := true
+	var plateau := 0
+	var nearest_76 := 0
+	for i: int in chain.size():
+		ramped_right = ramped_right and floorf(expected[i] * 10000.0 + 0.5) / 10000.0 == float(record.crossfall[i])
+		if chain[i] >= WorldRoadProfile.KARUSSELL_RAMP_M and chain[i] <= length - WorldRoadProfile.KARUSSELL_RAMP_M:
+			plateau += 1
+			ramped_right = ramped_right and record.crossfall[i] == 0.3
+		if absf(chain[i] - 76.0) < absf(chain[nearest_76] - 76.0):
+			nearest_76 = i
+	var label_right: bool = banks.size() == 1 and banks[0] == {"at": WorldRoadProfile.KARUSSELL_RAMP_M, "kind": "bank", "to": floorf((length - WorldRoadProfile.KARUSSELL_RAMP_M) * 1000.0 + 0.5) / 1000.0, "bank": 0.3, "bowl_m": 6.5, "strip_m": 1.0, "ramp_m": WorldRoadProfile.KARUSSELL_RAMP_M}
+	_ok(ramped_right and plateau >= 15 and record.crossfall[nearest_76] == 0.3 and record.crossfall[0] < 0.0 and record.crossfall[record.crossfall.size() - 1] < 0.0 and label_right, "the Karussell (%s): the crossfall ramped over 30 m from each end's stitched plane value (%+.4f at the entry, %+.4f at the exit: the neighbours' tilts in its frame) to +0.30 over the %d plateau points of its %d (the point nearest chainage 76 reads +0.3000), the array the mirror's ramp of its own ends to the file's rounding, one bank label 30 %% over 6.5 m with a 1 m strip at 30 / to %.3f / ramp_m 30 (branch (c), ring-region-decisions.md §3; was +0.30 at all 29 points, at 0 / to 152.915, before the Karussell blend)" % [record.id, record.crossfall[0], record.crossfall[record.crossfall.size() - 1], plateau, record.crossfall.size(), banks[0].get("to", 0.0) if banks.size() == 1 else 0.0], "the Karussell's crossfall %s, labels %s, ramped as the mirror says %s, plateau %d" % [record.crossfall, record.labels, ramped_right, plateau])
 	var at: Vector2 = profile.point_along(record.id, 70.0)
 	var ahead: Vector2 = profile.point_along(record.id, 71.0)
 	var travel := (ahead - at).normalized()
@@ -431,7 +461,7 @@ func _check_slopes(skeleton: Dictionary, drape: Dictionary, raw_points: Dictiona
 	for h: float in samples:
 		context.update(("%.6f\n" % h).to_utf8_buffer())
 	var digest := context.finish().hex_encode()
-	_ok(digest == SAMPLES_DIGEST, "the 200 samples read the same as at ROAD-SMOOTHING's landing: sha256 %s (was 4B-3's b167c232...: the smoothed file; no covered segment is wider than 8.5 m, so the per-road reach changes nothing here)" % digest, "the 200 samples' digest is %s, pinned %s" % [digest, SAMPLES_DIGEST])
+	_ok(digest == SAMPLES_DIGEST, "the 200 samples read the same as at the ROAD-GEOMETRY FIX-NOW landing: sha256 %s (was ROAD-SMOOTHING's e5b34889..., 4B-3's b167c232... before it: the crossfall arrays regenerated, the heights the same; no covered segment is wider than 8.5 m, so the per-road reach changes nothing here)" % digest, "the 200 samples' digest is %s, pinned %s" % [digest, SAMPLES_DIGEST])
 	_check_mirror_precision(skeleton)
 
 
@@ -588,10 +618,22 @@ func _check_smoothing(skeleton: Dictionary, drape: Dictionary, raw_points: Dicti
 	var tilt_nodes := 0
 	var rigid_nodes := 0
 	var plain_ends := 0
+	var stub_ends := 0
+	var bank_ends := 0
 	var first_miss := ""
 	var loop_ids := {}
 	for id: String in loop.segments:
 		loop_ids[id] = true
+	# Pass one: every junction's draped ends, with each end's crossfall
+	# BEFORE the stitch recomputed from the skeleton's points through the
+	# mirror's crossfall_of (was read back from the file's neighbour point,
+	# which the stitch did not touch; the runoff after the stitch moves it
+	# now), and the rigid tilt each node holds (a bridge's, a tunnel's, a
+	# partly covered segment's: rigid_pick's order), for the stub rule.
+	var originals := {}
+	var node_ends := {}
+	var junction_at_end := {}
+	var rigid_tilt_at := {}
 	for raw: Dictionary in skeleton.junctions:
 		var heights := PackedFloat64Array()
 		var ends: Array[Dictionary] = []
@@ -607,30 +649,56 @@ func _check_smoothing(skeleton: Dictionary, drape: Dictionary, raw_points: Dicti
 				var end_point: int = 0 if start else record.crossfall.size() - 1
 				if record.dense[end] != null:
 					heights.append(record.dense[end])
-				if segments[id].osm_way == SkeletonLoader.KARUSSELL_WAY:
-					continue
+				junction_at_end["%s:%s" % [id, "0" if start else "1"]] = raw.id
 				var right := _end_right_normal(points, start)
 				if right == Vector2.ZERO:
 					continue
 				var segment: SkeletonLoader.Segment = segments[id]
 				var rigid: bool = (segment.tags.has("bridge") and segment.tags["bridge"] != "no") or segment.tags.get("tunnel") == "yes" or not record.covered
-				# The end's crossfall BEFORE the stitch, from the file: the
-				# rule gives an end its neighbour point's value (crossfall_of),
-				# which the stitch does not touch; a two-point segment is a
-				# crowned straight, 0.
-				var original: float = 0.0 if points.size() < 3 else record.crossfall[1 if start else record.crossfall.size() - 2]
-				ends.append({"id": id, "start": start, "rank": _class_rank(segment.road_class), "loop": loop_ids.has(id), "rigid": rigid, "right": right, "cf": record.crossfall[end_point], "tilt": right * original})
+				if not originals.has(id):
+					var xs := PackedFloat64Array()
+					var zs := PackedFloat64Array()
+					for point: Array in points:
+						xs.append(point[0])
+						zs.append(point[1])
+					originals[id] = WorldRoadProfile.crossfall_of(xs, zs)
+				var mirrored: PackedFloat64Array = originals[id]
+				var original: float = mirrored[end_point]
+				ends.append({"id": id, "start": start, "rank": _class_rank(segment.road_class), "loop": loop_ids.has(id), "rigid": rigid, "bank": segments[id].osm_way == SkeletonLoader.KARUSSELL_WAY, "length": _length_of(points), "right": right, "cf": record.crossfall[end_point], "tilt": right * (float(record.crossfall[end_point]) if rigid else original)})
 		if heights.size() >= 2:
 			junctions += 1
 			var gap: float = _span_of(heights)
 			worst_height = maxf(worst_height, gap)
 			if gap > 2.0 * HEIGHT_ROUNDING_M + 1e-9:
 				height_gaps += 1
+		node_ends[raw.id] = ends
+		var rigid_here: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return e.rigid)
+		if not rigid_here.is_empty():
+			rigid_here.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return [a.rank, 0 if a.loop else 1, a.id, 0 if a.start else 1] < [b.rank, 0 if b.loop else 1, b.id, 0 if b.start else 1])
+			rigid_tilt_at[raw.id] = rigid_here[0].tilt
+	# Pass two: the node's tilt (the stitch's rule mirrored: a rigid
+	# participant's own - a stub between a rigid end and this node holding
+	# that rigid tilt counts as one, the stub rule - else the class/loop
+	# winners' mean of the plain ends' pre-stitch tilt vectors; the
+	# Karussell's bank does not vote) and every plain, stub and bank end
+	# carrying it in its own frame.
+	var targets := {}
+	for raw: Dictionary in skeleton.junctions:
+		var ends: Array[Dictionary] = node_ends.get(raw.id, [] as Array[Dictionary])
 		if ends.size() < 2:
 			continue
-		var plain: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return not e.rigid)
-		var rigid_ends: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return e.rigid)
-		if plain.is_empty():
+		for e: Dictionary in ends:
+			e["stub"] = false
+			if e.rigid or e.bank or e.length >= WorldRoadProfile.HAIRPIN_SUPERELEVATION_MAX / WorldRoadProfile.SUPERELEVATION_RUNOFF_PER_M:
+				continue
+			var other: String = junction_at_end.get("%s:%s" % [e.id, "1" if e.start else "0"], "")
+			if other != "" and other != raw.id and rigid_tilt_at.has(other):
+				e["stub"] = true
+				e["tilt"] = rigid_tilt_at[other]
+		var plain: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return not e.rigid and not e.bank and not e.stub)
+		var rigid_ends: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return e.rigid or e.stub)
+		var banks: Array[Dictionary] = ends.filter(func(e: Dictionary) -> bool: return e.bank and not e.rigid)
+		if plain.is_empty() and (banks.is_empty() or rigid_ends.is_empty()):
 			continue
 		var target := Vector2.ZERO
 		if not rigid_ends.is_empty():
@@ -649,15 +717,23 @@ func _check_smoothing(skeleton: Dictionary, drape: Dictionary, raw_points: Dicti
 				target += e.tilt
 			target /= winners.size()
 		tilt_nodes += 1
-		for e: Dictionary in plain:
-			plain_ends += 1
+		targets[raw.id] = target
+		for e: Dictionary in ends:
+			if e.rigid:
+				continue
+			if e.stub:
+				stub_ends += 1
+			elif e.bank:
+				bank_ends += 1
+			else:
+				plain_ends += 1
 			var miss: float = absf(e.cf - target.dot(e.right))
 			worst_tilt = maxf(worst_tilt, miss)
 			if miss > TILT_TOLERANCE:
 				tilt_misses += 1
 				if first_miss == "":
 					first_miss = "node %s: %s %s cf %.4f vs the target's %.5f (target %s from %s)" % [raw.id, e.id, "start" if e.start else "end", e.cf, target.dot(e.right), target, ends]
-	_ok(junctions > 2000 and height_gaps == 0 and tilt_nodes > 2000 and tilt_misses == 0, "junctions: at all %d nodes with two or more draped ends the ends' centre heights agree to the centimetre (the largest gap %.3f m); at all %d nodes with two or more non-bank ends every one of the %d plain ends carries the node's world tilt in its own frame - a rigid participant's own (bridge, tunnel, partly covered: %d nodes) else the class/loop winners' mean of the ends' own pre-stitch tilts (each read back from its neighbour point) - within %.4f (the worst %.5f; was a crossfall gap over 2 %% at %d junctions, %d of them on the loop: each segment's end took its own bend's crossfall; and, with the first stitch, one signed value written to every frame)" % [junctions, worst_height, tilt_nodes, plain_ends, rigid_nodes, TILT_TOLERANCE, worst_tilt, RAW_CROSSFALL_GAP_JUNCTIONS, RAW_CROSSFALL_GAP_LOOP], "%d height gaps (worst %.3f), %d tilt misses (worst %.5f) over %d / %d junctions; the first: %s" % [height_gaps, worst_height, tilt_misses, worst_tilt, junctions, tilt_nodes, first_miss])
+	_ok(junctions > 2000 and height_gaps == 0 and tilt_nodes > 2000 and tilt_misses == 0 and stub_ends > 0 and bank_ends == 2, "junctions: at all %d nodes with two or more draped ends the ends' centre heights agree to the centimetre (the largest gap %.3f m); at all %d nodes with two or more ends every one of the %d plain ends carries the node's world tilt in its own frame - a rigid participant's own (bridge, tunnel, partly covered, or a stub under %.0f m holding one through: %d nodes, %d stub ends) else the class/loop winners' mean of the ends' own pre-stitch tilts (each recomputed from the skeleton's points through the mirror's crossfall_of; was read back from the neighbour point, which the runoff now moves) - and so do the Karussell's %d ends, which do not vote - within %.4f (the worst %.5f; was a crossfall gap over 2 %% at %d junctions, %d of them on the loop: each segment's end took its own bend's crossfall; and, with the first stitch, one signed value written to every frame)" % [junctions, worst_height, tilt_nodes, plain_ends, WorldRoadProfile.HAIRPIN_SUPERELEVATION_MAX / WorldRoadProfile.SUPERELEVATION_RUNOFF_PER_M, rigid_nodes, stub_ends, bank_ends, TILT_TOLERANCE, worst_tilt, RAW_CROSSFALL_GAP_JUNCTIONS, RAW_CROSSFALL_GAP_LOOP], "%d height gaps (worst %.3f), %d tilt misses (worst %.5f) over %d / %d junctions, %d stub ends, %d bank ends; the first: %s" % [height_gaps, worst_height, tilt_misses, worst_tilt, junctions, tilt_nodes, stub_ends, bank_ends, first_miss])
 	# Issue-0005's stair, from the file and from the field.
 	var a: Dictionary = records[ISSUE_0005_SEGMENTS[0]]
 	var b: Dictionary = records[ISSUE_0005_SEGMENTS[1]]
@@ -674,7 +750,10 @@ func _check_smoothing(skeleton: Dictionary, drape: Dictionary, raw_points: Dicti
 	var right_in := _end_right_normal(raw_points[ISSUE_0001_SEGMENTS[0]], false)
 	var right_out := _end_right_normal(raw_points[ISSUE_0001_SEGMENTS[1]], true)
 	var right_pit := _end_right_normal(raw_points[ISSUE_0001_SEGMENTS[2]], false)
-	var loop_tilt: Vector2 = (right_in * loop_in.crossfall[loop_in.crossfall.size() - 1] + right_out * loop_out.crossfall[0]) / 2.0
+	# The loop's tilt at the node: the stitch's own target, from the pass
+	# above (was reconstructed as the mean of the two loop ends' written
+	# tilt vectors, exact only when their right normals coincide).
+	var loop_tilt: Vector2 = targets.get(ISSUE_0001_JUNCTION, (right_in * loop_in.crossfall[loop_in.crossfall.size() - 1] + right_out * loop_out.crossfall[0]) / 2.0)
 	var pit_cf: float = pit.crossfall[pit.crossfall.size() - 1]
 	# The pit lane's tilt against the loop's, both in world space, as an
 	# edge height 4.25 m out along the pit lane's own right normal: the
@@ -773,6 +852,148 @@ static func _seam_probe(profile: WorldRoadProfile, a: Array, b: Array) -> Dictio
 		steps.append(step)
 		worst = maxf(worst, step)
 	return {"steps": steps, "worst": worst}
+
+
+# =============================================================================
+#  THE ROAD-GEOMETRY FIX-NOW FENCES (2026-09-25, issues-analysis-2026-09-24.md)
+# =============================================================================
+
+## The Karussell's two junctions (entry: 799394513-1 -> 414785755-0, exit:
+## 414785755-0 -> 414785756-0) and the 0007 site, probed along the roads'
+## own centrelines every PROBE_STEP_M at the nine offsets: the largest
+## one-step height jump at any offset; the loop's crossfall twist per
+## chord from the file's arrays.
+const KARUSSELL_ENTRY := ["799394513-1", "414785755-0"]
+const KARUSSELL_EXIT := ["414785755-0", "414785756-0"]
+const ISSUE_0007_SEGMENT := "799394513-1"
+const ISSUE_0007_RANGE_M := [30.0, 60.0]
+const PROBE_STEP_M := 0.25
+const PROBE_REACH_M := 10.0
+const PROBE_OFFSETS: Array[float] = [-3.75, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 3.75]
+## The fences (the doc's, §3.3 (a) and §4.2): no one-step over this at
+## either Karussell junction (was 1.211 m at +3.75 at the entry, 1.281 m
+## at the exit) nor at the 0007 site (was 0.342 m at +3.75 at chainage
+## 44.7-45.2, the notch's other flank -0.335 at 45.5); no loop chord
+## twisting over this (was 19 chords over, the top 0.940 m/m at
+## 799394513-1 point 8).
+const SEAM_STEP_MAX_M := 0.05
+const LOOP_TWIST_MAX := 0.02
+const CENTRE_LINE_TOLERANCE_M := 1e-9
+
+
+func _check_geometry_fences(skeleton: Dictionary, drape: Dictionary, raw_points: Dictionary, profile: WorldRoadProfile) -> void:
+	var records := {}
+	for raw: Dictionary in drape.segments:
+		records[raw.id] = raw
+	var segments := SkeletonLoader.segments_of(skeleton)
+	# The two Karussell junctions.
+	for pair: Array in [KARUSSELL_ENTRY, KARUSSELL_EXIT]:
+		var into: Dictionary = _geometry(raw_points[pair[0]])
+		into.id = pair[0]
+		var out_of: Dictionary = _geometry(raw_points[pair[1]])
+		out_of.id = pair[1]
+		var worst := 0.0
+		var worst_where := ""
+		var centre_off := 0.0
+		var samples := 0
+		for offset: float in PROBE_OFFSETS:
+			var previous := NAN
+			var track: Array = []
+			var s: float = into.length - PROBE_REACH_M
+			while s <= into.length + 1e-9:
+				track.append([into, s])
+				s += PROBE_STEP_M
+			s = 0.0
+			while s <= PROBE_REACH_M + 1e-9:
+				track.append([out_of, s])
+				s += PROBE_STEP_M
+			for at: Array in track:
+				var g: Dictionary = at[0]
+				var p := _point_on(g.xs, g.zs, g.chain, at[1])
+				var travel := _direction_on(g.xs, g.zs, g.chain, at[1])
+				var right := Vector2(-travel.y, travel.x)
+				var h := profile.sample_height(p[0] + right.x * offset, p[1] + right.y * offset)
+				samples += 1
+				if offset == 0.0:
+					centre_off = maxf(centre_off, absf(h - profile.describe(p[0], p[1]).get("centre", NAN)))
+				if is_finite(previous):
+					var step := absf(h - previous)
+					if step > worst:
+						worst = step
+						worst_where = "%+.2f m at %s chainage %.2f" % [offset, g.id, at[1]]
+				previous = h
+		var name := "entry" if pair == KARUSSELL_ENTRY else "exit"
+		_ok(samples > 0 and worst <= SEAM_STEP_MAX_M and centre_off <= CENTRE_LINE_TOLERANCE_M, "the Karussell's %s junction (%s -> %s), probed every %.2f m over ±%.0f m at the nine offsets -3.75..+3.75 (%d samples): the largest one-step height jump is %.3f m (%s), under %.2f m (was %s: the bank met the neighbour's plane as an edge wall); the centre line the file's own dense heights (%.10f m off at most: the blend touches the cross-section only)" % [name, pair[0], pair[1], PROBE_STEP_M, PROBE_REACH_M, samples, worst, worst_where, SEAM_STEP_MAX_M, "-0.878 / +1.211 m at ∓3.75" if name == "entry" else "+1.269 / -1.281 m at ∓3.75", centre_off], "the Karussell's %s: the largest step %.3f m %s, the centre %.10f off" % [name, worst, worst_where, centre_off])
+	# The 0007 site.
+	var site: Dictionary = _geometry(raw_points[ISSUE_0007_SEGMENT])
+	var site_worst := 0.0
+	var site_where := ""
+	for offset: float in PROBE_OFFSETS:
+		var previous := NAN
+		var s: float = ISSUE_0007_RANGE_M[0]
+		while s <= ISSUE_0007_RANGE_M[1] + 1e-9:
+			var p := _point_on(site.xs, site.zs, site.chain, s)
+			var travel := _direction_on(site.xs, site.zs, site.chain, s)
+			var right := Vector2(-travel.y, travel.x)
+			var h := profile.sample_height(p[0] + right.x * offset, p[1] + right.y * offset)
+			if is_finite(previous) and absf(h - previous) > site_worst:
+				site_worst = absf(h - previous)
+				site_where = "%+.2f m at chainage %.2f" % [offset, s]
+			previous = h
+			s += PROBE_STEP_M
+	_ok(site_worst <= SEAM_STEP_MAX_M, "the 0007 site (%s chainage %.0f-%.0f, the \"rear tyres suspended\" notch): the largest one-step height jump at any of the nine offsets is %.3f m (%s), under %.2f m (was 0.342 m at +3.75 at chainage 44.7-45.2 and -0.335 at 45.5: the crossfall flipping -0.04 -> +0.04 -> -0.06 inside the 0.45 m chord at point 8)" % [ISSUE_0007_SEGMENT, ISSUE_0007_RANGE_M[0], ISSUE_0007_RANGE_M[1], site_worst, site_where, SEAM_STEP_MAX_M], "the 0007 site: the largest step %.3f m %s" % [site_worst, site_where])
+	# The loop's crossfall twist per chord.
+	var loop: SkeletonLoader.Loop = SkeletonLoader.loops_of(skeleton)[SkeletonLoader.NORDSCHLEIFE_LOOP]
+	var chords := 0
+	var over := 0
+	var top := 0.0
+	var top_where := ""
+	for id: String in loop.segments:
+		var segment: SkeletonLoader.Segment = segments[id]
+		if segment.osm_way == SkeletonLoader.KARUSSELL_WAY:
+			continue
+		var g: Dictionary = _geometry(raw_points[id])
+		var crossfall: Array = records[id].crossfall
+		for i: int in range(1, crossfall.size()):
+			var chord: float = g.chain[i] - g.chain[i - 1]
+			if chord <= 0.0:
+				continue
+			chords += 1
+			var twist: float = absf(float(crossfall[i]) - float(crossfall[i - 1])) * segment.width_m * 0.5 / chord
+			if twist > LOOP_TWIST_MAX:
+				over += 1
+			if twist > top:
+				top = twist
+				top_where = "%s point %d (chord %.2f m, %+.4f -> %+.4f)" % [id, i - 1, chord, crossfall[i - 1], crossfall[i]]
+	_ok(chords > 900 and over == 0, "the loop's crossfall twist: over the %d chords of its %d non-bank segments no chord twists the paved edge over %.2f m/m - the top %.4f m/m at %s (was 19 chords over, 7 over 0.05, the top 0.940 at 799394513-1 point 8: the crossfall-twist rule's window and runoff, drape.py)" % [chords, loop.segments.size() - 1, LOOP_TWIST_MAX, top, top_where], "%d of %d loop chords twist over %.2f, the top %.4f at %s" % [over, chords, LOOP_TWIST_MAX, top, top_where])
+
+
+## A segment's 64-bit geometry from its raw points.
+static func _geometry(points: Array) -> Dictionary:
+	var xs := PackedFloat64Array()
+	var zs := PackedFloat64Array()
+	for point: Array in points:
+		xs.append(point[0])
+		zs.append(point[1])
+	var chain := WorldRoadProfile.chainages(xs, zs)
+	return {"xs": xs, "zs": zs, "chain": chain, "length": chain[chain.size() - 1], "id": ""}
+
+
+static func _point_on(xs: PackedFloat64Array, zs: PackedFloat64Array, chain: PackedFloat64Array, s: float) -> PackedFloat64Array:
+	for i: int in range(1, chain.size()):
+		if chain[i] >= s:
+			var span := chain[i] - chain[i - 1]
+			var u := 0.0 if span <= 0.0 else (s - chain[i - 1]) / span
+			return PackedFloat64Array([xs[i - 1] + u * (xs[i] - xs[i - 1]), zs[i - 1] + u * (zs[i] - zs[i - 1])])
+	return PackedFloat64Array([xs[xs.size() - 1], zs[zs.size() - 1]])
+
+
+## The unit direction of travel at chainage s: the chord's.
+static func _direction_on(xs: PackedFloat64Array, zs: PackedFloat64Array, chain: PackedFloat64Array, s: float) -> Vector2:
+	for i: int in range(1, chain.size()):
+		if chain[i] >= s and chain[i] > chain[i - 1]:
+			return Vector2(xs[i] - xs[i - 1], zs[i] - zs[i - 1]).normalized()
+	return Vector2(xs[xs.size() - 1] - xs[xs.size() - 2], zs[zs.size() - 1] - zs[zs.size() - 2]).normalized()
 
 
 # =============================================================================
@@ -898,7 +1119,11 @@ func _check_fixture() -> void:
 	var bend_left := profile.sample_height(250.0, -202.0)
 	var bend_right := profile.sample_height(250.0, -198.0)
 	var bend_record: Dictionary = drape.segments[3]
-	_ok(bend_record.id == "4-0" and bend_record.crossfall == [0.04, 0.04, 0.04] and absf(bend_right - bend_left - 0.16) < MM, "fixture: the left-hand bend is superelevated 4 %% (R 70.7 m, capped): crossfall [0.04, 0.04, 0.04], 16 cm higher 2 m right than 2 m left", "bend crossfall %s, across %.3f" % [bend_record.crossfall, bend_right - bend_left])
+	# was crossfall [0.04, 0.04, 0.04] and 16 cm across: the three-point
+	# circle through the corner's neighbours 100 m away read R 70.7 m; the
+	# crossfall-twist rule reads the 90° turn over its 20 m window, R 12.7 m,
+	# a hairpin's cap (WorldRoadProfile.CURVATURE_WINDOW_M).
+	_ok(bend_record.id == "4-0" and bend_record.crossfall == [0.06, 0.06, 0.06] and absf(bend_right - bend_left - 0.24) < MM, "fixture: the left-hand bend is superelevated 6 %% (a 90° turn over the 20 m window: R 12.7 m, under the hairpin radius, capped; was 4 %% from the three-point circle's R 70.7 m): crossfall [0.06, 0.06, 0.06], 24 cm higher 2 m right than 2 m left", "bend crossfall %s, across %.3f" % [bend_record.crossfall, bend_right - bend_left])
 	# The bridge over the second crest.
 	var bridge_record: Dictionary = drape.segments[1]
 	var bridge_mid := profile.sample_height(1100.0, -400.0)
@@ -923,7 +1148,14 @@ func _check_fixture() -> void:
 	var bowl_strip := profile.sample_height(2050.0, -2602.75)
 	var bowl_centre := profile.sample_height(2050.0, -2600.0)
 	var bowl_outside := profile.sample_height(2050.0, -2596.25)
-	_ok(karussell_record.id == "414785755-0" and karussell_record.crossfall == [0.3, 0.3, 0.3] and karussell_record.labels.back().kind == "bank" and absf(bowl_strip - bowl_inside) < MM and absf(bowl_outside - bowl_inside - 1.95) < MM and absf(bowl_centre - _plane(2050.0, -2600.0)) < MM, "fixture: way 414785755 takes the bank: flat over the 1 m strip, 1.95 m up at the outside edge, the centre on the ground", "bank: crossfall %s, across %.3f %.3f %.3f %.3f" % [karussell_record.crossfall, bowl_inside, bowl_strip, bowl_centre, bowl_outside])
+	# was crossfall [0.3, 0.3, 0.3] and the label at 0 to 200: the Karussell
+	# blend ramps the array over 30 m from each end's own plane value (the
+	# corner's 0.06 here, a junction's stitched tilt in the pipeline) and
+	# the label carries at 30, to 170, ramp_m 30.
+	var bank_label: Dictionary = karussell_record.labels.back()
+	_ok(karussell_record.id == "414785755-0" and karussell_record.crossfall == [0.06, 0.3, 0.06] and bank_label == {"at": 30.0, "kind": "bank", "to": 170.0, "bank": 0.3, "bowl_m": 6.5, "strip_m": 1.0, "ramp_m": 30.0} and absf(bowl_strip - bowl_inside) < MM and absf(bowl_outside - bowl_inside - 1.95) < MM and absf(bowl_centre - _plane(2050.0, -2600.0)) < MM, "fixture: way 414785755 takes the bank: the array ramped [0.06, 0.3, 0.06] with the label at 30 / to 170 / ramp_m 30 (was 0.3 at every point, at 0 / to 200), and at chainage 50 flat over the 1 m strip, 1.95 m up at the outside edge, the centre on the ground", "bank: crossfall %s, label %s, across %.3f %.3f %.3f %.3f" % [karussell_record.crossfall, bank_label, bowl_inside, bowl_strip, bowl_centre, bowl_outside])
+	_check_fixture_blend(profile)
+	_check_twist_rule(profile)
 	# The 14 m road (travel east: right is +z): its full band, no step at the old 10.25 m cutoff.
 	var wide_centre := profile.sample_height(2550.0, -2200.0)
 	var wide_edge := profile.sample_height(2550.0, -2193.0)
@@ -947,6 +1179,87 @@ func _check_fixture() -> void:
 #  BROKEN FIXTURES
 # =============================================================================
 
+## The Karussell blend on the fixture's way (travel east then north; the
+## bank rises to the right = +z on the first leg, +x on the second): at
+## chainage 0 the plane with the end's 0.06, at chainage 10 (a third of
+## the entry ramp, weight 1/3) the plane (crossfall lerped to 0.084) and
+## the bowl mixed 2:1 at every offset, at 190 (a third into the exit ramp
+## from its end) the same, the centre the ground at all three; and no
+## step at the ramps' ends along the edge.
+func _check_fixture_blend(profile: WorldRoadProfile) -> void:
+	var c0 := _plane(2000.0, -2600.0)
+	var entry_left := profile.sample_height(2000.0, -2603.75)
+	var entry_right := profile.sample_height(2000.0, -2596.25)
+	_ok(absf(entry_left - (c0 - 0.225)) < MM and absf(entry_right - (c0 + 0.225)) < MM and absf(profile.sample_height(2000.0, -2600.0) - c0) < MM, "fixture blend: at the Karussell's entry (chainage 0) the platform is the plane with the end's 0.06: -0.225 / +0.225 m at ∓3.75, the centre on the ground (%.3f / %.3f / %.3f)" % [entry_left, profile.sample_height(2000.0, -2600.0), entry_right], "entry: %.4f %.4f vs %.4f ± 0.225" % [entry_left, entry_right, c0])
+	var c10 := _plane(2010.0, -2600.0)
+	var e10 := 0.06 + (0.3 - 0.06) * 0.1
+	var expected := {}
+	for o: float in [-3.75, -2.75, 0.0, 3.75]:
+		var plane := c10 + e10 * o
+		var bowl := c10 - 0.3 * 2.75 + 0.3 * maxf(o + 2.75, 0.0)
+		expected[o] = lerpf(plane, bowl, 1.0 / 3.0)
+	var worst := 0.0
+	for o: float in expected:
+		worst = maxf(worst, absf(profile.sample_height(2010.0, -2600.0 + o) - expected[o]))
+	_ok(worst < MM, "fixture blend: at chainage 10 (weight 1/3, crossfall %.3f) every offset is the plane and the bowl mixed 2:1: %.3f / %.3f / %.3f / %.3f m about the centre at -3.75 / -2.75 / 0 / +3.75 (worst %.6f m off)" % [e10, expected[-3.75] - c10, expected[-2.75] - c10, expected[0.0] - c10, expected[3.75] - c10, worst], "blend at 10: worst %.6f" % worst)
+	# The reader lerps the array between the points: at 190 the crossfall
+	# is between the corner's 0.3 (chainage 100) and the end's 0.06 (200),
+	# 0.084 - the ramp is evaluated at the skeleton's points, the plane
+	# between them the reader's own lerp (the pipeline's Karussell has 29
+	# points 3.6-14 m apart, the fixture's three 100 m).
+	var c190 := _plane(2100.0, -2690.0)
+	var e190 := 0.3 + (0.06 - 0.3) * 0.9
+	worst = 0.0
+	for o: float in [-3.75, -2.75, 0.0, 3.75]:
+		var plane := c190 + e190 * o
+		var bowl := c190 - 0.3 * 2.75 + 0.3 * maxf(o + 2.75, 0.0)
+		worst = maxf(worst, absf(profile.sample_height(2100.0 + o, -2690.0) - lerpf(plane, bowl, 1.0 / 3.0)))
+	_ok(worst < MM, "fixture blend: at chainage 190 (10 m before the exit, weight 1/3, the crossfall the array's lerp %.3f) the same 2:1 mix at every offset (worst %.6f m off)" % [e190, worst], "blend at 190: worst %.6f" % worst)
+	# Along the outside edge through both ramps' ends: no step.
+	var largest := 0.0
+	for k: int in 80:
+		var s := 25.0 + k * 0.25
+		var a := profile.sample_height(2000.0 + s, -2596.25)
+		var b := profile.sample_height(2000.0 + s + 0.25, -2596.25)
+		largest = maxf(largest, absf(b - a))
+	_ok(largest < 0.03, "fixture blend: along the outside edge from chainage 25 to 45 (through the ramp's end at 30) no 0.25 m step over 3 cm (the largest %.4f m: the plane's edge lift arriving over 30 m plus the ground's slope)" % largest, "edge step %.4f" % largest)
+
+
+## The crossfall-twist rule through the mirror (WorldRoadProfile.crossfall_of
+## and runoff) on the skeleton's own points: the 0007 site's segment
+## 799394513-1 (its points 8/9 0.45 m apart, where the three-point circle
+## flipped -0.04 -> +0.04 -> -0.06) reads one sign through points 6-10 and
+## changes by at most SUPERELEVATION_RUNOFF_PER_M per metre between any
+## two consecutive points; runoff keeps a bounded array bit for bit, pins
+## the ends when asked, and bounds a spike; a straight is still 0.
+func _check_twist_rule(_profile: WorldRoadProfile) -> void:
+	var skeleton: Variant = SkeletonLoader.read_file()
+	var points: Array = []
+	for raw: Dictionary in skeleton.segments:
+		if raw.id == "799394513-1":
+			points = raw.points
+	var xs := PackedFloat64Array()
+	var zs := PackedFloat64Array()
+	for point: Array in points:
+		xs.append(point[0])
+		zs.append(point[1])
+	var chain := WorldRoadProfile.chainages(xs, zs)
+	var e := WorldRoadProfile.crossfall_of(xs, zs)
+	var steepest := 0.0
+	for i: int in range(1, e.size()):
+		if chain[i] > chain[i - 1]:
+			steepest = maxf(steepest, absf(e[i] - e[i - 1]) / (chain[i] - chain[i - 1]))
+	var one_sign := e.size() > 10 and signf(e[6]) == signf(e[7]) and signf(e[7]) == signf(e[8]) and signf(e[8]) == signf(e[9]) and signf(e[9]) == signf(e[10])
+	_ok(points.size() == 27 and one_sign and steepest <= WorldRoadProfile.SUPERELEVATION_RUNOFF_PER_M + 1e-9, "the crossfall-twist rule on 799394513-1's 27 points: points 6-10 read one sign (%.4f %.4f %.4f %.4f %.4f; was -0.04 -> +0.04 -> -0.06 across the 0.45 m chord at point 8, a 0.94 m/m edge twist) and the crossfall changes by at most %.5f per metre between consecutive points (the bound %.3f)" % [e[6], e[7], e[8], e[9], e[10], steepest, WorldRoadProfile.SUPERELEVATION_RUNOFF_PER_M], "twist rule: %d points, one sign %s, steepest %.5f/m: %s" % [points.size(), one_sign, steepest, e])
+	var again := WorldRoadProfile.runoff(e, chain, true)
+	var spike := WorldRoadProfile.runoff(PackedFloat64Array([0.0, 0.0, 0.06, 0.0, 0.0]), PackedFloat64Array([0.0, 10.0, 10.5, 11.0, 40.0]), true)
+	var spike_bounded := true
+	for i: int in range(1, 5):
+		spike_bounded = spike_bounded and absf(spike[i] - spike[i - 1]) <= WorldRoadProfile.SUPERELEVATION_RUNOFF_PER_M * ([0.0, 10.0, 10.5, 11.0, 40.0][i] - [0.0, 10.0, 10.5, 11.0, 40.0][i - 1]) + 1e-12
+	_ok(again == e and spike[0] == 0.0 and spike[4] == 0.0 and spike[2] > 0.0 and spike[2] < 0.06 and spike_bounded, "runoff: a bounded array comes back bit for bit; a 0.06 spike between points 0.5 m apart on a 40 m straight is spread under the bound with the ends pinned at 0 (the spike's point %.4f, its neighbours %.4f / %.4f)" % [spike[2], spike[1], spike[3]], "runoff: same %s, spike %s" % [again == e, spike])
+	_ok(WorldRoadProfile.crossfall_of(PackedFloat64Array([0.0, 100.0]), PackedFloat64Array([0.0, 0.0])) == PackedFloat64Array([0.0, 0.0]) and WorldRoadProfile.crossfall_of(PackedFloat64Array([0.0, 100.0, 200.0]), PackedFloat64Array([0.0, 0.0, 0.0])) == PackedFloat64Array([0.0, 0.0, 0.0]), "a straight still reads 0 (the crown) through the twist rule, two points or three")
+
+
 func _check_broken_fixtures() -> void:
 	var skeleton := _fixture_skeleton()
 	var drape := _fixture_drape(skeleton)
@@ -966,6 +1279,10 @@ func _check_broken_fixtures() -> void:
 	_expect_fault(_broken(drape, func(d: Dictionary) -> void: d.segments[0].labels[0].curvature_20m = 0.001), skeleton, "curvature 0.001 is within the threshold 0.004", "a label within the threshold")
 	_expect_fault(_broken(drape, func(d: Dictionary) -> void: d.segments[0].labels[0].curvature_20m = -0.01), skeleton, "is a dip with curvature -0.01", "a dip with a crest's curvature")
 	_expect_fault(_broken(drape, func(d: Dictionary) -> void: d.segments[4].labels.back().strip_m = 2.0), skeleton, "bank: strip 2.0 + bowl 6.5 is not the paved width 7.5", "a bank that does not fill the width")
+	_expect_fault(_broken(drape, func(d: Dictionary) -> void: d.segments[4].labels.back().ramp_m = 40.0), skeleton, "bank: the ramp 40.0 does not fit before at 30.0", "a bank ramp longer than the bowl's start")
+	_expect_fault(_broken(drape, func(d: Dictionary) -> void: d.segments[4].labels.back().to = 190.0), skeleton, "bank: the ramp 30.0 does not fit after to 190.0", "a bank ramp past the segment's end")
+	_expect_fault(_broken(drape, func(d: Dictionary) -> void: d.segments[4].labels.back().ramp_m = -1.0), skeleton, "bank ramp_m is -1.0, not a length", "a negative bank ramp")
+	_expect_fault(_broken(drape, func(d: Dictionary) -> void: d.segments[4].labels.back().at = 185.0), skeleton, "bank: at 185.0 is past to 170.0", "a bank starting after it ends")
 	_expect_fault(_broken(drape, func(d: Dictionary) -> void: d.segments[0].crossfall[0] = 0.5), skeleton, "segment 1-0.crossfall[0] is 0.5, beyond any rule's", "a crossfall beyond every rule")
 	_expect_fault(_broken(drape, func(d: Dictionary) -> void: d.segments.reverse()), skeleton, "comes after", "segments out of order")
 	_expect_fault(null, skeleton, "not a JSON object", "a file that is not JSON")

@@ -299,6 +299,32 @@ These are German road-design values (RAL/RASt), not measured: open question 2 in
   `pipeline_version` (1) are unchanged by the smoothing: the reader refuses other rules and
   another version, and the readers are frozen; the smoothing's constants are recorded in
   `drape.py` and here, the file is pinned by sha256 in `tests/ring_drive_test.gd`.
+- THE CROSSFALL-TWIST RULE (2026-09-25, the ROAD-GEOMETRY FIX-NOW landing after
+  `docs/issues-analysis-2026-09-24.md` §4.2; `drape.py`'s header carries the record): the
+  signed curvature at a skeleton point is the polyline's heading change over a 20 m window
+  centred on it, clamped to the segment, over that length (`CURVATURE_WINDOW_M`; was the
+  three-point circle through the point and its neighbours, whose sign flipped on every short
+  chord - a 0.94 m/m edge twist across a 0.45 m chord at 799394513-1, the driver's "rear tyres
+  suspended"); the superelevation then changes by at most 0.004 per metre of chainage
+  (`SUPERELEVATION_RUNOFF_PER_M`, the design notion of a superelevation runoff: a 4 % bank runs
+  off over 10 m; the values projected onto the bound by the midpoint of their McShane envelopes,
+  the ends free before the junction stitch and pinned after it); a plain segment shorter than
+  15 m (`STUB_M`) between a rigid participant and a junction holds the rigid tilt through to the
+  node (the stub rule). The loop's 965 chords: 19 twisting over 0.02 m/m -> 0 (the top 0.0173).
+- THE KARUSSELL BLEND (the same landing, §3.3 (a) of the analysis; ring-region-decisions.md §3's
+  branch (c) unchanged in bank, bowl and strip): the bank label carries `at` = 30, `to` = length
+  - 30 and a new additive key `ramp_m` = 30 (`KARUSSELL_RAMP_M`; the reader's `BANK_LABEL_KEYS`
+  gains it, a label without it reads as before), the way's crossfall array ramps linearly from
+  each end's stitched plane value to 0.30 over the ramp (the way's ends now take the node's tilt
+  like any plain participant; it still does not vote), and the reader blends the platform from
+  the plane to the bowl over [at - ramp_m, at] and [to, to + ramp_m]. was the bank at every
+  point and a step against the neighbours' planes: -0.878 / +1.211 m at the entry's paved edges,
+  +1.269 / -1.281 at the exit's -> the largest one-step at any offset within ±10 m of either
+  junction 0.038 / 0.034 m. 30 m, not the doc's first candidate 20: measured, 20 m read 0.053 m
+  at the entry against the 0.05 m fence (the crown's fade where the ramped crossfall passes
+  through zero adds its own edge kink). The centre heights are untouched: the regenerated file
+  (aac02239...) differs from f3ca142b... only in 2 813 segments' crossfall arrays (12 871 of
+  22 215 points) and the one bank label.
 
 ## 6. REGION DRESSING PASSES
 

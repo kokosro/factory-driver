@@ -310,6 +310,17 @@ class Road:
 	var half_width: float
 	var crossfall: PackedFloat64Array
 	var bank: bool = false
+	## The Karussell blend (WorldRoadProfile.KARUSSELL_RAMP_M): the bowl's
+	## full span [bank_at, bank_to], the ramp either side of it (0 for a
+	## label without ramp_m) and the bank's side, as the profile reads
+	## them; the mesh follows the same rule through the profile's own
+	## sample_height, its sections standing at the ramps' ends too.
+	var bank_at: float = 0.0
+	var bank_to: float = 0.0
+	var bank_ramp: float = 0.0
+	var bank_sign: float = 1.0
+	var bank_slope: float = 0.0
+	var bank_strip: float = 0.0
 	var offsets: PackedFloat64Array
 
 
@@ -424,13 +435,24 @@ func _road_of(raw: Dictionary, segment: SkeletonLoader.Segment, points: Array) -
 	road.half_width = segment.width_m * 0.5
 	# R17 / R18: the edge, the crown line, the edge. R9: the edge, the
 	# strip's end (where the bank's bowl begins: the field's kink), the
-	# edge - the bank rises to the side the crossfall says.
+	# crown line (the blend's plane keeps its crown where the ramped
+	# crossfall passes through zero; was absent: the bank's crossfall
+	# never left 0.30) and the edge - the bank rises to the side the
+	# crossfall says at the bowl's middle (was at the array's first point,
+	# which the ramp now gives the neighbour's plane value).
 	road.offsets = PackedFloat64Array([-road.half_width, 0.0, road.half_width])
 	for label: Variant in raw.get("labels", []):
 		if label is Dictionary and label.get("kind") == "bank":
 			road.bank = true
+			road.bank_at = float(label.get("at", 0.0))
+			road.bank_to = float(label.get("to", road.length))
+			road.bank_ramp = float(label.get("ramp_m", 0.0))
+			road.bank_sign = 1.0 if _crossfall_at(road, 0.5 * (road.bank_at + road.bank_to)) >= 0.0 else -1.0
+			road.bank_slope = float(label.get("bank", 0.0))
+			road.bank_strip = float(label.get("strip_m", 0.0))
 			var strip_edge := float(label.get("strip_m", 0.0)) - road.half_width
-			road.offsets[1] = strip_edge if road.crossfall[0] >= 0.0 else -strip_edge
+			road.offsets = PackedFloat64Array([-road.half_width, road.bank_sign * strip_edge, 0.0, road.half_width])
+			road.offsets.sort()
 	return road
 
 
@@ -491,19 +513,26 @@ func _sweep(road: Road) -> Strip:
 
 ## Where the road's cross-sections stand: the field's breakpoints along it
 ## (the stations, the interior skeleton points, the crossfall's crossings
-## of 0 and ±CROWN), sorted and deduplicated, then every interval split
-## into as many pieces as keep the quads' twist under MESH_TOLERANCE_M.
+## of 0 and ±CROWN, a bank's ramp ends), sorted and deduplicated, then
+## every interval split into as many pieces as keep the quads' twist under
+## MESH_TOLERANCE_M. A bank road takes the crossings and the split too
+## (was skipped: its crossfall was 0.30 throughout, so there was nothing
+## to cross or split; the ramps change that, and a constant crossfall still
+## yields no crossing and one piece).
 func _section_chainages(road: Road) -> PackedFloat64Array:
 	var breakpoints := WorldRoadProfile.station_chainages(road.length)
 	for i: int in range(1, road.chain.size() - 1):
 		breakpoints.append(road.chain[i])
-	if not road.bank:
-		for i: int in range(1, road.chain.size()):
-			var e0 := road.crossfall[i - 1]
-			var e1 := road.crossfall[i]
-			for level: float in [-WorldRoadProfile.CROWN, 0.0, WorldRoadProfile.CROWN]:
-				if (e0 - level) * (e1 - level) < 0.0:
-					breakpoints.append(road.chain[i - 1] + (level - e0) / (e1 - e0) * (road.chain[i] - road.chain[i - 1]))
+	for i: int in range(1, road.chain.size()):
+		var e0 := road.crossfall[i - 1]
+		var e1 := road.crossfall[i]
+		for level: float in [-WorldRoadProfile.CROWN, 0.0, WorldRoadProfile.CROWN]:
+			if (e0 - level) * (e1 - level) < 0.0:
+				breakpoints.append(road.chain[i - 1] + (level - e0) / (e1 - e0) * (road.chain[i] - road.chain[i - 1]))
+	if road.bank:
+		for s: float in [road.bank_at - road.bank_ramp, road.bank_at, road.bank_to, road.bank_to + road.bank_ramp]:
+			if s > 0.0 and s < road.length:
+				breakpoints.append(s)
 	breakpoints.sort()
 	var out := PackedFloat64Array()
 	var cursor := 0
@@ -518,11 +547,10 @@ func _section_chainages(road: Road) -> PackedFloat64Array:
 		while cursor < road.xs.size() - 2 and road.chain[cursor + 1] < s:
 			cursor += 1
 		var e := _crossfall_on(road, s, cursor)
-		if not road.bank:
-			var pieces := _twist_pieces(road, previous_e, e, previous, s)
-			for p: int in range(1, pieces):
-				out.append(previous + (s - previous) * p / pieces)
-				split_count += 1
+		var pieces := _twist_pieces(road, previous_e, e, previous, s)
+		for p: int in range(1, pieces):
+			out.append(previous + (s - previous) * p / pieces)
+			split_count += 1
 		previous_e = e
 		out.append(s)
 	return out
@@ -544,9 +572,66 @@ func _twist_pieces(road: Road, e0: float, e1: float, s0: float, s1: float) -> in
 		var b1 := side * e1 - _crown_share(e1) * WorldRoadProfile.CROWN
 		worst = maxf(worst, absf(b1 - b0))
 	var pieces := maxi(ceili(worst * road.half_width / (4.0 * MESH_TOLERANCE_M) - 1e-9), 1)
+	# Inside a bank's ramp the field is the plane blended into the bowl by
+	# a weight linear along the road: across each quad the blended height
+	# difference between its two offsets changes along the interval (the
+	# quads' twist, Δ over four, as above but for the blended section),
+	# and along the road at a fixed offset it is a product of two linear
+	# terms (the weight and the plane-to-bowl gap, the plane's edge moving
+	# with the ramped crossfall), off its own linear interpolation by up
+	# to their two changes' product over four at the interval's middle;
+	# split so each stays under half the tolerance.
+	if road.bank and road.bank_ramp > 0.0:
+		var stub := _profile_road_stub(road)
+		var w0 := WorldRoadProfile.bank_weight(stub, s0)
+		var w1 := WorldRoadProfile.bank_weight(stub, s1)
+		if w0 != w1 or w0 < 1.0:
+			var quad_twist := 0.0
+			for i: int in road.offsets.size() - 1:
+				var d0 := _blended_rise(road, road.offsets[i], road.offsets[i + 1], e0, w0)
+				var d1 := _blended_rise(road, road.offsets[i], road.offsets[i + 1], e1, w1)
+				quad_twist = maxf(quad_twist, absf(d1 - d0))
+			var edge_move := (absf(e1 - e0) + absf(_crown_share(e1) - _crown_share(e0)) * WorldRoadProfile.CROWN) * road.half_width
+			var product := absf(w1 - w0) * edge_move
+			pieces = maxi(pieces, ceili(quad_twist / (2.0 * MESH_TOLERANCE_M) - 1e-9))
+			pieces = maxi(pieces, ceili(sqrt(product / (2.0 * MESH_TOLERANCE_M)) - 1e-9))
 	if pieces > 1 and (s1 - s0) / pieces < MIN_SECTION_M:
 		fine_split_count += 1
 	return pieces
+
+
+## The builder's road as the profile's Road, for the profile's own
+## bank_weight (the one rule, not a parallel copy); only the bank's
+## fields are read there.
+static func _profile_road_stub(road: Road) -> WorldRoadProfile.Road:
+	var stub := WorldRoadProfile.Road.new()
+	stub.bank = road.bank
+	stub.bank_at = road.bank_at
+	stub.bank_to = road.bank_to
+	stub.bank_ramp = road.bank_ramp
+	return stub
+
+
+## The blended section's rise from offset o0 to o1 about the centre
+## (the profile's _platform_height less the centre height: the plane's
+## shape with crossfall e, the bowl's, mixed by the weight w) - for the
+## twist bound only; the vertices themselves are sampled from the profile.
+static func _blended_rise(road: Road, o0: float, o1: float, e: float, w: float) -> float:
+	var crown_share := _crown_share(e)
+	var plane := e * (o1 - o0) - crown_share * WorldRoadProfile.CROWN * (absf(o1) - absf(o0))
+	var u0 := road.bank_sign * o0 + road.half_width
+	var u1 := road.bank_sign * o1 + road.half_width
+	var bowl := road.bank_slope * (maxf(u1 - road.bank_strip, 0.0) - maxf(u0 - road.bank_strip, 0.0))
+	return lerpf(plane, bowl, w)
+
+
+## The crossfall at chainage s: the points' values, linear between them
+## (the chord found here; _crossfall_on takes it from the sweep's cursor).
+static func _crossfall_at(road: Road, s: float) -> float:
+	var c := 0
+	while c < road.xs.size() - 2 and road.chain[c + 1] <= s:
+		c += 1
+	return _crossfall_on(road, s, c)
 
 
 ## The crown's share of the crossfall shape (WorldRoadProfile's

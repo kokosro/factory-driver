@@ -682,8 +682,10 @@ not end on it, a segment end its junction does not list, a loop that does not jo
 close, a file that is not JSON) naming the thing and the field. Then
 `tests/world_profile_test.gd`: the Ring's elevation drape under `data/regions/eifel_ring/`
 (the 42 verified DGM1 tiles mosaicked and sampled along the skeleton offline by
-`tools/world/drape.py`: the platform's centre height every 2 m, a crossfall per point, the
-bridge and tunnel rules, crest/dip labels, a 10 m terrain lattice of the raw ground;
+`tools/world/drape.py`: the platform's centre height every 2 m, a crossfall per point - since
+the ROAD-GEOMETRY FIX-NOW landing the superelevation of the heading change over a 20 m window
+run off at 0.004 per metre, was the three-point circle's whose sign flipped on short chords -,
+the bridge and tunnel rules, crest/dip labels, a 10 m terrain lattice of the raw ground;
 `docs/design/4b/data-pipeline.md` §5) read the way `WorldRoadProfile` reads it and put
 through its validation against the skeleton, in seconds and before anything drives; then
 held to what the plan asks of the drape: the snapshot pinned and the skeleton it was draped
@@ -692,7 +694,10 @@ the coverage the 7 km × 6 km core and the lattice spanning it; every Nordschlei
 covered; the crest/dip labels recounted from the file's own heights by the mirrored rule and
 equal to the file's (1 927 crests, 1 874 dips; was 2 551 / 2 465 before ROAD-SMOOTHING);
 every draped bridge deck linear between its abutments, one line each;
-the Karussell's bank (branch (c) of the decision tree: 30 % over 6.5 m with the 1 m strip)
+the Karussell's bank (branch (c) of the decision tree: 30 % over 6.5 m with the 1 m strip;
+since the ROAD-GEOMETRY FIX-NOW landing ramped over 30 m at each end from the neighbours'
+stitched plane values, the array held to the mirror's ramp and the label to at 30 / to 122.915
+/ ramp_m 30, was +0.30 at all 29 points with a step against the neighbours)
 read across the bowl; the reference heights derived from the file itself, the loop's lowest
 sample at the Breidscheid bridge 333 ± 2 m, its highest at T13 627.5 ± 2 m, the Hohe Acht way
 616.8 ± 2 m (measured, `docs/design/4b/ring-region-decisions.md` §3); the loop's steepest
@@ -704,23 +709,41 @@ the plain segments' centre heights Whittaker-smoothed at λ 5 with the crest/dip
 the raw data, every junction's ends stitched in height and crossfall, write-side): the loop's
 station-to-station grade change at the 90th and 99th percentiles down to the centimetre
 rounding's own 0.5 % and 1.0 % (was 1.5 % and 3.0 %), every junction's draped ends on one
-height and one crossfall (was a crossfall gap over 2 % at 1 562 junctions, 29 on the loop),
+height and one crossfall (was a crossfall gap over 2 % at 1 562 junctions, 29 on the loop;
+each end's pre-stitch tilt recomputed through the mirror's `crossfall_of`, a stub under 15 m
+between a rigid end and a node holding the rigid tilt through - 28 such ends -, the
+Karussell's two ends carrying the node's tilt without voting),
 the driver's issue-0005 stair at junction 65386044 (0.255 m and 0.150 m at the paved
 edges, now 0.000) and issue-0001's T13 ridge (the pit lane's −4 % against the loop's +4 %,
 0.340 m, now 0.000) flat in the file and in the field, and the raw -> smoothed evidence over
-±50 m at the three issue sites with the crest labels there kept at the raw amplitude; then a
+±50 m at the three issue sites with the crest labels there kept at the raw amplitude; the
+ROAD-GEOMETRY FIX-NOW fences (2026-09-25, `docs/issues-analysis-2026-09-24.md`): at both
+Karussell junctions the largest one-step height jump at any of nine offsets within ±10 m is
+0.038 m (entry) and 0.034 m (exit), under 0.05 (was -0.878 / +1.211 and +1.269 / -1.281 m at
+the paved edges: the bowl meeting the neighbours' planes as a wall), the centre line the file's
+own heights through both; the 0007 site's largest one-step 0.049 m (was 0.342, the crossfall
+flipping across a 0.45 m chord); no loop chord twisting the paved edge over 0.02 m/m (was 19,
+the top 0.940); and the twist rule's mirror on 799394513-1's own points; then a
 3 × 3 km fixture built in code (a plane with a bowl and two crests, six roads through the
 mirrored drape rules): the
 plane within 1 mm off-road and on a centreline, its gradient within 1e-4, the bowl's depth,
 bilinear continuity across the lattice's seams, the 2 % crown and the 6 m blend band, a
-left-hand bend superelevated 4 %, a bridge deck linear over the crest under it, a tunnel at
+left-hand bend superelevated 6 % (a 90° corner over the 20 m window reads the hairpin cap;
+was 4 % from the three-point circle's R 70.7 m), a bridge deck linear over the crest under it,
+a tunnel at
 the ground at its portal and 6 m under it inside, the crest labelled at its top, the bank's
-bowl on way 414785755, the fallback outside the box; and `validate()` on eighteen fixtures
+bowl on way 414785755 with its 30 m ramps blended from the plane at both ends (the array
+[0.06, 0.3, 0.06], the label at 30 / to 170 / ramp_m 30; the platform at a third of the ramp
+the plane and the bowl mixed 2:1 at every offset, no 0.25 m step over 3 cm along the edge
+through the ramp's end), the runoff on a spike, a straight still 0, the fallback outside the
+box; and `validate()` on twenty-two fixtures
 broken in code (an unpinned snapshot, another pipeline's version, another skeleton's
 queries, other rules, a lattice short of a height or off the coverage, an empty coverage, a
 DEM in another CRS, an unverified tile, a segment the skeleton lacks, a dense list short of a
 station, a covered segment with a missing height, a label of an unknown kind or within the
-threshold or of the wrong sign, a bank not filling the width, a crossfall beyond every rule,
+threshold or of the wrong sign, a bank not filling the width, a bank ramp that does not fit
+before `at` or after `to`, a negative ramp, a bank starting after it ends, a crossfall beyond
+every rule,
 segments out of order, a file that is not JSON) naming the thing and the field. Then
 `tests/buildings_test.gd`: the Ring's focus table under `data/regions/eifel_ring/` (the
 region's put-in-stone table of typed buildings, `docs/design/4b/ring-region-decisions.md` §4
@@ -749,17 +772,20 @@ naming the record and the field, and one mended (an E1 selling fuel with the fil
 accepted. Then
 `tests/ring_drive_test.gd`: the Nordschleife as a drivable road (`scenes/eifel_ring.tscn`,
 built headless at load by `scripts/road_builder.gd` from the checked-in skeleton and drape,
-implementation-plan.md §4B-4): drape.json pinned by sha256 (the two transforms below correct
+implementation-plan.md §4B-4): drape.json pinned by sha256 (aac02239..., the ROAD-GEOMETRY
+FIX-NOW regeneration; was ROAD-SMOOTHING's f3ca142b...; the two transforms below correct
 parsed data, never the file); the rim rule and the loop's right of way pure functions of the
 parsed data (twice, the same); the scene loads with every covered segment but the ten
-crossing structures swept (3 304 roads, 378 093 sections, 1 134 279 vertices, 1 499 156
-triangles - was 329 394 / 988 182 / 1 304 320 before ROAD-SMOOTHING's crossfall stitch put a
+crossing structures swept (3 304 roads, 361 354 sections, 1 085 528 vertices, 1 435 130
+triangles - was 378 093 / 1 134 279 / 1 499 156 before the crossfall-twist rule's runoff
+took the short-chord twists out of the arrays and the Karussell strip gained a fourth vertex
+on its crown line for the blend; 329 394 / 988 182 / 1 304 320 before ROAD-SMOOTHING's crossfall stitch put a
 ramp on every segment's end chord for the twist bound to split, and 383 146 / 1 149 438 /
 1 519 368 with the first stitch, before the codex review's world-space re-tilt -, one trimesh StaticBody3D
 per road on layer 2 and a follower floor slab on layer 1
 put under the car every tick from the same corrected profile), the car at the pit anchor on
 a WorldRoadProfile; the mesh is the field: every vertex of the loop's and the pit strips on
-the corrected profile's `sample_height` within 1 mm (70 947 vertices), the quads' edges and
+the corrected profile's `sample_height` within 1 mm (70 373 vertices; was 70 947), the quads' edges and
 centres within the twist bound away from the skeleton's kinks (the field's own step between
 two chords measured and reported there, as at junctions); the rim rule (the rim the first
 outward station after which the climb stays under `RIM_SLOPE` 8 % for two stations; was the
