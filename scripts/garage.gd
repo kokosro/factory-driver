@@ -362,7 +362,10 @@ func _build_drive_page() -> void:
 	var world_path := WorldStore.active_path()
 	if world_path != "" and not WorldStore.unspent_vouchers(world_path).is_empty():
 		var here := at_dealership()
-		var rental_on := RentalGate.active_on(car) != null or WorldStore.rental_active(world_path)
+		# was `active_on(car) != null or WorldStore.rental_active(...)` -> the
+		# gate on this car alone: a record left "active" by a run that died
+		# greyed the row for good (4B-6 audit; start writes it anew).
+		var rental_on := RentalGate.active_on(car) != null
 		var where := "Drive to the general dealership %s in Adenau on the Ring (x %.0f, z %.0f in region metres): the voucher is honoured there." % [DEALERSHIP_ID, dealership_position().x, dealership_position().y]
 		_add_heading("DEALERSHIP  —  general dealership %s%s" % [DEALERSHIP_ID, "  (you are here)" if here else ""])
 		_add_row("Take the %s (voucher)" % FirstCar.car_name(), "Your voucher: one general-class car. The %s's entry starts fresh in cars.json and the voucher is spent." % FirstCar.car_name() if here else where, "take_car", _take_first_car, here, FirstCar.CAR_ID)

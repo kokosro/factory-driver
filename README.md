@@ -1198,14 +1198,16 @@ the licence test sits it (the book, key 1, the pilot on the input actions) and P
 `licence_changed` fired ONCE with L0 and the ledger having written ONE voucher (kind car,
 class general, dealership E4.1, granted by L0, unspent); a full PRACTICE run passed with
 `licence_changed` fired no more and the one voucher still; the ledger alone on a bare
-manager granting once on seven `record_element` calls and never a second while one sits
-unspent; the rental (`scripts/rental_gate.gd`) started on the licensed car - the gate in
+manager granting once on seven `record_element` calls and never a second, unspent or
+spent (an L0 or L1 announced after the spend grants none); the rental (`scripts/rental_gate.gd`) started on the licensed car - the gate in
 front of the licence manager, a child of the car, ECO pinned with eco's driver, the
 record active for 3 600 s - `T`, `G`, `K` and `N` pressed through the car's own ticks
 flipping nothing (the car's own program cycle put back the same tick, counted), the hint
 up and down, the clutch key delegated to the manager and moving the pedal, the hour on
 the tick clock ending the rental by itself with the manager back on the car, the record
-cleared and the switches flipping again; taking the car (`scripts/first_car.gd`) - the
+cleared and the switches flipping again, the hour up while THE STUDY holds the gate
+aside keeping an ended gate that answers as the manager, and a car leaving the tree
+ending its rental and clearing the record; taking the car (`scripts/first_car.gd`) - the
 voucher spent, `fd_1001`'s entry in the test's `cars.json` read back through the store's
 own loaders as a new car's (odometer 0, the FD-1001's 64 L tank, the dashboard, battery,
 wear and licence defaults, no problems), the Boxster's entry untouched, `active_car`
@@ -1214,9 +1216,10 @@ off; `configs/cars/fd_1001.json` valid, FD-1001 / `fd_1001`, no trademark; the
 dealership on the Ring - the DRIVE page's world-map row and the two dealership rows
 greyed at the pit with the hint naming E4.1 in Adenau, live once the car stands at E4.1
 (`reset_to`), the loaner row starting the rental on the Ring's car (no manager to stand
-in front of), the take row spending the voucher, ending the rental and writing no entry,
+in front of; a stale "active" record in the file greys nothing), the take row spending the voucher, ending the rental and writing no entry,
 the rows gone after, the CAR page naming the car owned, the world-map row instancing the
 layer beside the Ring's garage and `Esc` closing it; and, the window at 1280 x 720, the
+DRIVE page with the dealership's rows (greyed on the pad, live on the Ring) and the
 map opened from the garage's row and its three zooms walked with `Right` - nothing past
 the screen, every row inside the scroll area, `PgDn` reaching the end.
 
@@ -1527,13 +1530,14 @@ Passing the L0 sitting grants **a voucher** for one general-class car
 (`scripts/voucher_ledger.gd`: it listens to the licence manager's `licence_changed` and
 writes `{"kind": "car", "class": "general", "dealership": "E4.1", "granted_by": "L0",
 "spent": false}` into `world.json` - once: the manager announces a level only when it
-moves and a practice run records nothing, and the ledger never adds a second unspent one
-besides; `record_pass` and the licence are untouched). The dealership is the Ring's E4,
+moves and a practice run records nothing, and the ledger never adds a second L0 voucher,
+spent or not, besides; `record_pass` and the licence are untouched). The dealership is the Ring's E4,
 Autohaus Rausch, way 831174023, unbranded (PUT IN STONE). At it, on the Ring, the
 garage's DRIVE page offers **the loaner** - a rental for an hour on the tick clock
 (`scripts/rental_gate.gd`: a gate in front of the licence gate that refuses `T`, `G`, `K`
 and `N`, pins the program to eco with eco's driver seated and the aids on every tick,
-and ends by itself at the hour or when you take a car of your own; deterministic,
+and ends by itself at the hour, when you take a car of your own or when the car leaves
+the scene - a scene change or the game closing returns the loaner; deterministic,
 pausable) - and **the first car**, "Take the FD-1001 (voucher)" (`scripts/first_car.gd`,
 `configs/cars/fd_1001.json`: a serial-number car of the Boxster's shape, Porsche-inspired
 and a step stronger, no trademark): the voucher is spent, `fd_1001`'s entry goes into

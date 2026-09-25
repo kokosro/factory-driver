@@ -45,7 +45,9 @@ extends SceneTree
 ## driven whole and passed: licence_changed fired no more, the file holds
 ## the one voucher still; then the ledger alone on a bare manager: seven
 ## record_element calls announce L0 once and write one voucher,
-## grant_if_due again writes none while it sits unspent. THE RENTAL
+## grant_if_due again writes none while it sits unspent, nor once it is
+## spent (L0 or L1 announced after: was a second voucher -> none; 4B-6
+## audit). THE RENTAL
 ## (scripts/rental_gate.gd) - started on the licensed car: the gate in
 ## front of the licence manager, a child of the car, the program pinned
 ## ECO with eco's driver, the record written; the three aid switches and
@@ -54,7 +56,10 @@ extends SceneTree
 ## and down again; the clutch key delegated to the manager (L0: the pedal
 ## moves); the hour on the tick clock ending the rental by itself, the
 ## manager back on the car, the record cleared, the switches flipping
-## again. TAKING THE CAR (scripts/first_car.gd) on the store side - the
+## again; the hour up while THE STUDY holds the gate aside keeps an ended
+## gate answering as the manager (never a freed one handed back), and a
+## car leaving the tree ends its rental and clears the record (4B-6
+## audit). TAKING THE CAR (scripts/first_car.gd) on the store side - the
 ## voucher spent, fd_1001's entry in the test's cars.json read back field
 ## by field as a new car's (odometer 0, the FD-1001's own full tank, the
 ## dashboard, battery, wear and licence defaults, no problems), the
@@ -65,13 +70,16 @@ extends SceneTree
 ## world-map row, the two dealership rows greyed at the pit with the hint
 ## naming where to go, live once the car stands at E4.1 (reset_to, the
 ## refuel test's teleport); the loaner row starting the rental on the
-## Ring's car (no manager to stand in front of), the take row spending the
+## Ring's car (no manager to stand in front of; a stale "active" record
+## in the file greys nothing), the take row spending the
 ## voucher, ending the rental and writing no entry (the store is off),
 ## the rows gone after, the CAR page naming the car owned; the world-map
 ## row instancing the layer beside the Ring's garage and Esc closing it.
-## READABILITY - the window at the game's 1280 x 720, the map opened from
-## the garage's row, its three zooms walked with Right: no control past
-## the screen, every row inside the scroll area, PgDn reaching the end.
+## READABILITY - the window at the game's 1280 x 720, the DRIVE page with
+## the dealership's rows (greyed on the pad, live on the Ring; 4B-6 audit:
+## was the map alone), the map opened from the garage's row, its three
+## zooms walked with Right: no control past the screen, every row inside
+## the scroll area, PgDn reaching the end.
 ## Exits 0 on success, 1 on any failed check.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -155,6 +163,8 @@ func _run() -> void:
 	await _check_ledger_alone()
 	print("-- the rental lock")
 	await _check_rental()
+	print("-- the rental lives with its car")
+	await _check_rental_lifecycle()
 	print("-- taking the car: the store side")
 	await _check_take_store()
 	print("-- the dealership on the Ring")
@@ -215,7 +225,9 @@ func _check_store() -> void:
 	WorldStore.set_spawn("eifel_ring", "E8.1", probe)
 	var under_root := FileAccess.file_exists(_tmp_dir.path_join("root/world.json")) and WorldStore.has_record(probe)
 	DataDir.apply_root(root_before)
-	_check(under_root and DataDir.resolve(WorldStore.PATH) == WorldStore.PATH if root_before == "" else true, "user://world.json goes through DataDir.resolve: under a custom root it is <root>/world.json")
+	# was `under_root and resolve == PATH if root_before == "" else true`: the
+	# ternary took the whole check, vacuous under a custom root (4B-6 audit).
+	_check(under_root and DataDir.root() == root_before and (DataDir.resolve(WorldStore.PATH) == WorldStore.PATH or root_before != ""), "user://world.json goes through DataDir.resolve: under a custom root it is <root>/world.json; the run's root put back")
 	WorldStore.path_override = file
 	var overridden := WorldStore.active_path()
 	WorldStore.path_override = ""
@@ -480,10 +492,16 @@ func _check_ledger_alone() -> void:
 	var none := ledger.grant_if_due(LicenceExams.LICENCE_NONE)
 	WorldStore.spend_voucher(file)
 	var after_spend := ledger.grant_if_due(LicenceExams.LICENCE_L0)
-	_check(none.is_empty() and not after_spend.is_empty() and WorldStore.vouchers(file).size() == 2 and WorldStore.unspent_vouchers(file).size() == 1, "... unlicensed grants none; with the voucher spent a fresh L0 announcement may grant again (the guard is on UNSPENT vouchers)")
+	var l1_after_spend := ledger.grant_if_due(LicenceExams.LICENCE_L1)
+	# was: with the voucher spent a fresh L0 announcement granted a second
+	# (the guard on UNSPENT vouchers) -> granted once, spent or not (4B-6
+	# audit: L1 earned after the car was taken bought a second car).
+	_check(none.is_empty() and after_spend.is_empty() and l1_after_spend.is_empty() and ledger.has_l0() and not ledger.has_unspent_l0() and WorldStore.vouchers(file).size() == 1 and WorldStore.unspent_vouchers(file).is_empty() and ledger.granted == 1, "... unlicensed grants none; with the voucher spent a fresh L0 or an L1 announcement grants NO second (granted once, spent or not; was: a second granted)")
+	bare.licence_changed.emit(LicenceExams.LICENCE_L1)
+	_check(ledger.levels_heard.back() == LicenceExams.LICENCE_L1 and ledger.granted == 1 and WorldStore.vouchers(file).size() == 1, "licence_changed(L1) heard after the voucher was spent writes none")
 	ledger.detach()
 	bare.record_element("SOMETHING")
-	_check(not bare.licence_changed.is_connected(ledger._on_licence_changed) and ledger.granted == 2, "detach: the ledger hears nothing more")
+	_check(not bare.licence_changed.is_connected(ledger._on_licence_changed) and ledger.granted == 1, "detach: the ledger hears nothing more (was granted 2 -> 1)")
 	bare.queue_free()
 	await _step(1)
 
@@ -547,6 +565,42 @@ func _check_rental() -> void:
 	_car.gearbox_mode = ArcadeCar.GearboxMode.SPORT
 	_car.set_driver_profile(ArcadeCar.DRIVER_PROFILES["test_driver"])
 	_check(flipped_after and _car.tcs_on, "after the rental the switches flip and the program moves again")
+
+
+## The rental's lifetime (4B-6 audit): ended while THE STUDY holds the
+## gate aside (study.gd _take_the_car / _hand_back_the_car: the car's gate
+## saved, set null, put back) the gate is kept as an ended gate answering
+## as the manager, never a freed object handed back (was: queue_free); a
+## car leaving the tree ends its rental and clears the record (was: the
+## record stayed "active" with no gate anywhere).
+func _check_rental_lifecycle() -> void:
+	var gate := RentalGate.start(_car, _hud, _world_file)
+	await _step(1)
+	var saved: Object = _car.licence_gate
+	_car.licence_gate = null
+	gate.elapsed_s = RentalGate.HOUR_S - 1.5 / Engine.physics_ticks_per_second
+	await _step(3)
+	_check(saved == gate and is_instance_valid(gate) and not gate.active() and gate.name == RentalGate.ENDED_NAME and RentalGate.active_on(_car) == null and not WorldStore.rental_active(_world_file), "the hour up while the study holds the gate aside: the rental ended, the record cleared, the gate kept (renamed %s), no active gate on the car" % RentalGate.ENDED_NAME)
+	_car.licence_gate = saved
+	_check(gate.allows(&"tcs_toggle") == _licence.allows(&"tcs_toggle") and gate.allows(&"gearbox_mode") == _licence.allows(&"gearbox_mode") and gate.allows(&"clutch_pedal"), "the gate the study hands back answers as the licence manager (the aids and the program key no longer refused)")
+	await _tap("tcs_toggle")
+	var flipped := not _car.tcs_on
+	await _tap("tcs_toggle")
+	_check(flipped and _car.tcs_on, "through the handed-back gate the TCS key flips the switch (and back)")
+	_car.licence_gate = _licence
+	gate.queue_free()
+	await _step(1)
+
+	var bare: ArcadeCar = (load("res://scenes/car.tscn") as PackedScene).instantiate()
+	bare.position = Vector3(200.0, 2.0, 200.0)
+	root.add_child(bare)
+	await _step(2)
+	var bare_gate := RentalGate.start(bare, null, _world_file)
+	var on := WorldStore.rental_active(_world_file) and bare.licence_gate == bare_gate
+	root.remove_child(bare)
+	_check(on and not bare_gate.active() and bare.licence_gate == null and WorldStore.rental(_world_file) == {}, "a car leaving the tree (a scene change, the game closing) takes its rental with it: ended, its gate off the car, the record cleared")
+	bare.free()
+	await _step(1)
 
 
 # =============================================================================
@@ -636,10 +690,14 @@ func _check_dealership_on_ring() -> void:
 	ring_car.reset_to(Transform3D(Basis(), Vector3(dealer.x, 0.0, dealer.y)))
 	await _step(5)
 	_check(ring_garage.at_dealership() and Vector2(ring_car.global_position.x, ring_car.global_position.z).distance_to(dealer) < 0.5, "the car put at the dealership (reset_to): at_dealership")
+	# A record left "active" by a run that died (no gate anywhere) does not
+	# grey the loaner row (was: it did, for good; 4B-6 audit).
+	WorldStore.set_rental(0.0, RentalGate.HOUR_S, _world_file)
 	ring_garage.open()
 	ring_garage.show_page(Garage.Page.DRIVE)
 	rows = ring_garage.page_rows()
-	_check(rows[3].kind == "take_car" and rows[3].enabled and rows[4].kind == "loaner" and rows[4].enabled and ring_garage.page_text().contains("you are here"), "the rows are live at the dealership")
+	_check(rows[3].kind == "take_car" and rows[3].enabled and rows[4].kind == "loaner" and rows[4].enabled and ring_garage.page_text().contains("you are here") and WorldStore.rental_active(_world_file), "the rows are live at the dealership (the loaner's too, a stale rental record in the file notwithstanding)")
+	await _check_drive_page_fits(ring_garage, "the Ring's DRIVE page at the dealership (rows live)")
 	_check(ring_garage.activate_row(4) and not ring_garage.is_open and not paused, "the loaner row closes the door")
 	await _step(2)
 	var ring_gate := RentalGate.active_on(ring_car)
@@ -685,7 +743,16 @@ func _check_readability() -> void:
 	root.size = Vector2i(screen.size)
 	await _step(2)
 	_check(root.get_visible_rect() == screen and screen.size == Vector2(1280, 720), "the window is the game's own %d x %d" % [int(screen.size.x), int(screen.size.y)])
+	# The DRIVE page with the dealership's rows greyed (an unspent voucher,
+	# away from the dealership: the longer hint) - the new garage surface
+	# at 1280 x 720 too (4B-6 audit: only the map's zooms were measured).
+	WorldStore.add_voucher(VoucherLedger.voucher_record(), _world_file)
 	_garage.open()
+	_garage.show_page(Garage.Page.DRIVE)
+	var greyed := _garage.page_rows()
+	_check(greyed[3].kind == "take_car" and not greyed[3].enabled and greyed[4].kind == "loaner" and not greyed[4].enabled, "an unspent voucher on the pad: the dealership's two rows are there, greyed")
+	await _check_drive_page_fits(_garage, "the pad's DRIVE page with the dealership's rows greyed")
+	WorldStore.spend_voucher(_world_file)
 	_garage.show_page(Garage.Page.DRIVE)
 	var rows := _garage.page_rows()
 	_check(rows[2].kind == "world_map" and _garage.activate_row(2) and not _garage.is_open and _map.is_open and not _map.forced and paused, "the garage's World map row opens the pad's own layer, not forced")
@@ -723,6 +790,41 @@ func _check_readability() -> void:
 			await _tap(&"ui_page_up")
 	await _tap(&"abort_mission")
 	_check(not _map.is_open and not paused and not _garage.is_open, "Esc closes the map opened from the garage; the garage did not open on the same press")
+
+
+## `garage` open on DRIVE at the game's 1280 x 720: the frame and every
+## control inside the screen or the scroll area, Down landing on each row
+## inside the scroll area, PgDn reaching the end (the menu test's rule).
+func _check_drive_page_fits(garage: Garage, title: String) -> void:
+	var screen := Rect2(Vector2.ZERO, Vector2(
+		float(ProjectSettings.get_setting("display/window/size/viewport_width")),
+		float(ProjectSettings.get_setting("display/window/size/viewport_height")),
+	))
+	root.size = Vector2i(screen.size)
+	await _step(2)
+	var frame: Control = garage.get_node("Frame")
+	var scroll: ScrollContainer = garage.get_node("Frame/Column/Scroll")
+	var body: Control = garage.get_node("Frame/Column/Scroll/Body")
+	var off := _off_screen(garage, screen)
+	_check(garage.is_open and garage.page == Garage.Page.DRIVE and screen.size == Vector2(1280, 720) and off.is_empty() and _inside(frame.get_global_rect(), screen), "%s: the frame %.0f x %.0f px inside the 1280 x 720 screen, every control inside it or its scroll area%s" % [title, frame.size.x, frame.size.y, _listed(off)])
+	var rows := garage.page_rows()
+	var unreachable := PackedStringArray()
+	for row in rows.size():
+		if row > 0:
+			await _tap(&"ui_down")
+		var button: Control = garage.get_node("Frame/Column/Scroll/Body/Row%d" % row)
+		if not (garage.cursor == row and _inside(button.get_global_rect(), scroll.get_global_rect())):
+			unreachable.append("%s (%s)" % [rows[row].label, button.get_global_rect()])
+	var downs := 0
+	while downs < MAX_PAGE_DOWNS:
+		var before := scroll.scroll_vertical
+		await _tap(&"ui_page_down")
+		downs += 1
+		if scroll.scroll_vertical == before:
+			break
+	var last: Control = body.get_child(body.get_child_count() - 1)
+	_check(unreachable.is_empty() and _inside(last.get_global_rect(), scroll.get_global_rect()) and rows.size() >= 5, "%s: Down lands on each of its %d rows inside the %.0f px scroll area (the page is %.0f px), PgDn reaches its end%s" % [title, rows.size(), scroll.size.y, body.size.y, ": " + ", ".join(unreachable) if not unreachable.is_empty() else ""])
+	garage.show_page(Garage.Page.DRIVE)
 
 
 ## The visible Controls under `node` that reach past `bounds` by more than

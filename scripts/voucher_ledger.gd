@@ -10,13 +10,14 @@ extends RefCounted
 ## record_pass and record_element are not touched; the licence semantics
 ## are FROZEN (tests/licence_test.gd) and this class asks them for nothing.
 ##
-## GRANTED ONCE, by two rules that each suffice: (1) the manager emits
-## licence_changed only when the level MOVES (licence_manager.gd
-## _record_changed), and a practice run on a complete record records
-## nothing (record_element is skipped on practice), so L0 is announced
-## exactly once per record; (2) belt and braces, the ledger itself never
-## adds a second unspent L0 voucher while one sits in the file unspent,
-## whatever announced the level (a second manager, a seeded record).
+## GRANTED ONCE: (1) the manager emits licence_changed only when the level
+## MOVES (licence_manager.gd _record_changed), and a practice run on a
+## complete record records nothing (record_element is skipped on
+## practice), so L0 is announced exactly once per record; (2) the ledger
+## itself never adds a second L0 voucher once one is in the file, spent
+## or not, whatever announced the level (was: none while one sat UNSPENT
+## -> once spent, the next licence_changed at L0 or better - L1 earned
+## later, a second car's own L0 - granted a second car; 4B-6 audit).
 ##
 ## THE DEALERSHIP is the Ring's E4 record, PUT IN STONE
 ## (ring-region-decisions.md line 117: Autohaus Rausch, way 831174023,
@@ -76,11 +77,20 @@ func has_unspent_l0() -> bool:
 	return false
 
 
+## Whether an L0 voucher of this dealership is in the file at all, spent
+## or not: the one the driver was granted.
+func has_l0() -> bool:
+	for entry: Dictionary in WorldStore.vouchers(path):
+		if entry.granted_by == GRANTED_BY and entry.dealership == DEALERSHIP:
+			return true
+	return false
+
+
 ## Grants the voucher for `level` where it is due: L0 or better and none
-## of this ledger's unspent in the file. Returns the voucher written, {}
-## when nothing was.
+## of this ledger's in the file yet, spent or not (was: none unspent).
+## Returns the voucher written, {} when nothing was.
 func grant_if_due(level: int) -> Dictionary:
-	if level < LicenceExams.LICENCE_L0 or has_unspent_l0():
+	if level < LicenceExams.LICENCE_L0 or has_l0():
 		return {}
 	var written := WorldStore.add_voucher(voucher_record(), path)
 	granted += 1

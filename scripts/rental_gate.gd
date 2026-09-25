@@ -26,8 +26,19 @@ extends Node
 ## the rental by itself (end): the previous gate is put back, the record
 ## in world.json is cleared, the node frees itself. Taking a car of one's
 ## own ends it too (FirstCar.take): the rule is "if you don't own a car".
+## So does the car leaving the tree (a scene change, the game closing:
+## _exit_tree) - the rental lives with the car it is on (was: the record
+## stayed "active" with no gate anywhere and the garage's loaner row read
+## "already out" for good; 4B-6 audit). Ended while its seat is empty -
+## THE STUDY holds the gate aside for a lesson and puts it back after -
+## the node is not freed but stays an ended gate that answers as the
+## previous one (renamed ENDED_NAME), so the gate the lesson hands back is
+## never a freed object (was: queue_free under the study's saved gate).
 ## What happens to the car at the hour beyond the lock coming off is
 ## DEFERRED (first-run-flow.md §7).
+
+## The name an ended gate still under its car goes by (see the header).
+const ENDED_NAME := "RentalGateEnded"
 
 ## The actions refused while a rental is on.
 const REFUSED: Array[StringName] = [&"tcs_toggle", &"abs_toggle", &"sc_toggle", &"gearbox_mode"]
@@ -63,6 +74,7 @@ var refused := 0
 
 var _hint_left := 0.0
 var _ended := false
+var _leaving := false
 
 
 ## Starts a rental on `target_car`: this gate in front of its current one,
@@ -88,18 +100,18 @@ static func start(target_car: ArcadeCar, target_hud: HUD = null, path := "", len
 	return gate
 
 
-## The rental gate on `target_car`, null for none.
+## The rental gate on `target_car`, null for none (an ended one is none).
 static func active_on(target_car: ArcadeCar) -> RentalGate:
 	if target_car == null:
 		return null
-	var node := target_car.get_node_or_null("RentalGate")
-	return node as RentalGate
+	var gate := target_car.get_node_or_null("RentalGate") as RentalGate
+	return gate if gate != null and gate.active() else null
 
 
-## The gate's answer: no to REFUSED (the hint up), else the previous gate's,
-## yes without one.
+## The gate's answer: no to REFUSED while on (the hint up), else the
+## previous gate's, yes without one.
 func allows(action: StringName) -> bool:
-	if action in REFUSED:
+	if not _ended and action in REFUSED:
 		refused += 1
 		_hint_left = HINT_TIME
 		if hud:
@@ -111,18 +123,29 @@ func allows(action: StringName) -> bool:
 
 
 ## Ends the rental: the previous gate back on the car, the record cleared,
-## the node freed. Idempotent.
+## the node freed - or, with the gate held aside (the study's lesson), kept
+## as an ended gate answering as the previous one. Idempotent.
 func end() -> void:
 	if _ended:
 		return
 	_ended = true
-	if is_instance_valid(car) and car.licence_gate == self:
+	var seated := is_instance_valid(car) and car.licence_gate == self
+	if seated:
 		car.licence_gate = previous_gate
 	if world_path != "":
 		WorldStore.clear_rental(world_path)
-	if hud and _hint_left > 0.0:
+	if is_instance_valid(hud) and _hint_left > 0.0:
 		hud.set_gate_hint("")
-	queue_free()
+	if seated or _leaving or not is_instance_valid(car) or not car.is_inside_tree():
+		queue_free()
+	else:
+		name = ENDED_NAME
+
+
+## The car leaving the tree takes the rental with it (the header).
+func _exit_tree() -> void:
+	_leaving = true
+	end()
 
 
 ## Whether the rental is still on.
