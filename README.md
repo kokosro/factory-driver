@@ -1627,7 +1627,9 @@ driving gets one file for the session; each mission gets a file of its own, and 
 free file pauses while it runs. Measured (the watch test prints it): one sample is
 ~310 bytes on the pad and ~330 on the Ring (longer coordinates), so a session writes
 about 1.1-1.2 MB a minute, 64-68 MiB (67-71 MB) an hour, about 1.1 GB per 16-hour
-driving day. Accepted under the driver's ruling below: nothing is deleted, the driver
+driving day. Those are free-driving samples; a mission's samples carry the run's own
+block (`t_run_s`, `mission` with its progress) and are larger, so a mission file grows
+faster than that average. Accepted under the driver's ruling below: nothing is deleted, the driver
 clears what they want gone. A lighter hybrid - the core fields every tick, the rich
 ones coarser - remains a possible later landing if the driver ever asks; it is not
 built. The recorder never presses a key and never touches the simulation: it only

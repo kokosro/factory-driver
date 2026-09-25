@@ -136,13 +136,42 @@ func _run() -> void:
 		await _play_mission(index, tests[index], false)
 	_check(_finished_signals == tests.size(), "mission_finished fired once per mission (%d)" % _finished_signals)
 
-	await _play_mission(0, tests[0], true)
+	await _check_idle_line_after_run(tests[0])
 	await _check_no_return(1, tests[1])
 	await _check_abort(1, tests[1])
 
 	_car.reset_to_spawn()
 	_pad.reset_cones()
 	_finish()
+
+
+## The idle line drawn after a finished run shows what the handlers of
+## mission_finished left in the stored summary, whatever order they were
+## connected in: a handler of this test's own, connected last, puts a
+## synthetic entry into the recorder's index for the test just driven
+## (headless the recorder records nothing and folds nothing in itself),
+## and the line ends with that entry once the run is over. was: the
+## manager's refresh was its own handler of the signal, connected in
+## _ready before the recorder joined through listen, so it ran first and
+## the line showed the summary as it stood before the run (the codex
+## cross-review's F1 of the TELEMETRY EVERYWHERE landing, 2026-09-25).
+## The failing slalom is the run used, as before (was a bare
+## _play_mission(0, tests[0], true) here).
+func _check_idle_line_after_run(definition: Dictionary) -> void:
+	var recorder: TelemetryRecorder = _manager.telemetry
+	var index_before: Dictionary = recorder.index.duplicate(true)
+	var title := String(definition.title)
+	var planted := func(_index: int, _outcome: Dictionary) -> void:
+		recorder.index["last_test"] = title
+		var best: Dictionary = recorder.index.get("best", {})
+		best[title] = {"best_time_s": 12.3, "runs": 7, "last_time_s": 12.3, "last_medal": "gold"}
+		recorder.index["best"] = best
+	_manager.mission_finished.connect(planted)
+	await _play_mission(0, definition, true)
+	_manager.mission_finished.disconnect(planted)
+	var suffix := TelemetryRecorder.idle_suffix(recorder.index)
+	_check(suffix == " | last: GOLD, best: 12.3 s" and _mission_label.text.ends_with("C  camera" + suffix), "the idle line after a finished run ends with what the signal's handlers left in the summary ('%s'; was the summary as it stood before the run)" % suffix)
+	recorder.index = index_before
 
 
 ## Plays one mission with the scripted pilot at the controls. With

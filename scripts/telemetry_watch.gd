@@ -79,9 +79,15 @@ func _exit_tree() -> void:
 	get_tree().node_added.disconnect(_on_node_added)
 
 
+## The car goes to the deferred attach as its instance id, not as the
+## object: a car freed before the frame ends (a test's, a scene torn down
+## at once) would be refused by the typed argument before any guard ran -
+## "Error calling deferred method: Cannot convert argument 1 from Object
+## to Object", measured (the codex cross-review's F2, 2026-09-25) - and
+## the id resolves to null instead.
 func _on_node_added(node: Node) -> void:
 	if node is ArcadeCar:
-		_attach.call_deferred(node)
+		_attach.call_deferred(node.get_instance_id())
 
 
 ## The recorder made for `car`, or null when it has none (yet): the frame
@@ -116,8 +122,12 @@ func scene_root_of(car: Node) -> Node:
 	return top if top != car else root
 
 
-func _attach(car: ArcadeCar) -> void:
-	if not is_instance_valid(car) or not car.is_inside_tree() or recorder_for(car) != null:
+## `car_id` is the car's instance id (see _on_node_added). Nothing for a
+## car gone, out of the tree, on its way out (queue_free before the frame
+## ended: a dying car opens no session file) or already holding one.
+func _attach(car_id: int) -> void:
+	var car := instance_from_id(car_id) as ArcadeCar
+	if car == null or not car.is_inside_tree() or car.is_queued_for_deletion() or recorder_for(car) != null:
 		return
 	var recorder := TelemetryRecorder.new()
 	recorder.name = RECORDER_NAME

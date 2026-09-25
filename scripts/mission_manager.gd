@@ -137,9 +137,9 @@ func _ready() -> void:
 ## (recorder_attached - the watcher defers the attach past the scene's
 ## enter_tree). The recorder reads the stored summary of earlier runs (times,
 ## medals) that the idle line and the PASSED banner show, so the idle line
-## is drawn again once it is adopted. It listens to the signals below from
-## then on, before this node's own finished handler, so by the time the
-## idle line is built again after a run the run is already in the summary.
+## is drawn again once it is adopted, and again after every finished run
+## (_complete, after the emit) so the run just driven is in the summary
+## the line shows whatever order the signal's handlers were connected in.
 # was: telemetry = TelemetryRecorder.new(); telemetry.name =
 # "TelemetryRecorder"; add_child(telemetry); telemetry.attach(self, car);
 # if TelemetryRecorder.should_record(): telemetry.start_session() -> the
@@ -152,7 +152,13 @@ func _start_telemetry() -> void:
 		_adopt_telemetry(recorder)
 	elif watch != null:
 		watch.recorder_attached.connect(_on_recorder_attached)
-	mission_finished.connect(func(_index: int, _outcome: Dictionary) -> void: _show_idle_line())
+	# was: mission_finished.connect(func(...): _show_idle_line()) here -> the
+	# refresh is _complete's own, after the emit. Connected here it ran
+	# BEFORE the recorder's handler once the recorder joined later through
+	# listen (Godot emits in connection order; when the recorder was made
+	# here its connects came first), so the line showed the summary as it
+	# stood before the run just finished (the codex cross-review's F1,
+	# 2026-09-25).
 
 
 ## The watcher made a recorder: this node's car's is adopted, any other
@@ -257,6 +263,10 @@ func _complete() -> void:
 	_show_idle_line()
 	_show_result(last_result)
 	mission_finished.emit(selected_index, last_result)
+	# After the emit: every handler has run - the recorder's, which folds
+	# the run into the stored summary, among them - so the line ends with
+	# the run just driven, whatever order the handlers were connected in.
+	_show_idle_line()
 
 
 # =============================================================================
