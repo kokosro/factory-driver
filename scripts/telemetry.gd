@@ -9,6 +9,16 @@ extends Node
 ## moves nothing and decides nothing. Nothing in the simulation depends on
 ## whether it is on.
 ##
+## TELEMETRY EVERYWHERE (2026-09-25): one of these rides EVERY car in EVERY
+## scene, made by the TelemetryWatch autoload (scripts/telemetry_watch.gd)
+## the frame the car enters the tree and parented to the car's scene root -
+## no scene wires recording any more. was: main.tscn's MissionManager made
+## its own in _ready and eifel_ring.tscn made none, so the Ring's drives
+## were never written and its 22 flagged issues have no replay evidence
+## (docs/issues-analysis-2026-09-24.md §1.4) -> the watcher makes one for
+## every car, attach() takes a null manager (a scene without missions) and
+## the manager, where there is one, joins in through listen().
+##
 ## Where the files go:
 ##   user://telemetry/<YYYY-MM-DD>/<session>_<HHMMSS>_<context>.jsonl
 ##   user://telemetry/index.json          the running summary (see load_index)
@@ -18,10 +28,12 @@ extends Node
 ## when disk space is wanted (README, Telemetry: what is safe to delete).
 ##
 ## Two streams. Free driving gets one session-length file at
-## FREE_SAMPLE_STRIDE_TICKS; a mission gets a file of its own at the finer
+## FREE_SAMPLE_STRIDE_TICKS; a mission gets a file of its own at
 ## SAMPLE_STRIDE_TICKS, and the free file PAUSES while it runs (the mission file
-## already holds those ticks in more detail, and the free file is there to show
-## what happened between missions).
+## already holds those ticks, with the run's own numbers, and the free file is
+## there to show what happened between missions). Both strides are 1 now -
+## every physics tick, replay grade - and stay two constants so the
+## session_start line names each and a lighter hybrid can come later.
 ##
 ## WALL CLOCK: two things here read the system clock - the file NAMES (the date
 ## folder and the time prefix) and the `started_at` field of the session_start
@@ -38,12 +50,26 @@ extends Node
 # historical telemetry if they need disk space").
 
 ## Ticks between samples while a mission is recorded [physics ticks]: 60 Hz
-## physics, so 12 samples a second.
-const SAMPLE_STRIDE_TICKS := 5
+## physics, so 60 samples a second, every tick.
+# was 5 (12 a second) -> 1 (TELEMETRY EVERYWHERE, 2026-09-25, the driver's
+# canon: "the full verbose telemetry that we can use to replay exactly what
+# happened"). Measured headless (tests/telemetry_watch_test.gd prints it):
+# one full-set sample is ~310 bytes on the pad and ~330 on the Ring (its
+# coordinates are longer), so a tick-by-tick session writes ~19-20 kB/s,
+# ~1.1-1.2 MB a minute, ~64-68 MiB (67-71 MB) an hour, ~1.1 GB per 16 h
+# driving day - accepted under the driver's standing
+# ruling that nothing is ever deleted and the driver clears what they want
+# gone (2026-09-24). A lighter hybrid (the core fields every tick, the rich
+# ones coarser) is a possible later landing if the driver ever asks; not
+# built.
+const SAMPLE_STRIDE_TICKS := 1
 
-## ... and between samples of free driving [physics ticks]: 2 a second. Free
-## driving runs for as long as the game is open, so it is written coarsely.
-const FREE_SAMPLE_STRIDE_TICKS := 30
+## ... and between samples of free driving [physics ticks]: every tick too.
+## Free driving runs for as long as the game is open; it is written at the
+## same rate as a mission now, so a drive anywhere can be replayed.
+# was 30 (2 a second, "written coarsely") -> 1 (the same ruling as above:
+# the Ring's drives are all free driving, and they are the ones to replay).
+const FREE_SAMPLE_STRIDE_TICKS := 1
 
 ## One physics tick [s]: the project's fixed step (physics_ticks_per_second is
 ## the engine default, 60). Every timestamp in a file is a tick count times
@@ -83,7 +109,8 @@ var recording := false
 var index: Dictionary = {}
 
 ## The mission manager, kept as a plain Node: the recorder listens to its
-## signals and reads its `run` while a mission is on.
+## signals and reads its `run` while a mission is on. Null on a scene
+## without missions (the Ring): only free driving is written there.
 var _manager: Node
 
 ## Physics ticks since recording started, and since the current run started.
@@ -115,13 +142,33 @@ static func should_record() -> bool:
 	return DisplayServer.get_name() != "headless"
 
 
-## Takes the mission manager and the car to watch: reads the stored summary and
-## listens for runs starting and ending. Recording itself starts with
-## start_session() or record_to_file().
+## Takes the car to watch and, where there is one, the mission manager: reads
+## the stored summary and listens for runs starting and ending. Recording
+## itself starts with start_session() or record_to_file().
+# was: manager.mission_started / mission_finished / mission_aborted
+# connected unconditionally (the manager made the recorder, so there always
+# was one) -> null is a manager too: the TelemetryWatch autoload attaches
+# with none on a scene without missions (the Ring), and a MissionManager
+# that finds the recorder later joins through listen().
 func attach(manager: Node, target_car: ArcadeCar) -> void:
-	_manager = manager
 	car = target_car
 	index = load_index()
+	if manager != null:
+		listen(manager)
+
+
+## Listens to `manager`'s runs from now on: mission_started opens the run's
+## file, mission_finished / mission_aborted close it. Once per manager (a
+## second call for the same one connects nothing twice); a manager listened
+## to before is let go.
+func listen(manager: Node) -> void:
+	if manager == _manager or manager == null:
+		return
+	if _manager != null and is_instance_valid(_manager):
+		_manager.mission_started.disconnect(_on_mission_started)
+		_manager.mission_finished.disconnect(_on_mission_finished)
+		_manager.mission_aborted.disconnect(_on_mission_aborted)
+	_manager = manager
 	manager.mission_started.connect(_on_mission_started)
 	manager.mission_finished.connect(_on_mission_finished)
 	manager.mission_aborted.connect(_on_mission_aborted)
@@ -188,7 +235,9 @@ func _exit_tree() -> void:
 # =============================================================================
 
 ## One sample every stride, off the state the tick just left behind. The
-## manager is this node's parent, so its run has already been ticked.
+## watcher appends this node after every node the scene came with, so the
+## manager's run has already been ticked (was: the manager was this node's
+## parent, the same order).
 func _physics_process(_delta: float) -> void:
 	if not recording or car == null:
 		return

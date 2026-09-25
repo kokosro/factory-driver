@@ -1101,7 +1101,8 @@ ticks apart; the three records read back from the file to the bit with the count
 fixture each named by record and field with the default used, records without a usable
 id left out by position, a counter behind the ids brought up past them, an id already
 taken re-issued from the counter and a free one kept; and a bare HUD in a scene with no
-recorder (the Ring's case), the main scene's recorder recording all the while and not
+recorder (was the Ring's case; since 2026-09-25 a scene with a car cannot be without one,
+so this is a scene with no car), the main scene's recorder recording all the while and not
 found, binding to the odometer and the clock and filing to its own file.
 
 And the reset memory (`tests/reset_test.gd`; `R` on a world map returns to the last place
@@ -1143,6 +1144,32 @@ toward new, the line down and the key dead again 100 m off; the pad with no `Ref
 by name or class, no line, the key filling nothing there and the scene file naming no
 refuel; and a fresh car under a bare `Refuel` node filled the same way holding the
 identical `fuel_l` and `fuel_mass` bits.
+
+And telemetry everywhere (`tests/telemetry_watch_test.gd`; see [Telemetry](#telemetry)),
+the never-again fence for "telemetry missing because it wasn't in the scene": with
+`FD_TELEMETRY=0` pinned first (no test writes driver data), the `TelemetryWatch` autoload
+registered in `project.godot`, standing under the root and connected to the tree's
+`node_added`; both strides pinned at 1 (was 5 and 30); every scene under `scenes/` that
+instances `car.tscn` found by scanning the `.tscn` files and held equal to the test's own
+list (`main.tscn`, `eifel_ring.tscn`: a scene that gains a car must join it); each of the
+two loaded whole and settled - the car has exactly one `TelemetryRecorder`, the scene
+root's last child, attached to it and idle; on the pad the mission manager's `telemetry`
+is that recorder and it listens to the three mission signals, on the Ring no manager;
+the HUD's flagger finds nothing recording, then, the recorder switched on to the test's
+own `/tmp/fd-TW-telemetry-<pid>/<scene>.jsonl`, finds that recorder; a second under the
+throttle key inside an issue flag session started and stopped on the flagger itself: the
+record bound to telemetry, session 0 (a debug recording), a real range in the recorder's
+own clock (was on the Ring: the odometer and the wall clock, 0.0 - 0.0 s), the car
+having driven, the overlay up and the tree paused, filed as `issue-0001` of the test's
+own file; the `.jsonl` read back: the `session_start` line naming both strides as 1 at
+60 ticks a second, one sample per physics tick with none missed (63 ticks, 63 samples),
+the timestamps 0, 1/60, 2/60 ..., every field of the sample, the last sample the car's
+own position to the snap with the throttle let go, and the size measured and printed
+(309 bytes a sample on the pad, 330 on the Ring - the numbers under Telemetry); the
+scene freed, the recorder gone and the watcher holding none. Then a bare `car.tscn`
+straight under the root: a recorder under the root with no manager, stopped and freed
+when the car leaves the tree (5 ticks, 5 samples in its file), a fresh one when it
+comes back, none once it is gone. Last, `user://telemetry` untouched.
 
 ### Handling tests
 
@@ -1565,9 +1592,9 @@ unrecoverable) - the same password on both machines, kept where you keep passwor
 
 ### Telemetry
 
-Every drive is written down. `scripts/telemetry.gd` (a `TelemetryRecorder` the mission
-manager makes in `_ready`) reads the car once every few physics ticks and writes one
-JSON object per line - JSON-lines, `.jsonl` - to
+Every drive is written down, **wherever the car is**. `scripts/telemetry.gd` (a
+`TelemetryRecorder`) reads the car every physics tick and writes one JSON object per
+line - JSON-lines, `.jsonl` - to
 
 ```
 user://telemetry/<YYYY-MM-DD>/<session>_<HHMMSS>_<context>.jsonl   e.g. 0007_103245_free.jsonl
@@ -1577,10 +1604,34 @@ user://telemetry/index.json
 (`user://` is the game's data folder, see [Data location](#data-location); the paths are
 resolved through it as they are opened.)
 
-Free driving gets one file for the session, sampled every 30 ticks (2 Hz); each mission
-gets a file of its own, sampled every 5 ticks (12 Hz), and the free file pauses while it
-runs. The recorder never presses a key and never touches the simulation: it only reads.
-It is on whenever there is a window to drive in, off in a headless run unless
+**Telemetry everywhere** (2026-09-25). The recorder is put on the car by the
+`TelemetryWatch` autoload (`scripts/telemetry_watch.gd`, registered in `project.godot`
+next to `DataBootstrap`): it watches the scene tree and, the frame an `ArcadeCar`
+enters any scene, appends a `TelemetryRecorder` for it as the scene root's last child
+and starts the session. No scene wires recording any more, so no scene can be without
+it. (Was: `main.tscn`'s mission manager made the recorder in its `_ready` and
+`eifel_ring.tscn` made none - every drive on the Ring went unrecorded, and the 22
+issues flagged there have no replay evidence, `docs/issues-analysis-2026-09-24.md`
+§1.4. The driver's canon: "car telemetry must be saved regardless where the car is in
+the world ... so that we don't ever have the problem of telemetry missing because it
+wasn't in the scene".) The mission manager adopts the watcher's recorder for its car
+and the recorder listens to its runs; the Ring has no missions, so only free driving
+is written there. The suite fences it: `tests/telemetry_watch_test.gd` loads every
+scene in `scenes/` that instances the car (the list held against a scan of the
+`.tscn` files) and fails unless each car has exactly one recorder attached that
+writes when switched on.
+
+**Replay grade.** Both streams are sampled every physics tick - 60 Hz, the full field
+set (was: free driving every 30 ticks at 2 Hz, a mission every 5 ticks at 12 Hz). Free
+driving gets one file for the session; each mission gets a file of its own, and the
+free file pauses while it runs. Measured (the watch test prints it): one sample is
+~310 bytes on the pad and ~330 on the Ring (longer coordinates), so a session writes
+about 1.1-1.2 MB a minute, 64-68 MiB (67-71 MB) an hour, about 1.1 GB per 16-hour
+driving day. Accepted under the driver's ruling below: nothing is deleted, the driver
+clears what they want gone. A lighter hybrid - the core fields every tick, the rich
+ones coarser - remains a possible later landing if the driver ever asks; it is not
+built. The recorder never presses a key and never touches the simulation: it only
+reads. It is on whenever there is a window to drive in, off in a headless run unless
 `FD_TELEMETRY=1` says otherwise, and **every session's files are kept for good**: the
 game never deletes telemetry. (Was: the last 20 sessions' files were kept and the
 oldest deleted when a session started; the driver's decision, 2026-09-24: "let them
@@ -1670,7 +1721,7 @@ user://issues.json
 | `status`, `description` | `open` until somebody closes it; the text typed, `""` when none was |
 | `started_at`, `stopped_at` | the wall clock at the two presses, the telemetry's own idiom: for finding a drive again, nothing is measured against them |
 | `duration_s` | the session's length counted in physics ticks (1/60 s each): the same drive the same number; a pause stops it |
-| `binding` | `telemetry` when a recorder was recording in the scene, `odometer+wallclock` when none was (the Ring has no recorder: `eifel_ring.tscn` has no mission manager) |
+| `binding` | `telemetry` when a recorder was recording in the scene, `odometer+wallclock` when none was (since 2026-09-25 every scene with a car has one - the `TelemetryWatch` autoload's - so this is the recorder switched off: headless, `FD_TELEMETRY=0`; was: the Ring had no recorder, so every Ring issue was bound this way) |
 | `session_id`, `t_start_s`, `t_stop_s` | bound to telemetry: THE RECORDER'S OWN session id (its `session_start` line's, its file name's; 0 in a debug recording) and the range inside that session in the recorder's own clock, the samples' `t_session_s`; unbound: 0 and 0.0 - 0.0, explicitly absent |
 | `odometer_start_m`, `odometer_stop_m` | the odometer at the two presses [m], on either map: an odometer range is a range anywhere |
 | `car_state` | at the start: `x`, `y`, `z` [m], `heading_deg` (left positive), `speed_ms` (negative reversing), `gear` (0 neutral, 1-5, -1 reverse), `odometer_m` - the sample's own fields and snaps |

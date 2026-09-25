@@ -155,8 +155,11 @@ const STUDY_EVENT_COLOR := Color(1.0, 0.55, 0.2, 1)
 # --- THE ISSUE FLAG ------------------------------------------------------------
 
 ## The recording line's text, the id in it; the overlay's caption, the id in
-## it; what the caption says on the pad (a recorder recording: the range is
-## in a session file) and on the Ring (none: the odometer and the clock).
+## it; what the caption says with a recorder recording (the range is in a
+## session file) and with none (the odometer and the clock). was: "on the
+## pad" and "on the Ring (none)" -> the TelemetryWatch autoload records on
+## both, so the unbound text is for a recorder switched off (headless,
+## FD_TELEMETRY=0), not for a scene (TELEMETRY EVERYWHERE, 2026-09-25).
 const ISSUE_LINE_TEXT := "ISSUE %s  recording  -  V stops it and asks what is wrong"
 const ISSUE_CAPTION_TEXT := "ISSUE %s  -  what is wrong?   Enter files it, Esc files it as typed   (%s)"
 const ISSUE_BOUND_TEXT := "bound to telemetry session %d, %.1f - %.1f s"

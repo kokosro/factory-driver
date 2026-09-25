@@ -12,8 +12,11 @@ extends Node
 ##
 ## THE TELEMETRY BINDING, honest on both maps. The recorder is found at every
 ## start, never made here: the TelemetryRecorder recording under the HUD's
-## parent (the scene's root: main.tscn's MissionManager makes one in its
-## _ready, after the HUD's, and the Ring's eifel_ring.tscn has none). Found
+## parent (the scene's root: the TelemetryWatch autoload appends one there
+## for the car the frame the scene loads, on the pad and on the Ring alike;
+## was main.tscn's MissionManager's own, made in its _ready after the HUD's,
+## and none on the Ring - TELEMETRY EVERYWHERE, 2026-09-25, nothing here
+## changed: the same walk now finds a recorder in both scenes). Found
 ## and recording, the issue is bound to THE RECORDER'S OWN session id - its
 ## _session_id, the number in its session_start line and its file's name,
 ## read from the object, never a parallel number of this node's own (0 in a
@@ -41,7 +44,8 @@ extends Node
 ## _physics_process, the mission manager's own idiom), never through the
 ## car's input path. Made in code by the HUD (scripts/hud.gd, _ready): the
 ## HUD is the one node in both scenes that holds the car - no autoload (the
-## project has one, DataBootstrap, and no pattern for more), no scene edit.
+## project had one then, DataBootstrap; TelemetryWatch is the second, for
+## the recorder, not for this node), no scene edit.
 # chosen for the flagging tool: the flagger rides the HUD, so it works on
 # the pad and on the Ring alike; the recorder is looked up at every start
 # (it is made after the HUD, and the Ring has none); the id is the store's

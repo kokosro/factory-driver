@@ -21,6 +21,7 @@ config/custom_user_dir_name="factory-driver"
 [autoload]
 
 DataBootstrap="*res://scripts/data_bootstrap.gd"
+TelemetryWatch="*res://scripts/telemetry_watch.gd"
 
 [display]
 

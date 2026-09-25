@@ -13,10 +13,13 @@ extends Node
 ## and a golden chevron by the goal (looks only). The 180 goes back to the
 ## start: its orb is its goal.
 ##
-## It also owns the telemetry recorder (scripts/telemetry.gd), which listens to
-## the signals below and writes every run down, and shows what it has stored:
-## your last medal and best time on the idle line, your standing best on a
-## PASSED banner.
+## It also listens through the telemetry recorder (scripts/telemetry.gd) -
+## made for the car by the TelemetryWatch autoload the frame the scene loads,
+## adopted here (_start_telemetry) - which writes every run down, and shows
+## what it has stored: your last medal and best time on the idle line, your
+## standing best on a PASSED banner.
+# was: "It also owns the telemetry recorder" - made here, its child -> the
+# watcher's, one per car in every scene (TELEMETRY EVERYWHERE, 2026-09-25).
 
 signal mission_started(index: int, definition: Dictionary)
 signal mission_finished(index: int, outcome: Dictionary)
@@ -109,8 +112,11 @@ var last_result: Dictionary = {}
 var start_keys_locked := false
 
 ## Writes the driving down (scripts/telemetry.gd) and holds the stored summary
-## of earlier runs the HUD shows. Made here, listening to this node's signals.
-## It records nothing with no window, so the test suite writes no files.
+## of earlier runs the HUD shows. The TelemetryWatch autoload's recorder for
+## this node's car, adopted the frame it is made (null until then: the car's
+## first frame in the tree) and listening to this node's signals from then
+## on. It records nothing with no window, so the test suite writes no files.
+# was: made here in _ready, a child of this node -> the watcher's.
 var telemetry: TelemetryRecorder
 
 var _banner_left := 0.0
@@ -126,18 +132,42 @@ func _ready() -> void:
 	_show_idle_line()
 
 
-## The recorder goes up before the first line is drawn: it reads the stored
-## summary of earlier runs (times, medals) that the idle line and the PASSED
-## banner show. It connects to the signals below first, so by the time the idle
-## line is built again after a run the run is already in the summary.
+## Takes the recorder the TelemetryWatch autoload makes for this node's car:
+## the one already there, else the one announced a frame later
+## (recorder_attached - the watcher defers the attach past the scene's
+## enter_tree). The recorder reads the stored summary of earlier runs (times,
+## medals) that the idle line and the PASSED banner show, so the idle line
+## is drawn again once it is adopted. It listens to the signals below from
+## then on, before this node's own finished handler, so by the time the
+## idle line is built again after a run the run is already in the summary.
+# was: telemetry = TelemetryRecorder.new(); telemetry.name =
+# "TelemetryRecorder"; add_child(telemetry); telemetry.attach(self, car);
+# if TelemetryRecorder.should_record(): telemetry.start_session() -> the
+# watcher makes, names, parents and starts it (scripts/telemetry_watch.gd);
+# this node only listens (TelemetryRecorder.listen) and shows.
 func _start_telemetry() -> void:
-	telemetry = TelemetryRecorder.new()
-	telemetry.name = "TelemetryRecorder"
-	add_child(telemetry)
-	telemetry.attach(self, car)
-	if TelemetryRecorder.should_record():
-		telemetry.start_session()
+	var watch := TelemetryWatcher.of(get_tree())
+	var recorder := watch.recorder_for(car) if watch != null else null
+	if recorder != null:
+		_adopt_telemetry(recorder)
+	elif watch != null:
+		watch.recorder_attached.connect(_on_recorder_attached)
 	mission_finished.connect(func(_index: int, _outcome: Dictionary) -> void: _show_idle_line())
+
+
+## The watcher made a recorder: this node's car's is adopted, any other
+## car's is not ours.
+func _on_recorder_attached(recorder: TelemetryRecorder) -> void:
+	if telemetry != null or recorder.car != car:
+		return
+	TelemetryWatcher.of(get_tree()).recorder_attached.disconnect(_on_recorder_attached)
+	_adopt_telemetry(recorder)
+
+
+func _adopt_telemetry(recorder: TelemetryRecorder) -> void:
+	telemetry = recorder
+	telemetry.listen(self)
+	_show_idle_line()
 
 
 ## The stored summary of earlier runs, empty when there is none.

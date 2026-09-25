@@ -3791,9 +3791,12 @@ func _check_telemetry(main: Node, car: ArcadeCar) -> void:
 		worst_free_gap = maxf(worst_free_gap, absf(gap - free_stride))
 	for sample: Dictionary in free_samples:
 		free_plain = free_plain and not sample.has("t_run_s")
+	# was: "... is sampled coarser, every %d ticks ..." (30 against the
+	# mission's 5) -> both strides are 1 since TELEMETRY EVERYWHERE
+	# (2026-09-25); the check is the same, at the free stride whatever it is.
 	_check(
 		free_samples.size() >= 2 and worst_free_gap < TELEMETRY_STRIDE_TOLERANCE and free_plain,
-		"free driving before the mission is sampled coarser, every %d ticks, with no mission on the line (%d samples, worst gap off by %.5f s)" % [TelemetryRecorder.FREE_SAMPLE_STRIDE_TICKS, free_samples.size(), worst_free_gap],
+		"free driving before the mission is sampled at its own stride, every %d ticks, with no mission on the line (%d samples, worst gap off by %.5f s)" % [TelemetryRecorder.FREE_SAMPLE_STRIDE_TICKS, free_samples.size(), worst_free_gap],
 	)
 
 	var last: Dictionary = objects.back()
