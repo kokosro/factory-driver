@@ -114,13 +114,37 @@ extends Node3D
 ##     bridge, walk outward along untagged covered approach segments,
 ##     through junctions along the best-continuing segment (amendment 2
 ##     below), at most APPROACH_REACH_M; the RIM
-##     is the first outward station whose onward station-to-station slope
-##     is under RIM_SLOPE (the hole's walls climb 50-65 % per metre, the
-##     loop's honest grades top at 15-20 %); the deck is drawn straight
+##     is the first outward station after which the onward station-to-
+##     station slope stays under RIM_SLOPE for the next
+##     RIM_LOOKAHEAD_STATIONS stations (the hole's walls climb 50-65 % per
+##     metre, their tails 14.5 %, the loop's honest grades top at 15.8 %;
+##     was the first station whose ONE onward slope is under 0.20 -> 0.08
+##     over two stations, the ROAD-GEOMETRY FIX-NOW landing after
+##     docs/issues-analysis-2026-09-24.md §4.3: the 20 % criterion sat the
+##     rim at the foot of the hole-wall's 14.5 % tail and left its crest,
+##     a 25-point crest in 3 m that launched the car 0.750 m at 30 m/s at
+##     Döttinger Höhe (issue 0020) and a sag-then-crest at Breidscheid's
+##     east rim (issue 0011); measured on this tree, the rims move
+##     683303211-0 6.00 -> 8.00 m out (553.97 -> 554.26: the deck line
+##     -1.1 -> -0.7 % meeting the approach's -1 %, the grade change per
+##     metre 11.8 -> 0.9 %), 683006908-0 8.00 -> 10.00 m (337.00 ->
+##     337.29: Breidscheid's line -5.14 -> -4.06 % meeting -5.0 %, 12.7 ->
+##     under 5 %/m), Hohenrain's west rim 7.49 -> 9.49 m and its east
+##     8.13 (was 4.13) m along the T13 continuation, 41395652-0's west
+##     2.21 -> 4.21 m; the Breidscheid west rim 8.44 m / 338.76 m and
+##     41395673-0's east 8.00 m / 627.42 m unchanged; 15 bridges lifted,
+##     was 13 - every one of the 13 still lifts, 41795617-0 (a track
+##     crossing under the loop the right of way uncovers again) and
+##     827648314-0 (a track, 0.237 m) join; no loop station at 20 % or
+##     more, as before; the doc's ~0.05 measured too - it walks over the
+##     west Breidscheid approach's honest 4.0-5.5 % climb to 16.44 m out
+##     and moves a rim the doc expects unchanged, so 0.08); the deck is
+##     drawn straight
 ##     between the two rims and every station of the bridge and of the
 ##     approaches between the rims that lies below that line is lifted onto
 ##     it - never lowered, so never below the abutment samples. An end whose
-##     abutment already climbs under RIM_SLOPE is its own rim (nothing moves
+##     abutment already climbs under RIM_SLOPE for the look-ahead is its
+##     own rim (nothing moves
 ##     there); an end whose walk finds no rim within reach (a tagged or
 ##     uncovered segment, no continuation, the reach) has no rim, and a
 ##     bridge with such an end is not lifted at all - nothing where no rim
@@ -172,10 +196,25 @@ const SAME_CHAINAGE_M := 1e-6
 ## (a kink of 120° or more: a service road turning back on itself).
 const MAX_MITRE := 2.0
 
-## The rim rule (see the header): a station-to-station climb under this
-## [rise over run] is the rim, and the walk from a bridge's end goes at
-## most this far along the approaches [m].
-const RIM_SLOPE := 0.20
+## The rim rule (see the header): the rim is the first outward station
+## after which the onward station-to-station climb stays under RIM_SLOPE
+## [rise over run] for the next RIM_LOOKAHEAD_STATIONS stations (2 m
+## each: 4 m), and the walk from a bridge's end goes at most
+## APPROACH_REACH_M along the approaches [m]. was RIM_SLOPE 0.20 with no
+## look-ahead -> 0.08 with two (the ROAD-GEOMETRY FIX-NOW landing,
+## docs/issues-analysis-2026-09-24.md §4.3: the DGM1 hole-wall's tail
+## climbs at 14.5 % over its last 2 m and ends in a labelled crest onto
+## honest ground; 14.5 % is under 20 %, so the rim sat at the foot of the
+## tail and the car was launched over the crest - issue 0020, 0.750 m of
+## air at 30 m/s at Döttinger Höhe, issue 0011's sag-then-crest at
+## Breidscheid's east rim. The doc's ~0.05 was measured too: the west
+## Breidscheid approach 683061814-1 climbs away from the hole at an honest
+## 4.0-5.5 % per station, so 0.05 walks over it to 16.44 m out and moves
+## a rim the doc expects unchanged; 0.08 sits between the loop's honest
+## grades at a rim (5.5 % there) and the tails (14.5 %) - the look-ahead
+## is what separates a 2 m tail from a hill).
+const RIM_SLOPE := 0.08
+const RIM_LOOKAHEAD_STATIONS := 2
 const APPROACH_REACH_M := 50.0
 ## Amendment 2 (see the header): at a junction of three or more the walk
 ## follows the covered untagged segment that best continues the incoming
@@ -969,7 +1008,8 @@ static func _is_plain(segment: SkeletonLoader.Segment) -> bool:
 ## listing every approach it entered with the outward distance its near
 ## end stands at (`offset`) and whether its chainage runs outward
 ## (`from_start`); the outward stations' heights are read in order and the
-## rim is the first station whose onward slope is under RIM_SLOPE. rim_m is
+## rim is the first station whose onward slopes stay under RIM_SLOPE for
+## the next RIM_LOOKAHEAD_STATIONS stations. rim_m is
 ## 0 and rim_height the bridge's own abutment sample when the abutment is
 ## its own rim (found) or when no rim is within reach (not found); an end
 ## not found draws no deck line (apply_rim_rule).
@@ -1005,8 +1045,22 @@ static func _rim_of(id: String, end: int, segments: Dictionary, records: Diction
 	for k: int in distances.size() - 1:
 		if distances[k] > APPROACH_REACH_M:
 			break
-		var slope := (heights[k + 1] - heights[k]) / (distances[k + 1] - distances[k])
-		if slope < RIM_SLOPE:
+		# The rim: every one of the next RIM_LOOKAHEAD_STATIONS onward
+		# climbs under RIM_SLOPE (was the next one alone under 0.20: the
+		# hole-wall's 14.5 % tail passed and its crest stayed, see the
+		# constants). Fewer stations left in the walk than the look-ahead
+		# asks: the ones there have to pass (the reach or the walk's end
+		# truncates the look-ahead, never waives it).
+		var eases := true
+		for j: int in RIM_LOOKAHEAD_STATIONS:
+			var i := k + j
+			if i + 1 >= distances.size():
+				break
+			var slope := (heights[i + 1] - heights[i]) / (distances[i + 1] - distances[i])
+			if slope >= RIM_SLOPE:
+				eases = false
+				break
+		if eases:
 			out.rim_m = distances[k]
 			out.rim_height = heights[k]
 			out.found = true

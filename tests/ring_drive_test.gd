@@ -136,12 +136,34 @@ const HOHENRAIN_BRIDGE := "41395668-0"
 const HOHENRAIN_END := 1
 const BREIDSCHEID_BRIDGE := "41395647-0"
 ## Breidscheid's corrected deck line: the rims measured 338.76 m at 8.4 m
-## before the bridge and 337.00 m at 8.0 m after it, the line -5.1 %
-## (was the brief's -4.8 % estimate with the rim taken at 10 m: the first
-## station climbing under 20 % onward is at 8.4 m).
-const BREIDSCHEID_LINE_SLOPE := -0.0514
-const BREIDSCHEID_RIMS_M := [8.44, 8.0]
-const BREIDSCHEID_RIM_HEIGHTS_M := [338.76, 337.0]
+## before the bridge and 337.29 m at 10.0 m after it, the line -4.06 %.
+## was 337.00 m at 8.0 m and -5.14 % (4B-4: the first station climbing
+## under 20 % onward; the brief's estimate before that -4.8 % with the rim
+## at 10 m) -> the ROAD-GEOMETRY FIX-NOW landing (RoadBuilder.RIM_SLOPE
+## 0.08 with a two-station look-ahead, issues-analysis-2026-09-24.md
+## §4.3): the east rim walks past the hole-wall's 14.5 % tail (chainage
+## 8 -> 10 of 683006908-0) so the deck line meets the approach's honest
+## -5.0 % at -4.1 % instead of a 19.6-point sag and a 19.5-point crest
+## inside 3 m (issue 0011); the west rim is unchanged (its approach climbs
+## away at an honest 4-5.5 %, under the new criterion's 8 %).
+const BREIDSCHEID_LINE_SLOPE := -0.0406
+const BREIDSCHEID_RIMS_M := [8.44, 10.0]
+const BREIDSCHEID_RIM_HEIGHTS_M := [338.76, 337.29]
+## The loop's grade ceiling after the rule [rise over run]: no station on
+## the loop's own field reads a grade along the road at or over it. was
+## RoadBuilder.RIM_SLOPE itself (0.20) -> its own constant, the same 20 %,
+## when the rim criterion dropped to 0.08 (the loop's honest maximum is
+## 15.8 %, so the rim criterion can no longer serve as the ceiling).
+const LOOP_GRADE_CEILING := 0.20
+## The rim fence (issues-analysis-2026-09-24.md §4.3, additive): within
+## RIM_FENCE_REACH_M of every lifted rim on the loop, the grade along the
+## road sampled every RIM_FENCE_STEP_M on the approach's own centreline
+## changes by at most RIM_FENCE_MAX_PER_M per metre (was 12.7 %/m at
+## Breidscheid's east rim and 11.8 %/m at Döttinger Höhe's, the humps of
+## issues 0011 and 0020).
+const RIM_FENCE_REACH_M := 15.0
+const RIM_FENCE_STEP_M := 1.0
+const RIM_FENCE_MAX_PER_M := 0.05
 const RIM_TOLERANCE_M := 0.05
 const SLOPE_TOLERANCE := 0.002
 ## How far past an abutment the spike is looked for [m]: the walls are
@@ -657,12 +679,13 @@ func _check_rim_rule(road: RoadBuilder, raw_profile: WorldRoadProfile) -> void:
 			non_finite += 1
 			continue
 		own_stations += 1
-		if grade >= RoadBuilder.RIM_SLOPE:
+		if grade >= LOOP_GRADE_CEILING:
 			steep += 1
 		if grade > steepest:
 			steepest = grade
 			steepest_where = "%s chainage %.0f" % [station[2], station[3]]
-	_ok(steep == 0 and non_finite == 0 and own_stations > 0, "of the loop's %d stations, none of the %d on the loop's own field reads a grade along the road of %.0f %% or more after the rule (the steepest is %.1f %% at %s, every reading finite; was 19 stations at 50-64 %% in the DGM1's bridge holes)" % [_loop_stations.size(), own_stations, 100.0 * RoadBuilder.RIM_SLOPE, 100.0 * steepest, steepest_where], "%d stations past %.2f, the steepest %.3f at %s, %d own stations, %d readings not finite" % [steep, RoadBuilder.RIM_SLOPE, steepest, steepest_where, own_stations, non_finite])
+	_ok(steep == 0 and non_finite == 0 and own_stations > 0, "of the loop's %d stations, none of the %d on the loop's own field reads a grade along the road of %.0f %% or more after the rule (the steepest is %.1f %% at %s, every reading finite; was 19 stations at 50-64 %% in the DGM1's bridge holes)" % [_loop_stations.size(), own_stations, 100.0 * LOOP_GRADE_CEILING, 100.0 * steepest, steepest_where], "%d stations past %.2f, the steepest %.3f at %s, %d own stations, %d readings not finite" % [steep, LOOP_GRADE_CEILING, steepest, steepest_where, own_stations, non_finite])
+	_check_rim_fence(road)
 	# The decks linear in the mesh.
 	var worst_line := 0.0
 	var worst_deck := ""
@@ -741,6 +764,67 @@ func _check_rim_rule(road: RoadBuilder, raw_profile: WorldRoadProfile) -> void:
 ## where, and how many stations qualified (`samples`: zero when none did
 ## or a reading was not finite - the slope is then no measurement, and a
 ## caller must not take its 0.0 for a clean reading).
+## The rim fence (see RIM_FENCE_MAX_PER_M): every lifted rim that stands
+## on a loop segment, the grade along the road read every metre on that
+## approach's own centreline within RIM_FENCE_REACH_M of the rim (the
+## corrected profile's ramp_gradient, the car's own call; only stations
+## the approach's own field answers), the largest change between two
+## consecutive readings per metre held under the bound. And the whole
+## lifts table, one line, for the record.
+func _check_rim_fence(road: RoadBuilder) -> void:
+	var loop_ids := {}
+	for id: String in _loop.segments:
+		loop_ids[id] = true
+	var rims := 0
+	var worst := 0.0
+	var worst_where := ""
+	var readings := 0
+	var non_finite := 0
+	var table := ""
+	for lift: Dictionary in road.lifts:
+		table += "%s%s: rims %.2f m @ %.2f / %.2f m @ %.2f, line %+.2f %%, %d stations lifted by up to %.3f m" % ["; " if table != "" else "", lift.bridge, lift.start.rim_m, lift.start.rim_height, lift.end.rim_m, lift.end.rim_height, 100.0 * lift.line_slope, lift.stations, lift.max_lift_m]
+		for end: int in 2:
+			var rim: Dictionary = lift.start if end == 0 else lift.end
+			if rim.rim_m <= 0.0:
+				continue
+			# The approach the rim stands on and its chainage there.
+			var on := ""
+			var at := 0.0
+			for approach: Dictionary in rim.approaches:
+				var length: float = _geometry_of(approach.id).length
+				if rim.rim_m >= approach.offset - 1e-6 and rim.rim_m <= approach.offset + length + 1e-6:
+					on = approach.id
+					at = rim.rim_m - approach.offset if approach.from_start else length - (rim.rim_m - approach.offset)
+					break
+			if on == "" or not loop_ids.has(on):
+				continue
+			rims += 1
+			var geometry: Dictionary = _geometry_of(on)
+			var previous := NAN
+			var previous_s := 0.0
+			var s := maxf(0.0, at - RIM_FENCE_REACH_M)
+			while s <= minf(geometry.length, at + RIM_FENCE_REACH_M) + 1e-9:
+				var p := _point_on(geometry.xs, geometry.zs, geometry.chain, s)
+				var station: Array = [p[0], p[1], on, s]
+				if _own(road.profile, station):
+					var grade := road.profile.ramp_gradient(p[0], p[1]).dot(_direction_on(geometry.xs, geometry.zs, geometry.chain, s))
+					readings += 1
+					if not is_finite(grade):
+						non_finite += 1
+					elif is_finite(previous):
+						var change := absf(grade - previous) / (s - previous_s)
+						if change > worst:
+							worst = change
+							worst_where = "%s chainage %.0f (the %s rim of %s at %.2f m out)" % [on, s, "west" if end == 0 else "east", lift.bridge, rim.rim_m]
+					previous = grade
+					previous_s = s
+				else:
+					previous = NAN
+				s += RIM_FENCE_STEP_M
+	_ok(rims > 0 and readings > 0 and non_finite == 0 and worst <= RIM_FENCE_MAX_PER_M, "the rim fence: at the %d lifted rims on the loop the grade along the road, read every %.0f m within %.0f m of the rim on the approach's own field (%d readings), changes by at most %.1f %%/m, at %s - under %.0f %%/m (was 12.7 %%/m at Breidscheid's east rim and 11.8 %%/m at Döttinger Höhe's: the hole-wall tails the 20 %% criterion let through, issues 0011 and 0020)" % [rims, RIM_FENCE_STEP_M, RIM_FENCE_REACH_M, readings, 100.0 * worst, worst_where, 100.0 * RIM_FENCE_MAX_PER_M], "the grade changes %.3f/m at %s (%d rims, %d readings, %d not finite)" % [worst, worst_where, rims, readings, non_finite])
+	_ok(road.lifts.size() == 15, "the lifts table (%d bridges lifted; was 13 under the 20 %% criterion - 41795617-0, a track crossing under the loop the right of way then uncovers, and 827648314-0, a track lifted 0.237 m, join it; every one of the 13 still lifts): %s" % [road.lifts.size(), table], "%d lifts: %s" % [road.lifts.size(), table])
+
+
 func _spike_near(at: Vector2, profile: WorldRoadProfile) -> Dictionary:
 	var out := {"slope": 0.0, "where": "", "samples": 0}
 	for station: Array in _loop_stations:
@@ -865,10 +949,17 @@ func _check_bank(profile: WorldRoadProfile) -> void:
 	var gradient := profile.ramp_gradient(at[0], at[1])
 	var across := gradient.dot(right)
 	var along := gradient.dot(travel)
+	# The plateau's crossfall: the point nearest the probed chainage (the
+	# ramped ends of the array carry the neighbours' plane values since the
+	# Karussell blend; was the array's first point, +0.30 over the whole way).
 	var crossfall := 0.0
 	for raw: Dictionary in _drape.segments:
 		if raw.id == KARUSSELL_SEGMENT:
-			crossfall = raw.crossfall[0]
+			var nearest := 0
+			for i: int in geometry.chain.size():
+				if absf(geometry.chain[i] - KARUSSELL_CHAINAGE_M) < absf(geometry.chain[nearest] - KARUSSELL_CHAINAGE_M):
+					nearest = i
+			crossfall = raw.crossfall[nearest]
 	_ok(signf(across) == signf(crossfall) and absf(across - KARUSSELL_BANK) <= BANK_TOLERANCE, "the Karussell's bank via ramp_gradient at %s chainage %.0f: %.4f across to the right of travel (the drape's crossfall %+.2f: the bank rises to the right), %.4f along; the 30 %% bank" % [KARUSSELL_SEGMENT, KARUSSELL_CHAINAGE_M, across, crossfall, along], "the gradient across is %.4f, the crossfall %.2f" % [across, crossfall])
 
 

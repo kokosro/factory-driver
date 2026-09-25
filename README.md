@@ -761,13 +761,21 @@ put under the car every tick from the same corrected profile), the car at the pi
 a WorldRoadProfile; the mesh is the field: every vertex of the loop's and the pit strips on
 the corrected profile's `sample_height` within 1 mm (70 947 vertices), the quads' edges and
 centres within the twist bound away from the skeleton's kinks (the field's own step between
-two chords measured and reported there, as at junctions); the rim rule: Breidscheid's rims
-8.44 m and 8.00 m out at 338.76 and 337.00 m and its deck line -5.14 %, every loop bridge's
-abutment spike before and after through `ramp_gradient` (65 % -> 5.1 %, 57 % -> 5.1 %,
-32 % -> 5.1 %, 43 % -> 6.8 %, 46 % -> 4.0 %, 62 % -> 3.2 % via amendment 2's continuation
-through the T13 junction, 61 % -> 3.0 %, 41395681-0 already clean; the "before" numbers are
-the smoothed file's abutment walls, was 64 / 32 / 61 / 52 / 59 / 54 % on the raw file), no
-station on the loop's own field at
+two chords measured and reported there, as at junctions); the rim rule (the rim the first
+outward station after which the climb stays under `RIM_SLOPE` 8 % for two stations; was the
+first station climbing under 20 %, the ROAD-GEOMETRY FIX-NOW landing after
+`docs/issues-analysis-2026-09-24.md` §4.3: the 20 % let the DGM1 hole-wall's 14.5 % tail and
+its crest through - the hump that launched the car 0.750 m at Döttinger Höhe, issue 0020, and
+Breidscheid's east sag-then-crest, issue 0011): Breidscheid's rims 8.44 m and 10.00 m out at
+338.76 and 337.29 m and its deck line -4.06 % (was 8.00 m / 337.00 m / -5.14 %), every loop
+bridge's abutment spike before and after through `ramp_gradient` (65 % -> 5.0 %, 57 % -> 5.0 %,
+32 % -> 0.8 %, 43 % -> 0.9 % - was 6.8 %, the tail -, 46 % -> 3.9 %, 62 % -> 3.2 % via
+amendment 2's continuation through the T13 junction, 61 % -> 2.9 %, 41395681-0 already clean;
+the "before" numbers are the smoothed file's abutment walls, was 64 / 32 / 61 / 52 / 59 / 54 %
+on the raw file), the rim fence - within 15 m of every lifted rim on the loop the grade along
+the road changes by at most 3.5 %/m, under 5 (was 12.7 and 11.8 %/m at the two humps) -, the
+whole lifts table (15 bridges, was 13: every one still lifts, two tracks join), no station on
+the loop's own field at
 20 % or more, every deck a straight line in the mesh, 41226730-0 untouched and below the
 ground; the loop's right of way: the ten crossing structures (id, distance along the lap,
 height step, removed) and the whole loop swept every metre with no step over 0.5 m left (the
