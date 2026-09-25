@@ -1044,10 +1044,12 @@ nothing at all up, never on the `Esc` that closes a banner or the book, and refu
 open over a running test; open, the tree is paused and the car frozen - the same drive
 with the garage open for 60 ticks in the middle ends identical to the bit to the same
 drive without it (position, velocity, engine, gear, fuel, heat, steering, odometer), and
-nothing moves while it is open; the DRIVE page lists the one map there is, the five
-tests in order, the L0 sitting and the skid pad, and each row starts its run through the
-mission manager or the licence manager (a human run, the theory card up), free driving
-closing the door and starting nothing; the study's catalogue is sound (every lesson a
+nothing moves while it is open; the DRIVE page lists the two maps, the world map row,
+the five tests in order, the L0 sitting and the skid pad, and each row starts its run
+through the mission manager or the licence manager (a human run, the theory card up),
+free driving closing the door and starting nothing, the world map row opening the
+first-run map layer not forced and `Esc` closing it without opening the garage (4B-6);
+the study's catalogue is sound (every lesson a
 title, an objective, a group and a pilot that is found, or an honest coming-soon flag;
 the reused pilots equal to the test and exam definitions in every field; the lesson
 pilots' steps only conditions the runner knows and keys the map has; the captions on
@@ -1074,7 +1076,8 @@ taken name never written over; the bar legend naming every bar; every
 key the controls text names in the map, `Tab` among them; the LICENCE page's checklist
 ticking exactly the three elements a seeded record holds and all dashes on a fresh one;
 no folder dialog ever made; and, the window set to the game's own 1280 x 720, every
-garage page walked with `Tab`, `Right`, `Down` and `PgDn`, the book on `L`, a lesson's
+garage page walked with `Tab`, `Right`, `Down` and `PgDn`, the world map's three zooms
+from the garage's row the same way, the book on `L`, a lesson's
 input display with its caption, the mission line and the banners laid out and measured,
 nothing reaching past the screen and every row landing inside the scroll area.
 
@@ -1170,6 +1173,52 @@ scene freed, the recorder gone and the watcher holding none. Then a bare `car.ts
 straight under the root: a recorder under the root with no manager, stopped and freed
 when the car leaves the tree (5 ticks, 5 samples in its file), a fresh one when it
 comes back, none once it is gone. Last, `user://telemetry` untouched.
+
+And the first run (`tests/first_run_test.gd`; see [First run](#first-run)), 4B-6, with
+`FD_TELEMETRY=0` pinned first and the world record on a file of the test's own through
+`WorldStore.path_override` (the data folder never read or written): the world store
+(`scripts/world_store.gd`) on a file of its own - defaults on no file, a voucher added,
+listed unspent, spent once and not twice, a save writing back what it does not know, a
+field none of its own reported by name and read as its default, the rental written and
+cleared, `user://world.json` resolved through `DataDir`, `active_path` empty headless;
+`world.json` in `DataDir.SEEDED_FILES` (was `cars.json` and `issues.json`) and seeded
+beside `cars.json`; the pad scene loaded on a fresh (absent) world file with its `WorldMap`
+layer up at `_ready` and after, the tree paused, forced - `Esc` and `Tab` doing nothing and
+the garage refusing to open under it - the voucher ledger on the licence manager; the
+continent listing the one pin (the Ring's bbox, `SkeletonLoader.BBOX`, holding the
+school's and the dealership's lat/lon), `Enter` on it listing the region's test centres
+from the focus table - exactly one, E8.1 Fahrschule Hecken - and `Enter` on that the yard
+card with the measured estate decision and "Go to the yard" as its last row, `Right` and
+`Left` zooming in and out; "Go to the yard" writing `spawn_region eifel_ring` and
+`test_centre E8.1`, closing the map, running the tree and putting the car on the yard's
+start line (x 0, z 100, facing -Z, inside z 30..110), where it stays; a second pad scene
+on the record present keeping its map hidden and its car at the spawn, a third with
+`pending_yard` arriving in the yard; the L0 sitting sat through the licence manager as
+the licence test sits it (the book, key 1, the pilot on the input actions) and PASSED,
+`licence_changed` fired ONCE with L0 and the ledger having written ONE voucher (kind car,
+class general, dealership E4.1, granted by L0, unspent); a full PRACTICE run passed with
+`licence_changed` fired no more and the one voucher still; the ledger alone on a bare
+manager granting once on seven `record_element` calls and never a second while one sits
+unspent; the rental (`scripts/rental_gate.gd`) started on the licensed car - the gate in
+front of the licence manager, a child of the car, ECO pinned with eco's driver, the
+record active for 3 600 s - `T`, `G`, `K` and `N` pressed through the car's own ticks
+flipping nothing (the car's own program cycle put back the same tick, counted), the hint
+up and down, the clutch key delegated to the manager and moving the pedal, the hour on
+the tick clock ending the rental by itself with the manager back on the car, the record
+cleared and the switches flipping again; taking the car (`scripts/first_car.gd`) - the
+voucher spent, `fd_1001`'s entry in the test's `cars.json` read back through the store's
+own loaders as a new car's (odometer 0, the FD-1001's 64 L tank, the dashboard, battery,
+wear and licence defaults, no problems), the Boxster's entry untouched, `active_car`
+`fd_1001`, a rental ended by it, a second take refused, nothing written with the store
+off; `configs/cars/fd_1001.json` valid, FD-1001 / `fd_1001`, no trademark; the
+dealership on the Ring - the DRIVE page's world-map row and the two dealership rows
+greyed at the pit with the hint naming E4.1 in Adenau, live once the car stands at E4.1
+(`reset_to`), the loaner row starting the rental on the Ring's car (no manager to stand
+in front of), the take row spending the voucher, ending the rental and writing no entry,
+the rows gone after, the CAR page naming the car owned, the world-map row instancing the
+layer beside the Ring's garage and `Esc` closing it; and, the window at 1280 x 720, the
+map opened from the garage's row and its three zooms walked with `Right` - nothing past
+the screen, every row inside the scroll area, `PgDn` reaching the end.
 
 ### Handling tests
 
@@ -1404,10 +1453,14 @@ Five pages, tabs across the top; `Left` / `Right` change tabs, `Up` / `Down` mov
 cursor down the rows, `Enter` goes, `PgUp` / `PgDn` scroll a long page, and the mouse
 does all of it too:
 
-- **DRIVE** - free drive on a map (the list holds exactly the maps there are: one, the
+- **DRIVE** - free drive on a map (the list holds exactly the maps there are: the
   Factory test pad, which is this scene - free drive simply closes the door; `R` puts
-  the car back on the start line), the five handling tests with their objective, gold
-  time and your stored best, the L0 licence sitting and the skid pad exam. Every row
+  the car back on the start line - and the Ring), the world map (the first run's layer,
+  see [First run](#first-run), opened again from here; `Esc` comes back), the
+  dealership's rows while you hold an unspent voucher ("Take the FD-1001 (voucher)" and
+  "Take the loaner (1 h, eco)", greyed with the way there in their hint until the car
+  stands at the dealership on the Ring), the five handling tests with their objective,
+  gold time and your stored best, the L0 licence sitting and the skid pad exam. Every row
   starts its run through the mission manager's or the licence manager's own start path
   (`start_mission`, `start_l0_sitting`, `start_skid_pad_test`): nothing is duplicated,
   and a run started here is the same run the keys start.
@@ -1418,7 +1471,8 @@ does all of it too:
   new to the physics), the dashboard (aids, program, automatic or manual, camera view)
   and the licence held - the same fields the store keeps per car (`Garage.condition_text`
   reads a store-shaped entry: the live car's, or a file's, which is what the menu test
-  reads it from), and where the car's file is kept this run. Read-only.
+  reads it from), the car you own on the voucher once taken, and where the car's file is
+  kept this run. Read-only.
 - **LICENCE** - the licence held, the rank it is (`TEST DRIVER` from L1; the ranks
   beyond are named as not yet playable), every pass recorded, the L0 sitting's checklist
   (`Theory: PASSED` or `Theory: —`, then each practical element `[PASSED]` or `[ - ]`,
@@ -1438,6 +1492,56 @@ page taller than the frame (THE STUDY's list, the SETTINGS legend) scrolls, `Dow
 `PgDn` reaching every row and line; the licence book, the lesson caption, the mission
 line and the banners fit the screen too (a long banner headline in smaller letters,
 never under 40 px), and the menu test fails on anything drawn past the screen's edge.
+
+### First run
+
+The first thing a new driver does (docs/design/4b/first-run-flow.md, 4B-6): with no world
+record - `user://world.json` (`scripts/world_store.gd`, beside `cars.json`, seeded with it,
+version 1: the driver's `spawn_region`, `test_centre`, `vouchers`, `rental` and
+`active_car`; the licence stays in `cars.json` per car) holding no `spawn_region` - the
+pad scene opens the **world map** (`scripts/world_map.gd`, the `WorldMap` layer of
+`scenes/main.tscn`) before anything else, the tree paused, and `Esc` does nothing there:
+there is no world to go back to. Three zooms, `Right` / `Left` between them, `Up` /
+`Down` and `Enter` on the rows: the CONTINENT, a plain raster of Europe with one pin per
+region built (the Ring's bbox; the rendering source is deferred, no tiles service);
+the REGION, its test centres from the region's focus table (the Ring has one, E8.1
+Fahrschule Hecken, way 667524970); the TEST CENTRE, the yard card and its last row, "Go
+to the yard", which writes the pin's choice and puts the car on the yard's start line,
+facing the course. The pad's licence course IS the yard (the flow's §3), so the choice
+lands on the pad, in the yard behind the gantry (x 0, z 100, the emergency lane's start);
+from another scene the pad is changed to. THE STUDY and the L0 sitting are where they
+always were (the garage, the licence book).
+
+The yard's placement, measured on the checked-in drape lattice with the game's own
+projection (the E8 rule, ring-region-decisions.md line 118: the pad's course on the
+flattest 100 m patch within 300 m of the school under 1.5 % slope, else the industrial
+estate by Meuspath and the school building a B9): the school projects to (948.421,
+-6156.388), beyond the lattice's northern edge, and the flattest patch in the covered band
+within 300 m measures 7.50 % (the orchestrator's coarser scan 8.195 %); within 300 m of
+the estate's Porsche house (E3.1, (4414.961, -2550.796)) the patch centred (4515, -2300)
+measures 1.092 % (1.54 m of spread over the 141.4 m diagonal, heights 527.97..529.51 m).
+The yard goes to the estate at (4515, -2300); the school stays a B9 (recorded in
+`scripts/world_map.gd`; the decisions file and the focus table are frozen this iteration).
+
+Passing the L0 sitting grants **a voucher** for one general-class car
+(`scripts/voucher_ledger.gd`: it listens to the licence manager's `licence_changed` and
+writes `{"kind": "car", "class": "general", "dealership": "E4.1", "granted_by": "L0",
+"spent": false}` into `world.json` - once: the manager announces a level only when it
+moves and a practice run records nothing, and the ledger never adds a second unspent one
+besides; `record_pass` and the licence are untouched). The dealership is the Ring's E4,
+Autohaus Rausch, way 831174023, unbranded (PUT IN STONE). At it, on the Ring, the
+garage's DRIVE page offers **the loaner** - a rental for an hour on the tick clock
+(`scripts/rental_gate.gd`: a gate in front of the licence gate that refuses `T`, `G`, `K`
+and `N`, pins the program to eco with eco's driver seated and the aids on every tick,
+and ends by itself at the hour or when you take a car of your own; deterministic,
+pausable) - and **the first car**, "Take the FD-1001 (voucher)" (`scripts/first_car.gd`,
+`configs/cars/fd_1001.json`: a serial-number car of the Boxster's shape, Porsche-inspired
+and a step stronger, no trademark): the voucher is spent, `fd_1001`'s entry goes into
+`cars.json` with a new car's defaults (its own licence: unlicensed, the flow's open
+question 1) and `active_car` is written. What is DEFERRED, honestly: the car in the scene
+stays the Boxster - `car.gd` is frozen, its config path a const read once, and its
+tuning lives in static vars shared by every car in the process - so the swap waits for a
+per-instance car; the CAR page names the car owned meanwhile.
 
 ### The study
 

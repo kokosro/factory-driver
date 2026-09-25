@@ -14,7 +14,12 @@ extends CanvasLayer
 ##
 ## Five pages, tabs across the top, the arrow keys and Enter or the mouse:
 ##   DRIVE      free driving on a map (MAPS: exactly the maps there are), the
-##              five handling tests, the L0 sitting, the skid pad exam -
+##              world map (the first run's layer, scripts/world_map.gd,
+##              opened again from here; 4B-6), the dealership's rows where
+##              the driver holds an unspent voucher (the FD-1001 on the
+##              voucher, the loaner: scripts/first_car.gd,
+##              scripts/rental_gate.gd; greyed away from the dealership),
+##              the five handling tests, the L0 sitting, the skid pad exam -
 ##              every one started through the mission manager's and the
 ##              licence manager's own start paths, nothing duplicated here,
 ##   THE STUDY  the lessons (scripts/study_lessons.gd), started through
@@ -56,6 +61,17 @@ const MAPS: Array[Dictionary] = [
 	{"id": "factory_test_pad", "title": "Factory test pad", "scene": "res://scenes/main.tscn", "hint": "The pad as it is; R puts the car back on the start line."},
 	{"id": "eifel_ring", "title": "Nordschleife (bare road)", "scene": "res://scenes/eifel_ring.tscn", "hint": "The Ring's road alone, no dressing yet; the car starts at the pit area by T13; R puts it back at the last place all four wheels stood on the road (was: back at the pit, 2026-09-24)."},
 ]
+
+## The first-run map's scene, instanced beside this layer where the scene
+## has none of its own (the Ring; the pad carries one in main.tscn).
+const WORLD_MAP_SCENE := "res://scenes/world_map.tscn"
+
+## The general dealership the first-run voucher is honoured at (the Ring's
+## E4 record, PUT IN STONE: VoucherLedger.DEALERSHIP) and how near the car
+## must stand to it for the dealership's rows to be live [m]: the OSM
+## position is the building's centre, the forecourt is around it.
+const DEALERSHIP_ID := VoucherLedger.DEALERSHIP
+const DEALERSHIP_RADIUS_M := 60.0
 
 ## The road data's attribution, shown on the SETTINGS page as OpenStreetMap
 ## requires (docs/design/4b/data-pipeline.md §8: the exact string).
@@ -127,6 +143,13 @@ var _idle_last_tick := false
 
 ## What the SETTINGS page last said about a folder chosen or refused.
 var _folder_status := ""
+
+## What the dealership's last row did (FirstCar.take's dictionary), for
+## whoever asks (tests).
+var last_dealership_result: Dictionary = {}
+
+## The first-run map layer beside this one, found or made on demand.
+var _world_map: WorldMap
 var _folder_dialog: FileDialog
 
 var _frame: PanelContainer
@@ -178,9 +201,15 @@ func _physics_process(_delta: float) -> void:
 #  Open and close
 # =============================================================================
 
-## Whether the garage may open: nothing running.
+## Whether the garage may open: nothing running, and the world map not up
+## (was: nothing running alone -> the map layer pauses the tree as this one
+## does, and Tab or Esc pressed under a forced first-run map must not open
+## the garage over it and then unpause the world under the map; 4B-6).
 func can_open() -> bool:
 	if missions and missions.is_running():
+		return false
+	var map := world_map(false)
+	if map and map.is_open:
 		return false
 	if licence and licence.is_running():
 		return false
@@ -275,8 +304,8 @@ func show_page(wanted: Page) -> void:
 
 
 ## The current page's rows: {label, hint, kind, enabled}, in order. `kind`
-## is what the row starts: "map", "test", "l0", "skid_pad", "lesson",
-## "choose_folder", "default_folder".
+## is what the row starts: "map", "world_map", "take_car", "loaner",
+## "test", "l0", "skid_pad", "lesson", "choose_folder", "default_folder".
 func page_rows() -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []
 	for row in _rows:
@@ -325,6 +354,19 @@ func _build_drive_page() -> void:
 	_add_heading("FREE DRIVE")
 	for map in MAPS:
 		_add_row("Free drive  —  %s" % map.title, map.hint, "map", _free_drive.bind(map), true, map.id)
+	# was the two maps then the tests -> the world map row after the maps
+	# (4B-6, first-run-flow.md §2: "After the first run the garage's DRIVE
+	# page gets a row 'World map' that opens the same layer"), and the
+	# dealership's rows after it where the driver holds an unspent voucher.
+	_add_row("World map", "The pin, the region's test centres and the yard: the first run's map, opened again. Esc comes back here.", "world_map", _open_world_map, true, "world_map")
+	var world_path := WorldStore.active_path()
+	if world_path != "" and not WorldStore.unspent_vouchers(world_path).is_empty():
+		var here := at_dealership()
+		var rental_on := RentalGate.active_on(car) != null or WorldStore.rental_active(world_path)
+		var where := "Drive to the general dealership %s in Adenau on the Ring (x %.0f, z %.0f in region metres): the voucher is honoured there." % [DEALERSHIP_ID, dealership_position().x, dealership_position().y]
+		_add_heading("DEALERSHIP  —  general dealership %s%s" % [DEALERSHIP_ID, "  (you are here)" if here else ""])
+		_add_row("Take the %s (voucher)" % FirstCar.car_name(), "Your voucher: one general-class car. The %s's entry starts fresh in cars.json and the voucher is spent." % FirstCar.car_name() if here else where, "take_car", _take_first_car, here, FirstCar.CAR_ID)
+		_add_row("Take the loaner (1 h, eco)", ("A liveried loaner for an hour on the tick clock: eco program only, TCS, ABS and SC stay on (the licence gate refuses the switches)." if not rental_on else "A loaner is already out.") if here else where, "loaner", _take_loaner, here and not rental_on, "loaner")
 	_add_heading("HANDLING TESTS  (keys 1 - 5 on the pad; a PASSED counts towards L1)")
 	var tests := HandlingTests.all_tests()
 	var index_stored: Dictionary = missions.telemetry.index if missions and missions.telemetry else {}
@@ -357,6 +399,74 @@ func _free_drive(map: Dictionary) -> void:
 	if scene_root != null and scene_root.scene_file_path == map.scene:
 		return
 	get_tree().change_scene_to_file(map.scene)
+
+
+## The world map layer beside this one: the scene's own (main.tscn carries
+## one), else one instanced from WORLD_MAP_SCENE when `make` (the Ring's
+## garage), null otherwise.
+func world_map(make: bool) -> WorldMap:
+	if _world_map != null and is_instance_valid(_world_map):
+		return _world_map
+	_world_map = null
+	var scene_root := get_parent()
+	if scene_root == null:
+		return null
+	for child in scene_root.get_children():
+		if child is WorldMap:
+			_world_map = child
+			return _world_map
+	if not make:
+		return null
+	var packed: PackedScene = load(WORLD_MAP_SCENE)
+	if packed == null:
+		return null
+	var map := packed.instantiate() as WorldMap
+	map.name = "WorldMap"
+	map.car = car
+	map.licence = licence
+	map.garage = self
+	scene_root.add_child(map)
+	_world_map = map
+	return map
+
+
+## The "World map" row: the door closes and the map opens (it pauses the
+## tree as this layer does; Esc there comes back to the world).
+func _open_world_map() -> void:
+	close()
+	var map := world_map(true)
+	if map:
+		map.open(false)
+
+
+## Where the dealership stands (region metres), from the focus table.
+static func dealership_position() -> Vector2:
+	var record := Buildings.record(DEALERSHIP_ID)
+	return record.position() if record else Vector2.ZERO
+
+
+## Whether the car stands at the dealership: on the Ring, within
+## DEALERSHIP_RADIUS_M of its recorded position.
+func at_dealership() -> bool:
+	var scene_root := get_parent()
+	if car == null or scene_root == null or scene_root.scene_file_path != MAPS[1].scene:
+		return false
+	var at := Vector2(car.global_position.x, car.global_position.z)
+	return at.distance_to(dealership_position()) <= DEALERSHIP_RADIUS_M
+
+
+## "Take the FD-1001 (voucher)": FirstCar.take - the voucher spent, the
+## entry written where the store is on, the car recorded as the driver's;
+## the door closes.
+func _take_first_car() -> void:
+	close()
+	last_dealership_result = FirstCar.take(WorldStore.active_path(), OdometerStore.PATH, OdometerStore.enabled(), car)
+
+
+## "Take the loaner": the rental gate on this car for an hour.
+func _take_loaner() -> void:
+	close()
+	RentalGate.start(car, hud, WorldStore.active_path())
 
 
 func _start_test(index: int) -> void:
@@ -412,6 +522,11 @@ func _build_car_page() -> void:
 	for field: String in OdometerStore.WEAR_DEFAULTS:
 		var share := float(wear.get(field, 0.0))
 		_add_bar(field.replace("_", " ").capitalize(), share, "%.3f %%" % (share * 100.0), COLOR_WEAR)
+	var world_path := WorldStore.active_path()
+	if world_path != "":
+		var owned := String(WorldStore.load_driver(world_path).active_car)
+		if owned != "":
+			_add_text("OWNED  %s (%s): taken at the dealership on the voucher; its entry rides cars.json. It becomes the car in the scene when the car swap lands (deferred: scripts/first_car.gd)." % [FirstCar.car_name() if owned == FirstCar.CAR_ID else owned, owned], COLOR_TITLE)
 	var kept := "kept in %s" % DataDir.root_on_disk().path_join(OdometerStore.PATH.trim_prefix("user://")) if OdometerStore.enabled() else "not kept in this run (no window: the store is off)"
 	_add_text("The car's file: %s. Saved every %.0f s of driving and when the game closes." % [kept, ArcadeCar.ODOMETER_SAVE_INTERVAL], COLOR_DIM_TEXT)
 

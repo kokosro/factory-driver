@@ -38,13 +38,19 @@ extends SceneTree
 ## sessions whose files are gone, a missing index.json recreated); the bar
 ## legend naming every bar;
 ## the keys in the map, Tab among them; and no folder dialog ever made.
+## The DRIVE page's "World map" row (4B-6): after the two maps, before the
+## tests, opening the first-run map layer (scripts/world_map.gd) not
+## forced, Esc closing it again and never opening the garage on the same
+## press; the row indices below moved by one (was ->) with it.
 ## Last, readability (the user's report, 2026-09-22 16:15: THE STUDY's
 ## page spanned more than the screen): the window set to the game's own
 ## 1280 x 720 and every surface laid out on it and measured - the five
 ## garage pages walked with Tab, Right, Down and PgDn, the licence book on
 ## L, a lesson's input display with its caption, the mission line, the
 ## ABORTED and LESSON ENDED banners - no control reaching past the screen,
-## every row reachable inside the scroll area.
+## every row reachable inside the scroll area; and the world map layer
+## opened from the garage's row, its three zooms walked with Right the
+## same way (4B-6).
 ## Exits 0 on success, 1 on any failed check.
 
 const MAIN_SCENE := "res://scenes/main.tscn"
@@ -312,13 +318,15 @@ func _check_routes() -> void:
 		kinds.append(row.kind)
 	# was one map, the pad, at row 0, the tests from row 1, L0 at 6, the skid
 	# pad at 7 -> the Ring appended after the pad (4B-4): the tests from row
-	# 2, L0 at 7, the skid pad at 8.
+	# 2, L0 at 7, the skid pad at 8 -> the world map row after the two maps
+	# (4B-6): the tests from row 3, L0 at 8, the skid pad at 9.
 	_check(Garage.MAPS.size() == 2 and Garage.MAPS[0].title == "Factory test pad" and Garage.MAPS[0].scene == MAIN_SCENE and Garage.MAPS[1].id == "eifel_ring" and Garage.MAPS[1].scene == RING_SCENE, "the map list holds exactly the two maps there are: the Factory test pad, the main scene, then the Ring, %s (was the one map)" % RING_SCENE)
-	_check(rows.size() == 2 + tests.size() + 2 and kinds[0] == "map" and kinds[1] == "map" and kinds[7] == "l0" and kinds[8] == "skid_pad", "DRIVE lists the two maps, the %d handling tests, the L0 sitting and the skid pad exam (%s) (was L0 at 6 and the skid pad at 7 -> 7 and 8)" % [tests.size(), ", ".join(kinds)])
+	_check(rows.size() == 3 + tests.size() + 2 and kinds[0] == "map" and kinds[1] == "map" and kinds[2] == "world_map" and kinds[8] == "l0" and kinds[9] == "skid_pad", "DRIVE lists the two maps, the world map, the %d handling tests, the L0 sitting and the skid pad exam (%s) (was 2 + tests + 2 with L0 at 7 and the skid pad at 8 -> 3 + tests + 2 with the world map row at 2, L0 at 8, the skid pad at 9)" % [tests.size(), ", ".join(kinds)])
 	var in_order := true
 	for index in tests.size():
-		in_order = in_order and rows[2 + index].kind == "test" and rows[2 + index].id == tests[index].name and rows[2 + index].label.contains(tests[index].title)
-	_check(in_order and rows[0].label.contains("Factory test pad") and rows[1].label.contains("Nordschleife") and rows[1].hint.contains("pit area") and rows[0].hint.contains("start line"), "the test rows are HandlingTests.all_tests() in order, by name and title (was from row 1 -> 2); the map rows name the pad and the Ring, the pad's hint the start line, the Ring's the pit area")
+		in_order = in_order and rows[3 + index].kind == "test" and rows[3 + index].id == tests[index].name and rows[3 + index].label.contains(tests[index].title)
+	_check(in_order and rows[0].label.contains("Factory test pad") and rows[1].label.contains("Nordschleife") and rows[1].hint.contains("pit area") and rows[0].hint.contains("start line"), "the test rows are HandlingTests.all_tests() in order, by name and title (was from row 1 -> 2 -> 3); the map rows name the pad and the Ring, the pad's hint the start line, the Ring's the pit area")
+	_check(rows[2].id == "world_map" and rows[2].enabled and rows[2].label == "World map" and not kinds.has("take_car") and not kinds.has("loaner"), "the world map row is live; no dealership row without a voucher (no world file this run)")
 
 	var position_before := _car.global_position
 	_check(_garage.activate_row(0) and not _garage.is_open and not paused and not _missions.is_running() and not _licence.is_running() and _car.global_position == position_before and current_scene == null and _main.is_inside_tree(), "free drive on the pad closes the door and starts nothing; the car is where it was, the scene is this one still")
@@ -336,20 +344,29 @@ func _check_routes() -> void:
 	unload_current_scene()
 	await _step(2)
 	_check(current_scene == null and not is_instance_valid(ring) and _main.is_inside_tree() and is_instance_valid(_car) and _car.is_inside_tree(), "the Ring unloaded again (no current scene), this scene and its car still here")
+	# The world map row (4B-6): the pad's own layer opens, not forced;
+	# Esc closes it and does not open the garage on the same press.
 	_garage.open()
 	_garage.show_page(Garage.Page.DRIVE)
-	_check(_garage.activate_row(3) and not _garage.is_open and _missions.is_running() and _missions.selected_index == 1 and not _missions.run.scripted, "the test 2 row (was row 2 -> 3) starts the 180 through the mission manager, a human run, and closes the door")
+	var world_map := _main.get_node_or_null("WorldMap") as WorldMap
+	_check(world_map != null and not world_map.is_open and _garage.activate_row(2) and not _garage.is_open and world_map.is_open and not world_map.forced and paused and world_map.zoom == WorldMap.Zoom.CONTINENT, "the world map row closes the door and opens the WorldMap layer of main.tscn at the continent, not forced, the tree paused")
+	_check(not _garage.can_open() and not _garage.open(), "the garage refuses to open under the map")
+	await _tap(&"abort_mission")
+	_check(not world_map.is_open and not paused and not _garage.is_open and not _missions.is_running() and not _licence.is_running(), "Esc closes the map, the tree runs, the garage stayed closed, nothing started")
+	_garage.open()
+	_garage.show_page(Garage.Page.DRIVE)
+	_check(_garage.activate_row(4) and not _garage.is_open and _missions.is_running() and _missions.selected_index == 1 and not _missions.run.scripted, "the test 2 row (was row 2 -> 3 -> 4) starts the 180 through the mission manager, a human run, and closes the door")
 	_missions.abort_mission()
 	await _step(int(MissionManager.ABORT_BANNER_TIME * Engine.physics_ticks_per_second) + 5)
 	_check(_missions.state == MissionManager.State.IDLE, "aborted, the banner timed out")
 	_garage.open()
 	_garage.show_page(Garage.Page.DRIVE)
-	_check(_garage.activate_row(7) and not _garage.is_open and _licence.is_running() and _licence.exam == LicenceExams.EXAM_L0 and _hud.licence_card_visible(), "the L0 row (was row 6 -> 7) starts the sitting through the licence manager: the theory card is up")
+	_check(_garage.activate_row(8) and not _garage.is_open and _licence.is_running() and _licence.exam == LicenceExams.EXAM_L0 and _hud.licence_card_visible(), "the L0 row (was row 6 -> 7 -> 8) starts the sitting through the licence manager: the theory card is up")
 	_licence.abort_sitting()
 	await _step(int(LicenceManager.ABORT_BANNER_TIME * Engine.physics_ticks_per_second) + 5)
 	_garage.open()
 	_garage.show_page(Garage.Page.DRIVE)
-	_check(_garage.activate_row(8) and not _garage.is_open and _licence.is_running() and _licence.exam == LicenceExams.EXAM_SKID_PAD, "the skid pad row (was row 7 -> 8) starts the skid pad test through the licence manager")
+	_check(_garage.activate_row(9) and not _garage.is_open and _licence.is_running() and _licence.exam == LicenceExams.EXAM_SKID_PAD, "the skid pad row (was row 7 -> 8 -> 9) starts the skid pad test through the licence manager")
 	_licence.abort_sitting()
 	await _step(int(LicenceManager.ABORT_BANNER_TIME * Engine.physics_ticks_per_second) + 5)
 	_check(_licence.state == LicenceManager.State.IDLE and not _garage.is_open, "aborted, idle again")
@@ -1071,6 +1088,10 @@ func _check_readability() -> void:
 	await _tap(Garage.ACTION_OPEN)
 	_check(not _garage.is_open, "Tab closes it")
 
+	# The world map layer from the garage's row (4B-6): its three zooms
+	# walked with Right, the rows with Down, the same rule.
+	await _check_world_map_readability(screen)
+
 	# The licence book on L.
 	await _tap(LicenceManager.ACTION_BOOK)
 	var card: Label = _hud.get_node("LicenceCard")
@@ -1134,6 +1155,53 @@ func _check_readability() -> void:
 	await _tap(&"abort_mission")
 	await _step(2)
 	_check(_missions.state == MissionManager.State.IDLE and not _banner.visible, "Esc: the banner is down, idle again")
+
+
+## The world map opened from the DRIVE page's row (Tab, Right round to
+## DRIVE, Down to the row, Enter): each zoom's frame inside the screen and
+## every control inside it or its scroll area, Down landing on each row
+## inside the scroll area, PgDn reaching the end; Right to the next zoom;
+## Esc closing it.
+func _check_world_map_readability(screen: Rect2) -> void:
+	var world_map := _main.get_node("WorldMap") as WorldMap
+	await _tap(Garage.ACTION_OPEN)
+	await _page_right_to(Garage.Page.DRIVE)
+	var drive_rows := _garage.page_rows()
+	for row in drive_rows.size():
+		if drive_rows[row].kind == "world_map":
+			for _down in row:
+				await _tap(&"ui_down")
+	await _tap(&"ui_accept")
+	_check(not _garage.is_open and world_map.is_open and not world_map.forced and world_map.zoom == WorldMap.Zoom.CONTINENT, "Tab, Right to DRIVE, Down to the World map row, Enter: the map is up at the continent (the Enter that opened it did not act on the map)")
+	var frame: Control = world_map.get_node("Frame")
+	var scroll: ScrollContainer = world_map.get_node("Frame/Column/Scroll")
+	var body: Control = world_map.get_node("Frame/Column/Scroll/Body")
+	for zoom in WorldMap.ZOOM_TITLES.size():
+		if zoom > 0:
+			await _tap(&"ui_right")
+		await _step(2)
+		var title: String = "WORLD MAP / " + WorldMap.ZOOM_TITLES[world_map.zoom]
+		var off := _off_screen(world_map, screen)
+		_check(world_map.zoom == zoom and off.is_empty() and _inside(frame.get_global_rect(), screen), "%s: the frame %.0f x %.0f px at (%.0f, %.0f), inside the screen, and every control inside it or its scroll area%s" % [title, frame.size.x, frame.size.y, frame.global_position.x, frame.global_position.y, _listed(off)])
+		var rows := world_map.page_rows()
+		var unreachable := PackedStringArray()
+		for row in rows.size():
+			if row > 0:
+				await _tap(&"ui_down")
+			var button: Control = world_map.get_node("Frame/Column/Scroll/Body/Row%d" % row)
+			if not (world_map.cursor == row and _inside(button.get_global_rect(), scroll.get_global_rect())):
+				unreachable.append("%s (%s)" % [rows[row].label, button.get_global_rect()])
+		var downs := 0
+		while downs < MAX_PAGE_DOWNS:
+			var before := scroll.scroll_vertical
+			await _tap(&"ui_page_down")
+			downs += 1
+			if scroll.scroll_vertical == before:
+				break
+		var last: Control = body.get_child(body.get_child_count() - 1)
+		_check(unreachable.is_empty() and _inside(last.get_global_rect(), scroll.get_global_rect()) and rows.size() >= 1, "%s: Down lands on each of its %d row(s) inside the %.0f px scroll area (the page is %.0f px), PgDn reaches its end%s" % [title, rows.size(), scroll.size.y, body.size.y, ": " + ", ".join(unreachable) if not unreachable.is_empty() else ""])
+	await _tap(&"abort_mission")
+	_check(not world_map.is_open and not paused and not _garage.is_open, "Esc closes the map; the garage did not open on the same press")
 
 
 ## Right until the garage shows `wanted` (at most once round the tabs).

@@ -3,11 +3,12 @@
 `tests/run_tests.sh` is the gate: a headless import, then the config, element catalogue,
 skeleton, world profile, buildings, ring drive, smoke, handling, camera, mission, battery, thermal,
 tyre/brake thermal, steering-feel, wear, licence, menu, issue flag, minimap, airborne, reset,
-refuel and telemetry watch tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
+refuel, telemetry watch and first run tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
 minutes (the ring drive test builds the Ring's road twice and drives 2 km on it twice; the
 minimap test builds it once more, the reset test twice more and drives 400 m, the telemetry
-watch test once more and drives a second on it).
-`tests/run_tests.sh --parallel` runs the twenty-three tests side by side after the import and
+watch test once more and drives a second on it, the first run test once more for the
+dealership and sits the L0 exam twice on the pad).
+`tests/run_tests.sh --parallel` runs the twenty-four tests side by side after the import and
 prints the same lines in the same order. What each test checks is in the main
 `README.md`.
 
@@ -33,8 +34,9 @@ anywhere else. Several copies can be gated at once: the only things the suite wr
 outside the project are the smoke test's `/tmp/fd-3R-smoke-<pid>/`, the battery
 test's `/tmp/fd-3T-battery-<pid>/`, the wear test's `/tmp/fd-3L-wear-<pid>/`, the
 licence test's `/tmp/fd-3K-licence-<pid>/`, the menu test's `/tmp/fd-4A-menu-<pid>/`, the
-issue flag test's `/tmp/fd-3IF-issue-<pid>/` and the telemetry watch test's
-`/tmp/fd-TW-telemetry-<pid>/`, one per process each, removed when the
+issue flag test's `/tmp/fd-3IF-issue-<pid>/`, the telemetry watch test's
+`/tmp/fd-TW-telemetry-<pid>/` and the first run test's `/tmp/fd-4B6-first-<pid>/` (its
+own world.json and cars.json; the data folder's never), one per process each, removed when the
 test finishes (the ring drive test writes nothing:
 it reads the checked-in skeleton and drape and builds in memory; the buildings test writes
 nothing either: it reads the checked-in focus table, and the raw OSM snapshot store only

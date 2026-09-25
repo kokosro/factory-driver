@@ -49,7 +49,12 @@ const MARKER_FILE := ".factory-driver-data"
 # was: cars.json alone -> the issue store rides along (issues.json,
 # IssueStore.PATH): a fresh data folder seeded without it lost every issue
 # the driver had flagged in the old one (2026-09-24).
-const SEEDED_FILES: Array[String] = ["cars.json", "issues.json"]
+# was ["cars.json", "issues.json"] -> the driver's world record rides along
+# (world.json, WorldStore.PATH: the pin, the test centre, the vouchers, the
+# rental; 4B-6): a fresh data folder seeded without it would open the
+# first-run map again and lose the voucher. A source without it copies
+# nothing new.
+const SEEDED_FILES: Array[String] = ["cars.json", "issues.json", "world.json"]
 const SEEDED_DIRS: Array[String] = ["telemetry"]
 
 ## Where the game kept its data before it had a folder of its own: Godot's
