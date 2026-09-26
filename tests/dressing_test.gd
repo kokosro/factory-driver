@@ -48,6 +48,23 @@ extends SceneTree
 ## (ring-region-decisions.md §5, "the canon's 'twenty meaningful objects'
 ## is the audit"; the number held is the table's
 ## meaningful_objects_within_500_m = 20; measured 2-8 forests per disc).
+## THE AUTHORED ASSETS (4B-ASSETS-1, assets/blender/README.md; the driver's
+## issue-0023): the three tree archetypes load from their .glb into the
+## forest builder with a bark and a foliage surface, 100-500 triangles
+## each, their foliage UVs inside the atlas; the four materials are the
+## authored textures (the wall's and the foliage's alpha-scissored and
+## double-sided, the bark's opaque), every one multiplying the vertex
+## colour; every surface of every chunk carries UVs and one of the four;
+## the vertex and triangle counts are the exact accounting of cards x 4 /
+## x 2 plus every tree's archetype; a tree's transform is its hashed yaw
+## and its height over the archetype's, its shade in [0.8, 1]; a V1 in a
+## row wears the row tree; sampled vertex colours stay under the luminance
+## cap; the asphalt set (road_asphalt_1024_*) is 1024², greyscale-neutral,
+## the ruts darker and smoother than the lane centres and mirrored about
+## u 0.5, the shoulders darker still, the tile seamless along the road;
+## the vegetation textures greyscale-neutral with their alpha (the wall's
+## top row open sky, its foot solid). The suite never runs Blender: the
+## PNG / .glb files are checked in; regeneration is the README's command.
 ## THE HAZE: the environment's fog is depth fog (not volumetric), begins
 ## at S5's normal_saturation_to_m, its colour the sky material's horizon;
 ## the four-band curve sampled at 50 / 200 / 500 / 1 000 m falls in the
@@ -105,6 +122,20 @@ const BAND_NAMES := ["normal saturation", "slight haze", "reduced contrast", "in
 const SUN_ELEVATION_DEG := 45.0
 const SUN_AZIMUTH_DEG := 210.0
 
+## The authored assets (assets/blender/README.md): the archetype triangle
+## band, the texture sizes, the asphalt tile's rut / lane-centre / shoulder
+## columns in u and the pixel stride of the neutrality sample.
+const ARCHETYPE_TRIANGLES := [100, 500]
+const ASPHALT_SIZE := 1024
+const CARD_TEXTURE_SIZE := 512
+const BARK_TEXTURE_SIZE := 256
+const ASPHALT_DIR := "res://assets/textures/road/"
+const VEGETATION_DIR := "res://assets/textures/vegetation/"
+const RUT_U := [0.13, 0.37, 0.63, 0.87]
+const LANE_CENTRE_U := [0.25, 0.75]
+const SHOULDER_U := 0.01
+const PIXEL_STRIDE := 37
+
 var _failures := 0
 var _loop: SkeletonLoader.Loop
 
@@ -114,6 +145,7 @@ func _initialize() -> void:
 	_check_landcover_file(landcover)
 	_check_region_table()
 	_check_catalogue()
+	_check_authored_textures()
 	_loop = SkeletonLoader.loop(SkeletonLoader.NORDSCHLEIFE_LOOP)
 	var scene := await _load_scene()
 	if scene != null:
@@ -126,12 +158,14 @@ func _initialize() -> void:
 		_check_lattice_plan(terrain)
 		_check_strips(terrain)
 		_check_walls(terrain, forest, landcover)
+		_check_assets(forest)
 		_check_ceiling(terrain, forest)
 		_check_haze(scene, sky)
 		_check_elements(terrain, forest, sky)
 		var first := "%s | %s | %s" % [terrain.describe(), forest.describe(), sky.describe()]
 		var first_cards := forest.card_x.size()
 		var first_card := Vector2(forest.card_x[first_cards - 1], forest.card_z[first_cards - 1]) if first_cards > 0 else Vector2.ZERO
+		var first_tree := forest.tree_transform(forest.tree_x.size() - 1) if forest.tree_x.size() > 0 else Transform3D.IDENTITY
 		scene.queue_free()
 		await _step(2)
 		var again := await _load_scene()
@@ -141,7 +175,8 @@ func _initialize() -> void:
 			var sky2: SkySet = again.get_node("Sky")
 			var second := "%s | %s | %s" % [terrain2.describe(), forest2.describe(), sky2.describe()]
 			var second_card := Vector2(forest2.card_x[forest2.card_x.size() - 1], forest2.card_z[forest2.card_z.size() - 1]) if forest2.card_x.size() > 0 else Vector2.ZERO
-			_ok(first == second and first_card == second_card, "determinism: the scene built twice describes itself the same (%s) and places its last card at the same point (%s)" % [second, second_card], "first: %s / %s, second: %s / %s" % [first, first_card, second, second_card])
+			var second_tree := forest2.tree_transform(forest2.tree_x.size() - 1) if forest2.tree_x.size() > 0 else Transform3D.IDENTITY
+			_ok(first == second and first_card == second_card and first_tree == second_tree, "determinism: the scene built twice describes itself the same (%s), places its last card at the same point (%s) and stands its last tree in the same transform (was -> the card alone; the tree's hashed yaw and scale since 4B-ASSETS-1)" % [second, second_card], "first: %s / %s / %s, second: %s / %s / %s" % [first, first_card, first_tree, second, second_card, second_tree])
 			again.queue_free()
 			await _step(2)
 	print("DRESSING TEST PASSED" if _failures == 0 else "DRESSING TEST FAILED: %d fault(s)" % _failures)
@@ -554,6 +589,184 @@ func _check_walls(terrain: TerrainBuilder, forest: ForestWalls, landcover: Dicti
 			far_allowed = far_allowed and _brute_distance(terrain.ribbons, forest.tree_x[i], forest.tree_z[i]) > WALL_WITHIN_M - 0.01
 	_ok(far_allowed and v1 + v2 == trees and v2 > v1, "%d trees (%d V2 conifers, the Eifel default; %d V1 broadleaves where the polygon says so); the %d not charged to a road stand beyond the %.0f m and are tree rows' or mapped trees' only" % [trees, v2, v1, far_trees, WALL_WITHIN_M], "far trees %d allowed %s" % [far_trees, far_allowed])
 	_ok(far_trees <= forest.counts.trees_rows and forest.counts.trees_skipped_far > 0, "no edge-sampled tree stands beyond the %.0f m (%d refused; %d rows' trees may)" % [WALL_WITHIN_M, forest.counts.trees_skipped_far, forest.counts.trees_rows], "far trees %d, rows %d" % [far_trees, forest.counts.trees_rows])
+
+
+# =============================================================================
+#  THE AUTHORED ASSETS (4B-ASSETS-1)
+# =============================================================================
+
+func _check_assets(forest: ForestWalls) -> void:
+	var loaded := true
+	var lines: Array[String] = []
+	for key: String in ["V2", "V1", "V6"]:
+		var archetype: ForestWalls.Archetype = forest.archetypes.get(key)
+		if archetype == null:
+			loaded = false
+			lines.append("%s missing" % key)
+			continue
+		var within: bool = archetype.triangles >= ARCHETYPE_TRIANGLES[0] and archetype.triangles <= ARCHETYPE_TRIANGLES[1]
+		var two_surfaces: bool = archetype.bark_indices.size() > 0 and archetype.foliage_indices.size() > 0 and archetype.bark_vertices.size() == archetype.bark_uvs.size() and archetype.foliage_vertices.size() == archetype.foliage_uvs.size()
+		var uv_inside := true
+		for uv: Vector2 in archetype.foliage_uvs:
+			uv_inside = uv_inside and uv.x >= -0.001 and uv.x <= 1.001 and uv.y >= -0.001 and uv.y <= 1.001
+		loaded = loaded and within and two_surfaces and uv_inside and archetype.height > 5.0
+		lines.append("%s %s %d tris / %d verts / %.0f m" % [key, archetype.path.get_file(), archetype.triangles, archetype.vertex_count, archetype.height])
+	_ok(loaded, "the three archetypes load from their .glb with a bark and a foliage surface, %d-%d triangles each, the foliage UVs inside the atlas: %s" % [ARCHETYPE_TRIANGLES[0], ARCHETYPE_TRIANGLES[1], ", ".join(lines)], "archetypes: %s" % [", ".join(lines)])
+	var wall: StandardMaterial3D = forest.materials.get("wall")
+	var bark: StandardMaterial3D = forest.materials.get("bark")
+	var spruce: StandardMaterial3D = forest.materials.get("foliage_V2")
+	var beech: StandardMaterial3D = forest.materials.get("foliage_V1")
+	var cut_ok := true
+	for pair: Array in [[wall, ForestWalls.WALL_TEXTURE], [spruce, ForestWalls.FOLIAGE_TEXTURES.V2], [beech, ForestWalls.FOLIAGE_TEXTURES.V1]]:
+		var material: StandardMaterial3D = pair[0]
+		cut_ok = cut_ok and material != null and material.albedo_texture != null and material.albedo_texture.resource_path == pair[1] and material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR and material.alpha_scissor_threshold == ForestWalls.ALPHA_SCISSOR and material.cull_mode == BaseMaterial3D.CULL_DISABLED and material.vertex_color_use_as_albedo and material.albedo_color == Color.WHITE
+	var bark_ok: bool = bark != null and bark.albedo_texture != null and bark.albedo_texture.resource_path == ForestWalls.BARK_TEXTURE and bark.transparency == BaseMaterial3D.TRANSPARENCY_DISABLED and bark.cull_mode == BaseMaterial3D.CULL_BACK and bark.vertex_color_use_as_albedo
+	_ok(cut_ok and bark_ok and forest.materials.size() == 4, "four materials (was one flat vertex-colour material): the wall, the spruce and the beech foliage alpha-scissored at %.1f on the authored textures, both faces drawn; the bark opaque, back faces culled; every one multiplying the vertex colour (the region's tints)" % ForestWalls.ALPHA_SCISSOR, "wall %s bark %s spruce %s beech %s" % [wall, bark, spruce, beech])
+	var surfaces := 0
+	var surfaces_ok := true
+	var seen := {}
+	var brightest := 0.0
+	var known: Array = forest.materials.values()
+	for child: Node in forest.get_children():
+		var mesh: ArrayMesh = (child as MeshInstance3D).mesh
+		for s: int in mesh.get_surface_count():
+			surfaces += 1
+			var arrays := mesh.surface_get_arrays(s)
+			var material: Material = mesh.surface_get_material(s)
+			var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+			var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+			var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			surfaces_ok = surfaces_ok and material in known and uvs.size() == vertices.size() and colours.size() == vertices.size() and vertices.size() > 0
+			for key: String in forest.materials:
+				if forest.materials[key] == material:
+					seen[key] = seen.get(key, 0) + 1
+			for c: int in range(0, colours.size(), PIXEL_STRIDE):
+				brightest = maxf(brightest, TerrainBuilder.luminance(colours[c]))
+	_ok(surfaces_ok and seen.size() == 4 and surfaces > forest.get_child_count(), "every one of the %d surfaces under Forest's %d chunks carries UVs and vertex colours and wears one of the four materials (%s); the brightest sampled vertex colour at luminance %.2f under the cap %.1f" % [surfaces, forest.get_child_count(), seen, brightest, TerrainBuilder.LUMINANCE_CAP], "surfaces ok %s seen %s brightest %.2f" % [surfaces_ok, seen, brightest])
+	_ok(brightest <= TerrainBuilder.LUMINANCE_CAP, "no baked vertex colour is over the canon's luminance cap: a tree's hashed shade only darkens its tint")
+	var expected_vertices := forest.card_x.size() * 4
+	var expected_triangles := forest.card_x.size() * 2
+	var rows_in_row_tree := 0
+	var rows_flagged := 0
+	var transforms_ok := true
+	for i: int in forest.tree_x.size():
+		var key := forest.archetype_of(i)
+		var archetype: ForestWalls.Archetype = forest.archetypes.get(key)
+		if archetype == null:
+			transforms_ok = false
+			continue
+		expected_vertices += archetype.vertex_count
+		expected_triangles += archetype.triangles
+		if forest.tree_in_row[i] == 1:
+			rows_flagged += 1
+			if forest.tree_element[i] == "V1":
+				rows_in_row_tree += 1
+				transforms_ok = transforms_ok and key == "V6"
+		if i % CARD_SAMPLE_STRIDE == 0:
+			var transform := forest.tree_transform(i)
+			var scale := transform.basis.get_scale()
+			var expected_scale := forest.tree_height[i] / archetype.height
+			var shade := forest.tree_shade(i)
+			transforms_ok = transforms_ok and absf(scale.x - expected_scale) < 1e-4 and absf(scale.y - expected_scale) < 1e-4 and absf(scale.z - expected_scale) < 1e-4 and absf(transform.origin.x - forest.tree_x[i]) < 0.002 and absf(transform.origin.z - forest.tree_z[i]) < 0.002 and absf(transform.origin.y - (forest.profile.elevation_height(forest.tree_x[i], forest.tree_z[i]) - ForestWalls.TREE_SINK_M)) < 1e-4 and shade >= ForestWalls.TREE_SHADE_MIN and shade <= 1.0
+	_ok(forest.counts.vertices == expected_vertices and forest.counts.triangles == expected_triangles, "the mesh accounting is exact: %d vertices = %d cards x 4 + every tree's archetype, %d triangles = cards x 2 + the archetypes' (was 10 / 16 flat triangles a tree)" % [forest.counts.vertices, forest.card_x.size(), forest.counts.triangles], "counted %d / %d, expected %d / %d" % [forest.counts.vertices, forest.counts.triangles, expected_vertices, expected_triangles])
+	_ok(transforms_ok and rows_flagged == forest.counts.trees_rows, "every %dth tree's transform is its point (within the single-precision millimetre at 12 km), its foot %.1f m under the ground, a uniform scale of its height over the archetype's, its shade in [%.1f, 1]; the %d row trees are flagged and the %d V1 among them wear the row tree" % [CARD_SAMPLE_STRIDE, ForestWalls.TREE_SINK_M, ForestWalls.TREE_SHADE_MIN, rows_flagged, rows_in_row_tree], "transforms ok %s, rows flagged %d of %d" % [transforms_ok, rows_flagged, forest.counts.trees_rows])
+
+
+## The checked-in textures, read as files (never through Blender).
+func _check_authored_textures() -> void:
+	var base := Image.load_from_file(ASPHALT_DIR + "road_asphalt_1024_basecolor.png")
+	var rough := Image.load_from_file(ASPHALT_DIR + "road_asphalt_1024_roughness.png")
+	var normal := Image.load_from_file(ASPHALT_DIR + "road_asphalt_1024_normal.png")
+	var sizes_ok: bool = base != null and rough != null and normal != null and base.get_width() == ASPHALT_SIZE and base.get_height() == ASPHALT_SIZE and rough.get_width() == ASPHALT_SIZE and rough.get_height() == ASPHALT_SIZE and normal.get_width() == ASPHALT_SIZE and normal.get_height() == ASPHALT_SIZE
+	_ok(sizes_ok, "the asphalt set is checked in at %s: basecolor, roughness and normal, %d x %d each (the canon's 'road: repeating 512/1024'; element-library.md §1's road_asphalt_1024)" % [ASPHALT_DIR, ASPHALT_SIZE, ASPHALT_SIZE])
+	if not sizes_ok:
+		return
+	var neutral := true
+	var sum := 0.0
+	var samples := 0
+	for k: int in range(0, ASPHALT_SIZE * ASPHALT_SIZE, PIXEL_STRIDE):
+		var c := base.get_pixel(k % ASPHALT_SIZE, k / ASPHALT_SIZE)
+		neutral = neutral and c.r8 == c.g8 and c.g8 == c.b8
+		sum += c.r
+		samples += 1
+	var mean := sum / samples
+	_ok(neutral and mean > 0.72 and mean < 0.84, "the basecolor is greyscale-neutral (R = G = B at %d sampled pixels; the game multiplies RoadBuilder.ASPHALT_TINT) with a mean of %.3f near the procedural texture's 0.78" % [samples, mean], "neutral %s mean %.3f" % [neutral, mean])
+	var rut_mean := 0.0
+	for u: float in RUT_U:
+		rut_mean += _column_mean(base, int(u * ASPHALT_SIZE)) / RUT_U.size()
+	var lane_mean := 0.0
+	for u: float in LANE_CENTRE_U:
+		lane_mean += _column_mean(base, int(u * ASPHALT_SIZE)) / LANE_CENTRE_U.size()
+	var shoulder_mean := (_column_mean(base, int(SHOULDER_U * ASPHALT_SIZE)) + _column_mean(base, ASPHALT_SIZE - 1 - int(SHOULDER_U * ASPHALT_SIZE))) * 0.5
+	var mirror := 0.0
+	for k: int in RUT_U.size() / 2:
+		mirror = maxf(mirror, absf(_column_mean(base, int(RUT_U[k] * ASPHALT_SIZE)) - _column_mean(base, int(RUT_U[RUT_U.size() - 1 - k] * ASPHALT_SIZE))))
+	_ok(rut_mean < lane_mean - 0.03 and shoulder_mean < lane_mean - 0.08 and mirror < 0.03, "the layered road reads in the tile: the wheel ruts at u %s average %.3f, darker than the lane centres' %.3f, the shoulders' grime %.3f darker still, the ruts mirrored about u 0.5 within %.3f" % [RUT_U, rut_mean, lane_mean, shoulder_mean, mirror], "rut %.3f lane %.3f shoulder %.3f mirror %.3f" % [rut_mean, lane_mean, shoulder_mean, mirror])
+	var rut_rough := 0.0
+	for u: float in RUT_U:
+		rut_rough += _column_mean(rough, int(u * ASPHALT_SIZE)) / RUT_U.size()
+	var lane_rough := 0.0
+	for u: float in LANE_CENTRE_U:
+		lane_rough += _column_mean(rough, int(u * ASPHALT_SIZE)) / LANE_CENTRE_U.size()
+	_ok(rut_rough < lane_rough - 0.1 and lane_rough > 0.7, "the roughness map polishes the ruts: %.3f in the tracks against %.3f at the lane centres ('very mild roughness variation')" % [rut_rough, lane_rough], "rut %.3f lane %.3f" % [rut_rough, lane_rough])
+	var seam := _row_difference(base, 0, ASPHALT_SIZE - 1)
+	var neighbour := _row_difference(base, 0, 1)
+	_ok(seam <= neighbour * 1.5 + 0.01, "the tile is seamless along the road: the first and last rows differ by %.4f, the first two rows by %.4f" % [seam, neighbour], "seam %.4f neighbour %.4f" % [seam, neighbour])
+	var flat := 0.0
+	var tilt := 0.0
+	for k: int in range(0, ASPHALT_SIZE * ASPHALT_SIZE, PIXEL_STRIDE):
+		var c := normal.get_pixel(k % ASPHALT_SIZE, k / ASPHALT_SIZE)
+		flat += c.b
+		tilt += absf(c.r - 0.5) + absf(c.g - 0.5)
+	flat /= samples
+	tilt /= samples
+	_ok(flat > 0.9 and tilt < 0.1, "the normal map is subtle: the sampled blue mean %.3f (nearly flat), the mean tilt %.3f" % [flat, tilt], "flat %.3f tilt %.3f" % [flat, tilt])
+	var wall := Image.load_from_file(VEGETATION_DIR + "foliage_wall_512.png")
+	var spruce := Image.load_from_file(VEGETATION_DIR + "foliage_spruce_512.png")
+	var beech := Image.load_from_file(VEGETATION_DIR + "foliage_beech_512.png")
+	var bark := Image.load_from_file(VEGETATION_DIR + "bark_256.png")
+	var veg_ok := wall != null and spruce != null and beech != null and bark != null
+	if veg_ok:
+		veg_ok = wall.get_width() == CARD_TEXTURE_SIZE and wall.get_height() == CARD_TEXTURE_SIZE and spruce.get_width() == CARD_TEXTURE_SIZE and beech.get_width() == CARD_TEXTURE_SIZE and bark.get_width() == BARK_TEXTURE_SIZE and bark.get_height() == BARK_TEXTURE_SIZE
+	_ok(veg_ok, "the vegetation textures are checked in at %s: the wall card, the spruce and the beech atlas at %d, the bark at %d (the canon's 'vegetation: 128-512')" % [VEGETATION_DIR, CARD_TEXTURE_SIZE, BARK_TEXTURE_SIZE])
+	if not veg_ok:
+		return
+	var alpha_ok := true
+	var grey_ok := true
+	for image: Image in [wall, spruce, beech, bark]:
+		var under := 0
+		var over := 0
+		for k: int in range(0, image.get_width() * image.get_height(), PIXEL_STRIDE):
+			var c := image.get_pixel(k % image.get_width(), k / image.get_width())
+			grey_ok = grey_ok and c.r8 == c.g8 and c.g8 == c.b8
+			if c.a < 0.5:
+				under += 1
+			else:
+				over += 1
+		if image == bark:
+			alpha_ok = alpha_ok and under == 0
+		else:
+			alpha_ok = alpha_ok and under > 0 and over > 0
+	var sky := true
+	var foot := true
+	for x: int in CARD_TEXTURE_SIZE:
+		sky = sky and wall.get_pixel(x, 0).a < 0.5
+		foot = foot and wall.get_pixel(x, CARD_TEXTURE_SIZE - 1).a >= 0.5
+	_ok(grey_ok and alpha_ok and sky and foot, "the vegetation textures are greyscale-neutral (the tints colour them) and alpha-cut: the wall's top row is open sky and its foot solid, the atlases carry both cut and cover, the bark is opaque", "grey %s alpha %s sky %s foot %s" % [grey_ok, alpha_ok, sky, foot])
+
+
+func _column_mean(image: Image, x: int) -> float:
+	var sum := 0.0
+	for y: int in image.get_height():
+		sum += image.get_pixel(x, y).r
+	return sum / image.get_height()
+
+
+func _row_difference(image: Image, a: int, b: int) -> float:
+	var sum := 0.0
+	for x: int in image.get_width():
+		sum += absf(image.get_pixel(x, a).r - image.get_pixel(x, b).r)
+	return sum / image.get_width()
 
 
 func _check_ceiling(terrain: TerrainBuilder, forest: ForestWalls) -> void:

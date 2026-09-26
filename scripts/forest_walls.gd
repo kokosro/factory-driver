@@ -44,18 +44,51 @@ extends Node3D
 ## when within the 60 m. Heights from the catalogue's ranges by the hash.
 ## natural=tree nodes: the landcover's `trees` list, one V1/V2 each, empty
 ## at this landing (the attic node-tag query was refused by every Overpass
-## endpoint on 2026-09-26; landcover.json's header says so). A tree is a
-## trunk (two crossed quads) and, V2, three crossed cards ("trunk + 3
-## crossed cards"), V1 three lobes of two crossed quads each ("trunk +
-## 3-lobe crown"): 10 and 16 triangles, under V1's 120. Flat colours from
-## the palette, no texture, no new asset. V3 (the billboard beyond 80 m
-## from the camera) is a distance swap this pass does not do: every tree
-## is its near archetype at every distance.
+## endpoint on 2026-09-26; landcover.json's header says so). V3 (the
+## billboard beyond 80 m from the camera) is a distance swap this pass
+## does not do: every tree is its near archetype at every distance.
+##
+## THE LOOK (4B-ASSETS-1, the first Blender-authored assets; assets/
+## blender/README.md; the driver's issue-0023: "the trees are green
+## chunks, not really looking as trees"): was -> a tree was flat-coloured
+## crossed quads (10 / 16 triangles) and a card a flat-coloured quad, all
+## through one shared vertex-colour material. Now a tree is one of three
+## authored archetypes (assets/meshes/tree_spruce.glb for V2, tree_beech
+## .glb for V1, tree_row.glb for a V1 standing in a V6 row; trees.py) -
+## a bark-textured tapered trunk, crossed alpha-cut silhouette cards and
+## the spruce's stacked branch whorls or the beech's chunky low-poly
+## lobes, 106 / 130 / 128 triangles (the beech ten over the library's
+## "<= 120" by its third lobe, noted in assets/blender/README.md; the
+## canon's "a tree can be mostly cards" carries the look) - BAKED into the
+## same per-chunk ArrayMeshes: the archetype's surfaces (bark, foliage)
+## are read once from the imported scene and every tree appends a copy
+## transformed by its own Transform3D (turned by a hashed yaw, scaled
+## uniformly to tree_height / the archetype's height, stood at its
+## point), the UVs the archetype's, the vertex colour the palette's tint
+## darkened by a hashed shade in [TREE_SHADE_MIN, 1] (only ever darker:
+## the canon's luminance cap holds). CHOSEN over instancing (a MultiMesh
+## is no MeshInstance3D: the dressing test pins the children) and over
+## re-UV-mapping the old crossed quads (the authored silhouettes carry
+## the tiers and the lobes; the crossed-card layout stays as the
+## archetype's own cards). A V4 card is the same quad as before, now
+## UV-mapped into foliage_wall_512.png - u offset by the card's hash and
+## mirrored by another so neighbours show different skylines, v 0 at the
+## top - so its top edge is the alpha-cut canopy skyline. FOUR MATERIALS
+## (was one): the wall (foliage_wall_512, alpha scissor, both faces), the
+## spruce foliage (foliage_spruce_512, the same), the beech foliage
+## (foliage_beech_512, the same; the row tree wears it too) and the bark
+## (bark_256, opaque, back faces culled) - every one StandardMaterial3D
+## with vertex_color_use_as_albedo so the region's tint table keeps
+## colouring the greyscale-neutral textures. Alpha scissor, not blend:
+## hard edges and no sorting over ~100 000 quads (period-correct).
+## Placement is untouched: the same cards and trees at the same points.
 ##
 ## DETERMINISM: no RNG; every jitter and height is TerrainBuilder.hash_unit
-## of (region seed, the polygon's OSM id, the purpose, the index). The
-## edges are walked in the file's order (by OSM id), so the budgets are
-## spent the same way every run.
+## of (region seed, the polygon's OSM id, the purpose, the index), a
+## tree's yaw and shade and a card's texture offset hash_unit of (the OSM
+## id, the purpose, the tree's / card's list index). The edges are walked
+## in the file's order (by OSM id), so the budgets are spent the same way
+## every run and the lists index the same way.
 
 ## The elements this node instantiates (ids in the catalogue).
 const ELEMENTS := ["V1", "V2", "V4", "V6"]
@@ -85,6 +118,39 @@ const CHORD_STRIDE := 65536
 ## A chunk of cards or trees [m]: one MeshInstance3D each for the
 ## renderer's culling.
 const CHUNK_M := 1000.0
+
+## The authored archetypes and textures (assets/blender/README.md): the
+## element to its .glb, "V6" the row tree a V1 wears when it stands in a
+## natural=tree_row; the foliage atlas per element (the row tree wears the
+## beech's); the wall card's and the bark's textures.
+const ARCHETYPE_PATHS := {"V2": "res://assets/meshes/tree_spruce.glb", "V1": "res://assets/meshes/tree_beech.glb", "V6": "res://assets/meshes/tree_row.glb"}
+const FOLIAGE_TEXTURES := {"V2": "res://assets/textures/vegetation/foliage_spruce_512.png", "V1": "res://assets/textures/vegetation/foliage_beech_512.png"}
+const WALL_TEXTURE := "res://assets/textures/vegetation/foliage_wall_512.png"
+const BARK_TEXTURE := "res://assets/textures/vegetation/bark_256.png"
+## The alpha cut of the foliage materials.
+const ALPHA_SCISSOR := 0.5
+## A tree's hashed shade multiplies its tint by [TREE_SHADE_MIN, 1].
+const TREE_SHADE_MIN := 0.8
+## A tree's foot sinks this far into the ground [m].
+const TREE_SINK_M := 0.2
+
+
+## One authored archetype's geometry, read from its imported .glb once:
+## the bark surface and the foliage surface, at the file's own size.
+class Archetype:
+	var id := ""
+	var path := ""
+	var height := 0.0
+	var triangles := 0
+	var vertex_count := 0
+	var bark_vertices := PackedVector3Array()
+	var bark_normals := PackedVector3Array()
+	var bark_uvs := PackedVector2Array()
+	var bark_indices := PackedInt32Array()
+	var foliage_vertices := PackedVector3Array()
+	var foliage_normals := PackedVector3Array()
+	var foliage_uvs := PackedVector2Array()
+	var foliage_indices := PackedInt32Array()
 
 @export var road: RoadBuilder
 @export var terrain: TerrainBuilder
@@ -129,13 +195,19 @@ var tree_height: PackedFloat32Array
 var tree_osm: PackedInt64Array
 var tree_road: PackedStringArray
 var tree_side: PackedByteArray
+## 1 when the tree stands in a V6 row (it wears the row archetype when V1).
+var tree_in_row: PackedByteArray
 ## The budgets: road id -> [left used, right used, allowed per side].
 var budgets: Dictionary = {}
 
 var counts := {"forests_walked": 0, "edges": 0, "cards": 0, "cards_skipped_far": 0, "trees": 0, "trees_v1": 0, "trees_v2": 0, "trees_rows": 0, "trees_skipped_far": 0, "trees_skipped_budget": 0, "vertices": 0, "triangles": 0}
 var elements: Dictionary = {}
 var build_ms := 0
-var _material: StandardMaterial3D
+## The archetypes by their key ("V1", "V2", "V6") and the four materials by
+## name ("wall", "bark", "foliage_V1", "foliage_V2").
+var archetypes: Dictionary = {}
+var materials: Dictionary = {}
+var _index_tables: Dictionary = {}
 var _wall_colours: Array[Color] = []
 var _v2_colour: Color
 var _v1_colour: Color
@@ -159,7 +231,7 @@ func build(built_profile: WorldRoadProfile, landcover_data: Dictionary, roads: A
 	table = TerrainBuilder.region_dressing()
 	_read_stone()
 	_read_palette()
-	_material = TerrainBuilder._flat_material()
+	_load_assets()
 	_build_cells()
 	_reset_lists()
 	for ribbon: TerrainBuilder.Ribbon in ribbons:
@@ -220,6 +292,7 @@ func _reset_lists() -> void:
 	tree_osm = PackedInt64Array()
 	tree_road = PackedStringArray()
 	tree_side = PackedByteArray()
+	tree_in_row = PackedByteArray()
 	budgets = {}
 
 
@@ -390,6 +463,7 @@ func _place_tree(x: float, z: float, element: String, osm: int, index: int, edge
 	tree_osm.append(osm)
 	tree_road.append(road_id)
 	tree_side.append(side)
+	tree_in_row.append(0)
 	counts.trees += 1
 	if element == "V1":
 		counts.trees_v1 += 1
@@ -408,6 +482,7 @@ func _place_tree_rows() -> void:
 		var points: Array = record.get("points", [])
 		for k: int in points.size():
 			if _place_tree(float(points[k][0]), float(points[k][1]), element, osm, k, false):
+				tree_in_row[tree_in_row.size() - 1] = 1
 				counts.trees_rows += 1
 				_count_element("V6")
 
@@ -425,6 +500,116 @@ func _count_element(id: String, by: int = 1) -> void:
 
 
 # =============================================================================
+#  THE ASSETS
+# =============================================================================
+
+## Loads the three archetypes and builds the four materials.
+func _load_assets() -> void:
+	archetypes = {}
+	for key: String in ARCHETYPE_PATHS:
+		var archetype := _load_archetype(key, ARCHETYPE_PATHS[key])
+		if archetype != null:
+			archetypes[key] = archetype
+	materials = {
+		"wall": _foliage_material(load(WALL_TEXTURE)),
+		"bark": _bark_material(load(BARK_TEXTURE)),
+	}
+	for key: String in FOLIAGE_TEXTURES:
+		materials["foliage_" + key] = _foliage_material(load(FOLIAGE_TEXTURES[key]))
+	_index_tables = {}
+
+
+## Reads one archetype's surfaces from its imported scene: the surface
+## named for the bark is the trunk, the other the foliage; the mesh's own
+## height is the scale reference.
+static func _load_archetype(key: String, path: String) -> Archetype:
+	var packed: PackedScene = load(path)
+	if packed == null:
+		push_error("ForestWalls: archetype %s missing at %s" % [key, path])
+		return null
+	var scene := packed.instantiate()
+	var archetype := Archetype.new()
+	archetype.id = key
+	archetype.path = path
+	_read_archetype_node(scene, Transform3D.IDENTITY, archetype)
+	scene.free()
+	if archetype.foliage_vertices.is_empty() or archetype.bark_vertices.is_empty():
+		push_error("ForestWalls: archetype %s at %s has no bark or no foliage surface" % [key, path])
+		return null
+	var top := 0.0
+	for p: Vector3 in archetype.foliage_vertices:
+		top = maxf(top, p.y)
+	for p: Vector3 in archetype.bark_vertices:
+		top = maxf(top, p.y)
+	archetype.height = top
+	archetype.vertex_count = archetype.bark_vertices.size() + archetype.foliage_vertices.size()
+	archetype.triangles = (archetype.bark_indices.size() + archetype.foliage_indices.size()) / 3
+	return archetype
+
+
+static func _read_archetype_node(node: Node, parent: Transform3D, archetype: Archetype) -> void:
+	var transform := parent
+	if node is Node3D:
+		transform = parent * (node as Node3D).transform
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh != null:
+		var mesh: Mesh = (node as MeshInstance3D).mesh
+		var rotation := Transform3D(transform.basis.orthonormalized(), Vector3.ZERO)
+		for s: int in mesh.get_surface_count():
+			var arrays := mesh.surface_get_arrays(s)
+			var vertices: PackedVector3Array = transform * (arrays[Mesh.ARRAY_VERTEX] as PackedVector3Array)
+			var normals: PackedVector3Array = rotation * (arrays[Mesh.ARRAY_NORMAL] as PackedVector3Array)
+			var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+			var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+			var bark: bool = mesh is ArrayMesh and (mesh as ArrayMesh).surface_get_name(s).begins_with("bark")
+			if not bark:
+				var material: Material = mesh.surface_get_material(s)
+				bark = material != null and material.resource_name.begins_with("bark")
+			if bark:
+				var base := archetype.bark_vertices.size()
+				archetype.bark_vertices.append_array(vertices)
+				archetype.bark_normals.append_array(normals)
+				archetype.bark_uvs.append_array(uvs)
+				for index: int in indices:
+					archetype.bark_indices.append(index + base)
+			else:
+				var base := archetype.foliage_vertices.size()
+				archetype.foliage_vertices.append_array(vertices)
+				archetype.foliage_normals.append_array(normals)
+				archetype.foliage_uvs.append_array(uvs)
+				for index: int in indices:
+					archetype.foliage_indices.append(index + base)
+	for child: Node in node.get_children():
+		_read_archetype_node(child, transform, archetype)
+
+
+## The foliage material: the texture's alpha cut hard, both faces drawn,
+## the vertex colour (the region's tint) multiplying the greyscale texture.
+static func _foliage_material(texture: Texture2D) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.albedo_color = Color.WHITE
+	material.albedo_texture = texture
+	material.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+	material.alpha_scissor_threshold = ALPHA_SCISSOR
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.roughness = 1.0
+	material.metallic_specular = 0.0
+	return material
+
+
+## The bark material: opaque, the trunk's back faces culled.
+static func _bark_material(texture: Texture2D) -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.albedo_color = Color.WHITE
+	material.albedo_texture = texture
+	material.cull_mode = BaseMaterial3D.CULL_BACK
+	material.roughness = 1.0
+	material.metallic_specular = 0.0
+	return material
+
+
+# =============================================================================
 #  THE MESHES
 # =============================================================================
 
@@ -438,33 +623,117 @@ func _build_meshes() -> void:
 	for key: Vector2i in wall_chunks:
 		var vertices := PackedVector3Array()
 		var normals := PackedVector3Array()
+		var uvs := PackedVector2Array()
 		var colours := PackedColorArray()
 		var indices := PackedInt32Array()
 		for i: int in wall_chunks[key]:
-			_card_quad(vertices, normals, colours, indices, i)
-		_add_mesh("Walls_%d_%d" % [key.x, key.y], vertices, normals, colours, indices)
+			_card_quad(vertices, normals, uvs, colours, indices, i)
+		var mesh := ArrayMesh.new()
+		_add_surface(mesh, vertices, normals, uvs, colours, indices, materials.wall)
+		_add_mesh("Walls_%d_%d" % [key.x, key.y], mesh)
 	_count_element("V4", card_x.size())
 	var tree_chunks := {}
 	for i: int in tree_x.size():
 		var key := Vector2i(floori(tree_x[i] / CHUNK_M), floori(tree_z[i] / CHUNK_M))
 		if not tree_chunks.has(key):
-			tree_chunks[key] = PackedInt32Array()
-		tree_chunks[key].append(i)
+			tree_chunks[key] = {}
+		var archetype_key := archetype_of(i)
+		if not tree_chunks[key].has(archetype_key):
+			tree_chunks[key][archetype_key] = PackedInt32Array()
+		tree_chunks[key][archetype_key].append(i)
 	for key: Vector2i in tree_chunks:
-		var vertices := PackedVector3Array()
-		var normals := PackedVector3Array()
-		var colours := PackedColorArray()
-		var indices := PackedInt32Array()
-		for i: int in tree_chunks[key]:
-			_tree(vertices, normals, colours, indices, i)
-		_add_mesh("Trees_%d_%d" % [key.x, key.y], vertices, normals, colours, indices)
+		var mesh := ArrayMesh.new()
+		for archetype_key: String in tree_chunks[key]:
+			_bake_trees(mesh, archetype_key, tree_chunks[key][archetype_key])
+		_add_mesh("Trees_%d_%d" % [key.x, key.y], mesh)
 	_count_element("V1", counts.trees_v1)
 	_count_element("V2", counts.trees_v2)
 
 
+## The archetype tree `i` wears: V2 the spruce, V1 the beech, a V1 in a
+## row the row tree.
+func archetype_of(i: int) -> String:
+	if tree_element[i] == "V1" and tree_in_row[i] == 1:
+		return "V6"
+	return tree_element[i]
+
+
+## Tree `i`'s transform: turned by its hashed yaw, scaled uniformly to its
+## height from the archetype's, its foot TREE_SINK_M under the ground.
+func tree_transform(i: int) -> Transform3D:
+	var archetype: Archetype = archetypes.get(archetype_of(i))
+	var scale := tree_height[i] / archetype.height if archetype != null and archetype.height > 0.0 else 1.0
+	var yaw := TAU * TerrainBuilder.hash_unit(tree_osm[i], "tree_yaw", i)
+	var basis := Basis(Vector3.UP, yaw).scaled(Vector3(scale, scale, scale))
+	var x := tree_x[i]
+	var z := tree_z[i]
+	return Transform3D(basis, Vector3(x, profile.elevation_height(x, z) - TREE_SINK_M, z))
+
+
+## Tree `i`'s shade: the tint's multiplier in [TREE_SHADE_MIN, 1].
+func tree_shade(i: int) -> float:
+	return lerpf(TREE_SHADE_MIN, 1.0, TerrainBuilder.hash_unit(tree_osm[i], "tree_shade", i))
+
+
+## Bakes the trees of one archetype into two surfaces of the chunk's mesh
+## (bark, foliage): every tree a transformed copy of the archetype's
+## arrays, its indices from the offset table.
+func _bake_trees(mesh: ArrayMesh, archetype_key: String, trees: PackedInt32Array) -> void:
+	var archetype: Archetype = archetypes.get(archetype_key)
+	if archetype == null or trees.is_empty():
+		return
+	var foliage_tint := _v1_colour if tree_element[trees[0]] == "V1" else _v2_colour
+	var bark_vertices := PackedVector3Array()
+	var bark_normals := PackedVector3Array()
+	var bark_uvs := PackedVector2Array()
+	var bark_colours := PackedColorArray()
+	var foliage_vertices := PackedVector3Array()
+	var foliage_normals := PackedVector3Array()
+	var foliage_uvs := PackedVector2Array()
+	var foliage_colours := PackedColorArray()
+	var bark_fill := PackedColorArray()
+	bark_fill.resize(archetype.bark_vertices.size())
+	var foliage_fill := PackedColorArray()
+	foliage_fill.resize(archetype.foliage_vertices.size())
+	for i: int in trees:
+		var transform := tree_transform(i)
+		var rotation := Transform3D(transform.basis.orthonormalized(), Vector3.ZERO)
+		var shade := tree_shade(i)
+		bark_vertices.append_array(transform * archetype.bark_vertices)
+		bark_normals.append_array(rotation * archetype.bark_normals)
+		bark_uvs.append_array(archetype.bark_uvs)
+		bark_fill.fill(Color(_trunk_colour.r * shade, _trunk_colour.g * shade, _trunk_colour.b * shade, 1.0))
+		bark_colours.append_array(bark_fill)
+		foliage_vertices.append_array(transform * archetype.foliage_vertices)
+		foliage_normals.append_array(rotation * archetype.foliage_normals)
+		foliage_uvs.append_array(archetype.foliage_uvs)
+		foliage_fill.fill(Color(foliage_tint.r * shade, foliage_tint.g * shade, foliage_tint.b * shade, 1.0))
+		foliage_colours.append_array(foliage_fill)
+	var bark_indices := _offset_indices(archetype_key + ":bark", archetype.bark_indices, archetype.bark_vertices.size(), trees.size())
+	var foliage_indices := _offset_indices(archetype_key + ":foliage", archetype.foliage_indices, archetype.foliage_vertices.size(), trees.size())
+	_add_surface(mesh, bark_vertices, bark_normals, bark_uvs, bark_colours, bark_indices, materials.bark)
+	_add_surface(mesh, foliage_vertices, foliage_normals, foliage_uvs, foliage_colours, foliage_indices, materials["foliage_" + ("V1" if tree_element[trees[0]] == "V1" else "V2")])
+
+
+## The archetype's indices repeated for `copies` trees, each copy offset by
+## the vertex count: grown once per key and sliced.
+func _offset_indices(key: String, base: PackedInt32Array, vertex_count: int, copies: int) -> PackedInt32Array:
+	var table: PackedInt32Array = _index_tables.get(key, PackedInt32Array())
+	var have := table.size() / base.size() if not base.is_empty() else copies
+	while have < copies:
+		var offset := have * vertex_count
+		for index: int in base:
+			table.append(index + offset)
+		have += 1
+	_index_tables[key] = table
+	return table.slice(0, copies * base.size())
+
+
 ## A card: a vertical quad along its edge's heading, FOOT_SINK_M into the
-## ground at its centre, its layer's colour.
-func _card_quad(vertices: PackedVector3Array, normals: PackedVector3Array, colours: PackedColorArray, indices: PackedInt32Array, i: int) -> void:
+## ground at its centre, its layer's colour, UV-mapped into the wall
+## texture: u offset by the card's hash (the texture tiles across) and
+## mirrored by another, v 0 at the top (the alpha skyline), 1 at the foot.
+func _card_quad(vertices: PackedVector3Array, normals: PackedVector3Array, uvs: PackedVector2Array, colours: PackedColorArray, indices: PackedInt32Array, i: int) -> void:
 	var heading := card_heading[i]
 	var ex := cos(heading)
 	var ez := sin(heading)
@@ -475,66 +744,48 @@ func _card_quad(vertices: PackedVector3Array, normals: PackedVector3Array, colou
 	var top := base + card_height[i]
 	var colour := _wall_colours[mini(card_layer[i], _wall_colours.size() - 1)]
 	var normal := Vector3(-ez, 0.0, ex)
-	_quad(vertices, normals, colours, indices, Vector3(x - ex * half, base, z - ez * half), Vector3(x + ex * half, base, z + ez * half), Vector3(x + ex * half, top, z + ez * half), Vector3(x - ex * half, top, z - ez * half), normal, colour)
+	var u0 := TerrainBuilder.hash_unit(card_osm[i], "card_uv", i)
+	var u1 := u0 + 1.0
+	if TerrainBuilder.hash_unit(card_osm[i], "card_flip", i) < 0.5:
+		var swap := u0
+		u0 = u1
+		u1 = swap
+	_quad(vertices, normals, uvs, colours, indices, Vector3(x - ex * half, base, z - ez * half), Vector3(x + ex * half, base, z + ez * half), Vector3(x + ex * half, top, z + ez * half), Vector3(x - ex * half, top, z - ez * half), normal, colour, Vector2(u0, 1.0), Vector2(u1, 1.0), Vector2(u1, 0.0), Vector2(u0, 0.0))
 
 
-## A tree: the trunk's two crossed quads, then V2's three crossed cards
-## or V1's three lobes of two crossed quads.
-func _tree(vertices: PackedVector3Array, normals: PackedVector3Array, colours: PackedColorArray, indices: PackedInt32Array, i: int) -> void:
-	var x := tree_x[i]
-	var z := tree_z[i]
-	var h := tree_height[i]
-	var base := profile.elevation_height(x, z) - 0.2
-	var conifer := tree_element[i] == "V2"
-	var trunk_top := base + (0.35 if conifer else 0.45) * h
-	_crossed(vertices, normals, colours, indices, Vector3(x, base, z), TRUNK_WIDTH_M, trunk_top - base, 0.0, _trunk_colour, 2)
-	if conifer:
-		_crossed(vertices, normals, colours, indices, Vector3(x, base + 0.2 * h, z), 0.4 * h, 0.8 * h, 0.0, _v2_colour, 3)
-	else:
-		var lobe := 0.45 * h
-		var crown := base + 0.4 * h
-		_crossed(vertices, normals, colours, indices, Vector3(x, crown + 0.2 * h, z), lobe, lobe, 0.0, _v1_colour, 2)
-		_crossed(vertices, normals, colours, indices, Vector3(x - 0.18 * h, crown, z), lobe, lobe, PI / 3.0, _v1_colour, 2)
-		_crossed(vertices, normals, colours, indices, Vector3(x + 0.18 * h, crown, z), lobe, lobe, -PI / 3.0, _v1_colour, 2)
-
-
-## `cards` vertical quads of one width and height crossed at a base point,
-## turned `turn` and then evenly around.
-func _crossed(vertices: PackedVector3Array, normals: PackedVector3Array, colours: PackedColorArray, indices: PackedInt32Array, at: Vector3, width: float, height: float, turn: float, colour: Color, cards: int) -> void:
-	for c: int in cards:
-		var heading := turn + PI * float(c) / float(cards)
-		var ex := cos(heading) * width * 0.5
-		var ez := sin(heading) * width * 0.5
-		var normal := Vector3(-sin(heading), 0.0, cos(heading))
-		_quad(vertices, normals, colours, indices, Vector3(at.x - ex, at.y, at.z - ez), Vector3(at.x + ex, at.y, at.z + ez), Vector3(at.x + ex, at.y + height, at.z + ez), Vector3(at.x - ex, at.y + height, at.z - ez), normal, colour)
-
-
-func _quad(vertices: PackedVector3Array, normals: PackedVector3Array, colours: PackedColorArray, indices: PackedInt32Array, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3, colour: Color) -> void:
+func _quad(vertices: PackedVector3Array, normals: PackedVector3Array, uvs: PackedVector2Array, colours: PackedColorArray, indices: PackedInt32Array, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3, colour: Color, uv_a: Vector2, uv_b: Vector2, uv_c: Vector2, uv_d: Vector2) -> void:
 	var base := vertices.size()
 	vertices.append_array(PackedVector3Array([a, b, c, d]))
 	normals.append_array(PackedVector3Array([normal, normal, normal, normal]))
+	uvs.append_array(PackedVector2Array([uv_a, uv_b, uv_c, uv_d]))
 	colours.append_array(PackedColorArray([colour, colour, colour, colour]))
 	indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
 
 
-func _add_mesh(name_of: String, vertices: PackedVector3Array, normals: PackedVector3Array, colours: PackedColorArray, indices: PackedInt32Array) -> void:
+## One surface of a chunk's mesh with its material; nothing for no indices.
+func _add_surface(mesh: ArrayMesh, vertices: PackedVector3Array, normals: PackedVector3Array, uvs: PackedVector2Array, colours: PackedColorArray, indices: PackedInt32Array, material: Material) -> void:
 	if indices.is_empty():
 		return
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = vertices
 	arrays[Mesh.ARRAY_NORMAL] = normals
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
 	arrays[Mesh.ARRAY_COLOR] = colours
 	arrays[Mesh.ARRAY_INDEX] = indices
-	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	mesh.surface_set_material(0, _material)
+	mesh.surface_set_material(mesh.get_surface_count() - 1, material)
+	counts.vertices += vertices.size()
+	counts.triangles += indices.size() / 3
+
+
+func _add_mesh(name_of: String, mesh: ArrayMesh) -> void:
+	if mesh.get_surface_count() == 0:
+		return
 	var instance := MeshInstance3D.new()
 	instance.name = name_of
 	instance.mesh = mesh
 	add_child(instance)
-	counts.vertices += vertices.size()
-	counts.triangles += indices.size() / 3
 
 
 ## One line on what was built (no wall time).

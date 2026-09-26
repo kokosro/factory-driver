@@ -43,7 +43,10 @@ test finishes (the ring drive test writes nothing:
 it reads the checked-in skeleton and drape and builds in memory; the buildings test writes
 nothing either: it reads the checked-in focus table, and the raw OSM snapshot store only
 where it is on the machine, never fetching; the dressing test the same: the checked-in
-landcover, the store's raw parts only where they are on the machine, no network; the refuel
+landcover, the store's raw parts only where they are on the machine, no network, and since
+4B-ASSETS-1 the checked-in Blender-authored textures and tree archetypes under `assets/` as
+files - the suite never runs Blender; regenerating them is `assets/blender/README.md`'s
+command; the refuel
 test writes nothing: the store is off
 headless). No test opens a window or a
 native dialog: the garage's folder picker is a GUI path the menu test never takes.
