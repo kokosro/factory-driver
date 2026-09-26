@@ -180,3 +180,9 @@ contract above is what it will map.
   not the polygon count.
 * No V3 billboard yet: every tree is its near archetype at every distance
   (deferred since 4B-7).
+* The normal map is very shallow as authored (NORMAL_STRENGTH 1.6 on a height
+  field whose neighbouring pixels differ by hundredths: the dressing test measures
+  a mean tilt of 0.006 and a blue mean of 1.000 at 8-bit). The canon asks for
+  "subtle"; if the wiring finds it invisible, `normal_scale` up to 4 in the
+  material or a regeneration with NORMAL_STRENGTH raised (a new commit) is the
+  knob - the ruts' dip and the patch seams are the features it carries.
