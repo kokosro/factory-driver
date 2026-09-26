@@ -273,7 +273,7 @@ const ASPHALT_DIR := "res://assets/textures/road/"
 const ASPHALT_BASECOLOR := ASPHALT_DIR + "road_asphalt_1024_basecolor.png"
 const ASPHALT_ROUGHNESS := ASPHALT_DIR + "road_asphalt_1024_roughness.png"
 const ASPHALT_NORMAL := ASPHALT_DIR + "road_asphalt_1024_normal.png"
-const ASPHALT_TINT := Color(0.46, 0.47, 0.5, 1.0)
+const ASPHALT_TINT := Color(0.55, 0.55, 0.55, 1.0)
 const TILE_ALONG_M := 8.0
 const NORMAL_SCALE := 2.0
 

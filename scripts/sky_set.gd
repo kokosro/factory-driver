@@ -21,6 +21,22 @@ extends Node
 ## skybox" is an asset this pass does not add: no new binary assets; the
 ## plate's horizon colour is what S5 needs and the material carries it).
 ##
+## The ambient (ATMOS-1; the canon's Lighting: "very restrained ambient
+## illumination", "shadows clearly readable but not pitch black", "neutral
+## midtones"): the environment's ambient light is the sky's irradiance
+## mixed with a flat neutral colour - AMBIENT_SKY_CONTRIBUTION of the sky,
+## the rest AMBIENT_COLOUR, the whole times AMBIENT_ENERGY (Godot's
+## ambient_light_sky_contribution, ambient_light_color and
+## ambient_light_energy, the source the sky named outright). Before
+## ATMOS-1 the sky was the entire ambient (the engine's default for a sky
+## background) and the plate's saturated zenith flooded every shadow blue:
+## the probe's shaded road read 40 to 56 more blue than red (0-255) and
+## the darkest 5 % of every shot had 2.4 to 2.5 times the blue of the red.
+## Under a neutral flat colour with a small share of the sky the shadows
+## are neutral-dark and the sky's cool cast is a hint, the haze's job
+## keeping the distance cool. The sun is untouched by this: its colour,
+## energy, elevation and bearing stand where S1 put them.
+##
 ## S5 - the haze: the canon's four bands, "0-100 m normal saturation /
 ## 100-300 m slight haze / 300-800 m reduced contrast / 800 m+ increasingly
 ## sky-colored", are the catalogue's stone distances (S5.stone_parameters:
@@ -66,6 +82,11 @@ const FIT_TOLERANCE := 0.03
 ## The sun's light: "slightly warm highlights".
 const SUN_COLOUR := Color(1.0, 0.965, 0.9, 1.0)
 const SUN_ENERGY := 1.0
+## The ambient, restrained (see above): the flat neutral colour, its
+## energy, and the sky's share of the mix.
+const AMBIENT_COLOUR := Color(0.45, 0.45, 0.45, 1.0)
+const AMBIENT_ENERGY := 1.0
+const AMBIENT_SKY_CONTRIBUTION := 0.15
 ## The sun's bearing, clockwise from north [deg], when the region table
 ## names none (the scene's Sun stood here).
 const DEFAULT_SUN_AZIMUTH_DEG := 210.0
@@ -108,11 +129,13 @@ func apply() -> void:
 	var horizon := Color(0.68, 0.78, 0.88, 1.0)
 	if environment != null and environment.environment != null:
 		horizon = horizon_colour(environment.environment)
+		_apply_ambient(environment.environment)
 		_apply_fog(environment.environment, bands, horizon)
 	applied = {
 		"sky_set": set_id, "haze": haze_id, "suns": int(clear_day.stone_parameters.suns), "skies": int(clear_day.stone_parameters.skies),
 		"sun_elevation_deg": elevation, "sun_azimuth_deg": azimuth, "bands": bands, "haze_colour": horizon,
 		"fog_depth_begin": bands.normal_to, "fog_depth_end": SKY_COLOURED_FULL_M, "fog_depth_curve": fitted_curve(bands),
+		"ambient_colour": AMBIENT_COLOUR, "ambient_energy": AMBIENT_ENERGY, "ambient_sky_contribution": AMBIENT_SKY_CONTRIBUTION,
 	}
 
 
@@ -175,6 +198,17 @@ static func horizon_colour(env: Environment) -> Color:
 	return Color(0.68, 0.78, 0.88, 1.0)
 
 
+## The restrained ambient: the sky's irradiance at AMBIENT_SKY_CONTRIBUTION
+## over the flat AMBIENT_COLOUR, times AMBIENT_ENERGY. The sky stays the
+## background and the reflection source (the plate is what the car and the
+## road mirror); only the ambient's share of it is held down.
+func _apply_ambient(env: Environment) -> void:
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env.ambient_light_color = AMBIENT_COLOUR
+	env.ambient_light_energy = AMBIENT_ENERGY
+	env.ambient_light_sky_contribution = AMBIENT_SKY_CONTRIBUTION
+
+
 func _apply_fog(env: Environment, bands: Dictionary, horizon: Color) -> void:
 	env.volumetric_fog_enabled = false
 	env.fog_enabled = true
@@ -208,4 +242,4 @@ func _aim_sun(elevation_deg: float, azimuth_deg: float) -> void:
 func describe() -> String:
 	if applied.is_empty():
 		return "nothing applied"
-	return "%s + %s: sun %.0f° at bearing %.0f°, haze begins %.0f m, all sky at %.0f m, curve %.3f, colour %s" % [applied.sky_set, applied.haze, applied.sun_elevation_deg, applied.sun_azimuth_deg, applied.fog_depth_begin, applied.fog_depth_end, applied.fog_depth_curve, applied.haze_colour]
+	return "%s + %s: sun %.0f° at bearing %.0f°, ambient %s x %.2f with %.2f of the sky, haze begins %.0f m, all sky at %.0f m, curve %.3f, colour %s" % [applied.sky_set, applied.haze, applied.sun_elevation_deg, applied.sun_azimuth_deg, applied.ambient_colour, applied.ambient_energy, applied.ambient_sky_contribution, applied.fog_depth_begin, applied.fog_depth_end, applied.fog_depth_curve, applied.haze_colour]
