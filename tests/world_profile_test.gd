@@ -23,7 +23,23 @@ extends SceneTree
 ## superelevation across the platform, a bridge deck linear between its
 ## abutments, a tunnel below the ground, the crest labelled where the
 ## curvature says, the bank's bowl; and validate() on fixtures broken in
-## code names the field. ROAD-SMOOTHING (2026-09-23, tools/world/drape.py's
+## code names the field. JUNCTION RIGHT-OF-WAY (issues-analysis-2026-09-24.md
+## §4.4, triage item 4): the loop's segments are the profile's priority
+## roads (Road.priority from the skeleton's loops entry) and inside a loop
+## road's own paved width a nearer non-loop chord no longer answers; held
+## here on the flags (92 loop roads, no other), on a square-loop fixture
+## with a service road running inside the loop's width (the loop answers on
+## its platform, the service road in the blend band beside it, and with no
+## loops entry the old rule), and on the corrected field the car reads (the
+## rim rule and the crossing right of way applied as RoadBuilder.build()
+## does) at the loop's 44 junctions with a covered non-loop participant and
+## at the driver's five sites (0012, 0018, 0017, 0021-part, 0001-residual):
+## no station inside the loop's paved width read from a non-loop road
+## (was 4 690), every junction under the loop's own kink bound, the
+## one-step jumps at the sites down to the loop's own; with it the rim
+## walk stays on the loop at T13 (road_builder.gd), so the stub's lifted
+## end meets the loop's own continuation, not the Boxengasse's. ROAD-SMOOTHING
+## (2026-09-23, tools/world/drape.py's
 ## header): the checked-in file's plain segments are Whittaker-smoothed
 ## (lambda 5, the crest/dip runs held to the raw data) and every
 ## junction's ends stitched in height and crossfall, write-side; held
@@ -140,7 +156,9 @@ func _initialize() -> void:
 		_check_ring(profile)
 		_check_smoothing(skeleton, drape, raw_points, profile)
 		_check_geometry_fences(skeleton, drape, raw_points, profile)
+		_check_right_of_way(skeleton, drape, raw_points, profile)
 	_check_fixture()
+	_check_right_of_way_fixture()
 	_check_broken_fixtures()
 	print("WORLD PROFILE TEST PASSED" if _failures == 0 else "WORLD PROFILE TEST FAILED: %d fault(s)" % _failures)
 	quit(0 if _failures == 0 else 1)
@@ -1003,6 +1021,313 @@ static func _direction_on(xs: PackedFloat64Array, zs: PackedFloat64Array, chain:
 		if chain[i] >= s and chain[i] > chain[i - 1]:
 			return Vector2(xs[i] - xs[i - 1], zs[i] - zs[i - 1]).normalized()
 	return Vector2(xs[xs.size() - 1] - xs[xs.size() - 2], zs[zs.size() - 1] - zs[zs.size() - 2]).normalized()
+
+
+# =============================================================================
+#  THE JUNCTION RIGHT OF WAY (issues-analysis-2026-09-24.md §4.4)
+# =============================================================================
+
+## The loop's paved width is 8.5 m: the nine offsets of PROBE_OFFSETS lie
+## inside it. Every junction of the loop whose segments include a covered
+## non-loop road (44 of 92 on the checked-in files; the analysis's
+## population) is probed the Karussell way: the loop segment into the node
+## over its last PROBE_JUNCTION_M, the loop segment out of it over its
+## first, at PROBE_STEP_M, at each offset; a station is FOREIGN when a
+## non-loop road answers it. Measured on the corrected field before the
+## right of way (this tree, priority cleared on every road, which is the
+## old rule to the bit): 4 690 foreign stations at the 44 junctions and
+## 172 at the other 48 (parallel roads within reach), the largest one-step
+## jump 0.625 m (junction 65385912, +3.75), 7 junctions over the loop's
+## own kink bound. After: 0 and 0, every junction under the bound, the
+## largest 0.136 m at 65387230. With the profile's rule alone the T13
+## four-way junction 65385912 kept 0.216 m on the centreline itself
+## (offset 0): the rim walk from Hohenrain's east abutment had left the
+## loop there for the Boxengasse 769107218-0 (the smaller turn) and lifted
+## that branch, while the loop's own 41395670-1 stayed at the file's
+## 9.5 % start, 0.24 m under the lifted stub's end - masked before the
+## right of way because the branch's lifted chord answered the loop's
+## edge and the ±1 m taps at those stations (the ring drive test's rim
+## fence read 9 stations there, not 12). The walk now stays on the loop
+## (road_builder.gd, CONTINUATION_MAX_TURN_DEG's note): the same rim
+## 8.13 m out, 619.09 m, along 41395670-1; that junction reads under
+## the bound and the centreline steps by the grade alone.
+const PROBE_JUNCTION_M := 6.0
+## The loop's own kink bound: the largest step across a bisector on the
+## loop's own roads (night-shift-3 line 111, known issue (3)).
+const JUNCTION_STEP_MAX_M := 0.197
+const T13_JUNCTION := "65385912"
+const JUNCTIONS_WITH_SIDE_ROAD := 44
+const LOOP_ROADS := 92
+## The driver's sites: the loop segment into the junction, the one out of
+## it, the car's own offset (0 where the flag point is not on the track),
+## and what the field read at the worst offset before (this probe, the
+## corrected field): 0012 the service road 1549311960-0 at junction
+## 65387230 (0.474 at +3.75, 0.264 at +3, 0.181 at the car's +1.37; the
+## analysis: 0.261 at +3); 0018 the service road 696037694-0 at junction
+## 2084978602 (0.377 at -3.00, 0.223 at the car's -1.44; the analysis:
+## 0.417 at -3.75); 0017 the private service road 198509975-0 at junction
+## 1714130368 (0.080 at -3.75); 0001-residual the pit lane 199642470-0 at
+## junction 312821860 (the pit lane answering at offsets >= +1: 0.034 at
+## +3.75 here, the analysis's 0.099 at +1 / 0.070 at +3.75 over its own
+## window). 0021-part is the Hohenrain deck 41395668-0 with the parallel
+## Boxengasse-an-T13 bridge 32894824-0 answering its +3.75 edge from
+## chainage 7.8 (0.469 here, the analysis's 0.488): probed over the whole
+## deck, no junction.
+const SITE_0012 := ["245166664-0", "245166664-1", 1.37]
+const SITE_0018 := ["799394519-0", "799394519-1", -1.44]
+const SITE_0017 := ["414785756-1", "414785756-2", 3.43]
+const SITE_0001 := ["1009142894-0", "1009142894-1", 1.0]
+const SITE_0021_DECK := "41395668-0"
+## What a site may step after: the honest grade over a 0.25 m station
+## (0012's 16 % is 0.040) and the file's rounding.
+const SITE_STEP_MAX_M := 0.05
+## The loop's own wedge at the 0012 junction 65387230: a 7° kink on the
+## 16 % grade, where the two loop platforms' chainages of one world point
+## differ by ~0.46 m at the +3.75 edge - 0.130 m there, 0.067 at the car's
+## +1.37, every station read from a loop road. Not the side road's (that
+## read 0.474) and not this rule's to remove: bounded.
+const SITE_0012_WEDGE_MAX_M := 0.15
+
+
+## The right of way on the real files: the flags, the 44 junctions, the
+## five sites.
+func _check_right_of_way(skeleton: Dictionary, drape: Dictionary, raw_points: Dictionary, profile: WorldRoadProfile) -> void:
+	var segments := SkeletonLoader.segments_of(skeleton)
+	var loop: SkeletonLoader.Loop = SkeletonLoader.loops_of(skeleton)[SkeletonLoader.NORDSCHLEIFE_LOOP]
+	var in_loop := {}
+	for id: String in loop.segments:
+		in_loop[id] = true
+	# The flags, read through describe() at every covered segment's midpoint.
+	var loop_priority := 0
+	var other_priority := 0
+	var answered := 0
+	var covered := {}
+	for raw: Dictionary in drape.segments:
+		if not raw.get("covered", false) or not segments.has(raw.id):
+			continue
+		covered[raw.id] = true
+		var g: Dictionary = _geometry(raw_points[raw.id])
+		var mid := _point_on(g.xs, g.zs, g.chain, 0.5 * g.length)
+		var described := profile.describe(mid[0], mid[1])
+		if described.road != raw.id:
+			continue
+		answered += 1
+		if described.get("priority", false):
+			if in_loop.has(raw.id):
+				loop_priority += 1
+			else:
+				other_priority += 1
+	_ok(loop_priority == LOOP_ROADS and loop_priority == loop.segments.size() and other_priority == 0 and answered > 3000, "right of way: every one of the loop's %d segments answers its own midpoint as a priority road and none of the other %d covered roads that answer theirs does (Road.priority from the skeleton's loops entry)" % [loop_priority, answered - loop_priority], "priority: %d loop roads of %d, %d other roads, %d segments answering their midpoints" % [loop_priority, loop.segments.size(), other_priority, answered])
+	# The corrected field, as RoadBuilder.build() hands it to the car.
+	var corrected := WorldRoadProfile.from_data(skeleton, RoadBuilder.apply_right_of_way(skeleton, RoadBuilder.apply_rim_rule(skeleton, drape).drape).drape)
+	var ends := {}
+	var starts := {}
+	for id: String in loop.segments:
+		var g: Dictionary = _geometry(raw_points[id])
+		ends["%.3f,%.3f" % [g.xs[g.xs.size() - 1], g.zs[g.zs.size() - 1]]] = id
+		starts["%.3f,%.3f" % [g.xs[0], g.zs[0]]] = id
+	var with_side := 0
+	var loop_only := 0
+	var foreign_side := 0
+	var foreign_loop_only := 0
+	var over := 0
+	var worst := 0.0
+	var worst_where := ""
+	var t13 := {}
+	for junction: SkeletonLoader.Junction in SkeletonLoader.junctions_of(skeleton).values():
+		var on_loop := false
+		var side := false
+		for id: String in junction.segments:
+			if in_loop.has(id):
+				on_loop = true
+			elif covered.has(id):
+				side = true
+		if not on_loop:
+			continue
+		var key := "%.3f,%.3f" % [junction.position.x, junction.position.y]
+		if not ends.has(key) or not starts.has(key):
+			continue
+		var probe := _junction_probe(corrected, raw_points, ends[key], starts[key], PROBE_OFFSETS, in_loop)
+		if not side:
+			loop_only += 1
+			foreign_loop_only += probe.foreign
+			continue
+		with_side += 1
+		foreign_side += probe.foreign
+		if junction.id == T13_JUNCTION:
+			t13 = probe
+		if probe.worst > JUNCTION_STEP_MAX_M:
+			over += 1
+		if probe.worst > worst:
+			worst = probe.worst
+			worst_where = "junction %s, %s" % [junction.id, probe.where]
+	_ok(with_side == JUNCTIONS_WITH_SIDE_ROAD and loop_only + with_side == LOOP_ROADS and foreign_side == 0 and foreign_loop_only == 0, "right of way: at the loop's %d junctions with a covered non-loop participant, probed every %.2f m over ±%.0f m through the node at the nine offsets -3.75..+3.75 inside the loop's 8.5 m, no station reads a non-loop road (was 4 690 stations: a service road's or the pit lane's own platform inside the loop's width); nor at the other %d loop junctions (was 172: parallel roads within reach)" % [with_side, PROBE_STEP_M, PROBE_JUNCTION_M, loop_only], "%d junctions with a side road (%d loop-only), %d foreign stations there, %d at the loop-only ones" % [with_side, loop_only, foreign_side, foreign_loop_only])
+	_ok(over == 0 and worst > 0.0 and worst <= JUNCTION_STEP_MAX_M, "right of way: at every one of those %d junctions the largest one-step jump is under the loop's own kink bound %.3f m - the largest %.3f m (%s; the loop's own wedge there) - (was 0.625 m at the T13 junction and 7 junctions over the bound)" % [with_side, JUNCTION_STEP_MAX_M, worst, worst_where], "%d junctions over %.3f, the worst %.3f at %s" % [over, JUNCTION_STEP_MAX_M, worst, worst_where])
+	_ok(not t13.is_empty() and t13.foreign == 0 and t13.worst <= JUNCTION_STEP_MAX_M and t13.centre <= SITE_STEP_MAX_M, "right of way: the T13 four-way junction %s (the 4.1 m stub 41395670-0 -> 41395670-1, with 27852583-0 and the Boxengasse 769107218-0) reads a loop road at every station, steps %.3f m at most and %.3f m on the centreline (was 0.625 m at +3.75 with the Boxengasse's lifted platform answering the loop's edge; with the profile's rule alone 0.216 m on the centreline: the rim walk had lifted the Boxengasse branch and left 41395670-1's start at the file's 9.5 %% - the walk now stays on the loop, road_builder.gd)" % [T13_JUNCTION, t13.worst, t13.centre], "T13: %s" % [t13])
+	# The sites.
+	var site_12 := _site_probe(corrected, raw_points, SITE_0012, in_loop, true)
+	var left_12 := 0.0
+	var right_12 := 0.0
+	for offset: float in site_12.per_offset:
+		if offset <= 0.0:
+			left_12 = maxf(left_12, site_12.per_offset[offset])
+		else:
+			right_12 = maxf(right_12, site_12.per_offset[offset])
+	_ok(site_12.foreign == 0 and left_12 <= SITE_STEP_MAX_M and right_12 <= SITE_0012_WEDGE_MAX_M and site_12.per_offset[SITE_0012[2]] <= SITE_0012_WEDGE_MAX_M, "0012 (the emergency-access service road 1549311960-0 inside 245166664-0's width, junction 65387230): over the whole of %s and %.0f m of %s no station reads the service road (was every station at +2..+3.75 for its last metres); the largest one-step jump is %.3f m at the centre and left (the 16 %% grade), %.3f m at the car's +1.37 (was 0.181) and %.3f m at +1..+3.75 (was 0.474 at +3.75, 0.264 at +3): the loop's own 7° wedge at the junction on the 16 %% grade, every station a loop road's, under %.2f m" % [SITE_0012[0], PROBE_JUNCTION_M, SITE_0012[1], left_12, site_12.per_offset[SITE_0012[2]], right_12, SITE_0012_WEDGE_MAX_M], "0012: foreign %d, left %.3f, car %.3f, right %.3f" % [site_12.foreign, left_12, site_12.per_offset[SITE_0012[2]], right_12])
+	var site_18 := _site_probe(corrected, raw_points, SITE_0018, in_loop, false)
+	_ok(site_18.foreign == 0 and site_18.worst <= SITE_STEP_MAX_M, "0018 (the \"major bump\" at 23.5 m/s: the service road 696037694-0 at junction 2084978602): no station reads the service road and the largest one-step jump at any offset is %.3f m (%s), under %.2f m (was 0.377 at -3.00 and 0.207 at -3.75, 0.223 at the car's -1.44: the service road's platform 0.3-0.6 m above the loop's for 799394519-0's last 7 m)" % [site_18.worst, site_18.where, SITE_STEP_MAX_M], "0018: foreign %d, worst %.3f at %s" % [site_18.foreign, site_18.worst, site_18.where])
+	var site_17 := _site_probe(corrected, raw_points, SITE_0017, in_loop, false)
+	_ok(site_17.foreign == 0 and site_17.worst <= SITE_STEP_MAX_M, "0017 (the private service road 198509975-0 at junction 1714130368): no station reads it and the largest one-step jump is %.3f m (%s), under %.2f m (was 0.080 at -3.75: the left third read from the service road for 2.5 m)" % [site_17.worst, site_17.where, SITE_STEP_MAX_M], "0017: foreign %d, worst %.3f at %s" % [site_17.foreign, site_17.worst, site_17.where])
+	var site_01 := _site_probe(corrected, raw_points, SITE_0001, in_loop, false)
+	var right_01 := 0.0
+	for offset: float in site_01.per_offset:
+		if offset >= 1.0:
+			right_01 = maxf(right_01, site_01.per_offset[offset])
+	_ok(site_01.foreign == 0 and right_01 <= SITE_STEP_MAX_M and site_01.worst <= SITE_STEP_MAX_M + HEIGHT_ROUNDING_M, "0001-residual (the pit lane 199642470-0 at the T13 junction 312821860, after the ridge fix): no station reads the pit lane (was every station at +1..+3.75 over the loop's last metres) and the largest one-step jump at +1..+3.75 is %.3f m (was 0.034 here, the analysis's 0.099 at +1 and 0.070 at +3.75); the site's largest %.3f m (%s) is the loop's own seam at -3.75" % [right_01, site_01.worst, site_01.where], "0001: foreign %d, right %.3f, worst %.3f at %s" % [site_01.foreign, right_01, site_01.worst, site_01.where])
+	var deck: Dictionary = _geometry(raw_points[SITE_0021_DECK])
+	deck.id = SITE_0021_DECK
+	var track: Array = []
+	var s := 0.0
+	while s <= deck.length + 1e-9:
+		track.append([deck, s])
+		s += PROBE_STEP_M
+	var deck_probe := _track_probe(corrected, track, PROBE_OFFSETS, in_loop)
+	_ok(deck_probe.foreign == 0 and deck_probe.worst <= SITE_STEP_MAX_M, "0021-part (the Hohenrain deck %s, %.0f m, with the Boxengasse-an-T13 bridge 32894824-0 parallel 7.5 m to its right): no station on the deck reads another road and the largest one-step jump at any offset is %.3f m (%s), under %.2f m (was 0.469 at +3.75 from chainage 7.8: the parallel bridge's deck 0.4-0.6 m above)" % [SITE_0021_DECK, deck.length, deck_probe.worst, deck_probe.where, SITE_STEP_MAX_M], "0021: foreign %d, worst %.3f at %s" % [deck_probe.foreign, deck_probe.worst, deck_probe.where])
+
+
+## A junction probed through the node: the loop segment `a` over its last
+## PROBE_JUNCTION_M and `b` over its first, at the offsets; the foreign
+## stations, the largest one-step jump (where) and the largest at offset 0.
+func _junction_probe(profile: WorldRoadProfile, raw_points: Dictionary, a: String, b: String, offsets: Array, in_loop: Dictionary) -> Dictionary:
+	return _track_probe(profile, _junction_track(raw_points, a, b, PROBE_JUNCTION_M), offsets, in_loop)
+
+
+func _junction_track(raw_points: Dictionary, a: String, b: String, reach: float) -> Array:
+	var into: Dictionary = _geometry(raw_points[a])
+	into.id = a
+	var out_of: Dictionary = _geometry(raw_points[b])
+	out_of.id = b
+	var track: Array = []
+	var s: float = maxf(into.length - reach, 0.0)
+	while s <= into.length + 1e-9:
+		track.append([into, s])
+		s += PROBE_STEP_M
+	s = 0.0
+	while s <= minf(reach, out_of.length) + 1e-9:
+		track.append([out_of, s])
+		s += PROBE_STEP_M
+	return track
+
+
+## A site: the nine offsets and the car's own; `whole` probes the whole of
+## the segment into the junction (0012's car sits 5 m before it).
+func _site_probe(profile: WorldRoadProfile, raw_points: Dictionary, site: Array, in_loop: Dictionary, whole: bool) -> Dictionary:
+	var offsets: Array = PROBE_OFFSETS.duplicate()
+	if not offsets.has(site[2]):
+		offsets.append(site[2])
+	var reach: float = INF if whole else PROBE_JUNCTION_M
+	if whole:
+		reach = _geometry(raw_points[site[0]]).length
+	var track := _junction_track(raw_points, site[0], site[1], reach)
+	if whole:
+		# The segment out of the junction over PROBE_JUNCTION_M only.
+		var trimmed: Array = []
+		for at: Array in track:
+			if at[0].id == site[0] or at[1] <= PROBE_JUNCTION_M + 1e-9:
+				trimmed.append(at)
+		track = trimmed
+	return _track_probe(profile, track, offsets, in_loop)
+
+
+## The probe itself over a track of [geometry, chainage] stations.
+func _track_probe(profile: WorldRoadProfile, track: Array, offsets: Array, in_loop: Dictionary) -> Dictionary:
+	var out := {"foreign": 0, "worst": 0.0, "where": "", "centre": 0.0, "per_offset": {}}
+	for offset: float in offsets:
+		var previous := NAN
+		var o_worst := 0.0
+		for at: Array in track:
+			var g: Dictionary = at[0]
+			var p := _point_on(g.xs, g.zs, g.chain, at[1])
+			var travel := _direction_on(g.xs, g.zs, g.chain, at[1])
+			var right := Vector2(-travel.y, travel.x)
+			var described := profile.describe(p[0] + right.x * offset, p[1] + right.y * offset)
+			if not in_loop.has(described.road):
+				out.foreign += 1
+			var h: float = described.height
+			if is_finite(previous):
+				var step := absf(h - previous)
+				if step > o_worst:
+					o_worst = step
+				if step > out.worst:
+					out.worst = step
+					out.where = "%+.2f m at %s chainage %.2f" % [offset, g.id, at[1]]
+			previous = h
+		out.per_offset[offset] = o_worst
+		if offset == 0.0:
+			out.centre = o_worst
+	return out
+
+
+## The right of way on a fixture built here: a 500 m square loop of four
+## raceway segments (8.5 m) on the plane, the bottom side split at a
+## junction where a 3 m service road leaves at 4.6° (8 m over 100 m) and
+## runs inside the loop's paved width for its first 53 m. On the plane both
+## platforms are the plane
+## with their own crown, so where the service road's centreline is nearer
+## the two answers differ by the crown and the plane's slope: readable.
+func _check_right_of_way_fixture() -> void:
+	var skeleton := _right_of_way_skeleton(true)
+	var drape := _fixture_drape(skeleton)
+	var skeleton_errors := SkeletonLoader.validate(skeleton)
+	var errors := WorldRoadProfile.validate(drape, skeleton)
+	_ok(skeleton_errors.is_empty() and errors.is_empty(), "right-of-way fixture: a 500 m square loop of four raceway segments with a 3 m service road leaving a junction at 4.6° passes SkeletonLoader.validate() and, draped here, WorldRoadProfile.validate()", "right-of-way fixture: %s / %s" % [skeleton_errors, errors])
+	var profile := WorldRoadProfile.from_data(skeleton, drape)
+	# (2500, -1003): 3 m inside the loop's bottom side (its centreline z =
+	# -1000, half width 4.25), 1 m from the service road's centreline (z =
+	# -1004 at x = 2500). The loop's platform there: the plane at its
+	# centre, 545.00, less the crown over 3 m.
+	var on_loop := profile.describe(2500.0, -1003.0)
+	var loop_height := _plane(2500.0, -1000.0) - WorldRoadProfile.CROWN * 3.0
+	_ok(on_loop.road == "10-1" and on_loop.get("priority", false) and absf(on_loop.height - loop_height) < MM, "right-of-way fixture: at (2500, -1003), 3 m inside the loop's width and 1 m from the service road's centreline, the loop answers (%s, priority) with its own platform %.3f m: the plane less the crown over 3 m" % [on_loop.road, on_loop.height], "right-of-way fixture: %s" % [on_loop])
+	# (2540, -1006.5): 6.5 m from the loop's centreline (beyond its half
+	# width, inside its blend band), 0.7 m from the service road's (z =
+	# -1007.2 at x = 2540): the service road answers, as before.
+	var beside := profile.describe(2540.0, -1006.5)
+	_ok(beside.road == "14-0" and not beside.get("priority", false) and beside.on_road, "right-of-way fixture: at (2540, -1006.5), 6.5 m from the loop's centreline (in its blend band) and 0.7 m from the service road's, the service road answers (%s): the right of way holds inside the loop's paved width only" % beside.road, "right-of-way fixture beside: %s" % [beside])
+	# The service road's own length beyond the loop's width, and the loop
+	# where the service road is the farther.
+	var own := profile.describe(2549.0, -1007.9)
+	var far := profile.describe(2460.0, -998.0)
+	_ok(own.road == "14-0" and far.road == "10-1" and far.get("priority", false), "right-of-way fixture: the service road answers on its own centreline where the loop's platform does not reach (%s), the loop where its centreline is the nearer (%s)" % [own.road, far.road], "right-of-way fixture own/far: %s / %s" % [own, far])
+	# Without a loops entry no road has priority and the old rule stands.
+	var plain := WorldRoadProfile.from_data(_right_of_way_skeleton(false), _fixture_drape(_right_of_way_skeleton(false)))
+	var old := plain.describe(2500.0, -1003.0)
+	_ok(old.road == "14-0" and not old.get("priority", false) and old.height > loop_height + 0.05, "right-of-way fixture: the same roads with no loops entry give every road priority false and the old rule: at (2500, -1003) the nearer service road answers (%s, %.3f m: its own platform %.3f m above the loop's)" % [old.road, old.height, old.height - loop_height], "right-of-way fixture old rule: %s" % [old])
+
+
+func _right_of_way_skeleton(with_loop: bool) -> Dictionary:
+	var segment := func(id: String, way: int, road_class: String, width: float, points: Array) -> Dictionary:
+		return {"id": id, "osm_way": way, "class": road_class, "width_m": width, "width_source": "class", "points": points}
+	return {
+		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 1},
+		"origin": {"epsg": SkeletonLoader.EPSG, "e0": SkeletonLoader.E0, "n0": SkeletonLoader.N0},
+		"segments": [
+			segment.call("10-0", 10, "raceway", 8.5, [[2200.0, -1000.0], [2450.0, -1000.0]]),
+			segment.call("10-1", 10, "raceway", 8.5, [[2450.0, -1000.0], [2700.0, -1000.0]]),
+			segment.call("11-0", 11, "raceway", 8.5, [[2700.0, -1000.0], [2700.0, -500.0]]),
+			segment.call("12-0", 12, "raceway", 8.5, [[2700.0, -500.0], [2200.0, -500.0]]),
+			segment.call("13-0", 13, "raceway", 8.5, [[2200.0, -500.0], [2200.0, -1000.0]]),
+			segment.call("14-0", 14, "service", 3.0, [[2450.0, -1000.0], [2550.0, -1008.0]]),
+		],
+		"junctions": [
+			{"id": "1", "x": 2200.0, "z": -1000.0, "segments": ["10-0", "13-0"]},
+			{"id": "2", "x": 2450.0, "z": -1000.0, "segments": ["10-0", "10-1", "14-0"]},
+			{"id": "3", "x": 2700.0, "z": -1000.0, "segments": ["10-1", "11-0"]},
+			{"id": "4", "x": 2700.0, "z": -500.0, "segments": ["11-0", "12-0"]},
+			{"id": "5", "x": 2200.0, "z": -500.0, "segments": ["12-0", "13-0"]},
+		],
+		"loops": [{"id": "square", "rel": 1, "segments": ["10-0", "10-1", "11-0", "12-0", "13-0"]}] if with_loop else [],
+	}
 
 
 # =============================================================================

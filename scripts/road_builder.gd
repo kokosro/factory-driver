@@ -163,7 +163,12 @@ extends Node3D
 ##     ~60 % wall on the loop is a data artifact the canon forbids the car
 ##     to feel; the walk's 2-segment-junction limit was a simplicity choice,
 ##     not physics" (the Conductor) - the junction's arity, not the road's
-##     shape, was all that stopped the walk. 41226730-0 (the codex review's
+##     shape, was all that stopped the walk. With the profile's junction
+##     right of way (2026-09-26, world_road_profile.gd's header) a walk
+##     on the loop stays on the loop where a loop segment is within the
+##     turn (CONTINUATION_MAX_TURN_DEG's note): at T13 the smallest turn
+##     was the Boxengasse branch, whose lifted chord had been answering
+##     the loop's own start beside it. 41226730-0 (the codex review's
 ##     instance,
 ##     its deck 1.472 m under the DEM at chainage 94): its one approach
 ##     climbs away at 1-2 %, its other end stands at a junction the rule
@@ -218,7 +223,17 @@ const RIM_LOOKAHEAD_STATIONS := 2
 const APPROACH_REACH_M := 50.0
 ## Amendment 2 (see the header): at a junction of three or more the walk
 ## follows the covered untagged segment that best continues the incoming
-## heading, turning no more than this [deg].
+## heading, turning no more than this [deg]. A walk that is on a loop
+## segment stays on the loop where a loop segment is within the turn
+## (the loop's right of way in the walk, 2026-09-26, with the profile's
+## junction right of way: was the smallest turn alone, which took
+## Hohenrain's east walk off the loop onto the Boxengasse 769107218-0 at
+## the four-way T13 junction and lifted that branch, leaving the loop's
+## own 41395670-1 at the file's 9.5 %% start - masked while the lifted
+## branch's chord answered the loop's edge there, exposed once the loop
+## answers inside its own width; now the walk lifts 41395670-1, the rim
+## 8.13 m out at 619.09 m, was 8.13 m at 619.07 m along the branch; no
+## other of the 15 lifts moves).
 const CONTINUATION_MAX_TURN_DEG := 60.0
 
 ## The loop's right of way (see the header): a covered road off the loop
@@ -977,6 +992,10 @@ static func _centre_height(dense: Array, length: float, chainage: float) -> floa
 static func apply_rim_rule(skeleton: Dictionary, drape: Dictionary) -> Dictionary:
 	var segments := SkeletonLoader.segments_of(skeleton)
 	var junctions := SkeletonLoader.junctions_of(skeleton)
+	var loop_ids := {}
+	for loop: SkeletonLoader.Loop in SkeletonLoader.loops_of(skeleton).values():
+		for id: String in loop.segments:
+			loop_ids[id] = true
 	var raw_points := {}
 	for raw: Variant in skeleton.get("segments", []):
 		if raw is Dictionary and raw.get("id") is String and raw.get("points") is Array:
@@ -1021,8 +1040,8 @@ static func apply_rim_rule(skeleton: Dictionary, drape: Dictionary) -> Dictionar
 		var id: String = raw.id
 		var length: float = lengths[id]
 		var ends: Array[Dictionary] = [
-			_rim_of(id, 0, segments, records, dense, lengths, end_junction, raw_points),
-			_rim_of(id, 1, segments, records, dense, lengths, end_junction, raw_points),
+			_rim_of(id, 0, segments, records, dense, lengths, end_junction, raw_points, loop_ids),
+			_rim_of(id, 1, segments, records, dense, lengths, end_junction, raw_points, loop_ids),
 		]
 		# Nothing where no rim is found (the endorsed rule): the deck line
 		# needs a rim at BOTH ends - a rim at distance zero (the abutment
@@ -1110,7 +1129,7 @@ static func _is_plain(segment: SkeletonLoader.Segment) -> bool:
 ## 0 and rim_height the bridge's own abutment sample when the abutment is
 ## its own rim (found) or when no rim is within reach (not found); an end
 ## not found draws no deck line (apply_rim_rule).
-static func _rim_of(id: String, end: int, segments: Dictionary, records: Dictionary, dense: Dictionary, lengths: Dictionary, end_junction: Dictionary, raw_points: Dictionary) -> Dictionary:
+static func _rim_of(id: String, end: int, segments: Dictionary, records: Dictionary, dense: Dictionary, lengths: Dictionary, end_junction: Dictionary, raw_points: Dictionary, loop_ids: Dictionary = {}) -> Dictionary:
 	var deck: PackedFloat64Array = dense[id]
 	var abutment := deck[0] if end == 0 else deck[deck.size() - 1]
 	var out := {"approaches": [] as Array[Dictionary], "rim_m": 0.0, "rim_height": abutment, "found": false, "wall": false}
@@ -1121,7 +1140,7 @@ static func _rim_of(id: String, end: int, segments: Dictionary, records: Diction
 	var heading := _outward_heading(raw_points[id], end == 1)
 	var junction: SkeletonLoader.Junction = end_junction.get("%s:%d" % [id, end])
 	while junction != null and walked < APPROACH_REACH_M:
-		var next_id := _continuation(junction, current, heading, segments, records, end_junction, raw_points)
+		var next_id := _continuation(junction, current, heading, segments, records, end_junction, raw_points, loop_ids)
 		if next_id == "":
 			break
 		var from_start: bool = end_junction.get(next_id + ":0") == junction
@@ -1174,11 +1193,15 @@ static func _rim_of(id: String, end: int, segments: Dictionary, records: Diction
 ## the outward `heading`: the plain covered segment leaving the junction
 ## with the smallest turn from the heading, CONTINUATION_MAX_TURN_DEG at
 ## most (amendment 2; the same filter at every junction, whatever its
-## arity), the first in the junction's order on a tie. "" when there is
-## none plain and covered, or none within the turn.
-static func _continuation(junction: SkeletonLoader.Junction, current: String, heading: Vector2, segments: Dictionary, records: Dictionary, end_junction: Dictionary, raw_points: Dictionary) -> String:
+## arity), the first in the junction's order on a tie; coming off a loop
+## segment (`loop_ids`), a loop segment within the turn before any other
+## (CONTINUATION_MAX_TURN_DEG's note). "" when there is none plain and
+## covered, or none within the turn.
+static func _continuation(junction: SkeletonLoader.Junction, current: String, heading: Vector2, segments: Dictionary, records: Dictionary, end_junction: Dictionary, raw_points: Dictionary, loop_ids: Dictionary = {}) -> String:
 	var best := ""
 	var best_turn := INF
+	var best_on_loop := false
+	var stay_on_loop: bool = loop_ids.has(current)
 	for candidate: String in junction.segments:
 		if candidate == current or not records.has(candidate) or not _is_plain(segments[candidate]):
 			continue
@@ -1190,9 +1213,13 @@ static func _continuation(junction: SkeletonLoader.Junction, current: String, he
 		var leaves_from_start: bool = end_junction.get(candidate + ":0") == junction
 		var outgoing := -_outward_heading(raw_points[candidate], not leaves_from_start)
 		var turn := absf(heading.angle_to(outgoing))
-		if turn <= deg_to_rad(CONTINUATION_MAX_TURN_DEG) and turn < best_turn:
+		if turn > deg_to_rad(CONTINUATION_MAX_TURN_DEG):
+			continue
+		var on_loop: bool = stay_on_loop and loop_ids.has(candidate)
+		if (on_loop and not best_on_loop) or (on_loop == best_on_loop and turn < best_turn):
 			best_turn = turn
 			best = candidate
+			best_on_loop = on_loop
 	return best
 
 

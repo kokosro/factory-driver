@@ -723,7 +723,29 @@ Karussell junctions the largest one-step height jump at any of nine offsets with
 the paved edges: the bowl meeting the neighbours' planes as a wall), the centre line the file's
 own heights through both; the 0007 site's largest one-step 0.049 m (was 0.342, the crossfall
 flipping across a 0.45 m chord); no loop chord twisting the paved edge over 0.02 m/m (was 19,
-the top 0.940); and the twist rule's mirror on 799394513-1's own points; then a
+the top 0.940); and the twist rule's mirror on 799394513-1's own points; the JUNCTION
+RIGHT-OF-WAY fences (2026-09-26, `docs/issues-analysis-2026-09-24.md` §4.4, triage item 4:
+`WorldRoadProfile.Road.priority` from the skeleton's loops entry, one comparison in
+`_nearest_chord`): the loop's 92 segments the profile's priority roads and no other, and on
+the corrected field the car reads (the rim rule and the crossing right of way applied as
+`RoadBuilder.build()` does) at the loop's 44 junctions with a covered non-loop participant,
+probed every 0.25 m over ±6 m through the node at nine offsets inside the loop's 8.5 m, no
+station read from a non-loop road (was 4 690: a service road's or the pit lane's platform
+inside the loop's width; 172 more at the other 48 junctions from parallel roads), the largest
+one-step jump 0.136 m at every one of them under the loop's own 0.197 m kink bound (was 0.625 m
+and 7 junctions over), the T13 four-way junction named (with the profile's rule alone it kept
+0.216 m on the centreline: the rim walk from Hohenrain's east abutment left the loop there for
+the Boxengasse 769107218-0, the smaller turn, and lifted that branch while the loop's own
+41395670-1 stayed at the file's 9.5 % start, masked until the loop answered inside its own
+width - so the rim walk now stays on the loop where a loop segment is within its turn,
+`road_builder.gd`, the same rim 8.13 m out along 41395670-1 at 619.09 m, was 619.07 m along
+the branch, the other 14 lifts the same to the byte); the driver's sites: 0018 0.047 m at any offset (was
+0.377), 0017 0.028 m (was 0.080), the Hohenrain deck of 0021 0.009 m (was 0.469 from the
+parallel Boxengasse-an-T13 bridge), 0001's pit lane answering nothing (was offsets ≥ +1),
+0012 0.042 m at the centre and left, 0.067 at the car's +1.37 (was 0.181) and 0.130 at the
+right edge (was 0.474 / 0.264 at +3), the loop's own 7° wedge at junction 65387230 on the
+16 % grade, bounded at 0.15 m; the 200 pinned samples' digest unchanged (no sample lies where
+the rule bites); then a
 3 × 3 km fixture built in code (a plane with a bowl and two crests, six roads through the
 mirrored drape rules): the
 plane within 1 mm off-road and on a centreline, its gradient within 1e-4, the bowl's depth,
@@ -737,7 +759,11 @@ bowl on way 414785755 with its 30 m ramps blended from the plane at both ends (t
 the plane and the bowl mixed 2:1 at every offset, no 0.25 m step over 3 cm along the edge
 through the ramp's end), a 4B-3 bank label without `ramp_m` reading through the 4B-3 branch
 verbatim whatever its `at` says, the runoff on a spike, a straight still 0, the fallback
-outside the box; and `validate()` on twenty-two fixtures
+outside the box; a second fixture for the right of way, a 500 m square loop of four raceway
+segments with a 3 m service road leaving a junction at 4.6° and running inside the loop's
+width for 53 m (the loop answers on its platform with its own crown, the service road in the
+blend band beside it and on its own length, and the same roads with no loops entry the old
+rule: the nearer service road); and `validate()` on twenty-two fixtures
 broken in code (an unpinned snapshot, another pipeline's version, another skeleton's
 queries, other rules, a lattice short of a height or off the coverage, an empty coverage, a
 DEM in another CRS, an unverified tile, a segment the skeleton lacks, a dense list short of a

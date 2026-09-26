@@ -24,6 +24,23 @@ extends RoadProfile
 ## the field steps at the crossing; the assembler (4B-4) builds a deck as
 ## its own mesh and the car on it reads that. A known limit, held by the
 ## suite's slope check on the loop's own roads.
+## THE LOOP'S RIGHT OF WAY (issues-analysis-2026-09-24.md §4.4): inside a
+## loop road's own paved width the loop answers. A road that is part of a
+## loop of the skeleton's `loops` entry is a priority road (Road.priority,
+## set by from_data); in _nearest_chord a priority chord within its own
+## half width (the paved edge itself included to RIGHT_OF_WAY_EDGE_M, so
+## the mesh's own edge vertices - single-precision Vector3, half a
+## millimetre at 7 km - read their platform and never a road beside it;
+## the height a hair outside the edge is the blend band's start, the edge
+## value, so nothing steps there) beats a non-priority chord that is
+## merely nearer. A non-loop road still answers wherever no loop platform
+## covers the point (its own length, the blend band beside the loop), and
+## two loop chords, or two non-loop chords, are still decided by distance
+## alone. was -> the nearest
+## centreline within reach whatever its road, so a covered 3 m service road
+## joining the loop at a junction answered the loop's edge for its last
+## metres with its own platform: steps of 0.14-0.50 m inside the loop's
+## width at 44 of the loop's 92 junctions (4B-4's known issue (3)).
 ## OUTSIDE THE COVERAGE (the core is E 352-359 km × N 5577-5583 km; the
 ## skeleton spans the whole bbox) the profile is flat: height 0, gradient
 ## Vector2.ZERO, mask 0 (implementation-plan.md §2.4). The pad's own layers
@@ -56,6 +73,19 @@ const DRAPE_PIPELINE_VERSION := 1
 
 ## The pinned snapshot and frame, as SkeletonLoader holds them.
 const PINNED_OSM_BASE := SkeletonLoader.PINNED_OSM_BASE
+
+## How far past a priority road's paved edge its right of way still holds
+## [m] (the header): the paved edge is the platform's, to the mesh's own
+## single precision (0.5 mm at 7 km), so an edge vertex or a probe on the
+## edge never flips to a road beside the loop by rounding. Measured on the
+## Ring with 0: 768 of the loop strips' 45 148 edge vertices read a
+## non-loop road (was 1 583 before the right of way) and a probe on the
+## 0002 deck's edge read the road 5.7 m under it; with 1 mm, 25: mitred
+## outer corners at skeleton kinks, whose foot falls past both chords'
+## ends (the bisector wedge, 4B-4's known issue (3)) where a side road's
+## platform covers the corner - outside the loop's platform by
+## construction, not a rounding.
+const RIGHT_OF_WAY_EDGE_M := 0.001
 
 # --- the rules, mirrored from tools/world/drape.py (the file carries them
 # in `rules`; validate() refuses a file whose rules are not these) --------
@@ -222,6 +252,10 @@ class Road:
 	## ROAD-GEOMETRY landing, F4: the additive promise held only for
 	## at = 0 labels before this).
 	var bank_ramped: bool = false
+	## Whether the road has the right of way inside its own paved width
+	## (the header): true for a segment of a loop in the skeleton's `loops`
+	## entry (the Nordschleife's 92), false for every other road.
+	var priority: bool = false
 
 	## How far from the centreline the road has a say [m]: the paved half
 	## width plus the blend band.
@@ -302,11 +336,17 @@ static func from_data(skeleton_data: Dictionary, drape_data: Dictionary) -> Worl
 			profile._lattice[i] = float(lattice.heights[i]) if _is_number(lattice.heights[i]) else NAN
 	var segments := SkeletonLoader.segments_of(skeleton_data)
 	var raw_points := _raw_points_of(skeleton_data)
+	# The loops' segments have the right of way (the header).
+	var priority := {}
+	for loop: SkeletonLoader.Loop in SkeletonLoader.loops_of(skeleton_data).values():
+		for id: String in loop.segments:
+			priority[id] = true
 	for raw: Variant in drape_data.get("segments", []):
 		if not raw is Dictionary or not raw.get("covered", false) or not segments.has(raw.get("id")):
 			continue
 		var road := _road_of(raw, segments[raw.id], raw_points[raw.id])
 		if road != null:
+			road.priority = priority.has(road.id)
 			profile._roads.append(road)
 	profile._build_cells()
 	return profile
@@ -459,9 +499,10 @@ func road_count() -> int:
 
 
 ## What the profile sees at (x, z), for tests and tools: whether it is
-## covered, the nearest road (id, chainage [m], signed offset to the right
-## of travel [m], distance to the centreline [m]) when one is within reach,
-## the centre height there, the terrain and the height returned.
+## covered, the road that answers (id, chainage [m], signed offset to the
+## right of travel [m], distance to the centreline [m], whether it has the
+## right of way) when one is within reach, the centre height there, the
+## terrain and the height returned.
 func describe(x: float, z: float) -> Dictionary:
 	var out := {"covered": covers(x, z), "height": elevation_height(x, z), "terrain": terrain_height(x, z), "road": ""}
 	if not out.covered:
@@ -474,6 +515,7 @@ func describe(x: float, z: float) -> Dictionary:
 	out.chainage = found.chainage
 	out.offset = found.offset
 	out.distance = found.distance
+	out.priority = road.priority
 	out.centre = centre_height(road, found.chainage)
 	out.on_road = found.distance <= road.half_width
 	return out
@@ -571,12 +613,15 @@ static func bank_weight(road: Road, chainage: float) -> float:
 ## The nearest chord to (x, z) among those filed under its cell and within
 ## their own road's reach: the road index, the chord's chainage at the
 ## closest point, the signed offset to the right of travel and the
-## distance. Empty when no road reaches the point.
+## distance. Empty when no road reaches the point. A priority road's chord
+## within its own half width outranks every non-priority chord (the
+## header's right of way); among chords of one rank the nearest wins.
 func _nearest_chord(x: float, z: float) -> Dictionary:
 	var key := Vector2i(floori(x / CELL_M), floori(z / CELL_M))
 	if not _cells.has(key):
 		return {}
 	var best_distance := INF
+	var best_covered := false
 	var best := {}
 	for packed: int in _cells[key]:
 		var r := packed / CHORD_STRIDE
@@ -593,8 +638,14 @@ func _nearest_chord(x: float, z: float) -> Dictionary:
 		var cx := ax + t * dx
 		var cz := az + t * dz
 		var distance := sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz))
-		if distance <= road.reach() and distance < best_distance:
+		if distance > road.reach():
+			continue
+		# The one comparison of the right of way: a loop chord holding the
+		# point on its platform beats a nearer chord off the loop.
+		var covered := road.priority and distance <= road.half_width + RIGHT_OF_WAY_EDGE_M
+		if (covered and not best_covered) or (covered == best_covered and distance < best_distance):
 			best_distance = distance
+			best_covered = covered
 			# Right of travel in the x-east / z-south frame: (-tz, tx).
 			var offset := ((x - ax) * (-dz) + (z - az) * dx) / chord
 			best = {"road": r, "chainage": road.chain[c] + t * chord, "offset": offset, "distance": distance}
