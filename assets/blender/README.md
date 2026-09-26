@@ -80,7 +80,7 @@ shadow meshes or tangents (they are geometry sources, never drawn as scenes). Th
 folder carries a `.gdignore`: Godot would otherwise try to import the .blend as a
 scene through Blender and fail headless ("Blender path is invalid or not set").
 
-### The asphalt set (`asphalt.py`) - authored only; the wiring is a later stage
+### The asphalt set (`asphalt.py`) - wired into the Ring's road since 4B-ASSETS-2
 
 GREYSCALE-NEUTRAL (R = G = B everywhere): the game multiplies its region tint
 (`RoadBuilder.ASPHALT_TINT`, the canon's "medium cool grey"); the mean is authored
@@ -93,8 +93,10 @@ the lanes and at each lane's centre; shoulder grime darkening toward u 0 and u 1
 the gravel; an occasional repair patch, a rectangle of the tile's own 4 x 3 grid,
 darker with a visible seam line; fine aggregate grain; sparse pale stones and dark pits.
 
-**THE UV CONTRACT** (the later `road_builder.gd` wiring maps it; the texture was
-authored for exactly this):
+**THE UV CONTRACT** (`road_builder.gd` maps it since 4B-ASSETS-2, with left_paved_edge =
+-half_width and paved_width = 2 × half_width on every strip, TILE_ALONG_M its own constant;
+the dressing test holds it on every strip at every vertex; the texture was authored for
+exactly this):
 
 > u = (offset - left_paved_edge) / paved_width, so u 0..1 spans the full paved
 > cross-section of a strip (shoulder grime at u 0 and 1, wheel ruts symmetric about
@@ -185,4 +187,6 @@ contract above is what it will map.
   a mean tilt of 0.006 and a blue mean of 1.000 at 8-bit). The canon asks for
   "subtle"; if the wiring finds it invisible, `normal_scale` up to 4 in the
   material or a regeneration with NORMAL_STRENGTH raised (a new commit) is the
-  knob - the ruts' dip and the patch seams are the features it carries.
+  knob - the ruts' dip and the patch seams are the features it carries. The
+  4B-ASSETS-2 wiring chose `RoadBuilder.NORMAL_SCALE` 2.0 (twice the map as
+  authored, half this ceiling) and the roughness scalar 1 (the map's own values).

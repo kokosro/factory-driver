@@ -839,7 +839,18 @@ volumetric) beginning at S5's 100 m, its colour the sky plate's horizon, the fou
 curve sampled at 50 / 200 / 500 / 1 000 m in the catalogue's bands in order and the
 engine's one-exponent curve within 0.03 of it; one sun at S1's 45° (was the scene's 50°)
 from the table's bearing 210°; and the scene built twice describing itself the same and
-placing its last card at the same point. Then
+placing its last card at the same point; and since 4B-ASSETS-2 the Ring's road material
+(`scripts/road_builder.gd`, one StandardMaterial3D on every strip) wearing the
+Blender-authored asphalt set under `assets/textures/road/` - basecolor, roughness and normal
+each 1024² (was the test pad's 256² procedural texture, which the pad keeps), the albedo
+colour `RoadBuilder.ASPHALT_TINT` kept (the neutral basecolor's 0.777 mean was authored for
+that multiply, so the road keeps its value), the normal map on at the builder's
+`NORMAL_SCALE` 2.0 (the map is very shallow as authored; assets/blender/README.md allows up
+to 4) - and the README's UV contract (u = (offset - left_paved_edge) / paved_width, 0 at the
+left paved edge to 1 at the right; v = chainage / 8 m; was metres / 4 both ways) held on
+every one of the 3 304 strips at every one of the 1 085 645 vertices within a thousandth of
+a tile, the road built twice carrying the same UVs and material; the geometry untouched (the
+ring drive test's lines the same byte for byte). Then
 `tests/ring_drive_test.gd`: the Nordschleife as a drivable road (`scenes/eifel_ring.tscn`,
 built headless at load by `scripts/road_builder.gd` from the checked-in skeleton and drape,
 implementation-plan.md §4B-4): drape.json pinned by sha256 (d36ccf27..., the ROAD-GEOMETRY

@@ -251,12 +251,31 @@ const CONTINUATION_MAX_TURN_DEG := 60.0
 const CROSSING_DISTANCE_M := 1.0
 const CROSSING_HEIGHT_M := 0.5
 
-## The asphalt: the pad's texture at this size and seed, tinted the
-## canon's medium cool grey, repeated every UV_METRES [m] along and across.
-const ASPHALT_TEXTURE_SIZE := 256
-const ASPHALT_TEXTURE_SEED := 4
+## The asphalt (4B-ASSETS-2): the Blender-authored set under ASPHALT_DIR
+## (assets/blender/README.md, "The asphalt set"; element-library.md §1's
+## road_asphalt_1024) - basecolor, roughness and normal, 1024² each -
+## tinted the canon's medium cool grey (the basecolor is greyscale-neutral
+## with a mean of 0.777, authored for exactly this multiply, so the road
+## keeps the value the procedural texture gave it; was the pad's
+## AsphaltTexture at 256 / seed 4, which the pad keeps). THE UV CONTRACT
+## (the README's, verbatim): u = (offset - left_paved_edge) / paved_width,
+## v = chainage_m / TILE_ALONG_M - one tile is the strip's paved width by
+## TILE_ALONG_M; here left_paved_edge = -half_width and paved_width =
+## 2 × half_width on every strip (was metres / UV_METRES 4 both ways).
+## NORMAL_SCALE: the contract asks for "well under 1" of a normally deep
+## map, and the README's note measures this one very shallow (a mean
+## tilt of 0.006 at 8-bit) with "up to 4" as the knob; 2.0 is the choice -
+## twice the map as authored, half the note's ceiling - so the ruts' dip
+## and the patch seams read under a raking sun without the grain becoming
+## a pattern. The roughness scalar is 1: the map's own values are the
+## effective ones (0.58 polished in the ruts against 0.84).
+const ASPHALT_DIR := "res://assets/textures/road/"
+const ASPHALT_BASECOLOR := ASPHALT_DIR + "road_asphalt_1024_basecolor.png"
+const ASPHALT_ROUGHNESS := ASPHALT_DIR + "road_asphalt_1024_roughness.png"
+const ASPHALT_NORMAL := ASPHALT_DIR + "road_asphalt_1024_normal.png"
 const ASPHALT_TINT := Color(0.46, 0.47, 0.5, 1.0)
-const UV_METRES := 4.0
+const TILE_ALONG_M := 8.0
+const NORMAL_SCALE := 2.0
 
 ## Where the car is; given the profile once it is built (as TestPad hands
 ## the pad's to a car without one), and followed by the floor.
@@ -302,6 +321,9 @@ class Strip:
 	var id: String
 	var chainages: PackedFloat64Array
 	var offsets: PackedFloat64Array
+	## The road's half width [m]: the paved edges are ±half_width, the
+	## UV contract's left_paved_edge and paved_width (4B-ASSETS-2).
+	var half_width: float
 	var vertices: PackedVector3Array
 	var indices: PackedInt32Array
 	var mesh_instance: MeshInstance3D
@@ -495,6 +517,7 @@ func _sweep(road: Road) -> Strip:
 	strip.id = road.id
 	strip.chainages = chainages
 	strip.offsets = road.offsets
+	strip.half_width = road.half_width
 	strip.vertices = PackedVector3Array()
 	strip.vertices.resize(chainages.size() * across)
 	var cursor := 0
@@ -722,8 +745,10 @@ func _chord_normal(road: Road, c: int) -> PackedFloat64Array:
 #  THE NODES
 # =============================================================================
 
-## The strip's MeshInstance3D (normals from its own neighbours, UVs in
-## metres) and its StaticBody3D with the same triangles as a trimesh.
+## The strip's MeshInstance3D (normals from its own neighbours, UVs the
+## asphalt contract's: u 0 at the left paved edge to 1 at the right, v the
+## chainage in TILE_ALONG_M tiles) and its StaticBody3D with the same
+## triangles as a trimesh.
 func _add_nodes(strip: Strip) -> void:
 	var across := strip.offsets.size()
 	var sections := strip.chainages.size()
@@ -741,7 +766,7 @@ func _add_nodes(strip: Strip) -> void:
 			var right := strip.vertex(k, i1) - strip.vertex(k, i0)
 			var normal := right.cross(along)
 			normals[k * across + i] = normal.normalized() if normal.length_squared() > 0.0 else Vector3.UP
-			uvs[k * across + i] = Vector2(strip.offsets[i] / UV_METRES, strip.chainages[k] / UV_METRES)
+			uvs[k * across + i] = Vector2((strip.offsets[i] + strip.half_width) / (2.0 * strip.half_width), strip.chainages[k] / TILE_ALONG_M)
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = strip.vertices
@@ -801,11 +826,22 @@ func _follow_car() -> void:
 		_floor.position = place
 
 
+## The road's one material: the authored asphalt set under the region tint
+## (ASPHALT_TINT multiplies the neutral basecolor; the strips carry no
+## vertex colours, so nothing else tints it), the roughness map at its
+## own values, the normal map at NORMAL_SCALE (the choice named at the
+## constant), mipmapped and anisotropic (a road is seen at a grazing
+## angle). No vertex_color_use_as_albedo: the strips carry no colours.
 func _asphalt_material() -> StandardMaterial3D:
 	var material := StandardMaterial3D.new()
 	material.albedo_color = ASPHALT_TINT
-	material.albedo_texture = ImageTexture.create_from_image(AsphaltTexture.build_image(ASPHALT_TEXTURE_SIZE, ASPHALT_TEXTURE_SEED))
-	material.roughness = 0.9
+	material.albedo_texture = load(ASPHALT_BASECOLOR)
+	material.roughness = 1.0
+	material.roughness_texture = load(ASPHALT_ROUGHNESS)
+	material.normal_enabled = true
+	material.normal_scale = NORMAL_SCALE
+	material.normal_texture = load(ASPHALT_NORMAL)
+	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
 	return material
 
 

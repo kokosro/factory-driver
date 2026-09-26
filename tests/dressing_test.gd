@@ -63,8 +63,16 @@ extends SceneTree
 ## the ruts darker and smoother than the lane centres and mirrored about
 ## u 0.5, the shoulders darker still, the tile seamless along the road;
 ## the vegetation textures greyscale-neutral with their alpha (the wall's
-## top row open sky, its foot solid). The suite never runs Blender: the
-## PNG / .glb files are checked in; regeneration is the README's command.
+## top row open sky, its foot solid). THE ASPHALT WIRING (4B-ASSETS-2):
+## the road's one material wears the authored set - albedo, roughness and
+## normal each 1024² (the procedural it replaced was 256²), the albedo
+## colour RoadBuilder.ASPHALT_TINT kept, the normal map on at the
+## builder's chosen scale - on the loop's strip and on one off it; and the
+## README's UV contract (u = (offset - left_paved_edge) / paved_width, v =
+## chainage / 8 m) holds on EVERY strip under Road at EVERY vertex within
+## a thousandth of a tile, the named stations on the loop's first strip
+## printed. The suite never runs Blender: the PNG / .glb files are checked
+## in; regeneration is the README's command.
 ## THE HAZE: the environment's fog is depth fog (not volumetric), begins
 ## at S5's normal_saturation_to_m, its colour the sky material's horizon;
 ## the four-band curve sampled at 50 / 200 / 500 / 1 000 m falls in the
@@ -72,7 +80,8 @@ extends SceneTree
 ## and the engine's one-exponent curve (the depth mode's formula, mirrored)
 ## is within FIT_TOLERANCE of it at every sample; one sun at S1's 45° and
 ## the table's bearing. DETERMINISM: the scene built twice describes
-## itself the same and places the same cards. No network, no python, no
+## itself the same, places the same cards, and the road carries the same
+## UVs and material. No network, no python, no
 ## wall clock in a check. Exits 0 on success, 1 on any fault.
 
 const RING_SCENE := "res://scenes/eifel_ring.tscn"
@@ -135,6 +144,9 @@ const RUT_U := [0.13, 0.37, 0.63, 0.87]
 const LANE_CENTRE_U := [0.25, 0.75]
 const SHOULDER_U := 0.01
 const PIXEL_STRIDE := 37
+## The road's UV contract held in tile units (4B-ASSETS-2): float32 storage
+## on v up to ~2 600 tiles; a wrong formula moves u by 0.1 or more.
+const UV_TOLERANCE := 1e-3
 
 var _failures := 0
 var _loop: SkeletonLoader.Loop
@@ -154,6 +166,8 @@ func _initialize() -> void:
 		var sky: SkySet = scene.get_node("Sky")
 		var road: RoadBuilder = scene.get_node("Road")
 		_check_scene(scene, terrain, forest, sky, road)
+		_check_road_material(road)
+		_check_road_uvs(road)
 		_check_no_physics(terrain, forest)
 		_check_lattice_plan(terrain)
 		_check_strips(terrain)
@@ -166,6 +180,8 @@ func _initialize() -> void:
 		var first_cards := forest.card_x.size()
 		var first_card := Vector2(forest.card_x[first_cards - 1], forest.card_z[first_cards - 1]) if first_cards > 0 else Vector2.ZERO
 		var first_tree := forest.tree_transform(forest.tree_x.size() - 1) if forest.tree_x.size() > 0 else Transform3D.IDENTITY
+		var first_uvs := _loop_strip_uvs(road)
+		var first_road := _road_material_line(road)
 		scene.queue_free()
 		await _step(2)
 		var again := await _load_scene()
@@ -177,6 +193,10 @@ func _initialize() -> void:
 			var second_card := Vector2(forest2.card_x[forest2.card_x.size() - 1], forest2.card_z[forest2.card_z.size() - 1]) if forest2.card_x.size() > 0 else Vector2.ZERO
 			var second_tree := forest2.tree_transform(forest2.tree_x.size() - 1) if forest2.tree_x.size() > 0 else Transform3D.IDENTITY
 			_ok(first == second and first_card == second_card and first_tree == second_tree, "determinism: the scene built twice describes itself the same (%s), places its last card at the same point (%s) and stands its last tree in the same transform (was -> the card alone; the tree's hashed yaw and scale since 4B-ASSETS-1)" % [second, second_card], "first: %s / %s / %s, second: %s / %s / %s" % [first, first_card, first_tree, second, second_card, second_tree])
+			var road2: RoadBuilder = again.get_node("Road")
+			var second_uvs := _loop_strip_uvs(road2)
+			var second_road := _road_material_line(road2)
+			_ok(first_uvs.size() > 0 and first_uvs == second_uvs and first_road == second_road, "determinism: the road built twice carries the same %d UVs on the loop's longest strip and the same material (%s; 4B-ASSETS-2)" % [second_uvs.size(), second_road], "uvs %d / %d equal %s, first: %s, second: %s" % [first_uvs.size(), second_uvs.size(), first_uvs == second_uvs, first_road, second_road])
 			again.queue_free()
 			await _step(2)
 	print("DRESSING TEST PASSED" if _failures == 0 else "DRESSING TEST FAILED: %d fault(s)" % _failures)
@@ -371,6 +391,152 @@ func _check_scene(scene: Node, terrain: TerrainBuilder, forest: ForestWalls, sky
 	_ok(terrain.step == lattice.step_m and terrain.cols == lattice.cols and terrain.rows == lattice.rows and terrain.x0 == lattice.x0 and terrain.z0 == lattice.z0, "the terrain's lattice is the drape's: %d × %d at %.0f m from (%.0f, %.0f)" % [terrain.cols, terrain.rows, terrain.step, terrain.x0, terrain.z0])
 	var elements_used: Dictionary = terrain.elements
 	_ok(elements_used.get("V7", 0) > 100000 and elements_used.get("T7", 0) > 10000 and elements_used.get("T8", 0) > 50, "the landcover reached the terrain: %d V7 canopy vertices, %d T7 field vertices, %d T8 water pieces" % [elements_used.get("V7", 0), elements_used.get("T7", 0), elements_used.get("T8", 0)], "elements %s" % [elements_used])
+
+
+# =============================================================================
+#  THE ROAD'S ASPHALT (4B-ASSETS-2)
+# =============================================================================
+
+## The road material wears the authored set (assets/blender/README.md's
+## asphalt set, wired by RoadBuilder._asphalt_material): on the loop's
+## first strip and on one strip off the loop (the pit lane or an access
+## link: whichever non-loop id sorts first), the surface's material is a
+## StandardMaterial3D with albedo, roughness and normal textures each the
+## authored 1024² (the procedural it replaced was 256²), the albedo colour
+## RoadBuilder.ASPHALT_TINT (the tint kept: the neutral basecolor's 0.777
+## mean was authored for this multiply), the normal map enabled at the
+## builder's chosen NORMAL_SCALE, no vertex colour as albedo (the strips
+## carry none) and one material object on both.
+func _check_road_material(road: RoadBuilder) -> void:
+	var loop_strip := _loop_strip(road)
+	var other_id := ""
+	var ids := road.strips.keys()
+	ids.sort()
+	for id: String in ids:
+		if not _loop.segments.has(id):
+			other_id = id
+			break
+	var other_strip: RoadBuilder.Strip = road.strips.get(other_id)
+	_ok(loop_strip != null and other_strip != null, "the loop's longest strip %s and a strip off the loop %s stand under Road" % [loop_strip.id if loop_strip != null else "-", other_id], "loop strip %s, other strip %s" % [loop_strip != null, other_strip != null])
+	if loop_strip == null or other_strip == null:
+		return
+	var loop_material := loop_strip.mesh_instance.mesh.surface_get_material(0) as StandardMaterial3D
+	var other_material := other_strip.mesh_instance.mesh.surface_get_material(0) as StandardMaterial3D
+	var wears := true
+	var lines: Array[String] = []
+	for pair: Array in [[loop_strip.id, loop_material], [other_strip.id, other_material]]:
+		var material: StandardMaterial3D = pair[1]
+		if material == null:
+			wears = false
+			lines.append("%s no StandardMaterial3D" % pair[0])
+			continue
+		var albedo: Texture2D = material.albedo_texture
+		var rough: Texture2D = material.roughness_texture
+		var normal: Texture2D = material.normal_texture
+		var sized: bool = albedo != null and rough != null and normal != null and albedo.get_width() == ASPHALT_SIZE and albedo.get_height() == ASPHALT_SIZE and rough.get_width() == ASPHALT_SIZE and rough.get_height() == ASPHALT_SIZE and normal.get_width() == ASPHALT_SIZE and normal.get_height() == ASPHALT_SIZE
+		var paths: bool = albedo != null and rough != null and normal != null and albedo.resource_path == RoadBuilder.ASPHALT_BASECOLOR and rough.resource_path == RoadBuilder.ASPHALT_ROUGHNESS and normal.resource_path == RoadBuilder.ASPHALT_NORMAL
+		var tinted: bool = material.albedo_color == RoadBuilder.ASPHALT_TINT and not material.vertex_color_use_as_albedo
+		var bumped: bool = material.normal_enabled and material.normal_scale == RoadBuilder.NORMAL_SCALE and RoadBuilder.NORMAL_SCALE > 0.0 and RoadBuilder.NORMAL_SCALE <= 4.0
+		wears = wears and sized and paths and tinted and bumped
+		lines.append("%s %s/%s/%s %dx%d tint %s normal %s at %.1f" % [pair[0], albedo.resource_path.get_file() if albedo != null else "-", rough.resource_path.get_file() if rough != null else "-", normal.resource_path.get_file() if normal != null else "-", albedo.get_width() if albedo != null else 0, albedo.get_height() if albedo != null else 0, material.albedo_color, material.normal_enabled, material.normal_scale])
+	_ok(wears and loop_material == other_material, "the road wears the authored asphalt set on the loop's strip and off it (one material): albedo, roughness and normal each %d x %d (was the 256² procedural), albedo_color RoadBuilder.ASPHALT_TINT %s (the tint kept: the basecolor's 0.777 mean was authored for this multiply), no vertex colour as albedo, the normal map on at normal_scale %.1f (the builder's choice, in (0, 4] as assets/blender/README.md allows): %s" % [ASPHALT_SIZE, ASPHALT_SIZE, RoadBuilder.ASPHALT_TINT, RoadBuilder.NORMAL_SCALE, " | ".join(lines)], "wears %s, one material %s: %s" % [wears, loop_material == other_material, " | ".join(lines)])
+
+
+## THE UV CONTRACT (assets/blender/README.md, verbatim: u = (offset -
+## left_paved_edge) / paved_width, v = chainage_m / TILE_ALONG_M with
+## TILE_ALONG_M = 8.0) on EVERY strip under Road - the loop, the pit lane,
+## the access links, the junction mitres - and EVERY vertex: with the
+## strip's own chainages and offsets, hw the half of the offsets' span
+## (the paved edges ±hw, held equal to the strip's half_width), the mesh's
+## UV at section k, offset i is ((offsets[i] + hw) / (2 hw), chainages[k]
+## / 8) within UV_TOLERANCE in tile units (float32 storage: v reaches
+## ~2 600 tiles on the longest strip; a wrong formula moves u by 0.1 or
+## more). Named stations: the first, middle and last section at the left
+## edge, the centre and the right edge of the loop's first strip.
+func _check_road_uvs(road: RoadBuilder) -> void:
+	var strips_ok := true
+	var checked := 0
+	var vertices := 0
+	var worst_u := 0.0
+	var worst_v := 0.0
+	var worst_id := ""
+	var hw_ok := true
+	for id: String in road.strips:
+		var strip: RoadBuilder.Strip = road.strips[id]
+		var arrays := strip.mesh_instance.mesh.surface_get_arrays(0)
+		var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+		var across := strip.offsets.size()
+		var sections := strip.chainages.size()
+		var hw := (strip.offsets[across - 1] - strip.offsets[0]) * 0.5
+		hw_ok = hw_ok and hw > 0.0 and absf(hw - strip.half_width) < 1e-9 and strip.offsets[0] == -strip.half_width and strip.offsets[across - 1] == strip.half_width
+		if uvs.size() != sections * across or uvs.size() != strip.vertices.size():
+			strips_ok = false
+			continue
+		for k: int in sections:
+			var v := strip.chainages[k] / RoadBuilder.TILE_ALONG_M
+			for i: int in across:
+				var uv := uvs[k * across + i]
+				var du := absf(uv.x - (strip.offsets[i] + hw) / (2.0 * hw))
+				var dv := absf(uv.y - v)
+				if du > worst_u or dv > worst_v:
+					worst_id = id
+				worst_u = maxf(worst_u, du)
+				worst_v = maxf(worst_v, dv)
+				vertices += 1
+		checked += 1
+	var within: bool = worst_u <= UV_TOLERANCE and worst_v <= UV_TOLERANCE
+	_ok(strips_ok and hw_ok and within and checked == road.strips.size() and checked == road.road_count, "the UV contract holds on every one of the %d strips under Road at every one of the %d vertices: u = (offset + hw) / (2 hw) from 0 at the left paved edge to 1 at the right, v = chainage / %.0f m, within %.3f of a tile (the largest deviation u %.6f, v %.6f); the paved edges ±hw are the offsets' ends on every strip" % [checked, vertices, RoadBuilder.TILE_ALONG_M, UV_TOLERANCE, worst_u, worst_v], "strips ok %s, hw ok %s, within %s (u %.6f, v %.6f at %s), checked %d of %d / %d" % [strips_ok, hw_ok, within, worst_u, worst_v, worst_id, checked, road.strips.size(), road.road_count])
+	# The named stations on the loop's longest strip.
+	var strip := _loop_strip(road)
+	if strip == null:
+		return
+	var uvs: PackedVector2Array = strip.mesh_instance.mesh.surface_get_arrays(0)[Mesh.ARRAY_TEX_UV]
+	var across := strip.offsets.size()
+	var last := strip.chainages.size() - 1
+	var named_ok := true
+	var named_worst := 0.0
+	var lines: Array[String] = []
+	for k: int in [0, last / 2, last]:
+		for i: int in [0, across / 2, across - 1]:
+			var uv := uvs[k * across + i]
+			var expected := Vector2((strip.offsets[i] + strip.half_width) / (2.0 * strip.half_width), strip.chainages[k] / RoadBuilder.TILE_ALONG_M)
+			var deviation := maxf(absf(uv.x - expected.x), absf(uv.y - expected.y))
+			named_worst = maxf(named_worst, deviation)
+			named_ok = named_ok and deviation <= UV_TOLERANCE
+			lines.append("%.1f m at %+.2f m -> (%.3f, %.3f)" % [strip.chainages[k], strip.offsets[i], uv.x, uv.y])
+	_ok(named_ok, "on the loop's longest strip %s (%.1f m, half width %.2f m) the first, middle and last sections at the left edge, the centre and the right edge read the contract's tile coordinates: %s (largest deviation %.6f)" % [strip.id, strip.chainages[last], strip.half_width, "; ".join(lines), named_worst], "named stations: %s (worst %.6f)" % ["; ".join(lines), named_worst])
+
+
+## The loop's strip with the most sections (the longest fingerprint).
+func _loop_strip(road: RoadBuilder) -> RoadBuilder.Strip:
+	var longest: RoadBuilder.Strip = null
+	for id: String in _loop.segments:
+		var strip: RoadBuilder.Strip = road.strips.get(id)
+		if strip != null and (longest == null or strip.chainages.size() > longest.chainages.size()):
+			longest = strip
+	return longest
+
+
+## The loop's longest strip's UV array, for the determinism line.
+func _loop_strip_uvs(road: RoadBuilder) -> PackedVector2Array:
+	var strip := _loop_strip(road)
+	if strip == null:
+		return PackedVector2Array()
+	return strip.mesh_instance.mesh.surface_get_arrays(0)[Mesh.ARRAY_TEX_UV]
+
+
+## The road material's properties as one line, for the determinism line.
+func _road_material_line(road: RoadBuilder) -> String:
+	var strip := _loop_strip(road)
+	if strip == null:
+		return ""
+	var material := strip.mesh_instance.mesh.surface_get_material(0) as StandardMaterial3D
+	if material == null:
+		return "no material"
+	var albedo: Texture2D = material.albedo_texture
+	var rough: Texture2D = material.roughness_texture
+	var normal: Texture2D = material.normal_texture
+	return "%s %s %s tint %s roughness %.2f normal %s x %.2f filter %d" % [albedo.resource_path if albedo != null else "-", rough.resource_path if rough != null else "-", normal.resource_path if normal != null else "-", material.albedo_color, material.roughness, material.normal_enabled, material.normal_scale, material.texture_filter]
 
 
 ## Nothing physical under the dressing nodes.
