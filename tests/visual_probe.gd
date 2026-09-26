@@ -60,7 +60,7 @@ func _init() -> void:
 	print("VISUAL PROBE v2 DONE")
 	# The windowed SceneTree ignores quit() from awaited code in some builds;
 	# --quit-after on the command line is the guaranteed exit (see the header).
-	get_tree().quit(0)
+	quit(0)
 
 ## The world point on a strip at chainage s and across-offset o, eh above the
 ## field: position from the strip's own section vertices (the centre column
