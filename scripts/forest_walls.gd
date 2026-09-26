@@ -10,7 +10,48 @@ extends Node3D
 ## TerrainBuilder's canopy tint on the terrain itself (the library: "the
 ## interior is never modelled"). Built headless in _ready from the parsed
 ## landcover the terrain builder holds and the profile the road builder
-## handed the car. VISUALS ONLY: no collision shape, no body, no Area3D.
+## handed the car. THE MESHES ARE VISUALS ONLY (no shape on a card, a
+## crown or a chunk mesh); since BUBBLE-1 the TRUNKS are colliders, and
+## only through the physics bubble (THE TRUNKS below): was -> no
+## collision shape, no body, no Area3D anywhere under this node.
+##
+## THE TRUNKS (BUBBLE-1; decisions.org 5BE9FBA3, the driver's ruling of
+## 2026-09-26: the open world is interactive through a proximity-
+## activated physics bubble travelling with the car - "if a driver is
+## not near the element, the element doesn't get a collision box, if a
+## driver comes near it gets a collision box ... deactivate the ones
+## that are less likely to be hit because the driver drove away"): the
+## trees are the bubble's first consumer. Every tree gets a trunk prism
+## - TRUNK_SIDES (6) vertical faces, its axis at the tree's point, its
+## base the tree's foot (the field's height less TREE_SINK_M, the same
+## read tree_transform makes), its top the archetype's bark surface's top
+## (the crown base: V2 12.4 m, V1 7.0 m, V6 4.5 m at archetype scale)
+## times the tree's scale, its radius the archetype's bark surface's
+## widest horizontal extent (MEASURED from the imported .glb, not
+## guessed: V2 0.32 m, V1 0.35 m, V6 0.25 m at archetype scale) held to
+## [TRUNK_RADIUS_MIN_M, TRUNK_RADIUS_MAX_M] and scaled by the tree's
+## scale (the crossed-quad era's TRUNK_WIDTH_M 0.4 stays as a constant
+## nothing reads). The prisms of one chunk are ONE StaticBody3D
+## ("Trunks_%d_%d", a sibling of the chunk's meshes) holding ONE
+## CollisionShape3D with ONE ConcavePolygonShape3D of every trunk's 12
+## triangles in tree-index order (backface_collision on: a trunk is a
+## closed hull and the car is always outside it, so both faces solid
+## costs nothing and leaves no winding to get wrong) - 42 bodies for
+## 19 339 trunks, never a node per tree (a wall card is a picture and
+## gets nothing). Every body starts on NO layer: the PhysicsBubble child
+## ("Bubble", scripts/physics_bubble.gd, fed the bodies, their horizontal
+## boxes and the road's car) switches a body onto the car's layer 1 when
+## the car is within ACTIVATE_M of the chunk's trunk box and off again
+## past DEACTIVATE_M, every physics tick, hysteresis between. The car
+## (scripts/car.gd, frozen: a CharacterBody3D at mask 1 that reads its
+## velocity back after move_and_slide) is stopped by an active trunk the
+## way it is carried by the road's floor slab: no car change. Built in
+## _build_colliders after the meshes, ADDITIVE: the placement, the lists,
+## the counts and the baked meshes are byte-equal to 4B-ASSETS-1's (the
+## dressing test's accounting and determinism lines hold this); the
+## profile reads are new reads of a pure function. counts gains trunks /
+## bodies and describe() says so. Built without a road or a car (a
+## fixture forest): the bodies stand on no layer and stay there.
 ##
 ## THE WALL (V4, T6): every edge of every forest ring (outer rings, and
 ## inner rings with the forest on their outside) is walked in CARD_WIDTH_M
@@ -108,6 +149,13 @@ const CARD_JITTER := 0.25
 const TREE_INSET_M := 1.5
 const TRUNK_WIDTH_M := 0.4
 
+## The trunk prisms (BUBBLE-1): the archetype's measured trunk radius is
+## held to this band [m] at archetype scale, then scaled by the tree;
+## the prism's sides.
+const TRUNK_RADIUS_MIN_M := 0.3
+const TRUNK_RADIUS_MAX_M := 0.45
+const TRUNK_SIDES := 6
+
 ## The cell index over the covered chords [m] (a query looks at the 3 × 3
 ## cells around its own; a chord is filed under every cell its box, grown
 ## by the wall distance, overlaps: a cell of the wall distance's size is
@@ -151,6 +199,10 @@ class Archetype:
 	var foliage_normals := PackedVector3Array()
 	var foliage_uvs := PackedVector2Array()
 	var foliage_indices := PackedInt32Array()
+	## The bark surface's top (the crown base) and its widest horizontal
+	## extent held to the trunk band, both at archetype scale [m].
+	var trunk_top := 0.0
+	var trunk_radius := 0.0
 
 @export var road: RoadBuilder
 @export var terrain: TerrainBuilder
@@ -199,8 +251,18 @@ var tree_side: PackedByteArray
 var tree_in_row: PackedByteArray
 ## The budgets: road id -> [left used, right used, allowed per side].
 var budgets: Dictionary = {}
+## The trunk colliders (BUBBLE-1): the chunk keys in build order, one
+## StaticBody3D per key, the trees of each chunk in tree-index order (the
+## order of the prisms in the body's shape), each body's horizontal box
+## (x_lo, z_lo, x_hi, z_hi: the chunk's trunks' extent, the radius
+## included) and the bubble that switches them.
+var trunk_chunk_keys: Array[Vector2i] = []
+var trunk_bodies: Array[StaticBody3D] = []
+var trunk_chunk_trees: Dictionary = {}
+var trunk_boxes := PackedFloat64Array()
+var bubble: PhysicsBubble = null
 
-var counts := {"forests_walked": 0, "edges": 0, "cards": 0, "cards_skipped_far": 0, "trees": 0, "trees_v1": 0, "trees_v2": 0, "trees_rows": 0, "trees_skipped_far": 0, "trees_skipped_budget": 0, "vertices": 0, "triangles": 0}
+var counts := {"forests_walked": 0, "edges": 0, "cards": 0, "cards_skipped_far": 0, "trees": 0, "trees_v1": 0, "trees_v2": 0, "trees_rows": 0, "trees_skipped_far": 0, "trees_skipped_budget": 0, "vertices": 0, "triangles": 0, "trunks": 0, "bodies": 0}
 var elements: Dictionary = {}
 var build_ms := 0
 ## The archetypes by their key ("V1", "V2", "V6") and the four materials by
@@ -240,6 +302,7 @@ func build(built_profile: WorldRoadProfile, landcover_data: Dictionary, roads: A
 	_place_tree_rows()
 	_place_mapped_trees()
 	_build_meshes()
+	_build_colliders()
 	build_ms = Time.get_ticks_msec() - started
 
 
@@ -294,6 +357,10 @@ func _reset_lists() -> void:
 	tree_side = PackedByteArray()
 	tree_in_row = PackedByteArray()
 	budgets = {}
+	trunk_chunk_keys = []
+	trunk_bodies = []
+	trunk_chunk_trees = {}
+	trunk_boxes = PackedFloat64Array()
 
 
 # =============================================================================
@@ -542,6 +609,13 @@ static func _load_archetype(key: String, path: String) -> Archetype:
 	for p: Vector3 in archetype.bark_vertices:
 		top = maxf(top, p.y)
 	archetype.height = top
+	var bark_top := 0.0
+	var bark_radius := 0.0
+	for p: Vector3 in archetype.bark_vertices:
+		bark_top = maxf(bark_top, p.y)
+		bark_radius = maxf(bark_radius, Vector2(p.x, p.z).length())
+	archetype.trunk_top = bark_top
+	archetype.trunk_radius = clampf(bark_radius, TRUNK_RADIUS_MIN_M, TRUNK_RADIUS_MAX_M)
 	archetype.vertex_count = archetype.bark_vertices.size() + archetype.foliage_vertices.size()
 	archetype.triangles = (archetype.bark_indices.size() + archetype.foliage_indices.size()) / 3
 	return archetype
@@ -788,6 +862,114 @@ func _add_mesh(name_of: String, mesh: ArrayMesh) -> void:
 	add_child(instance)
 
 
+# =============================================================================
+#  THE TRUNKS (BUBBLE-1)
+# =============================================================================
+
+## One StaticBody3D per tree chunk holding every trunk prism of the chunk
+## as one trimesh, on no layer until the bubble says; the bubble itself
+## as the last child, fed the road's car (none: every body stays off).
+func _build_colliders() -> void:
+	var chunk_trees := {}
+	for i: int in tree_x.size():
+		var key := chunk_of(i)
+		if not chunk_trees.has(key):
+			chunk_trees[key] = PackedInt32Array()
+		chunk_trees[key].append(i)
+	for key: Vector2i in chunk_trees:
+		var trees: PackedInt32Array = chunk_trees[key]
+		var faces := PackedVector3Array()
+		faces.resize(trees.size() * TRUNK_SIDES * 6)
+		var box := [INF, INF, -INF, -INF]
+		var at := 0
+		for i: int in trees:
+			at = _write_trunk(faces, at, i)
+			var r := trunk_radius(i)
+			box[0] = minf(box[0], tree_x[i] - r)
+			box[1] = minf(box[1], tree_z[i] - r)
+			box[2] = maxf(box[2], tree_x[i] + r)
+			box[3] = maxf(box[3], tree_z[i] + r)
+		var shape := ConcavePolygonShape3D.new()
+		shape.backface_collision = true
+		shape.set_faces(faces)
+		var collider := CollisionShape3D.new()
+		collider.name = "Shape"
+		collider.shape = shape
+		var body := StaticBody3D.new()
+		body.name = "Trunks_%d_%d" % [key.x, key.y]
+		body.collision_layer = PhysicsBubble.INACTIVE_LAYER
+		body.collision_mask = PhysicsBubble.BODY_MASK
+		body.add_child(collider)
+		add_child(body)
+		trunk_chunk_keys.append(key)
+		trunk_bodies.append(body)
+		trunk_chunk_trees[key] = trees
+		trunk_boxes.append_array(PackedFloat64Array(box))
+		counts.trunks += trees.size()
+		counts.bodies += 1
+	bubble = PhysicsBubble.new()
+	bubble.name = "Bubble"
+	add_child(bubble)
+	bubble.attach(road.car if road != null else null, trunk_bodies, trunk_boxes)
+
+
+## The chunk tree `i` stands in (the same key its mesh chunk uses).
+func chunk_of(i: int) -> Vector2i:
+	return Vector2i(floori(tree_x[i] / CHUNK_M), floori(tree_z[i] / CHUNK_M))
+
+
+## Tree `i`'s trunk radius [m]: the archetype's measured radius at the
+## tree's scale.
+func trunk_radius(i: int) -> float:
+	var archetype: Archetype = archetypes.get(archetype_of(i))
+	if archetype == null:
+		return TRUNK_RADIUS_MIN_M
+	return archetype.trunk_radius * (tree_height[i] / archetype.height if archetype.height > 0.0 else 1.0)
+
+
+## Tree `i`'s trunk from its foot to its crown base [m, world y]: the
+## transform's origin (the field less TREE_SINK_M) and the archetype's
+## bark top at the tree's scale over it.
+func trunk_span(i: int) -> Vector2:
+	var archetype: Archetype = archetypes.get(archetype_of(i))
+	var transform := tree_transform(i)
+	var top: float = archetype.trunk_top * transform.basis.get_scale().y if archetype != null else 1.0
+	return Vector2(transform.origin.y, transform.origin.y + top)
+
+
+## Tree `i`'s prism: TRUNK_SIDES vertical quads (two triangles each, 6
+## vertices a side, outward wound) around the axis at (tree_x, tree_z)
+## from the foot to the crown base; the first corner on +x.
+func trunk_faces(i: int) -> PackedVector3Array:
+	var faces := PackedVector3Array()
+	faces.resize(TRUNK_SIDES * 6)
+	_write_trunk(faces, 0, i)
+	return faces
+
+
+## Writes tree `i`'s prism into `faces` from `at`; returns the next slot.
+func _write_trunk(faces: PackedVector3Array, at: int, i: int) -> int:
+	var r := trunk_radius(i)
+	var span := trunk_span(i)
+	var x := tree_x[i]
+	var z := tree_z[i]
+	for side: int in TRUNK_SIDES:
+		var a0 := TAU * side / TRUNK_SIDES
+		var a1 := TAU * (side + 1) / TRUNK_SIDES
+		var lo0 := Vector3(x + r * cos(a0), span.x, z + r * sin(a0))
+		var lo1 := Vector3(x + r * cos(a1), span.x, z + r * sin(a1))
+		var hi0 := Vector3(lo0.x, span.y, lo0.z)
+		var hi1 := Vector3(lo1.x, span.y, lo1.z)
+		faces[at] = lo0
+		faces[at + 1] = hi0
+		faces[at + 2] = lo1
+		faces[at + 3] = lo1
+		faces[at + 4] = hi0
+		faces[at + 5] = hi1
+		at += 6
+	return at
+
+
 ## One line on what was built (no wall time).
 func describe() -> String:
-	return "%d forests walked, %d edges, %d cards (%d beyond the %.0f m), %d trees (%d V1, %d V2, %d in rows; %d beyond the %.0f m, %d over the budget), %d vertices, %d triangles" % [counts.forests_walked, counts.edges, counts.cards, counts.cards_skipped_far, wall_within_m, counts.trees, counts.trees_v1, counts.trees_v2, counts.trees_rows, counts.trees_skipped_far, trees_within_m, counts.trees_skipped_budget, counts.vertices, counts.triangles]
+	return "%d forests walked, %d edges, %d cards (%d beyond the %.0f m), %d trees (%d V1, %d V2, %d in rows; %d beyond the %.0f m, %d over the budget), %d vertices, %d triangles, %d trunk prisms in %d bodies" % [counts.forests_walked, counts.edges, counts.cards, counts.cards_skipped_far, wall_within_m, counts.trees, counts.trees_v1, counts.trees_v2, counts.trees_rows, counts.trees_skipped_far, trees_within_m, counts.trees_skipped_budget, counts.vertices, counts.triangles, counts.trunks, counts.bodies]

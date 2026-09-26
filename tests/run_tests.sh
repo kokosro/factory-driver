@@ -5,15 +5,16 @@
 # broken config, catalogue entry, skeleton, drape, building record or
 # landcover file fails here, not somewhere in the smoke test), build the
 # Ring's road and
-# drive it (the ring drive test), run the smoke test, then the handling,
+# drive it (the ring drive test), drive at a tree through the physics
+# bubble (the bubble test), run the smoke test, then the handling,
 # camera, mission, battery, thermal, tyre/brake thermal, steering-feel,
 # wear, licence, menu, issue flag, minimap, airborne, reset, refuel,
 # telemetry watch and first run tests. Fails on a non-zero exit code or on
 # any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the twenty-five tests side by side
-#                                   (was twenty-four -> the dressing test, 4B-7)
+#   tests/run_tests.sh --parallel   the import first, then the twenty-six tests side by side
+#                                   (was twenty-five -> the bubble test, BUBBLE-1)
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -133,6 +134,10 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 # --fixed-fps: same 1/60 s physics steps, without waiting for the wall clock.
 # Every wait in these tests is counted in physics ticks.
 "$STEP" "ring drive test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/ring_drive_test.gd
+# BUBBLE-1, the physics bubble: the trunk bodies under Forest, the tree
+# stop and its control, the radii's state machine every tick (twice), the
+# teleport, zero allocation (FD_BUBBLE_PERF=1 adds wall-time lines: not here).
+"$STEP" "bubble test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/bubble_test.gd
 "$STEP" "smoke test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/smoke_test.gd
 "$STEP" "handling tests" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/handling_test.gd
 "$STEP" "camera test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/camera_test.gd

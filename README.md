@@ -624,6 +624,66 @@ nothing in the game restores a component. Between sessions the wear rides `user:
 battery (see The car's own file below); the headless suite and the certified runs read
 nothing, every car there starts new.
 
+### The physics bubble
+
+The canon (decisions.org 5BE9FBA3, the driver's ruling of 2026-09-26): *"because the Cat
+Matrix Car Sim game is an open world, we want everything around the player to have
+interaction, simulating the physics which gives the feel of the car... if a driver is not
+near the element, the element doesn't get a collision box, if a driver comes near it gets a
+collision box, making sure to deactivate the ones that are less likely to be hit because
+the driver drove away. It's like creating the physics bubble where a car is."* The open
+world is interactive through a proximity-activated physics bubble travelling with the car:
+elements carry no permanent collision, inside the bubble collision is active, driven-away
+elements are deactivated; the mechanism is the standing one for all world interaction -
+the trees are its first consumer (BUBBLE-1), the buildings and the furniture follow (4B-8).
+
+**The trunks.** `scripts/forest_walls.gd` gives every tree a trunk prism - six vertical
+faces (12 triangles) around the tree's point from its foot (the field less 0.2 m, the read
+`tree_transform` makes) to the crown base, the archetype's bark surface's top at the tree's
+scale (V2 12.4 m, V1 7.0 m, V6 4.5 m at archetype scale), its radius the bark surface's
+widest horizontal extent measured from the imported .glb (V2 0.32 m, V1 0.35 m, V6 0.25 m
+held to the 0.30-0.45 band) times the tree's scale. The prisms of one tree chunk (1 km) are
+ONE `StaticBody3D` ("Trunks_x_z", a sibling of the chunk's meshes) with ONE
+`CollisionShape3D` holding ONE `ConcavePolygonShape3D` of every trunk's faces in tree
+order, back faces solid (a closed hull the car is always outside of): 42 bodies for 19 339
+trunks, never a node per tree; a wall card is a picture and gets nothing. The meshes, the
+placement, the lists and the counts are byte-equal to before (the dressing test's
+accounting holds it); `describe()` gained "19 339 trunk prisms in 42 bodies". Was -> the
+forest was visuals only: no collision shape, no body, no Area3D under it.
+
+**The bubble.** `scripts/physics_bubble.gd` (`PhysicsBubble`, the "Bubble" child Forest
+builds in `_build_colliders`; the scene file is untouched - Forest takes the car from the
+road's export) is fed the bodies, each body's horizontal box (the chunk's trunks' extent,
+the radius included) and the car, and steps every physics tick before the road's floor
+follower and the car (`process_physics_priority` -2, so a body switched on this tick is
+solid to the car this tick): a body whose box is within `ACTIVATE_M` 80 m of the car goes
+ACTIVE - `collision_layer` 1, the car's mask (`scripts/car.gd` is frozen at the
+`CharacterBody3D` default, mask 1; the trunks stand on the one layer the car meets, beside
+the road's follower floor slab; the road's own strips keep layer 2 and never meet the car)
+- and a body whose box is past `DEACTIVATE_M` 110 m goes INACTIVE, `collision_layer` 0 (on
+no layer a body pairs with nothing). A layer write, never a shape toggle
+(`CollisionShape3D.disabled` removes and re-adds the shape from the broadphase; the layer
+is one integer on a body that stays where it is). Between the radii a body keeps its
+state: the hysteresis band, so a car idling at one radius never flickers a body on and
+off. The distance is to the body's BOX, not its centre: a chunk is 1 km across, so a trunk
+20 m from the car can stand 500 m from its chunk's centre; the box distance is 0 inside
+the chunk and the gap to its nearest edge outside, so every trunk within 80 m of the car
+is under an active body. Cost: one pass over 42 bodies a tick (squared distances against
+squared radii, a write only on a change), never over the 19 339 elements, no allocation
+after the build, no RNG, no wall clock; the state after a tick is a function of the car's
+position and the state before, outside the band of the position alone - after any jump
+(`reset_to`, the reset test's teleport) the bubble around the new position is right at
+the next tick. The radii: at the ring drive's cruise (18 m/s; 30 m/s on the straights)
+the sim stops from 30 m/s in under 50 m, so a body switched on 80 m out is solid long
+before the car can reach a trunk under it; the fog's 100-300 m band is what the chase
+camera sees, so the bubble sits inside the driver's view; the 30 m band is sixty ticks'
+way at 30 m/s and more, so a body is toggled once per approach and never twice for a
+tick's jitter. The car is stopped by an active trunk the way it is carried by the floor
+slab: it reads its velocity back after `move_and_slide`, no car change (measured in
+`tests/bubble_test.gd`: 17.67 m/s into a 0.34 m spruce, held at the box's nose, a 7.5 mm
+variation over two seconds of floored throttle). A forest built without a road or a car
+(a fixture) stands its bodies on no layer and leaves them there.
+
 ### Data sources & licences
 
 The Ring region's world data under `data/regions/eifel_ring/` is derived from two public
@@ -799,9 +859,11 @@ naming the record and the field, and one mended (an E1 selling fuel with the fil
 accepted. Then
 `tests/dressing_test.gd`: the Ring's first dressing pass (implementation-plan.md §4B-7;
 `scripts/terrain_builder.gd`, `scripts/forest_walls.gd`, `scripts/sky_set.gd`, the three
-nodes `scenes/eifel_ring.tscn` gained; visuals only, not one collision shape, body or
-Area3D under them - the car reads the injected profile and the ring drive test's output
-stays the same byte for byte). The landcover file `data/regions/eifel_ring/landcover.json`
+nodes `scenes/eifel_ring.tscn` gained; the terrain visuals only, not one collision shape,
+body or Area3D under it - the car reads the injected profile - and under the forest, since
+BUBBLE-1, only the physics bubble's per-chunk trunk bodies (was -> not one collision object
+under either; the ring drive test's output stays the same byte for byte: the trunks stand
+off the paved width). The landcover file `data/regions/eifel_ring/landcover.json`
 (written offline by `tools/world/landcover.py` from the pinned snapshot's q4_landcover
 selectors - fetched in parts by `tools/world/extract_landcover_parts.py` on 2026-09-26
 because every Overpass endpoint refused the pinned query whole, out of memory; the trees
@@ -850,7 +912,13 @@ to 4) - and the README's UV contract (u = (offset - left_paved_edge) / paved_wid
 left paved edge to 1 at the right; v = chainage / 8 m; was metres / 4 both ways) held on
 every one of the 3 304 strips at every one of the 1 085 645 vertices within a thousandth of
 a tile, the road built twice carrying the same UVs and material; the geometry untouched (the
-ring drive test's lines the same byte for byte). Then
+ring drive test's lines the same byte for byte); and since BUBBLE-1 the trunk accounting
+(see *The physics bubble*): the 42 trunk bodies are the 42 tree chunks, one StaticBody3D
+with one ConcavePolygonShape3D each, back faces solid, the 19 339 prisms every tree and no
+card, every one of the 696 204 face vertices on its own tree's cylinder at the tree's slot
+(the axis at the tree's point, the radius the archetype's measured trunk × the tree's scale,
+0.19-0.54 m, the rows the foot and the crown base) within 2 mm, every disc inside its body's
+box, and the forest built twice carrying the same faces and boxes. Then
 `tests/ring_drive_test.gd`: the Nordschleife as a drivable road (`scenes/eifel_ring.tscn`,
 built headless at load by `scripts/road_builder.gd` from the checked-in skeleton and drape,
 implementation-plan.md §4B-4): drape.json pinned by sha256 (d36ccf27..., the ROAD-GEOMETRY
@@ -904,7 +972,42 @@ executable (the world profile's gradient non-zero at the loop's steepest honest 
 `ramp_gradient` with the drape's sign; body attitude measured on the bank and on the
 steepest stretch (pitch and roll against the small-angle model, sanity bounds only); and
 determinism: a second scene instanced fresh and driven the same 2 km lands on the same
-odometer and position to the bit. Then
+odometer and position to the bit. 
+Then
+`tests/bubble_test.gd`: the physics bubble (BUBBLE-1, decisions.org 5BE9FBA3; *The physics
+bubble* below): the Ring scene loaded as the ring drive test loads it, Forest carrying one
+`StaticBody3D` per tree chunk (42) with one `ConcavePolygonShape3D` of the chunk's trunk
+prisms and the one `PhysicsBubble` child fed the road's car, every body on mask 0 and on
+layer 1 (the car's mask) or 0, no shape ever disabled; the archetypes' trunks measured from
+the .glb bark surfaces (V2 0.32 m, V1 0.35 m, V6 0.25 m held to 0.30, at archetype scale;
+the tops the crown bases 12.4 / 7.0 / 4.5 m); the radii ordered (80 m < 110 m); the bubble
+right at the pit after the settle. The named tree: index 12355, OSM 420556746, a V2 spruce
+at (4475.91, -2747.53) beside the drive-start straight 683303211-0 (chainage 35.4, 11.5 m
+right of the centreline: the visual probe's forest_wall spot), 21.34 m tall, its prism
+radius 0.341 m (0.32 × the scale 1.067), its 36 faces at its slot in chunk (4,-3)'s body.
+The tree stop: from the straight's centreline at chainage 0, 37.2 m out, throttle pinned
+and pure pursuit on the tree's point, the car bites the body at tick 235 at 17.67 m/s
+(`get_slide_collision_count()` against that body and no other), is held at 2.438 m from
+the axis to its origin (the prism's inscribed 0.296 to 0.341 m plus the box's half-length
+2.1 m nose-first; the box never nearer the axis than 0.332 m: never past), and 120 more
+ticks of the same pinned throttle vary the distance to the axis by 7.5 mm (under 1 cm)
+while the nose slides 0.19 m along the round trunk's face (the axis 0.15 m off the car's
+centreline at the end, inside the nose; measured, the driver's creep against a round
+trunk). The control: the bubble off (every body on layer 0) the same drive passes through
+- no collision, the box through the axis, the origin 5 m past it - and the bubble re-forms
+in a tick when re-enabled. The radii: from 1 300 m along the loop past Döttinger Höhe the
+loop driver drives 700 m (2 577 ticks, 43 s) and EVERY tick every body's state is held
+against the position the bubble saw - activated only under 80 m, deactivated only past 110
+m, unchanged otherwise, no body toggled twice - the four events at ticks 471 / 944 / 1 328
+/ 2 097 (chunk (3,-2) on at 80.0 m and off at 110.0 m, (3,-3) off, (2,-2) on); run twice
+on scenes instanced fresh, first thing on each, the same events at the same ticks and the
+same end position to the bit. The teleport: `reset_to` 2 205 m away to 5 000 m along the
+loop, after one tick every body within 80 m active and every one past 110 m inactive. Zero
+allocation: the node census of the tree and of Forest, the bodies, the state array and the
+face counts the same before and after every drive. With `FD_BUBBLE_PERF=1` in the
+environment the test also prints wall-time `perf:` lines (the builds, every tick of the
+radii drive, the activation ticks, an `update()` micro-benchmark) - never in the suite.
+Then
 `tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the

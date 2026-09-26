@@ -22,8 +22,21 @@ extends SceneTree
 ## builders instantiate is an id in ElementCatalogue of the right family,
 ## and nothing outside their declared lists is instantiated. THE SCENE
 ## (scenes/eifel_ring.tscn, loaded as the ring drive test loads it): the
-## three nodes build; NO PHYSICS - not one CollisionObject3D, CollisionShape3D
-## or Area3D under them, every child a MeshInstance3D. THE LATTICE PLAN: the
+## three nodes build; THE PHYSICS PIN (BUBBLE-1; was -> not one
+## CollisionObject3D, CollisionShape3D or Area3D under Terrain or Forest,
+## every child a MeshInstance3D): Terrain stays visuals only (the car
+## never falls through unwalked ground: it reads the injected profile);
+## under Forest the only physics is the bubble's - one StaticBody3D per
+## tree chunk holding one ConcavePolygonShape3D of the chunk's trunk
+## prisms, on no layer until the PhysicsBubble child switches it onto the
+## car's - and nothing else: no Area3D, no shape on a card, a crown or a
+## chunk mesh, every other child a MeshInstance3D. THE TRUNK ACCOUNTING:
+## the bodies are the tree chunks, one each (42), the prisms 19 339 (one
+## per tree, none for a card), every tree's 36 face vertices in its
+## chunk's shape at the tree's slot on its own cylinder (the axis at the
+## tree's point, the radius the archetype's measured trunk × the tree's
+## scale, the foot and the crown base the rows) and inside the body's
+## box. THE LATTICE PLAN: the
 ## bands read from the catalogue (2 / 10 / 50 / 200 m, 200 m, 2 km) are
 ## the builder's; every near-band vertex sits on a lattice node (x and z
 ## multiples of the 10 m step from the origin, y the node's own height),
@@ -80,8 +93,9 @@ extends SceneTree
 ## and the engine's one-exponent curve (the depth mode's formula, mirrored)
 ## is within FIT_TOLERANCE of it at every sample; one sun at S1's 45° and
 ## the table's bearing. DETERMINISM: the scene built twice describes
-## itself the same, places the same cards, and the road carries the same
-## UVs and material. No network, no python, no
+## itself the same, places the same cards, the road carries the same
+## UVs and material, and the trunk bodies carry the same faces and boxes.
+## No network, no python, no
 ## wall clock in a check. Exits 0 on success, 1 on any fault.
 
 const RING_SCENE := "res://scenes/eifel_ring.tscn"
@@ -147,6 +161,8 @@ const PIXEL_STRIDE := 37
 ## The road's UV contract held in tile units (4B-ASSETS-2): float32 storage
 ## on v up to ~2 600 tiles; a wrong formula moves u by 0.1 or more.
 const UV_TOLERANCE := 1e-3
+## A trunk face vertex against its cylinder [m]: float32 storage at 12 km.
+const FACE_TOLERANCE_M := 0.002
 
 var _failures := 0
 var _loop: SkeletonLoader.Loop
@@ -182,6 +198,8 @@ func _initialize() -> void:
 		var first_tree := forest.tree_transform(forest.tree_x.size() - 1) if forest.tree_x.size() > 0 else Transform3D.IDENTITY
 		var first_uvs := _loop_strip_uvs(road)
 		var first_road := _road_material_line(road)
+		var first_trunks := _trunk_faces_of(forest)
+		var first_boxes := forest.trunk_boxes.duplicate()
 		scene.queue_free()
 		await _step(2)
 		var again := await _load_scene()
@@ -197,6 +215,13 @@ func _initialize() -> void:
 			var second_uvs := _loop_strip_uvs(road2)
 			var second_road := _road_material_line(road2)
 			_ok(first_uvs.size() > 0 and first_uvs == second_uvs and first_road == second_road, "determinism: the road built twice carries the same %d UVs on the loop's longest strip and the same material (%s; 4B-ASSETS-2)" % [second_uvs.size(), second_road], "uvs %d / %d equal %s, first: %s, second: %s" % [first_uvs.size(), second_uvs.size(), first_uvs == second_uvs, first_road, second_road])
+			var second_trunks := _trunk_faces_of(forest2)
+			var trunks_same := first_trunks.size() == second_trunks.size() and first_trunks.size() > 0
+			var face_count := 0
+			for b: int in mini(first_trunks.size(), second_trunks.size()):
+				trunks_same = trunks_same and first_trunks[b] == second_trunks[b]
+				face_count += (first_trunks[b] as PackedVector3Array).size()
+			_ok(trunks_same and first_boxes == forest2.trunk_boxes and first_boxes.size() == first_trunks.size() * 4, "determinism: the forest built twice carries the same %d trunk bodies with the same %d face vertices and the same boxes (BUBBLE-1)" % [second_trunks.size(), face_count], "bodies %d / %d, faces equal %s, boxes equal %s" % [first_trunks.size(), second_trunks.size(), trunks_same, first_boxes == forest2.trunk_boxes])
 			again.queue_free()
 			await _step(2)
 	print("DRESSING TEST PASSED" if _failures == 0 else "DRESSING TEST FAILED: %d fault(s)" % _failures)
@@ -539,14 +564,46 @@ func _road_material_line(road: RoadBuilder) -> String:
 	return "%s %s %s tint %s roughness %.2f normal %s x %.2f filter %d" % [albedo.resource_path if albedo != null else "-", rough.resource_path if rough != null else "-", normal.resource_path if normal != null else "-", material.albedo_color, material.roughness, material.normal_enabled, material.normal_scale, material.texture_filter]
 
 
-## Nothing physical under the dressing nodes.
-func _check_no_physics(terrain: Node, forest: Node) -> void:
-	for node: Node in [terrain, forest]:
-		var found := _physics_under(node)
-		var children_are_meshes := true
-		for child: Node in node.get_children():
-			children_are_meshes = children_are_meshes and child is MeshInstance3D
-		_ok(found.is_empty() and children_are_meshes and node.get_child_count() > 0, "%s carries %d MeshInstance3D children and not one CollisionObject3D, CollisionShape3D or Area3D anywhere under it (visuals only: the car reads the injected profile)" % [node.name, node.get_child_count()], "%s: physics %s, all meshes %s" % [node.name, found, children_are_meshes])
+## The physics pin (BUBBLE-1): nothing physical under Terrain; under
+## Forest only the bubble's per-chunk trunk bodies and their shapes.
+## was -> not one CollisionObject3D, CollisionShape3D or Area3D under
+## either, every child a MeshInstance3D. The intent kept: the car never
+## falls through unwalked ground (it reads the injected profile, the
+## terrain stays visuals only), and only near-road tree trunks arrive,
+## only through the bubble.
+func _check_no_physics(terrain: Node, forest: ForestWalls) -> void:
+	var found := _physics_under(terrain)
+	var children_are_meshes := true
+	for child: Node in terrain.get_children():
+		children_are_meshes = children_are_meshes and child is MeshInstance3D
+	_ok(found.is_empty() and children_are_meshes and terrain.get_child_count() > 0, "Terrain carries %d MeshInstance3D children and not one CollisionObject3D, CollisionShape3D or Area3D anywhere under it (visuals only: the car reads the injected profile)" % terrain.get_child_count(), "Terrain: physics %s, all meshes %s" % [found, children_are_meshes])
+	var meshes := 0
+	var bodies := 0
+	var shapes := 0
+	var bubbles := 0
+	var others: Array[String] = []
+	var areas := 0
+	for child: Node in forest.get_children():
+		if child is MeshInstance3D:
+			meshes += 1
+			if not _physics_under(child).is_empty():
+				others.append(String(child.name) + " (physics under a mesh)")
+		elif child is StaticBody3D and child.name.begins_with("Trunks_") and child in forest.trunk_bodies:
+			bodies += 1
+			for grand: Node in child.get_children():
+				if grand is CollisionShape3D and (grand as CollisionShape3D).shape is ConcavePolygonShape3D and grand.get_child_count() == 0:
+					shapes += 1
+				else:
+					others.append(String(grand.get_path()))
+		elif child is PhysicsBubble and child.name == "Bubble" and child.get_child_count() == 0:
+			bubbles += 1
+		else:
+			others.append(String(child.name))
+	for path: String in _physics_under(forest):
+		if path.get_file().begins_with("Trunks_") or path.get_file() == "Shape":
+			continue
+		areas += 1
+	_ok(others.is_empty() and areas == 0 and bubbles == 1 and bodies == forest.trunk_bodies.size() and shapes == bodies and bodies > 0 and meshes > 0, "Forest carries %d MeshInstance3D children, %d trunk StaticBody3D children (one per tree chunk, one ConcavePolygonShape3D each) and the one PhysicsBubble, and no other physics anywhere under it - no Area3D, no shape on a card, a crown or a chunk mesh (BUBBLE-1: colliders only via the bubble's per-chunk bodies; was -> not one collision object under Forest)" % [meshes, bodies], "Forest: meshes %d bodies %d/%d shapes %d bubbles %d others %s stray physics %d" % [meshes, bodies, forest.trunk_bodies.size(), shapes, bubbles, others, areas])
 
 
 func _physics_under(node: Node) -> Array[String]:
@@ -793,7 +850,11 @@ func _check_assets(forest: ForestWalls) -> void:
 	var seen := {}
 	var brightest := 0.0
 	var known: Array = forest.materials.values()
+	var chunk_meshes := 0
 	for child: Node in forest.get_children():
+		if not child is MeshInstance3D:
+			continue
+		chunk_meshes += 1
 		var mesh: ArrayMesh = (child as MeshInstance3D).mesh
 		for s: int in mesh.get_surface_count():
 			surfaces += 1
@@ -808,7 +869,7 @@ func _check_assets(forest: ForestWalls) -> void:
 					seen[key] = seen.get(key, 0) + 1
 			for c: int in range(0, colours.size(), PIXEL_STRIDE):
 				brightest = maxf(brightest, TerrainBuilder.luminance(colours[c]))
-	_ok(surfaces_ok and seen.size() == 4 and surfaces > forest.get_child_count(), "every one of the %d surfaces under Forest's %d chunks carries UVs and vertex colours and wears one of the four materials (%s); the brightest sampled vertex colour at luminance %.2f under the cap %.1f" % [surfaces, forest.get_child_count(), seen, brightest, TerrainBuilder.LUMINANCE_CAP], "surfaces ok %s seen %s brightest %.2f" % [surfaces_ok, seen, brightest])
+	_ok(surfaces_ok and seen.size() == 4 and surfaces > chunk_meshes, "every one of the %d surfaces under Forest's %d chunks carries UVs and vertex colours and wears one of the four materials (%s); the brightest sampled vertex colour at luminance %.2f under the cap %.1f" % [surfaces, chunk_meshes, seen, brightest, TerrainBuilder.LUMINANCE_CAP], "surfaces ok %s seen %s brightest %.2f" % [surfaces_ok, seen, brightest])
 	_ok(brightest <= TerrainBuilder.LUMINANCE_CAP, "no baked vertex colour is over the canon's luminance cap: a tree's hashed shade only darkens its tint")
 	var expected_vertices := forest.card_x.size() * 4
 	var expected_triangles := forest.card_x.size() * 2
@@ -836,6 +897,77 @@ func _check_assets(forest: ForestWalls) -> void:
 			transforms_ok = transforms_ok and absf(scale.x - expected_scale) < 1e-4 and absf(scale.y - expected_scale) < 1e-4 and absf(scale.z - expected_scale) < 1e-4 and absf(transform.origin.x - forest.tree_x[i]) < 0.002 and absf(transform.origin.z - forest.tree_z[i]) < 0.002 and absf(transform.origin.y - (forest.profile.elevation_height(forest.tree_x[i], forest.tree_z[i]) - ForestWalls.TREE_SINK_M)) < 1e-4 and shade >= ForestWalls.TREE_SHADE_MIN and shade <= 1.0
 	_ok(forest.counts.vertices == expected_vertices and forest.counts.triangles == expected_triangles, "the mesh accounting is exact: %d vertices = %d cards x 4 + every tree's archetype, %d triangles = cards x 2 + the archetypes' (was 10 / 16 flat triangles a tree)" % [forest.counts.vertices, forest.card_x.size(), forest.counts.triangles], "counted %d / %d, expected %d / %d" % [forest.counts.vertices, forest.counts.triangles, expected_vertices, expected_triangles])
 	_ok(transforms_ok and rows_flagged == forest.counts.trees_rows, "every %dth tree's transform is its point (within the single-precision millimetre at 12 km), its foot %.1f m under the ground, a uniform scale of its height over the archetype's, its shade in [%.1f, 1]; the %d row trees are flagged and the %d V1 among them wear the row tree" % [CARD_SAMPLE_STRIDE, ForestWalls.TREE_SINK_M, ForestWalls.TREE_SHADE_MIN, rows_flagged, rows_in_row_tree], "transforms ok %s, rows flagged %d of %d" % [transforms_ok, rows_flagged, forest.counts.trees_rows])
+	_check_trunks(forest)
+
+
+## The trunk accounting (BUBBLE-1): one body per tree chunk, one prism per
+## tree, every face vertex on its tree's cylinder at the tree's slot.
+func _check_trunks(forest: ForestWalls) -> void:
+	var tree_chunks := {}
+	for i: int in forest.tree_x.size():
+		var key := forest.chunk_of(i)
+		tree_chunks[key] = tree_chunks.get(key, 0) + 1
+	var mesh_chunks := 0
+	for child: Node in forest.get_children():
+		if child is MeshInstance3D and child.name.begins_with("Trees_"):
+			mesh_chunks += 1
+	var bodies := forest.trunk_bodies.size()
+	var keyed: bool = forest.trunk_chunk_keys.size() == bodies and forest.trunk_chunk_trees.size() == bodies and forest.trunk_boxes.size() == bodies * 4 and bodies == tree_chunks.size() and bodies == mesh_chunks and bodies == forest.counts.bodies
+	var prisms := 0
+	var faces_ok := true
+	var boxed := true
+	var worst := 0.0
+	var per_chunk_ok := true
+	var top_lowest := INF
+	var top_highest := 0.0
+	var radius_lowest := INF
+	var radius_highest := 0.0
+	for b: int in bodies:
+		var key: Vector2i = forest.trunk_chunk_keys[b]
+		var body: StaticBody3D = forest.trunk_bodies[b]
+		var trees: PackedInt32Array = forest.trunk_chunk_trees.get(key, PackedInt32Array())
+		per_chunk_ok = per_chunk_ok and body.name == "Trunks_%d_%d" % [key.x, key.y] and trees.size() == tree_chunks.get(key, -1) and body.get_child_count() == 1 and body.get_child(0) is CollisionShape3D
+		var shape: ConcavePolygonShape3D = (body.get_child(0) as CollisionShape3D).shape if body.get_child(0) is CollisionShape3D else null
+		if shape == null:
+			per_chunk_ok = false
+			continue
+		var faces := shape.get_faces()
+		var stride := ForestWalls.TRUNK_SIDES * 6
+		per_chunk_ok = per_chunk_ok and faces.size() == trees.size() * stride and shape.backface_collision
+		var x_lo := forest.trunk_boxes[b * 4]
+		var z_lo := forest.trunk_boxes[b * 4 + 1]
+		var x_hi := forest.trunk_boxes[b * 4 + 2]
+		var z_hi := forest.trunk_boxes[b * 4 + 3]
+		for slot: int in trees.size():
+			var i := trees[slot]
+			prisms += 1
+			per_chunk_ok = per_chunk_ok and forest.chunk_of(i) == key
+			var r := forest.trunk_radius(i)
+			var span := forest.trunk_span(i)
+			var archetype: ForestWalls.Archetype = forest.archetypes.get(forest.archetype_of(i))
+			faces_ok = faces_ok and archetype != null and absf(r - archetype.trunk_radius * forest.tree_height[i] / archetype.height) < 1e-6 and absf(span.x - (forest.profile.elevation_height(forest.tree_x[i], forest.tree_z[i]) - ForestWalls.TREE_SINK_M)) < 1e-4 and absf(span.y - span.x - archetype.trunk_top * forest.tree_height[i] / archetype.height) < 1e-4
+			boxed = boxed and forest.tree_x[i] - r >= x_lo and forest.tree_x[i] + r <= x_hi and forest.tree_z[i] - r >= z_lo and forest.tree_z[i] + r <= z_hi
+			top_lowest = minf(top_lowest, span.y - span.x)
+			top_highest = maxf(top_highest, span.y - span.x)
+			radius_lowest = minf(radius_lowest, r)
+			radius_highest = maxf(radius_highest, r)
+			if faces.size() < (slot + 1) * stride:
+				continue
+			for v: int in stride:
+				var p := faces[slot * stride + v]
+				var off := absf(Vector2(p.x - forest.tree_x[i], p.z - forest.tree_z[i]).length() - r)
+				var row := minf(absf(p.y - span.x), absf(p.y - span.y))
+				worst = maxf(worst, maxf(off, row))
+	_ok(keyed and per_chunk_ok and prisms == forest.tree_x.size() and prisms == forest.counts.trunks, "the trunk accounting: %d bodies = the %d tree chunks (one StaticBody3D \"Trunks_x_z\" each, one enabled CollisionShape3D with a ConcavePolygonShape3D, back faces solid), %d prisms = every one of the %d trees (none for a card), each body's faces exactly its chunk's trees × %d sides × 6 in tree order" % [bodies, mesh_chunks, prisms, forest.tree_x.size(), ForestWalls.TRUNK_SIDES], "keyed %s per chunk %s prisms %d of %d / %d" % [keyed, per_chunk_ok, prisms, forest.tree_x.size(), forest.counts.trunks])
+	_ok(faces_ok and boxed and worst <= FACE_TOLERANCE_M, "every one of the %d trees' %d face vertices lies on its own cylinder at its slot - the axis at the tree's point, the radius the archetype's measured trunk × the tree's scale (%.3f to %.3f m), the rows the foot (the field less %.1f m) and the crown base (%.1f to %.1f m up) - within %.1f mm (worst %.2f mm, float32 at 12 km), and every tree's disc inside its body's box" % [prisms, prisms * ForestWalls.TRUNK_SIDES * 6, radius_lowest, radius_highest, ForestWalls.TREE_SINK_M, top_lowest, top_highest, 1000.0 * FACE_TOLERANCE_M, 1000.0 * worst], "faces ok %s boxed %s worst %.4f" % [faces_ok, boxed, worst])
+
+
+## Every trunk body's faces, in body order.
+func _trunk_faces_of(forest: ForestWalls) -> Array:
+	var out := []
+	for body: StaticBody3D in forest.trunk_bodies:
+		out.append(((body.get_child(0) as CollisionShape3D).shape as ConcavePolygonShape3D).get_faces())
+	return out
 
 
 ## The checked-in textures, read as files (never through Blender).
