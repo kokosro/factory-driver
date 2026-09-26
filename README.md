@@ -771,6 +771,49 @@ element placed twice from one OSM id, a key outside the schema, a record without
 citation, an unpinned snapshot, a sha field that is no sha256, a file that is not JSON)
 naming the record and the field, and one mended (an E1 selling fuel with the file saying so)
 accepted. Then
+`tests/dressing_test.gd`: the Ring's first dressing pass (implementation-plan.md §4B-7;
+`scripts/terrain_builder.gd`, `scripts/forest_walls.gd`, `scripts/sky_set.gd`, the three
+nodes `scenes/eifel_ring.tscn` gained; visuals only, not one collision shape, body or
+Area3D under them - the car reads the injected profile and the ring drive test's output
+stays the same byte for byte). The landcover file `data/regions/eifel_ring/landcover.json`
+(written offline by `tools/world/landcover.py` from the pinned snapshot's q4_landcover
+selectors - fetched in parts by `tools/world/extract_landcover_parts.py` on 2026-09-26
+because every Overpass endpoint refused the pinned query whole, out of memory; the trees
+part refused too and recorded missing) read the way `TerrainBuilder` reads it and put
+through `validate_landcover()`; its header held to the pinned snapshot and the skeleton's
+query chain, the pinned q4 query text's sha256 (the text verbatim in the test), every
+part's query rebuilt from its selector and hashed to the header, the folded answer sha
+recomputed from the parts', the raw files hashed to the header where the snapshot store is
+on the machine, and the header's three projection samples reproduced through
+`SkeletonLoader.wgs84_to_local` within 5 mm (the python port agrees with pyproj's skeleton
+points to 0.7 mm at all 9 188 way starts, `landcover.py --prove`). The region's
+dressing table (`data/regions/eifel_ring/dressing.json` beside the focus table, whose four
+top keys the buildings test pins; ring-region-decisions.md §5: S1 / S5, the sun's bearing,
+the palette's tints under the canon's 0.6 luminance cap, the density ceilings) through
+`validate_dressing()`, and `focus.json` untouched and still silent under `Buildings.validate()`. Every element the
+three builders instantiate an id of the catalogue (T1-T4, T7-T9, V7; V1, V2, V4, V6; S1,
+S5) and nothing outside their declared lists. The scene loaded as the ring drive test loads
+it: the lattice plan's bands the catalogue's T1 table (2 m at the platform, 10 m within
+200 m, 50 m to 2 km, 200 m beyond), every tile classed by that rule on the builder's
+distance field (16 300 near tiles, 500 mid, no far block: the core has no point 2 km from
+every road), the field held to a brute-force point-to-chord distance at sampled tiles'
+nearest nodes within half a lattice step's diagonal, every sampled near-band vertex on a
+lattice node at the node's own height, every mid vertex on a 50 m corner, the 3 304
+platform strips at every 2 m station and every skeleton point with no gap over 2 m and
+the pit lane's strip meeting the road at the paved edge within 2 mm; every one of the
+~79 000 V4 wall cards within 60 m of a covered road (the farthest 59.999 m), a sample
+every 400th within 60 m by brute force over every chord, every card on a forest polygon,
+12-18 m tall in three layers, ~13 000 slots beyond the 60 m left empty; no edge-sampled
+tree beyond the 60 m; the density ceiling per road and side (at most floor(length / 8 m)
+trees, recounted from the tree list; the fullest side at its budget, ~1 300 samples
+refused); at ten Nordschleife points the objects within 500 m under the ceilings - at
+most 8 meaningful masses (forests with a card, tree rows, water) of the table's twenty,
+the trees at most a fifth of §5's 2 × road length / 8 m; the haze Godot depth fog (not
+volumetric) beginning at S5's 100 m, its colour the sky plate's horizon, the four-band
+curve sampled at 50 / 200 / 500 / 1 000 m in the catalogue's bands in order and the
+engine's one-exponent curve within 0.03 of it; one sun at S1's 45° (was the scene's 50°)
+from the table's bearing 210°; and the scene built twice describing itself the same and
+placing its last card at the same point. Then
 `tests/ring_drive_test.gd`: the Nordschleife as a drivable road (`scenes/eifel_ring.tscn`,
 built headless at load by `scripts/road_builder.gd` from the checked-in skeleton and drape,
 implementation-plan.md §4B-4): drape.json pinned by sha256 (d36ccf27..., the ROAD-GEOMETRY

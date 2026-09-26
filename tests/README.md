@@ -1,14 +1,16 @@
 # Tests
 
 `tests/run_tests.sh` is the gate: a headless import, then the config, element catalogue,
-skeleton, world profile, buildings, ring drive, smoke, handling, camera, mission, battery, thermal,
-tyre/brake thermal, steering-feel, wear, licence, menu, issue flag, minimap, airborne, reset,
+skeleton, world profile, buildings, dressing, ring drive, smoke, handling, camera, mission, battery,
+thermal, tyre/brake thermal, steering-feel, wear, licence, menu, issue flag, minimap, airborne, reset,
 refuel, telemetry watch and first run tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
-minutes (the ring drive test builds the Ring's road twice and drives 2 km on it twice; the
+minutes (the dressing test builds the Ring scene twice; the ring drive test builds the Ring's
+road twice and drives 2 km on it twice; the
 minimap test builds it once more, the reset test twice more and drives 400 m, the telemetry
 watch test once more and drives a second on it, the first run test once more for the
-dealership and sits the L0 exam twice on the pad).
-`tests/run_tests.sh --parallel` runs the twenty-four tests side by side after the import and
+dealership and sits the L0 exam twice on the pad; since 4B-7 every Ring scene load also
+builds the terrain, the forest walls and the sky, about nine seconds more each).
+`tests/run_tests.sh --parallel` runs the twenty-five tests side by side after the import and
 prints the same lines in the same order. What each test checks is in the main
 `README.md`.
 
@@ -40,6 +42,8 @@ own world.json and cars.json; the data folder's never), one per process each, re
 test finishes (the ring drive test writes nothing:
 it reads the checked-in skeleton and drape and builds in memory; the buildings test writes
 nothing either: it reads the checked-in focus table, and the raw OSM snapshot store only
-where it is on the machine, never fetching; the refuel test writes nothing: the store is off
+where it is on the machine, never fetching; the dressing test the same: the checked-in
+landcover, the store's raw parts only where they are on the machine, no network; the refuel
+test writes nothing: the store is off
 headless). No test opens a window or a
 native dialog: the garage's folder picker is a GUI path the menu test never takes.

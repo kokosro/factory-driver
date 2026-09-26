@@ -1,0 +1,119 @@
+{
+ "region": "eifel_ring",
+ "stone": {
+  "doc": "docs/design/4b/ring-region-decisions.md",
+  "section": "5. REGION DRESSING",
+  "lines": {
+   "sky_set_and_haze": 132,
+   "palette": 135,
+   "forest_rule": 139,
+   "density_ceilings": 142
+  },
+  "note": "the region's dressing choices as their own file beside focus.json (data-pipeline.md §6: the table 'plus the region's sky set, palette and density ceilings'): tests/buildings_test.gd pins focus.json's four top keys and that check stays, so the block lives here, read through TerrainBuilder.region_dressing() and checked by validate_dressing()"
+ },
+ "sky_set": "S1",
+ "haze": "S5",
+ "sun": {
+  "azimuth_deg": 210,
+  "note": "the sun's bearing clockwise from north: south-south-west, where eifel_ring.tscn's Sun stood before 4B-7 (its elevation was the scene's 50 deg -> the catalogue's S1 default 45 deg; the bearing is the region's choice). The elevation is S1's varies default in the catalogue, not repeated here"
+ },
+ "palette": {
+  "vegetation": "muted forest / olive greens",
+  "forest_wall": "spruce blue-green over beech",
+  "rock": "grey slate",
+  "water": "grey-green (the Ahr)",
+  "sky": "pale blue",
+  "tints": {
+   "T1": [
+    0.36,
+    0.44,
+    0.24
+   ],
+   "T2": [
+    0.33,
+    0.38,
+    0.22
+   ],
+   "T3": [
+    0.42,
+    0.43,
+    0.45
+   ],
+   "T4": [
+    0.46,
+    0.52,
+    0.28
+   ],
+   "T7a": [
+    0.5,
+    0.48,
+    0.3
+   ],
+   "T7b": [
+    0.42,
+    0.5,
+    0.28
+   ],
+   "T7c": [
+    0.4,
+    0.47,
+    0.26
+   ],
+   "T8": [
+    0.32,
+    0.4,
+    0.38
+   ],
+   "T9": [
+    0.45,
+    0.5,
+    0.55
+   ],
+   "V7": [
+    0.12,
+    0.2,
+    0.13
+   ],
+   "V4_front": [
+    0.16,
+    0.26,
+    0.2
+   ],
+   "V4_middle": [
+    0.11,
+    0.19,
+    0.15
+   ],
+   "V4_back": [
+    0.07,
+    0.12,
+    0.1
+   ],
+   "V2": [
+    0.15,
+    0.25,
+    0.19
+   ],
+   "V1": [
+    0.2,
+    0.3,
+    0.14
+   ],
+   "trunk": [
+    0.25,
+    0.2,
+    0.15
+   ]
+  }
+ },
+ "forest": {
+  "wall_tint": "blue-green spruce over beech",
+  "interior_tint": "deep green",
+  "note": "landuse=forest / natural=wood edges within 60 m of a road are V4 walls 12-18 m (the catalogue's stone: T6.road_distance_max_m, V4.layers, V4.height_m), interiors the V7 tint; the region names the tints only"
+ },
+ "density": {
+  "trees_within_60_m_per_8_m_per_side": 1,
+  "meaningful_objects_within_500_m": 20,
+  "note": "DECIDED, REVISITABLE: trees within 60 m of the road at most 1 per 8 m of road per side; the canon's 'twenty meaningful objects' is the audit: the masses (a forest's wall run, a water plane, a tree row) within 500 m of the car, not the cards they are made of"
+ }
+}

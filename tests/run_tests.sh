@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Headless checks: import the project, check the car configs, the element
-# catalogue, the Ring skeleton, the Ring's drape through the world profile
-# and the Ring's typed buildings (seconds: a broken config, catalogue entry,
-# skeleton, drape or building record fails here, not somewhere in the smoke
-# test), build the Ring's road and
+# catalogue, the Ring skeleton, the Ring's drape through the world profile,
+# the Ring's typed buildings and the Ring's dressing (seconds to a minute: a
+# broken config, catalogue entry, skeleton, drape, building record or
+# landcover file fails here, not somewhere in the smoke test), build the
+# Ring's road and
 # drive it (the ring drive test), run the smoke test, then the handling,
 # camera, mission, battery, thermal, tyre/brake thermal, steering-feel,
 # wear, licence, menu, issue flag, minimap, airborne, reset, refuel,
@@ -11,8 +12,8 @@
 # any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the twenty-four tests side by side
-#                                   (was twenty-three -> the first run test, 4B-6)
+#   tests/run_tests.sh --parallel   the import first, then the twenty-five tests side by side
+#                                   (was twenty-four -> the dressing test, 4B-7)
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -124,6 +125,11 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 "$STEP" "skeleton test" "$GODOT" --headless --path "$ROOT" --script res://tests/skeleton_test.gd
 "$STEP" "world profile test" "$GODOT" --headless --path "$ROOT" --script res://tests/world_profile_test.gd
 "$STEP" "buildings test" "$GODOT" --headless --path "$ROOT" --script res://tests/buildings_test.gd
+# 4B-7, the dressing: the landcover file's chain, the region table's dressing
+# block, the Ring scene's terrain lattice plan, forest walls, density ceilings
+# and haze curve, built twice (no physics under the dressing: the ring drive
+# test's output stays the same).
+"$STEP" "dressing test" "$GODOT" --headless --path "$ROOT" --script res://tests/dressing_test.gd
 # --fixed-fps: same 1/60 s physics steps, without waiting for the wall clock.
 # Every wait in these tests is counted in physics ticks.
 "$STEP" "ring drive test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/ring_drive_test.gd

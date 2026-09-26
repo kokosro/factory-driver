@@ -6,6 +6,9 @@
 [ext_resource type="PackedScene" path="res://scenes/hud.tscn" id="4_hud"]
 [ext_resource type="PackedScene" path="res://scenes/garage.tscn" id="5_garage"]
 [ext_resource type="Script" path="res://scripts/refuel.gd" id="6_refuel"]
+[ext_resource type="Script" path="res://scripts/terrain_builder.gd" id="7_terrain"]
+[ext_resource type="Script" path="res://scripts/forest_walls.gd" id="8_forest"]
+[ext_resource type="Script" path="res://scripts/sky_set.gd" id="9_sky"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_material"]
 sky_top_color = Color(0.22, 0.42, 0.75, 1)
@@ -37,6 +40,20 @@ transform = Transform3D(0.836857, 0, 0.547422, 0, 1, 0, -0.547422, 0, 0.836857, 
 [node name="Road" type="Node3D" parent="." node_paths=PackedStringArray("car")]
 script = ExtResource("1_road")
 car = NodePath("../Car")
+
+[node name="Terrain" type="Node3D" parent="." node_paths=PackedStringArray("road")]
+script = ExtResource("7_terrain")
+road = NodePath("../Road")
+
+[node name="Forest" type="Node3D" parent="." node_paths=PackedStringArray("road", "terrain")]
+script = ExtResource("8_forest")
+road = NodePath("../Road")
+terrain = NodePath("../Terrain")
+
+[node name="Sky" type="Node" parent="." node_paths=PackedStringArray("environment", "sun")]
+script = ExtResource("9_sky")
+environment = NodePath("../WorldEnvironment")
+sun = NodePath("../Sun")
 
 [node name="ChaseCamera" type="Camera3D" parent="." node_paths=PackedStringArray("target")]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2.6, 6.5)
