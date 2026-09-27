@@ -869,6 +869,59 @@ heights with gaps and trunks between them, the far end of a gap shows a neighbou
 staggered deeper card with a vertical edge (the stagger fills two-thirds of a gap: the
 recipe's cost, noted).
 
+### The async load (LOADING-1)
+
+The canon (decisions.org C07BE6F1, the driver's ruling of 2026-09-27): no freezing load.
+The Ring's build was synchronous in `_ready` - the garage's drive row changed the scene
+and the window held for ~17 s under the macOS loading bubble while the road, the terrain
+and the forest were built on the main thread. Now the Ring row lands on a loading screen
+(`scripts/loading.gd`, `scenes/loading.tscn`; the pad's row stays direct, its build is
+trivial): the Ring scene is instantiated but not added to the tree (no `_ready` runs), its
+three builders are claimed (`build_deferred`), and the build runs as two stages over the
+same functions the synchronous build runs. The DATA STAGE is pure arithmetic on
+`WorkerThreadPool` tasks - `RoadBuilder.prepare_data` (the files, the rim rule, the right
+of way, the profile, the roads in CHUNK_ORDER), then one `sweep_road` per road as a group
+task; `TerrainBuilder.compute_fields` (the lattice, the distance field, the raster, the
+forms, the plan), then its `mesh_jobs()` as a group; `ForestWalls.place` (the walk, the
+trees), then its chunk jobs as a group - each chunk into its own slot, the tallies a job
+makes its own and merged on the main thread, the forest's index memo grown to every
+chunk's need before a job runs; the one shared write is the road's two twist-bound counts,
+which the frozen ring drive test pins as the builder's own members incremented from inside
+the sweep, so they take a Mutex (a sum: the same total in any thread order). The NODE STAGE is
+the main thread's, over frames under an 8 ms budget each: `add_strip`, `add_job`, the
+floor, the trunk bodies, the bubble - no Node is ever made off the main thread. Then the
+Ring is added under the root as the current scene and the loading scene frees itself; the
+Surfaces node swaps its wrapper in at its first tick as ever, so the ring drive test's pin
+(`road.profile is WorldRoadProfile and car.road_profile == road.profile`) holds across the
+handover. CHUNK_ORDER is each builder's own sequential order (the drape's segment order,
+the near chunks row-major then Mid, Far, the bands, the water, the continuation, the wall /
+tree / trunk chunks in first-seen order): the workers fill the slots in the clock's order
+and the node stage consumes them in CHUNK_ORDER, so the children, the meshes, the bodies
+and the counts are the synchronous build's byte for byte - `tests/async_build_test.gd`
+hashes the two builds against each other. The screen: a progress bar weighted by the
+stages' measured wall times and filled per chunk, the percentage, the stage running with
+its chunks done / total, in the garage's own palette; `Esc` abandons the load and returns
+to the pad (the tasks cancelled at their next chunk and waited for, the partial Ring freed).
+The setting `application/use_async_build` (project.godot, default true) routes the row;
+false takes the Ring direct, the synchronous path every suite test loads through (a direct
+instantiation never sees the setting: the builders build in `_ready` unless the loading
+scene has claimed them, so only `tests/menu_test.gd`, which activates the garage's row,
+pins it false in its `_initialize` - the Conductor's grant - and its one additive check
+sets it true for itself to see the row land on the loading scene and then on the Ring).
+The fallback: a stage that cannot run (the files missing, a drape without a lattice) is a
+`push_warning`, the screen says so for a frame, and a fresh Ring is added the ordinary way
+- the synchronous build, the freeze, honestly - never a broken scene; a script error inside
+a worker's task is the one failure this does not catch. MEASURED (this machine,
+2026-09-27): GDScript does not spread across the pool - the road sweep took 4 917 ms on
+the main thread, 4 935 ms on one worker, 4 325 ms on four and 4 383 ms on eight (the
+interpreter's shared refcounts and object locks serialise it; `DATA_THREADS` caps a group
+at four) - so the async load takes about what the synchronous one did, 16.4-16.6 s
+headless here; the gain is the canon's: the main thread's longest frame during the load
+is 53-55 ms (the loading scene's own count) and 96-98 ms for the handover's frame (13 579
+nodes entering the tree), against 17 s held before. The frame-delta log of the sanctioned
+windowed run is under `.scratch/loading-1/` (untracked). What is NOT this pass: the
+world-around-the-car streaming (L2) - the whole Ring is built, once, off the main thread.
+
 ### Data sources & licences
 
 The Ring region's world data under `data/regions/eifel_ring/` is derived from two public
@@ -1236,6 +1289,24 @@ at tick 600 and the rear at 607, and reset onto the straight's centreline the th
 back at 1.0 / 1.0 / 0.0 within two ticks; and two scenes instanced fresh driven the same
 660 ticks on the grass first thing landing on the same position with the same peak to the
 bit, the continuation the same at 2 812 points outside the box to the bit. Then
+`tests/async_build_test.gd`: the async load (LOADING-1; *The async load* above): the Ring
+built once the way every test loads it (the reference) and once through
+`scenes/loading.tscn` under the root - (a) the three `describe()` lines, the counts, the
+element tallies and the road's seven counters equal, the children under Road (6 609),
+Terrain (3 352) and Forest (127) the same names in the same order, and a SHA-256 over
+every surface array and every collider's faces equal per builder (the digests' first
+sixteen hex characters printed as the pin); (b) every stage's chunks counted - the sweep
+and the road node stage 3 304 roads, the terrain's two stages 3 353 jobs, the forest's two
+126 - every stage done to its total, the bar never falling and at 100 % at the handover;
+(c) the main thread never blocked: the longest process frame measured from outside the
+loading scene (the handover's enter-tree included) and the scene's own longest frame both
+under 250 ms (the numbers only on a failure, or with `FD_LOADING_FRAMES=1`); (d) the car
+on the road's profile, the same object, the floor slab under it, the builders still marked
+deferred; (e) the setting true by default, the Ring routed and the pad not, false routing
+nothing; (f) the fallback - a loading scene pointed at `scenes/car.tscn`, which has no
+builders, warns and hands over that scene built the ordinary way; (g) the abandonment - a
+loading scene freed while its stages run waits for its tasks and leaves nothing of the
+Ring under the root. Then
 `tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the
@@ -1869,7 +1940,8 @@ does all of it too:
 
 - **DRIVE** - free drive on a map (the list holds exactly the maps there are: the
   Factory test pad, which is this scene - free drive simply closes the door; `R` puts
-  the car back on the start line - and the Ring), the world map (the first run's layer,
+  the car back on the start line - and the Ring, which comes up behind the loading
+  screen, see [The async load](#the-async-load-loading-1)), the world map (the first run's layer,
   see [First run](#first-run), opened again from here; `Esc` comes back), the
   dealership's rows while you hold an unspent voucher ("Take the FD-1001 (voucher)" and
   "Take the loaner (1 h, eco)", greyed with the way there in their hint until the car

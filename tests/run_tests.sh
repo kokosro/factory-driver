@@ -6,7 +6,8 @@
 # landcover file fails here, not somewhere in the smoke test), build the
 # Ring's road and
 # drive it (the ring drive test), drive at a tree through the physics
-# bubble (the bubble test), drive it off the road (the offroad test), run
+# bubble (the bubble test), drive it off the road (the offroad test), build
+# it through the loading scene's threads (the async build test), run
 # the smoke test, then the handling,
 # camera, mission, battery, thermal, tyre/brake thermal, steering-feel,
 # wear, licence, menu, issue flag, minimap, airborne, reset, refuel,
@@ -14,8 +15,8 @@
 # any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the twenty-seven tests side by side
-#                                   (was twenty-six -> the offroad test, OFFROAD-1)
+#   tests/run_tests.sh --parallel   the import first, then the twenty-eight tests side by side
+#                                   (was twenty-seven -> the async build test, LOADING-1)
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -143,6 +144,12 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 # RingProfile wrapper (bit-exact on the road), the classification, the
 # continuation field and its skirt, the grass drive (twice, fresh scenes).
 "$STEP" "offroad test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/offroad_test.gd
+# LOADING-1, the async load: the Ring built through the loading scene's
+# WorkerThreadPool pipeline against the synchronous build - the meshes,
+# bodies and counts hashed equal, every chunk counted, the main thread's
+# longest frame under the ceiling (FD_LOADING_FRAMES=1 adds per-frame
+# lines: not here).
+"$STEP" "async build test" "$GODOT" --headless --path "$ROOT" --script res://tests/async_build_test.gd
 "$STEP" "smoke test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/smoke_test.gd
 "$STEP" "handling tests" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/handling_test.gd
 "$STEP" "camera test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/camera_test.gd

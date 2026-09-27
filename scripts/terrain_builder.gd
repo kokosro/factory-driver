@@ -122,6 +122,26 @@ extends Node3D
 ## finer tiles (the crack rule above). Built from the profile the terrain
 ## was built from; deterministic (the dressing test builds twice).
 ##
+## THE ASYNC SEAM (LOADING-1, decisions.org C07BE6F1 "no freezing load";
+## scripts/loading.gd's header has the whole pipeline): the build is
+## stages over the same functions in the same order whichever thread runs
+## them. prepare() (main thread: the profile, the table, the materials),
+## then THE FIELDS - compute_fields(): the lattice, the ribbons, the
+## distance field, the reach, the landcover raster, the forms, the tile
+## plan, one worker's task under the loading scene (sequential arithmetic
+## over this node's arrays, nothing else reading them yet) - then THE
+## MESH JOBS, mesh_jobs() in CHUNK_ORDER (the near chunks row-major, Mid,
+## Far, one Band_ per ribbon in the drape's order, Water, the four
+## Continuation_ bands: exactly the order the one-thread build always
+## added its children in), each run_job() a pure function of the fields
+## into the job's own arrays and its own tallies (a worker's, disjoint
+## from every other job's), then add_job() per job on the main thread
+## in the same order: the mesh, the counts and the elements merged. The
+## sync build() is the stages back to back on one thread, so a direct
+## instantiation builds the same vertices, the same counts and the same
+## describe() as before (tests/async_build_test.gd hashes the two builds
+## against each other).
+##
 ## THE REGION TABLE: dressing.json beside focus.json (region_dressing(),
 ## validate_dressing()) names the region's choices - the sky set, the
 ## haze, the sun's bearing, the palette's tints, the density ceilings - and
@@ -274,6 +294,45 @@ class Ribbon:
 	var half_width: float
 
 var ribbons: Array[Ribbon] = []
+
+
+## One mesh's data stage (LOADING-1, the header's THE ASYNC SEAM): the
+## arrays a worker fills - a pure function of the fields, disjoint from
+## every other job's - and the tallies it made (the keys of `counts`, the
+## elements in first-seen order), merged on the main thread when add_job
+## adds the mesh in CHUNK_ORDER.
+class MeshJob:
+	extends RefCounted
+	## "near" (chunk row `index`, column `index2`), "mid", "far", "strip"
+	## (ribbon `index`), "water", "continuation" (band `index`, its `spec`).
+	var kind: String
+	var name: String
+	var index := 0
+	var index2 := 0
+	var spec := {}
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colours := PackedColorArray()
+	var indices := PackedInt32Array()
+	var counts := {}
+	var elements := {}
+	## A strip job's record for `strips` (the mesh joins it at the add).
+	var strip := {}
+	var done := false
+
+	static func make(of_kind: String, called: String, at: int = 0, at2: int = 0) -> MeshJob:
+		var job := MeshJob.new()
+		job.kind = of_kind
+		job.name = called
+		job.index = at
+		job.index2 = at2
+		return job
+
+	func count(key: String, by: int = 1) -> void:
+		counts[key] = counts.get(key, 0) + by
+
+	func element(id: String, by: int = 1) -> void:
+		elements[id] = elements.get(id, 0) + by
 ## The ribbons' paved half widths by road id [m], and the widest ribbon's
 ## reach (half width plus the blend band) [m]: where the bumps start.
 var half_widths: Dictionary = {}
@@ -290,8 +349,18 @@ var _material: StandardMaterial3D
 var _water_material: StandardMaterial3D
 var _tints: Dictionary = {}
 
+## LOADING-1 (the header's THE ASYNC SEAM): true when the loading scene
+## has claimed the build before the scene enters the tree; _ready then
+## leaves the build to the loading scene's drive. False everywhere else.
+var build_deferred := false
+
 
 func _ready() -> void:
+	# LOADING-1: the loading scene builds a claimed terrain itself, its
+	# fields and its mesh jobs on worker threads before the scene ever
+	# enters the tree.
+	if build_deferred:
+		return
 	if road != null and road.profile != null:
 		build(road.profile, road.skeleton_data, road.drape_data, read_landcover())
 	else:
@@ -539,33 +608,125 @@ static func hash_unit(osm_id: int, purpose: String, index: int = 0) -> float:
 ## Builds everything from the profile (the heights), the parsed skeleton
 ## and drape (the covered roads, the lattice) and the parsed landcover
 ## (null: no polygons, the forms by slope alone). Refuses with a push_error
-## when the drape has no lattice.
+## when the drape has no lattice. LOADING-1: the async build's stages back
+## to back on this thread, the same functions in the same order (was the
+## same calls inline here).
 func build(built_profile: WorldRoadProfile, skeleton_data: Dictionary, drape_data: Dictionary, landcover_data: Variant) -> void:
 	var started := Time.get_ticks_msec()
-	profile = built_profile
-	landcover = landcover_data if landcover_data is Dictionary else {}
-	table = region_dressing()
-	_read_bands()
-	if not _read_lattice(drape_data):
+	prepare(built_profile)
+	if not compute_fields(skeleton_data, drape_data, landcover_data):
 		push_error("TerrainBuilder: the drape has no terrain lattice")
 		return
-	_read_ribbons(skeleton_data, drape_data)
+	var jobs := mesh_jobs()
+	for job: MeshJob in jobs:
+		run_job(job)
+	for job: MeshJob in jobs:
+		add_job(job)
+	build_ms = Time.get_ticks_msec() - started
+
+
+# =============================================================================
+#  THE STAGES (LOADING-1: see the header's THE ASYNC SEAM)
+# =============================================================================
+
+## THE FIRST STEP (main thread): the profile, the region table and the
+## band rule, the tint memo cleared, the two materials.
+func prepare(built_profile: WorldRoadProfile) -> void:
+	profile = built_profile
+	table = region_dressing()
+	_read_bands()
 	_tints = {}
 	_material = _flat_material()
 	_water_material = _flat_material()
 	_water_material.roughness = 0.2
 	_water_material.metallic = 0.1
+
+
+## THE FIELDS (one thread's, sequential: a worker's under the loading
+## scene): the landcover, the lattice, the ribbons, the distance field,
+## the reach, the landcover raster, the forms and the tile plan into this
+## node's arrays. False when the drape has no lattice (nothing built).
+## The tints the mesh jobs read are warmed here, on the one thread: the
+## forms' through _classify_forms' node colours, T8 (the water) and T9
+## (the far band, the skirts, the continuation) by name - the memo is
+## then read only, however many jobs read it at once.
+func compute_fields(skeleton_data: Dictionary, drape_data: Dictionary, landcover_data: Variant) -> bool:
+	landcover = landcover_data if landcover_data is Dictionary else {}
+	if not _read_lattice(drape_data):
+		return false
+	_read_ribbons(skeleton_data, drape_data)
 	_compute_distance()
 	_compute_reach()
 	_rasterise_landcover()
 	_classify_forms()
 	_plan_tiles()
-	_build_near_band()
-	_build_mid_and_far()
-	_build_strips()
-	_build_water()
-	_build_continuation()
-	build_ms = Time.get_ticks_msec() - started
+	_tint_of("T8", Color(0.26, 0.33, 0.32))
+	_tint_of("T9", Color(0.32, 0.37, 0.42))
+	return true
+
+
+## CHUNK_ORDER: every mesh job, in the order the meshes are added under
+## Terrain - the near chunks row-major, Mid, Far, a Band_ per ribbon in
+## the drape's order, Water, the four Continuation_ bands. A pure function
+## of the fields.
+func mesh_jobs() -> Array[MeshJob]:
+	var jobs: Array[MeshJob] = []
+	var tiles_per_chunk := int(CHUNK_M / TILE_M)
+	var chunk_rows := (tile_rows + tiles_per_chunk - 1) / tiles_per_chunk
+	var chunk_cols := (tile_cols + tiles_per_chunk - 1) / tiles_per_chunk
+	for ci: int in chunk_rows:
+		for cj: int in chunk_cols:
+			jobs.append(MeshJob.make("near", "Near_%d_%d" % [ci, cj], ci, cj))
+	jobs.append(MeshJob.make("mid", "Mid"))
+	jobs.append(MeshJob.make("far", "Far"))
+	for r: int in ribbons.size():
+		jobs.append(MeshJob.make("strip", "Band_" + ribbons[r].id, r))
+	jobs.append(MeshJob.make("water", "Water"))
+	var specs := _continuation_bands()
+	for b: int in specs.size():
+		var job := MeshJob.make("continuation", specs[b].name, b)
+		job.spec = specs[b]
+		jobs.append(job)
+	return jobs
+
+
+## THE DATA STAGE of one job (a pure function of the fields into the
+## job's own arrays and tallies; a worker's under the loading scene).
+func run_job(job: MeshJob) -> void:
+	match job.kind:
+		"near":
+			_near_job(job)
+		"mid":
+			_mid_job(job)
+		"far":
+			_far_job(job)
+		"strip":
+			_strip_job(job)
+		"water":
+			_water_job(job)
+		"continuation":
+			_continuation_job(job)
+	job.done = true
+
+
+## THE NODE STAGE of one job (main thread): its tallies into the counts
+## and the elements, its mesh under Terrain (none for a near chunk, a
+## band or the water with nothing in it, as before), a strip's record on
+## the list; the job's arrays released once the mesh holds them.
+func add_job(job: MeshJob) -> void:
+	for key: String in job.counts:
+		counts[key] += job.counts[key]
+	for id: String in job.elements:
+		elements[id] = elements.get(id, 0) + job.elements[id]
+	if job.indices.is_empty() and job.kind in ["near", "mid", "far", "water"]:
+		return
+	var mesh := _add_mesh(job.name, job.vertices, job.normals, job.colours, job.indices, _water_material if job.kind == "water" else _material)
+	if job.kind == "strip":
+		strips[ribbons[job.index].id] = {"chainages": job.strip.chainages, "offsets": job.strip.offsets, "mesh": mesh, "vertices": job.strip.vertices}
+	job.vertices = PackedVector3Array()
+	job.normals = PackedVector3Array()
+	job.colours = PackedColorArray()
+	job.indices = PackedInt32Array()
 
 
 ## The lattice table from the catalogue (T1.stone_parameters, T9's).
@@ -1085,58 +1246,50 @@ func tile_class_at(x: float, z: float) -> int:
 # =============================================================================
 
 ## The near band: per 1 km chunk, every near tile's cells that no road
-## reaches, at the lattice's nodes.
-func _build_near_band() -> void:
+## reaches, at the lattice's nodes. One job per chunk (was the loop over
+## the chunks here, LOADING-1: the same cells in the same order).
+func _near_job(job: MeshJob) -> void:
 	var cells := int(TILE_M / step)
 	var tiles_per_chunk := int(CHUNK_M / TILE_M)
-	var chunk_rows := (tile_rows + tiles_per_chunk - 1) / tiles_per_chunk
-	var chunk_cols := (tile_cols + tiles_per_chunk - 1) / tiles_per_chunk
-	for ci: int in chunk_rows:
-		for cj: int in chunk_cols:
-			var used := {}
-			var vertices := PackedVector3Array()
-			var normals := PackedVector3Array()
-			var colours := PackedColorArray()
-			var indices := PackedInt32Array()
-			for ti: int in range(ci * tiles_per_chunk, mini((ci + 1) * tiles_per_chunk, tile_rows)):
-				for tj: int in range(cj * tiles_per_chunk, mini((cj + 1) * tiles_per_chunk, tile_cols)):
-					if tile_class[ti * tile_cols + tj] != TILE_NEAR:
-						continue
-					for a: int in cells:
-						var i := ti * cells + a
-						for b: int in cells:
-							var j := tj * cells + b
-							var n00 := i * cols + j
-							var n01 := n00 + 1
-							var n10 := n00 + cols
-							var n11 := n10 + 1
-							counts.near_cells += 1
-							if reach[n00] == 1 or reach[n01] == 1 or reach[n10] == 1 or reach[n11] == 1:
-								counts.near_cells_dropped += 1
-								continue
-							var v00 := _lattice_vertex(used, vertices, normals, colours, n00)
-							var v01 := _lattice_vertex(used, vertices, normals, colours, n01)
-							var v10 := _lattice_vertex(used, vertices, normals, colours, n10)
-							var v11 := _lattice_vertex(used, vertices, normals, colours, n11)
-							# Clockwise seen from above (Godot's front face):
-							# north-west, north-east, south-east / north-west, south-east, south-west.
-							indices.append_array(PackedInt32Array([v00, v01, v11, v00, v11, v10]))
-			if indices.is_empty():
+	var ci := job.index
+	var cj := job.index2
+	var used := {}
+	for ti: int in range(ci * tiles_per_chunk, mini((ci + 1) * tiles_per_chunk, tile_rows)):
+		for tj: int in range(cj * tiles_per_chunk, mini((cj + 1) * tiles_per_chunk, tile_cols)):
+			if tile_class[ti * tile_cols + tj] != TILE_NEAR:
 				continue
-			_add_mesh("Near_%d_%d" % [ci, cj], vertices, normals, colours, indices, _material)
+			for a: int in cells:
+				var i := ti * cells + a
+				for b: int in cells:
+					var j := tj * cells + b
+					var n00 := i * cols + j
+					var n01 := n00 + 1
+					var n10 := n00 + cols
+					var n11 := n10 + 1
+					job.count("near_cells")
+					if reach[n00] == 1 or reach[n01] == 1 or reach[n10] == 1 or reach[n11] == 1:
+						job.count("near_cells_dropped")
+						continue
+					var v00 := _lattice_vertex(job, used, n00)
+					var v01 := _lattice_vertex(job, used, n01)
+					var v10 := _lattice_vertex(job, used, n10)
+					var v11 := _lattice_vertex(job, used, n11)
+					# Clockwise seen from above (Godot's front face):
+					# north-west, north-east, south-east / north-west, south-east, south-west.
+					job.indices.append_array(PackedInt32Array([v00, v01, v11, v00, v11, v10]))
 
 
-## A lattice node's vertex in a chunk's arrays, appended on first use.
-func _lattice_vertex(used: Dictionary, vertices: PackedVector3Array, normals: PackedVector3Array, colours: PackedColorArray, node: int) -> int:
+## A lattice node's vertex in a job's arrays, appended on first use.
+func _lattice_vertex(job: MeshJob, used: Dictionary, node: int) -> int:
 	if used.has(node):
 		return used[node]
 	var i := node / cols
 	var j := node % cols
-	var index := vertices.size()
-	vertices.append(Vector3(x0 + j * step, heights[node], z0 + i * step))
-	normals.append(_lattice_normal(i, j))
-	colours.append(node_colours[node])
-	_count_element(_form_element(form[node]))
+	var index := job.vertices.size()
+	job.vertices.append(Vector3(x0 + j * step, heights[node], z0 + i * step))
+	job.normals.append(_lattice_normal(i, j))
+	job.colours.append(node_colours[node])
+	job.element(_form_element(form[node]))
 	used[node] = index
 	return index
 
@@ -1152,27 +1305,18 @@ func _lattice_normal(i: int, j: int) -> Vector3:
 	return Vector3(-sx, 1.0, -sz).normalized()
 
 
-## The mid band (one quad per mid tile at the tile corners) and the far
-## band (one quad per far block), with skirts on every edge that meets a
-## finer neighbour.
-func _build_mid_and_far() -> void:
+## The mid band (one quad per mid tile at the tile corners) with skirts on
+## every edge that meets a finer neighbour; one job (was the first half of
+## _build_mid_and_far, LOADING-1: the same tiles in the same order).
+func _mid_job(job: MeshJob) -> void:
 	var cells := int(TILE_M / step)
-	var per_block := int(BLOCK_M / TILE_M)
-	var vertices := PackedVector3Array()
-	var normals := PackedVector3Array()
-	var colours := PackedColorArray()
-	var indices := PackedInt32Array()
-	var far_vertices := PackedVector3Array()
-	var far_normals := PackedVector3Array()
-	var far_colours := PackedColorArray()
-	var far_indices := PackedInt32Array()
 	for ti: int in tile_rows:
 		for tj: int in tile_cols:
 			var t := ti * tile_cols + tj
 			if tile_class[t] != TILE_MID:
 				continue
 			var corners := [Vector2i(ti * cells, tj * cells), Vector2i(ti * cells, (tj + 1) * cells), Vector2i((ti + 1) * cells, (tj + 1) * cells), Vector2i((ti + 1) * cells, tj * cells)]
-			_quad(vertices, normals, colours, indices, corners, false)
+			_quad(job, corners, false)
 			# Skirts where a neighbour is near (finer).
 			for side: int in 4:
 				var ni: int = ti + [-1, 0, 1, 0][side]
@@ -1180,7 +1324,15 @@ func _build_mid_and_far() -> void:
 				if ni < 0 or ni >= tile_rows or nj < 0 or nj >= tile_cols:
 					continue
 				if tile_class[ni * tile_cols + nj] == TILE_NEAR:
-					_skirt(vertices, normals, colours, indices, corners[side], corners[(side + 1) % 4], false)
+					_skirt(job, corners[side], corners[(side + 1) % 4], false)
+
+
+## The far band (one quad per far block) with skirts on every edge that
+## meets a finer neighbour; one job (was the second half of
+## _build_mid_and_far).
+func _far_job(job: MeshJob) -> void:
+	var cells := int(TILE_M / step)
+	var per_block := int(BLOCK_M / TILE_M)
 	for bi: int in tile_rows / per_block:
 		for bj: int in tile_cols / per_block:
 			if tile_class[(bi * per_block) * tile_cols + bj * per_block] != TILE_FAR:
@@ -1190,40 +1342,36 @@ func _build_mid_and_far() -> void:
 			var i_hi := mini((bi + 1) * per_block * cells, rows - 1)
 			var j_hi := mini((bj + 1) * per_block * cells, cols - 1)
 			var corners := [Vector2i(i_lo, j_lo), Vector2i(i_lo, j_hi), Vector2i(i_hi, j_hi), Vector2i(i_hi, j_lo)]
-			_quad(far_vertices, far_normals, far_colours, far_indices, corners, true)
+			_quad(job, corners, true)
 			for side: int in 4:
 				var nbi: int = bi + [-1, 0, 1, 0][side]
 				var nbj: int = bj + [0, 1, 0, -1][side]
 				if nbi < 0 or nbi >= tile_rows / per_block or nbj < 0 or nbj >= tile_cols / per_block:
 					continue
 				if tile_class[(nbi * per_block) * tile_cols + nbj * per_block] != TILE_FAR:
-					_skirt(far_vertices, far_normals, far_colours, far_indices, corners[side], corners[(side + 1) % 4], true)
-	if not indices.is_empty():
-		_add_mesh("Mid", vertices, normals, colours, indices, _material)
-	if not far_indices.is_empty():
-		_add_mesh("Far", far_vertices, far_normals, far_colours, far_indices, _material)
+					_skirt(job, corners[side], corners[(side + 1) % 4], true)
 
 
 ## One quad over four lattice nodes (row, col), clockwise from above.
-func _quad(vertices: PackedVector3Array, normals: PackedVector3Array, colours: PackedColorArray, indices: PackedInt32Array, corners: Array, far: bool) -> void:
-	var base := vertices.size()
+func _quad(job: MeshJob, corners: Array, far: bool) -> void:
+	var base := job.vertices.size()
 	for corner: Vector2i in corners:
 		var node := corner.x * cols + corner.y
-		vertices.append(Vector3(x0 + corner.y * step, heights[node], z0 + corner.x * step))
-		normals.append(_lattice_normal(corner.x, corner.y))
+		job.vertices.append(Vector3(x0 + corner.y * step, heights[node], z0 + corner.x * step))
+		job.normals.append(_lattice_normal(corner.x, corner.y))
 		if far:
-			colours.append(_tint_of("T9", Color(0.32, 0.37, 0.42)))
-			_count_element("T9")
+			job.colours.append(_tint_of("T9", Color(0.32, 0.37, 0.42)))
+			job.element("T9")
 		else:
-			colours.append(_node_colour(node))
-			_count_element(_form_element(form[node]))
-	indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
+			job.colours.append(_node_colour(node))
+			job.element(_form_element(form[node]))
+	job.indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
 
 
 ## A vertical skirt under the edge from node a to node b, SKIRT_M down,
 ## both faces (the material does not cull).
-func _skirt(vertices: PackedVector3Array, normals: PackedVector3Array, colours: PackedColorArray, indices: PackedInt32Array, a: Vector2i, b: Vector2i, far: bool) -> void:
-	var base := vertices.size()
+func _skirt(job: MeshJob, a: Vector2i, b: Vector2i, far: bool) -> void:
+	var base := job.vertices.size()
 	var na := a.x * cols + a.y
 	var nb := b.x * cols + b.y
 	var top_a := Vector3(x0 + a.y * step, heights[na], z0 + a.x * step)
@@ -1233,59 +1381,62 @@ func _skirt(vertices: PackedVector3Array, normals: PackedVector3Array, colours: 
 	var along := (top_b - top_a).normalized()
 	var normal := along.cross(Vector3.UP)
 	for v: Vector3 in [top_a, top_b, top_b - Vector3(0.0, SKIRT_M, 0.0), top_a - Vector3(0.0, SKIRT_M, 0.0)]:
-		vertices.append(v)
-		normals.append(normal)
-	colours.append_array(PackedColorArray([colour_a, colour_b, colour_b, colour_a]))
-	indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
-	counts.skirts += 1
+		job.vertices.append(v)
+		job.normals.append(normal)
+	job.colours.append_array(PackedColorArray([colour_a, colour_b, colour_b, colour_a]))
+	job.indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
+	job.count("skirts")
 
 
-## The platform band: one strip per covered road (see the header).
-func _build_strips() -> void:
+## The platform band: one strip per covered road (see the header); one
+## job per ribbon (was the loop over the ribbons here, LOADING-1).
+func _strip_job(job: MeshJob) -> void:
 	var blend := WorldRoadProfile.BLEND_BAND_M
-	for ribbon: Ribbon in ribbons:
-		var chainages := _strip_chainages(ribbon)
-		var hw := ribbon.half_width
-		var offsets := PackedFloat64Array([-(hw + blend + APRON_M), -(hw + blend), -hw, hw, hw + blend, hw + blend + APRON_M])
-		var undercut := PackedFloat64Array([APRON_UNDERCUT_M, BLEND_UNDERCUT_M, 0.0, 0.0, BLEND_UNDERCUT_M, APRON_UNDERCUT_M])
-		var across := offsets.size()
-		var vertices := PackedVector3Array()
-		var colours := PackedColorArray()
-		vertices.resize(chainages.size() * across)
-		colours.resize(chainages.size() * across)
-		var cursor := 0
-		for k: int in chainages.size():
-			var s := chainages[k]
-			while cursor < ribbon.xs.size() - 2 and ribbon.chain[cursor + 1] <= s + SAME_CHAINAGE_M:
-				cursor += 1
-			var frame := _frame(ribbon, s, cursor)
-			for i: int in across:
-				var vertex := Vector3(frame[0] + frame[2] * offsets[i], 0.0, frame[1] + frame[3] * offsets[i])
-				vertex.y = profile.elevation_height(vertex.x, vertex.z) - undercut[i]
-				vertices[k * across + i] = vertex
-				colours[k * across + i] = _colour_at(vertex.x, vertex.z)
-			_count_element(_form_element(form[_node_at(frame[0], frame[1])]))
-		var indices := PackedInt32Array()
-		indices.resize((chainages.size() - 1) * (across - 1) * 6)
-		var next := 0
-		for k: int in chainages.size() - 1:
-			for i: int in across - 1:
-				var a := k * across + i
-				var b := (k + 1) * across + i
-				var c := (k + 1) * across + i + 1
-				var d := k * across + i + 1
-				indices[next] = a
-				indices[next + 1] = b
-				indices[next + 2] = c
-				indices[next + 3] = a
-				indices[next + 4] = c
-				indices[next + 5] = d
-				next += 6
-		var normals := _strip_normals(vertices, chainages.size(), across)
-		var mesh := _add_mesh("Band_" + ribbon.id, vertices, normals, colours, indices, _material)
-		strips[ribbon.id] = {"chainages": chainages, "offsets": offsets, "mesh": mesh, "vertices": vertices.size()}
-		counts.strips += 1
-		counts.strip_sections += chainages.size()
+	var ribbon := ribbons[job.index]
+	var chainages := _strip_chainages(ribbon)
+	var hw := ribbon.half_width
+	var offsets := PackedFloat64Array([-(hw + blend + APRON_M), -(hw + blend), -hw, hw, hw + blend, hw + blend + APRON_M])
+	var undercut := PackedFloat64Array([APRON_UNDERCUT_M, BLEND_UNDERCUT_M, 0.0, 0.0, BLEND_UNDERCUT_M, APRON_UNDERCUT_M])
+	var across := offsets.size()
+	var vertices := PackedVector3Array()
+	var colours := PackedColorArray()
+	vertices.resize(chainages.size() * across)
+	colours.resize(chainages.size() * across)
+	var cursor := 0
+	for k: int in chainages.size():
+		var s := chainages[k]
+		while cursor < ribbon.xs.size() - 2 and ribbon.chain[cursor + 1] <= s + SAME_CHAINAGE_M:
+			cursor += 1
+		var frame := _frame(ribbon, s, cursor)
+		for i: int in across:
+			var vertex := Vector3(frame[0] + frame[2] * offsets[i], 0.0, frame[1] + frame[3] * offsets[i])
+			vertex.y = profile.elevation_height(vertex.x, vertex.z) - undercut[i]
+			vertices[k * across + i] = vertex
+			colours[k * across + i] = _colour_at(vertex.x, vertex.z)
+		job.element(_form_element(form[_node_at(frame[0], frame[1])]))
+	var indices := PackedInt32Array()
+	indices.resize((chainages.size() - 1) * (across - 1) * 6)
+	var next := 0
+	for k: int in chainages.size() - 1:
+		for i: int in across - 1:
+			var a := k * across + i
+			var b := (k + 1) * across + i
+			var c := (k + 1) * across + i + 1
+			var d := k * across + i + 1
+			indices[next] = a
+			indices[next + 1] = b
+			indices[next + 2] = c
+			indices[next + 3] = a
+			indices[next + 4] = c
+			indices[next + 5] = d
+			next += 6
+	job.vertices = vertices
+	job.normals = _strip_normals(vertices, chainages.size(), across)
+	job.colours = colours
+	job.indices = indices
+	job.strip = {"chainages": chainages, "offsets": offsets, "vertices": vertices.size()}
+	job.count("strips")
+	job.count("strip_sections", chainages.size())
 
 
 ## The strip's sections: every station of the platform band's step from 0
@@ -1364,22 +1515,19 @@ func _node_at(x: float, z: float) -> int:
 
 
 ## The tint at a point: the nearest node's (the strip's vertices are
-## counted once per strip, by the nearest node's form, in _build_strips).
+## counted once per strip, by the nearest node's form, in _strip_job).
 func _colour_at(x: float, z: float) -> Color:
 	var j := clampi(roundi((x - x0) / step), 0, cols - 1)
 	var i := clampi(roundi((z - z0) / step), 0, rows - 1)
 	return node_colours[i * cols + j]
 
 
-## T8: water polygons as flat planes, river and stream ways as strips.
-func _build_water() -> void:
+## T8: water polygons as flat planes, river and stream ways as strips;
+## one job (nothing without a landcover).
+func _water_job(job: MeshJob) -> void:
 	if landcover.is_empty():
 		return
 	var water_colour := _tint_of("T8", Color(0.26, 0.33, 0.32))
-	var vertices := PackedVector3Array()
-	var normals := PackedVector3Array()
-	var colours := PackedColorArray()
-	var indices := PackedInt32Array()
 	for record: Variant in landcover.get("water", []):
 		for ring: Array in record.get("outer", []):
 			var polygon := PackedVector2Array()
@@ -1397,15 +1545,15 @@ func _build_water() -> void:
 			var triangles := Geometry2D.triangulate_polygon(polygon)
 			if triangles.is_empty():
 				continue
-			var base := vertices.size()
+			var base := job.vertices.size()
 			for point: Vector2 in polygon:
-				vertices.append(Vector3(point.x, lowest + WATER_LIFT_M, point.y))
-				normals.append(Vector3.UP)
-				colours.append(water_colour)
+				job.vertices.append(Vector3(point.x, lowest + WATER_LIFT_M, point.y))
+				job.normals.append(Vector3.UP)
+				job.colours.append(water_colour)
 			for t: int in triangles:
-				indices.append(base + t)
-			counts.water_planes += 1
-			_count_element("T8")
+				job.indices.append(base + t)
+			job.count("water_planes")
+			job.element("T8")
 	for record: Variant in landcover.get("waterways", []):
 		var half := RIVER_HALF_WIDTH_M if record.get("kind") == "river" else STREAM_HALF_WIDTH_M
 		var points: Array = record.get("points", [])
@@ -1414,19 +1562,17 @@ func _build_water() -> void:
 			if profile.covers(point[0], point[1]):
 				line.append(Vector2(point[0], point[1]))
 			elif line.size() >= 2:
-				_waterway_strip(vertices, normals, colours, indices, line, half, water_colour)
+				_waterway_strip(job, line, half, water_colour)
 				line = PackedVector2Array()
 			else:
 				line = PackedVector2Array()
 		if line.size() >= 2:
-			_waterway_strip(vertices, normals, colours, indices, line, half, water_colour)
-	if not indices.is_empty():
-		_add_mesh("Water", vertices, normals, colours, indices, _water_material)
+			_waterway_strip(job, line, half, water_colour)
 
 
 ## A thin strip along a polyline on the lattice, sections at every point
 ## and every WATERWAY_STEP_M between.
-func _waterway_strip(vertices: PackedVector3Array, normals: PackedVector3Array, colours: PackedColorArray, indices: PackedInt32Array, line: PackedVector2Array, half: float, colour: Color) -> void:
+func _waterway_strip(job: MeshJob, line: PackedVector2Array, half: float, colour: Color) -> void:
 	var sections := PackedVector2Array()
 	for k: int in range(line.size() - 1):
 		var a := line[k]
@@ -1435,7 +1581,7 @@ func _waterway_strip(vertices: PackedVector3Array, normals: PackedVector3Array, 
 		for p: int in pieces:
 			sections.append(a.lerp(b, float(p) / float(pieces)))
 	sections.append(line[line.size() - 1])
-	var base := vertices.size()
+	var base := job.vertices.size()
 	for k: int in sections.size():
 		var before := sections[maxi(k - 1, 0)]
 		var after := sections[mini(k + 1, sections.size() - 1)]
@@ -1443,100 +1589,108 @@ func _waterway_strip(vertices: PackedVector3Array, normals: PackedVector3Array, 
 		var right := Vector2(-along.y, along.x).normalized() if along.length_squared() > 0.0 else Vector2(1.0, 0.0)
 		for side: int in 2:
 			var point := sections[k] + right * (half if side == 1 else -half)
-			vertices.append(Vector3(point.x, profile.terrain_height(point.x, point.y) + WATER_LIFT_M, point.y))
-			normals.append(Vector3.UP)
-			colours.append(colour)
+			job.vertices.append(Vector3(point.x, profile.terrain_height(point.x, point.y) + WATER_LIFT_M, point.y))
+			job.normals.append(Vector3.UP)
+			job.colours.append(colour)
 	for k: int in sections.size() - 1:
 		var a := base + k * 2
-		indices.append_array(PackedInt32Array([a, a + 2, a + 3, a, a + 3, a + 1]))
-	counts.waterway_strips += 1
-	_count_element("T8")
+		job.indices.append_array(PackedInt32Array([a, a + 2, a + 3, a, a + 3, a + 1]))
+	job.count("waterway_strips")
+	job.element("T8")
 
 
-## The continuation skirt (the header): four bands of CONTINUATION_CELL_M
-## quads from the box's edge to the margin, heights the static field, T9.
-func _build_continuation() -> void:
+## The continuation skirt's four bands (the header): each band's x range
+## and z range [m] and the box edge it hangs a skirt along (the edge's
+## fixed coordinate and the edge's span), in the order they are added.
+func _continuation_bands() -> Array[Dictionary]:
 	var box := profile.coverage()
 	var margin := WorldContinuation.CONTINUATION_MARGIN_M
-	var c := CONTINUATION_CELL_M
-	var cache := {}
-	var colour := _tint_of("T9", Color(0.32, 0.37, 0.42))
-	# Each band: its x range and z range [m] and the box edge it hangs a
-	# skirt along (the edge's fixed coordinate and the edge's span).
-	var bands := [
+	return [
 		{"name": "Continuation_west", "x": [box.position.x - margin, box.position.x], "z": [box.position.y - margin, box.end.y + margin], "edge": "x", "at": box.position.x, "from": box.position.y, "to": box.end.y},
 		{"name": "Continuation_east", "x": [box.end.x, box.end.x + margin], "z": [box.position.y - margin, box.end.y + margin], "edge": "x", "at": box.end.x, "from": box.position.y, "to": box.end.y},
 		{"name": "Continuation_south", "x": [box.position.x, box.end.x], "z": [box.position.y - margin, box.position.y], "edge": "z", "at": box.position.y, "from": box.position.x, "to": box.end.x},
 		{"name": "Continuation_north", "x": [box.position.x, box.end.x], "z": [box.end.y, box.end.y + margin], "edge": "z", "at": box.end.y, "from": box.position.x, "to": box.end.x},
 	]
-	for band_spec: Dictionary in bands:
-		var nx := roundi((band_spec.x[1] - band_spec.x[0]) / c)
-		var nz := roundi((band_spec.z[1] - band_spec.z[0]) / c)
-		var across := nx + 1
-		var vertices := PackedVector3Array()
-		var normals := PackedVector3Array()
-		var colours := PackedColorArray()
-		vertices.resize((nz + 1) * across)
-		normals.resize((nz + 1) * across)
-		colours.resize((nz + 1) * across)
-		for i: int in nz + 1:
-			var z: float = band_spec.z[0] + i * c
-			for j: int in across:
-				var x: float = band_spec.x[0] + j * c
-				vertices[i * across + j] = Vector3(x, WorldContinuation.height(profile, x, z, cache), z)
-				colours[i * across + j] = colour
-		for i: int in nz + 1:
-			var i0 := maxi(i - 1, 0)
-			var i1 := mini(i + 1, nz)
-			for j: int in across:
-				var j0 := maxi(j - 1, 0)
-				var j1 := mini(j + 1, nx)
-				var sx := (vertices[i * across + j1].y - vertices[i * across + j0].y) / (float(j1 - j0) * c)
-				var sz := (vertices[i1 * across + j].y - vertices[i0 * across + j].y) / (float(i1 - i0) * c)
-				normals[i * across + j] = Vector3(-sx, 1.0, -sz).normalized()
-		var indices := PackedInt32Array()
-		indices.resize(nz * nx * 6)
-		var next := 0
-		for i: int in nz:
-			for j: int in nx:
-				var v00 := i * across + j
-				var v01 := v00 + 1
-				var v10 := v00 + across
-				var v11 := v10 + 1
-				indices[next] = v00
-				indices[next + 1] = v01
-				indices[next + 2] = v11
-				indices[next + 3] = v00
-				indices[next + 4] = v11
-				indices[next + 5] = v10
-				next += 6
-		counts.continuation_cells += nz * nx
-		# The hanging skirt along the box's edge: the band's vertices on
-		# the edge, SKIRT_M down, both faces (the material does not cull).
-		var edge_from: float = band_spec.from
-		var pieces := roundi((band_spec.to - edge_from) / c)
-		for k: int in pieces:
-			var a := Vector3.ZERO
-			var b := Vector3.ZERO
-			if band_spec.edge == "x":
-				a = Vector3(band_spec.at, 0.0, edge_from + k * c)
-				b = Vector3(band_spec.at, 0.0, edge_from + (k + 1) * c)
-			else:
-				a = Vector3(edge_from + k * c, 0.0, band_spec.at)
-				b = Vector3(edge_from + (k + 1) * c, 0.0, band_spec.at)
-			a.y = WorldContinuation.height(profile, a.x, a.z, cache)
-			b.y = WorldContinuation.height(profile, b.x, b.z, cache)
-			var base := vertices.size()
-			var along := (b - a).normalized()
-			var normal := along.cross(Vector3.UP)
-			for v: Vector3 in [a, b, b - Vector3(0.0, SKIRT_M, 0.0), a - Vector3(0.0, SKIRT_M, 0.0)]:
-				vertices.append(v)
-				normals.append(normal)
-				colours.append(colour)
-			indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
-			counts.continuation_skirts += 1
-		_count_element("T9", (nz + 1) * across)
-		_add_mesh(band_spec.name, vertices, normals, colours, indices, _material)
+
+
+## One band of the continuation skirt (the header): CONTINUATION_CELL_M
+## quads from the box's edge to the margin, heights the static field, T9;
+## one job per band (was the loop over the four here, LOADING-1).
+func _continuation_job(job: MeshJob) -> void:
+	var c := CONTINUATION_CELL_M
+	var cache := {}
+	var colour := _tint_of("T9", Color(0.32, 0.37, 0.42))
+	var band_spec: Dictionary = job.spec
+	var nx := roundi((band_spec.x[1] - band_spec.x[0]) / c)
+	var nz := roundi((band_spec.z[1] - band_spec.z[0]) / c)
+	var across := nx + 1
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var colours := PackedColorArray()
+	vertices.resize((nz + 1) * across)
+	normals.resize((nz + 1) * across)
+	colours.resize((nz + 1) * across)
+	for i: int in nz + 1:
+		var z: float = band_spec.z[0] + i * c
+		for j: int in across:
+			var x: float = band_spec.x[0] + j * c
+			vertices[i * across + j] = Vector3(x, WorldContinuation.height(profile, x, z, cache), z)
+			colours[i * across + j] = colour
+	for i: int in nz + 1:
+		var i0 := maxi(i - 1, 0)
+		var i1 := mini(i + 1, nz)
+		for j: int in across:
+			var j0 := maxi(j - 1, 0)
+			var j1 := mini(j + 1, nx)
+			var sx := (vertices[i * across + j1].y - vertices[i * across + j0].y) / (float(j1 - j0) * c)
+			var sz := (vertices[i1 * across + j].y - vertices[i0 * across + j].y) / (float(i1 - i0) * c)
+			normals[i * across + j] = Vector3(-sx, 1.0, -sz).normalized()
+	var indices := PackedInt32Array()
+	indices.resize(nz * nx * 6)
+	var next := 0
+	for i: int in nz:
+		for j: int in nx:
+			var v00 := i * across + j
+			var v01 := v00 + 1
+			var v10 := v00 + across
+			var v11 := v10 + 1
+			indices[next] = v00
+			indices[next + 1] = v01
+			indices[next + 2] = v11
+			indices[next + 3] = v00
+			indices[next + 4] = v11
+			indices[next + 5] = v10
+			next += 6
+	job.count("continuation_cells", nz * nx)
+	# The hanging skirt along the box's edge: the band's vertices on
+	# the edge, SKIRT_M down, both faces (the material does not cull).
+	var edge_from: float = band_spec.from
+	var pieces := roundi((band_spec.to - edge_from) / c)
+	for k: int in pieces:
+		var a := Vector3.ZERO
+		var b := Vector3.ZERO
+		if band_spec.edge == "x":
+			a = Vector3(band_spec.at, 0.0, edge_from + k * c)
+			b = Vector3(band_spec.at, 0.0, edge_from + (k + 1) * c)
+		else:
+			a = Vector3(edge_from + k * c, 0.0, band_spec.at)
+			b = Vector3(edge_from + (k + 1) * c, 0.0, band_spec.at)
+		a.y = WorldContinuation.height(profile, a.x, a.z, cache)
+		b.y = WorldContinuation.height(profile, b.x, b.z, cache)
+		var base := vertices.size()
+		var along := (b - a).normalized()
+		var normal := along.cross(Vector3.UP)
+		for v: Vector3 in [a, b, b - Vector3(0.0, SKIRT_M, 0.0), a - Vector3(0.0, SKIRT_M, 0.0)]:
+			vertices.append(v)
+			normals.append(normal)
+			colours.append(colour)
+		indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
+		job.count("continuation_skirts")
+	job.element("T9", (nz + 1) * across)
+	job.vertices = vertices
+	job.normals = normals
+	job.colours = colours
+	job.indices = indices
 
 
 ## One MeshInstance3D from arrays: vertices, normals, vertex colours,

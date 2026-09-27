@@ -177,6 +177,26 @@ extends Node3D
 ##     beside a lifted approach still eases into the RAW lattice, which
 ##     holds the hole, so a lip can stand at a hole's mouth off the paved
 ##     width until the terrain pass.
+##
+## THE ASYNC SEAM (LOADING-1, decisions.org C07BE6F1 "no freezing load";
+## scripts/loading.gd's header has the whole pipeline): the build is two
+## stages over the same functions the sync build runs. THE DATA STAGE is
+## pure arithmetic over the files and the profile - prepare_data() (the
+## files, the rules, the profile, the roads in CHUNK_ORDER: the drape's
+## segment order, as the loop always swept them) and sweep_road() per
+## road (the sweep, the strip's normals, UVs and collider faces) - and
+## runs on WorkerThreadPool threads under the loading scene, each road's
+## result in its own Strip, the two twist-bound counts the one shared
+## write, under _count_lock (see it). THE NODE STAGE is
+## the main thread's - apply_prepared() (the members, the car's profile,
+## the material's textures), add_strip() per strip (its mesh and body,
+## the counts) and finish_build() (the floor) - over as many frames as
+## its budget takes. build() runs the two back to back on the main thread
+## and is what _ready runs unless build_deferred says the loading scene
+## has the build: every direct instantiation (the suite's scene loads)
+## builds exactly as before, road by road in the same order with the same
+## arithmetic, so the meshes, the counts and describe() are byte-identical
+## (tests/async_build_test.gd hashes the two builds against each other).
 
 ## The road colliders' layer (bit 2) and mask (none): see the header.
 const ROAD_COLLISION_LAYER := 2
@@ -311,6 +331,22 @@ var body_count := 0
 var _material: StandardMaterial3D
 var _floor: StaticBody3D
 
+## LOADING-1 (the header's THE ASYNC SEAM): true when the loading scene
+## has claimed the build before the scene enters the tree; _ready then
+## leaves build() to the loading scene's drive. False everywhere else.
+var build_deferred := false
+
+## The twist-bound counts' lock (LOADING-1): split_count and
+## fine_split_count are incremented from inside the sweep - the frozen
+## ring drive test pins _twist_pieces incrementing fine_split_count on
+## the builder it is called on (the codex review's counterexample), so
+## the counts stay the builder's members - and the sweep runs on worker
+## threads under the loading scene, so the increments take this lock:
+## the data stage's one shared write, a sum, the same total whatever
+## order the threads add it in. The sync build takes the lock
+## uncontended (measured: milliseconds over the 122 829 splits).
+var _count_lock := Mutex.new()
+
 
 ## One road's strip: the cross-sections' chainages [m], the offsets across
 ## [m, right of travel positive] every section carries a vertex at, the
@@ -326,6 +362,12 @@ class Strip:
 	var half_width: float
 	var vertices: PackedVector3Array
 	var indices: PackedInt32Array
+	## The data stage's arrays for the nodes (LOADING-1): the normals, the
+	## UVs and the collider's faces, computed with the sweep off the main
+	## thread and released once the mesh and the body hold them.
+	var normals: PackedVector3Array
+	var uvs: PackedVector2Array
+	var faces: PackedVector3Array
 	var mesh_instance: MeshInstance3D
 	var body: StaticBody3D
 
@@ -379,7 +421,10 @@ func _ready() -> void:
 	# under it can be higher than the destination's road).
 	if car != null:
 		car.reset_performed.connect(_follow_car)
-	build()
+	# LOADING-1: the loading scene builds a claimed road itself, its data
+	# stage on worker threads before the scene ever enters the tree.
+	if not build_deferred:
+		build()
 
 
 func _physics_process(_delta: float) -> void:
@@ -392,18 +437,50 @@ func _physics_process(_delta: float) -> void:
 ## one that drives on nothing.
 func build() -> void:
 	var started := Time.get_ticks_msec()
+	# LOADING-1: the sync build is the async build's stages back to back
+	# on this thread - the same functions in the same order (was the same
+	# arithmetic inline here).
+	var prepared := prepare_data()
+	if not apply_prepared(prepared):
+		return
+	for road: Road in prepared.roads:
+		add_strip(sweep_road(road))
+	finish_build(started)
+
+
+# =============================================================================
+#  THE STAGES (LOADING-1: see the header's THE ASYNC SEAM)
+# =============================================================================
+
+## THE DATA STAGE'S FIRST STEP, a pure function of the files (no member,
+## no node: a worker thread's under the loading scene): the skeleton and
+## the drape read, the rim rule and the right of way applied, the profile
+## built and the roads to sweep in CHUNK_ORDER (the drape's covered
+## segments in file order, those with a skeleton segment and a length).
+## Empty when a file is missing or not JSON.
+static func prepare_data() -> Dictionary:
 	var skeleton: Variant = SkeletonLoader.read_file()
 	var drape: Variant = WorldRoadProfile.read_file()
 	if not skeleton is Dictionary or not drape is Dictionary:
-		push_error("RoadBuilder: the skeleton or the drape is missing or not JSON (%s, %s)" % [SkeletonLoader.PATH, WorldRoadProfile.PATH])
-		return
-	skeleton_data = skeleton
+		return {}
 	var ruled := apply_rim_rule(skeleton, drape)
-	lifts = ruled.lifts
 	var cleared := apply_right_of_way(skeleton, ruled.drape)
-	drape_data = cleared.drape
-	crossings = cleared.crossings
-	profile = WorldRoadProfile.from_data(skeleton_data, drape_data)
+	return {"skeleton": skeleton, "drape": cleared.drape, "lifts": ruled.lifts, "crossings": cleared.crossings, "profile": WorldRoadProfile.from_data(skeleton, cleared.drape), "roads": roads_of(skeleton, cleared.drape)}
+
+
+## THE NODE STAGE'S FIRST STEP (main thread): what prepare_data read into
+## the members, the profile and the reset flag into the car, the asphalt
+## material with its textures loaded. False, with the push_error, for an
+## empty prepare (a missing file): nothing built, a scene that says so.
+func apply_prepared(prepared: Dictionary) -> bool:
+	if prepared.is_empty():
+		push_error("RoadBuilder: the skeleton or the drape is missing or not JSON (%s, %s)" % [SkeletonLoader.PATH, WorldRoadProfile.PATH])
+		return false
+	skeleton_data = prepared.skeleton
+	drape_data = prepared.drape
+	lifts = prepared.lifts
+	crossings = prepared.crossings
+	profile = prepared.profile
 	if car != null:
 		car.road_profile = profile
 		# The world's R: the last pose recorded with all four wheels on the
@@ -415,22 +492,50 @@ func build() -> void:
 		# main.tscn's pad has no RoadBuilder and keeps its start-line reset.
 		car.reset_to_last_pose = true
 	_material = _asphalt_material()
-	var segments := SkeletonLoader.segments_of(skeleton_data)
-	var raw_points := _raw_points_of(skeleton_data)
-	for raw: Variant in drape_data.get("segments", []):
+	return true
+
+
+## CHUNK_ORDER: the roads the sweep takes, in the drape's segment order
+## (the strips' child order under Road since 4B-4). A pure function of
+## the parsed files.
+static func roads_of(skeleton: Dictionary, drape: Dictionary) -> Array[Road]:
+	var roads: Array[Road] = []
+	var segments := SkeletonLoader.segments_of(skeleton)
+	var raw_points := _raw_points_of(skeleton)
+	for raw: Variant in drape.get("segments", []):
 		if not raw is Dictionary or not raw.get("covered", false) or not segments.has(raw.get("id")):
 			continue
 		var road := _road_of(raw, segments[raw.id], raw_points[raw.id])
-		if road == null:
-			continue
-		var strip := _sweep(road)
-		_add_nodes(strip)
-		strips[strip.id] = strip
-		road_count += 1
-		section_count += strip.chainages.size()
-		vertex_count += strip.vertices.size()
-		triangle_count += strip.indices.size() / 3
-		body_count += 1
+		if road != null:
+			roads.append(road)
+	return roads
+
+
+## THE DATA STAGE of one road (a pure function of the road and the
+## profile; a worker thread's under the loading scene): the sweep and the
+## strip's own arrays - the normals, the UVs, the collider's faces. No
+## node; the twist-bound counts under their lock, nothing else shared.
+func sweep_road(road: Road) -> Strip:
+	var strip := _sweep(road)
+	_strip_arrays(strip)
+	return strip
+
+
+## THE NODE STAGE of one strip (main thread): its mesh and its body from
+## the arrays, the strip on the list, the counts.
+func add_strip(strip: Strip) -> void:
+	_add_nodes(strip)
+	strips[strip.id] = strip
+	road_count += 1
+	section_count += strip.chainages.size()
+	vertex_count += strip.vertices.size()
+	triangle_count += strip.indices.size() / 3
+	body_count += 1
+
+
+## THE NODE STAGE'S LAST STEP (main thread): the floor and the wall time
+## from `started` (Time.get_ticks_msec at the build's start).
+func finish_build(started: int) -> void:
 	_add_floor()
 	build_ms = Time.get_ticks_msec() - started
 
@@ -453,7 +558,7 @@ func describe() -> String:
 ## The road from its drape record, its skeleton segment and its raw
 ## points; null when the record is not one the profile would hold (the
 ## profile refuses the same: a missing height, a misaligned crossfall).
-func _road_of(raw: Dictionary, segment: SkeletonLoader.Segment, points: Array) -> Road:
+static func _road_of(raw: Dictionary, segment: SkeletonLoader.Segment, points: Array) -> Road:
 	var road := Road.new()
 	road.id = segment.id
 	road.xs = PackedFloat64Array()
@@ -502,7 +607,7 @@ func _road_of(raw: Dictionary, segment: SkeletonLoader.Segment, points: Array) -
 
 
 ## The skeleton's points as 64-bit pairs by segment id.
-func _raw_points_of(skeleton: Dictionary) -> Dictionary:
+static func _raw_points_of(skeleton: Dictionary) -> Dictionary:
 	var found := {}
 	for raw: Variant in skeleton.get("segments", []):
 		if raw is Dictionary and raw.get("id") is String and raw.get("points") is Array:
@@ -585,6 +690,7 @@ func _section_chainages(road: Road) -> PackedFloat64Array:
 	var out := PackedFloat64Array()
 	var cursor := 0
 	var previous_e := road.crossfall[0]
+	var added := 0
 	for s: float in breakpoints:
 		if out.is_empty():
 			out.append(s)
@@ -599,9 +705,13 @@ func _section_chainages(road: Road) -> PackedFloat64Array:
 			var pieces := _twist_pieces(road, previous_e, e, previous, s)
 			for p: int in range(1, pieces):
 				out.append(previous + (s - previous) * p / pieces)
-				split_count += 1
+				added += 1
 		previous_e = e
 		out.append(s)
+	if added > 0:
+		_count_lock.lock()
+		split_count += added
+		_count_lock.unlock()
 	return out
 
 
@@ -645,7 +755,9 @@ func _twist_pieces(road: Road, e0: float, e1: float, s0: float, s1: float) -> in
 			pieces = maxi(pieces, ceili(quad_twist / (2.0 * MESH_TOLERANCE_M) - 1e-9))
 			pieces = maxi(pieces, ceili(sqrt(product / (2.0 * MESH_TOLERANCE_M)) - 1e-9))
 	if pieces > 1 and (s1 - s0) / pieces < MIN_SECTION_M:
+		_count_lock.lock()
 		fine_split_count += 1
+		_count_lock.unlock()
 	return pieces
 
 
@@ -745,11 +857,12 @@ func _chord_normal(road: Road, c: int) -> PackedFloat64Array:
 #  THE NODES
 # =============================================================================
 
-## The strip's MeshInstance3D (normals from its own neighbours, UVs the
-## asphalt contract's: u 0 at the left paved edge to 1 at the right, v the
-## chainage in TILE_ALONG_M tiles) and its StaticBody3D with the same
-## triangles as a trimesh.
-func _add_nodes(strip: Strip) -> void:
+## The strip's arrays for its nodes (the data stage, LOADING-1; was the
+## first half of _add_nodes): normals from its own neighbours, UVs the
+## asphalt contract's (u 0 at the left paved edge to 1 at the right, v the
+## chainage in TILE_ALONG_M tiles), and the collider's faces (the
+## triangles unrolled). A pure function of the strip.
+func _strip_arrays(strip: Strip) -> void:
 	var across := strip.offsets.size()
 	var sections := strip.chainages.size()
 	var normals := PackedVector3Array()
@@ -767,11 +880,24 @@ func _add_nodes(strip: Strip) -> void:
 			var normal := right.cross(along)
 			normals[k * across + i] = normal.normalized() if normal.length_squared() > 0.0 else Vector3.UP
 			uvs[k * across + i] = Vector2((strip.offsets[i] + strip.half_width) / (2.0 * strip.half_width), strip.chainages[k] / TILE_ALONG_M)
+	var faces := PackedVector3Array()
+	faces.resize(strip.indices.size())
+	for f: int in strip.indices.size():
+		faces[f] = strip.vertices[strip.indices[f]]
+	strip.normals = normals
+	strip.uvs = uvs
+	strip.faces = faces
+
+
+## The strip's MeshInstance3D and its StaticBody3D with the same
+## triangles as a trimesh, from the arrays _strip_arrays made (the node
+## stage: main thread); the arrays released once the nodes hold them.
+func _add_nodes(strip: Strip) -> void:
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = strip.vertices
-	arrays[Mesh.ARRAY_NORMAL] = normals
-	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_NORMAL] = strip.normals
+	arrays[Mesh.ARRAY_TEX_UV] = strip.uvs
 	arrays[Mesh.ARRAY_INDEX] = strip.indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -780,12 +906,8 @@ func _add_nodes(strip: Strip) -> void:
 	strip.mesh_instance.name = "Strip_" + strip.id
 	strip.mesh_instance.mesh = mesh
 	add_child(strip.mesh_instance)
-	var faces := PackedVector3Array()
-	faces.resize(strip.indices.size())
-	for f: int in strip.indices.size():
-		faces[f] = strip.vertices[strip.indices[f]]
 	var shape := ConcavePolygonShape3D.new()
-	shape.set_faces(faces)
+	shape.set_faces(strip.faces)
 	var collider := CollisionShape3D.new()
 	collider.shape = shape
 	strip.body = StaticBody3D.new()
@@ -794,6 +916,9 @@ func _add_nodes(strip: Strip) -> void:
 	strip.body.collision_mask = ROAD_COLLISION_MASK
 	strip.body.add_child(collider)
 	add_child(strip.body)
+	strip.normals = PackedVector3Array()
+	strip.uvs = PackedVector2Array()
+	strip.faces = PackedVector3Array()
 
 
 ## The floor the car meets (see the header): one level slab on the car's

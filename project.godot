@@ -17,6 +17,7 @@ config/features=PackedStringArray("4.7")
 config/icon="res://icon.svg"
 config/use_custom_user_dir=true
 config/custom_user_dir_name="factory-driver"
+use_async_build=true
 
 [autoload]
 

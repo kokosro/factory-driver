@@ -46,8 +46,10 @@ extends Node3D
 ## past DEACTIVATE_M, every physics tick, hysteresis between. The car
 ## (scripts/car.gd, frozen: a CharacterBody3D at mask 1 that reads its
 ## velocity back after move_and_slide) is stopped by an active trunk the
-## way it is carried by the road's floor slab: no car change. Built in
-## _build_colliders after the meshes, ADDITIVE: the placement, the lists,
+## way it is carried by the road's floor slab: no car change. Built by
+## the trunk jobs after the mesh jobs (was _build_colliders after
+## _build_meshes: LOADING-1's stages, the same faces in the same order),
+## ADDITIVE: the placement, the lists,
 ## the counts and the baked meshes are byte-equal to 4B-ASSETS-1's (the
 ## dressing test's accounting and determinism lines hold this); the
 ## profile reads are new reads of a pure function. counts gains trunks /
@@ -359,8 +361,48 @@ var _v2_colour: Color
 var _v1_colour: Color
 var _trunk_colour: Color
 
+## LOADING-1 (THE ASYNC SEAM below): true when the loading scene has
+## claimed the build before the scene enters the tree; _ready then leaves
+## the build to the loading scene's drive. False everywhere else.
+var build_deferred := false
+
+
+## One chunk's data stage (LOADING-1, THE ASYNC SEAM): the arrays a
+## worker fills - a pure function of the lists, disjoint from every other
+## job's - added under Forest on the main thread in CHUNK_ORDER.
+class MeshJob:
+	extends RefCounted
+	## "walls" (the chunk's cards in `members`), "trees" (the chunk's
+	## trees per archetype in `by_archetype`), "trunks" (the chunk's trees
+	## in `members`).
+	var kind: String
+	var name: String
+	var key: Vector2i
+	var members := PackedInt32Array()
+	var by_archetype := {}
+	## The mesh's surfaces in order, each {vertices, normals, uvs,
+	## colours, indices, material} - the material by its key in
+	## `materials`, resolved at the add.
+	var surfaces: Array[Dictionary] = []
+	## A trunk job's prism faces and its box (x_lo, z_lo, x_hi, z_hi).
+	var faces := PackedVector3Array()
+	var box := PackedFloat64Array()
+	var done := false
+
+	static func make(of_kind: String, called: String, at: Vector2i) -> MeshJob:
+		var job := MeshJob.new()
+		job.kind = of_kind
+		job.name = called
+		job.key = at
+		return job
+
 
 func _ready() -> void:
+	# LOADING-1: the loading scene builds a claimed forest itself, its
+	# placement and its chunk jobs on worker threads before the scene
+	# ever enters the tree.
+	if build_deferred:
+		return
 	if terrain == null or terrain.profile == null:
 		push_error("ForestWalls: no terrain builder to read the profile and the landcover from")
 		return
@@ -368,9 +410,47 @@ func _ready() -> void:
 
 
 ## Builds the walls and the trees from the profile (heights), the parsed
-## landcover and the covered roads.
+## landcover and the covered roads. LOADING-1: the async build's stages
+## back to back on this thread, the same functions in the same order (was
+## the same calls inline here).
 func build(built_profile: WorldRoadProfile, landcover_data: Dictionary, roads: Array[TerrainBuilder.Ribbon]) -> void:
 	var started := Time.get_ticks_msec()
+	prepare(built_profile, landcover_data, roads)
+	place()
+	var jobs := mesh_jobs()
+	for job: MeshJob in jobs:
+		run_job(job)
+	for job: MeshJob in jobs:
+		add_job(job)
+	finish_build(started)
+
+
+# =============================================================================
+#  THE STAGES (LOADING-1: THE ASYNC SEAM)
+# =============================================================================
+#
+# THE ASYNC SEAM (decisions.org C07BE6F1 "no freezing load";
+# scripts/loading.gd's header has the whole pipeline): prepare() on the
+# main thread (the table, the stone, the palette, the assets - load() and
+# an archetype scene instantiated to read its surfaces: the main thread's
+# by Godot's rules, 4 ms measured - the cells, the lists, the budgets),
+# then place() - the forests walked, the rows and the mapped trees placed:
+# one sequential pass over the hash and the budgets, one worker's task
+# under the loading scene - then mesh_jobs() in CHUNK_ORDER (the wall
+# chunks in the cards' first-seen order, the tree chunks in the trees',
+# the trunk chunks the same: exactly the order the one-thread build always
+# added its children in), each run_job() a pure function of the lists into
+# the job's own arrays (a worker's, disjoint from every other job's; the
+# offset-index memo is grown to every job's need before any runs, so no
+# job writes it), then add_job() per job on the main thread in the same
+# order and finish_build() (the element counts, the bubble). The sync
+# build() is the stages back to back on one thread, so a direct
+# instantiation builds the same meshes, bodies and describe() as before
+# (tests/async_build_test.gd hashes the two builds against each other).
+
+## THE FIRST STEP (main thread): the inputs, the table, the stone, the
+## palette, the assets, the cells, the lists and the budgets.
+func prepare(built_profile: WorldRoadProfile, landcover_data: Dictionary, roads: Array[TerrainBuilder.Ribbon]) -> void:
 	profile = built_profile
 	landcover = landcover_data
 	ribbons = roads
@@ -382,11 +462,123 @@ func build(built_profile: WorldRoadProfile, landcover_data: Dictionary, roads: A
 	_reset_lists()
 	for ribbon: TerrainBuilder.Ribbon in ribbons:
 		budgets[ribbon.id] = [0, 0, int(floor(ribbon.length / tree_spacing_m)) * trees_per_span]
+
+
+## THE PLACEMENT (one thread's, sequential: a worker's under the loading
+## scene): the forests walked into cards and edge trees, the tree rows,
+## the mapped trees - the lists and their counts.
+func place() -> void:
 	_walk_forests()
 	_place_tree_rows()
 	_place_mapped_trees()
-	_build_meshes()
-	_build_colliders()
+
+
+## CHUNK_ORDER: every chunk job in the order its node is added under
+## Forest - the wall chunks, the tree chunks, the trunk bodies, each set
+## in its members' first-seen order; the offset-index memo grown to the
+## largest chunk of each archetype (see _offset_indices).
+func mesh_jobs() -> Array[MeshJob]:
+	var jobs: Array[MeshJob] = []
+	var wall_chunks := {}
+	for i: int in card_x.size():
+		var key := Vector2i(floori(card_x[i] / CHUNK_M), floori(card_z[i] / CHUNK_M))
+		if not wall_chunks.has(key):
+			wall_chunks[key] = PackedInt32Array()
+		wall_chunks[key].append(i)
+	for key: Vector2i in wall_chunks:
+		var job := MeshJob.make("walls", "Walls_%d_%d" % [key.x, key.y], key)
+		job.members = wall_chunks[key]
+		jobs.append(job)
+	var tree_chunks := {}
+	var most := {}
+	for i: int in tree_x.size():
+		var key := chunk_of(i)
+		if not tree_chunks.has(key):
+			tree_chunks[key] = {}
+		var archetype_key := archetype_of(i)
+		if not tree_chunks[key].has(archetype_key):
+			tree_chunks[key][archetype_key] = PackedInt32Array()
+		tree_chunks[key][archetype_key].append(i)
+		most[archetype_key] = maxi(most.get(archetype_key, 0), tree_chunks[key][archetype_key].size())
+	for key: Vector2i in tree_chunks:
+		var job := MeshJob.make("trees", "Trees_%d_%d" % [key.x, key.y], key)
+		job.by_archetype = tree_chunks[key]
+		jobs.append(job)
+	var chunk_trees := {}
+	for i: int in tree_x.size():
+		var key := chunk_of(i)
+		if not chunk_trees.has(key):
+			chunk_trees[key] = PackedInt32Array()
+		chunk_trees[key].append(i)
+	for key: Vector2i in chunk_trees:
+		var job := MeshJob.make("trunks", "Trunks_%d_%d" % [key.x, key.y], key)
+		job.members = chunk_trees[key]
+		jobs.append(job)
+	for archetype_key: String in most:
+		var archetype: Archetype = archetypes.get(archetype_key)
+		if archetype != null:
+			_offset_indices(archetype_key + ":bark", archetype.bark_indices, archetype.bark_vertices.size(), most[archetype_key])
+			_offset_indices(archetype_key + ":foliage", archetype.foliage_indices, archetype.foliage_vertices.size(), most[archetype_key])
+	return jobs
+
+
+## THE DATA STAGE of one job (a pure function of the lists into the job's
+## own arrays; a worker's under the loading scene).
+func run_job(job: MeshJob) -> void:
+	match job.kind:
+		"walls":
+			_walls_job(job)
+		"trees":
+			_trees_job(job)
+		"trunks":
+			_trunks_job(job)
+	job.done = true
+
+
+## THE NODE STAGE of one job (main thread): a wall or tree chunk's mesh
+## with its surfaces and materials, a trunk chunk's body with its one
+## shape; the lists and the counts; the arrays released.
+func add_job(job: MeshJob) -> void:
+	match job.kind:
+		"walls", "trees":
+			var mesh := ArrayMesh.new()
+			for surface: Dictionary in job.surfaces:
+				_add_surface(mesh, surface.vertices, surface.normals, surface.uvs, surface.colours, surface.indices, materials[surface.material])
+			_add_mesh(job.name, mesh)
+		"trunks":
+			var shape := ConcavePolygonShape3D.new()
+			shape.backface_collision = true
+			shape.set_faces(job.faces)
+			var collider := CollisionShape3D.new()
+			collider.name = "Shape"
+			collider.shape = shape
+			var body := StaticBody3D.new()
+			body.name = job.name
+			body.collision_layer = PhysicsBubble.INACTIVE_LAYER
+			body.collision_mask = PhysicsBubble.BODY_MASK
+			body.add_child(collider)
+			add_child(body)
+			trunk_chunk_keys.append(job.key)
+			trunk_bodies.append(body)
+			trunk_chunk_trees[job.key] = job.members
+			trunk_boxes.append_array(job.box)
+			counts.trunks += job.members.size()
+			counts.bodies += 1
+	job.surfaces = []
+	job.faces = PackedVector3Array()
+
+
+## THE LAST STEP (main thread): the element counts (V4 the cards, V1 and
+## V2 the trees, as the mesh loops counted them), the bubble as the last
+## child fed the road's car, the wall time from `started`.
+func finish_build(started: int) -> void:
+	_count_element("V4", card_x.size())
+	_count_element("V1", counts.trees_v1)
+	_count_element("V2", counts.trees_v2)
+	bubble = PhysicsBubble.new()
+	bubble.name = "Bubble"
+	add_child(bubble)
+	bubble.attach(road.car if road != null else null, trunk_bodies, trunk_boxes)
 	build_ms = Time.get_ticks_msec() - started
 
 
@@ -929,41 +1121,44 @@ static func _bark_material(texture: Texture2D) -> StandardMaterial3D:
 #  THE MESHES
 # =============================================================================
 
-func _build_meshes() -> void:
-	var wall_chunks := {}
-	for i: int in card_x.size():
-		var key := Vector2i(floori(card_x[i] / CHUNK_M), floori(card_z[i] / CHUNK_M))
-		if not wall_chunks.has(key):
-			wall_chunks[key] = PackedInt32Array()
-		wall_chunks[key].append(i)
-	for key: Vector2i in wall_chunks:
-		var vertices := PackedVector3Array()
-		var normals := PackedVector3Array()
-		var uvs := PackedVector2Array()
-		var colours := PackedColorArray()
-		var indices := PackedInt32Array()
-		for i: int in wall_chunks[key]:
-			_card_quad(vertices, normals, uvs, colours, indices, i)
-		var mesh := ArrayMesh.new()
-		_add_surface(mesh, vertices, normals, uvs, colours, indices, materials.wall)
-		_add_mesh("Walls_%d_%d" % [key.x, key.y], mesh)
-	_count_element("V4", card_x.size())
-	var tree_chunks := {}
-	for i: int in tree_x.size():
-		var key := Vector2i(floori(tree_x[i] / CHUNK_M), floori(tree_z[i] / CHUNK_M))
-		if not tree_chunks.has(key):
-			tree_chunks[key] = {}
-		var archetype_key := archetype_of(i)
-		if not tree_chunks[key].has(archetype_key):
-			tree_chunks[key][archetype_key] = PackedInt32Array()
-		tree_chunks[key][archetype_key].append(i)
-	for key: Vector2i in tree_chunks:
-		var mesh := ArrayMesh.new()
-		for archetype_key: String in tree_chunks[key]:
-			_bake_trees(mesh, archetype_key, tree_chunks[key][archetype_key])
-		_add_mesh("Trees_%d_%d" % [key.x, key.y], mesh)
-	_count_element("V1", counts.trees_v1)
-	_count_element("V2", counts.trees_v2)
+## One wall chunk's cards as one surface (was the wall half of
+## _build_meshes, LOADING-1: the same cards in the same order).
+func _walls_job(job: MeshJob) -> void:
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var colours := PackedColorArray()
+	var indices := PackedInt32Array()
+	for i: int in job.members:
+		_card_quad(vertices, normals, uvs, colours, indices, i)
+	job.surfaces.append({"vertices": vertices, "normals": normals, "uvs": uvs, "colours": colours, "indices": indices, "material": "wall"})
+
+
+## One tree chunk's trees, two surfaces (bark, foliage) per archetype (was
+## the tree half of _build_meshes).
+func _trees_job(job: MeshJob) -> void:
+	for archetype_key: String in job.by_archetype:
+		_bake_trees(job, archetype_key, job.by_archetype[archetype_key])
+
+
+## One tree chunk's trunk prisms as one face list in tree-index order and
+## the chunk's box, the radius included (was the loop body of
+## _build_colliders).
+func _trunks_job(job: MeshJob) -> void:
+	var trees := job.members
+	var faces := PackedVector3Array()
+	faces.resize(trees.size() * TRUNK_SIDES * 6)
+	var box := [INF, INF, -INF, -INF]
+	var at := 0
+	for i: int in trees:
+		at = _write_trunk(faces, at, i)
+		var r := trunk_radius(i)
+		box[0] = minf(box[0], tree_x[i] - r)
+		box[1] = minf(box[1], tree_z[i] - r)
+		box[2] = maxf(box[2], tree_x[i] + r)
+		box[3] = maxf(box[3], tree_z[i] + r)
+	job.faces = faces
+	job.box = PackedFloat64Array(box)
 
 
 ## The archetype tree `i` wears: V2 the spruce, V1 the beech, a V1 in a
@@ -991,10 +1186,10 @@ func tree_shade(i: int) -> float:
 	return lerpf(TREE_SHADE_MIN, 1.0, unit(tree_osm[i], "tree_shade", i))
 
 
-## Bakes the trees of one archetype into two surfaces of the chunk's mesh
+## Bakes the trees of one archetype into two surfaces of the chunk's job
 ## (bark, foliage): every tree a transformed copy of the archetype's
 ## arrays, its indices from the offset table.
-func _bake_trees(mesh: ArrayMesh, archetype_key: String, trees: PackedInt32Array) -> void:
+func _bake_trees(job: MeshJob, archetype_key: String, trees: PackedInt32Array) -> void:
 	var archetype: Archetype = archetypes.get(archetype_key)
 	if archetype == null or trees.is_empty():
 		return
@@ -1027,21 +1222,27 @@ func _bake_trees(mesh: ArrayMesh, archetype_key: String, trees: PackedInt32Array
 		foliage_colours.append_array(foliage_fill)
 	var bark_indices := _offset_indices(archetype_key + ":bark", archetype.bark_indices, archetype.bark_vertices.size(), trees.size())
 	var foliage_indices := _offset_indices(archetype_key + ":foliage", archetype.foliage_indices, archetype.foliage_vertices.size(), trees.size())
-	_add_surface(mesh, bark_vertices, bark_normals, bark_uvs, bark_colours, bark_indices, materials.bark)
-	_add_surface(mesh, foliage_vertices, foliage_normals, foliage_uvs, foliage_colours, foliage_indices, materials["foliage_" + ("V1" if tree_element[trees[0]] == "V1" else "V2")])
+	job.surfaces.append({"vertices": bark_vertices, "normals": bark_normals, "uvs": bark_uvs, "colours": bark_colours, "indices": bark_indices, "material": "bark"})
+	job.surfaces.append({"vertices": foliage_vertices, "normals": foliage_normals, "uvs": foliage_uvs, "colours": foliage_colours, "indices": foliage_indices, "material": "foliage_" + ("V1" if tree_element[trees[0]] == "V1" else "V2")})
 
 
 ## The archetype's indices repeated for `copies` trees, each copy offset by
-## the vertex count: grown once per key and sliced.
+## the vertex count: grown once per key and sliced. LOADING-1: the memo is
+## grown to the largest chunk's need by mesh_jobs() on the one thread
+## before any job runs, and written only when it grows - the jobs' reads
+## (a slice of a table nobody writes) are then safe from any thread.
 func _offset_indices(key: String, base: PackedInt32Array, vertex_count: int, copies: int) -> PackedInt32Array:
 	var table: PackedInt32Array = _index_tables.get(key, PackedInt32Array())
 	var have := table.size() / base.size() if not base.is_empty() else copies
+	var grown := false
 	while have < copies:
 		var offset := have * vertex_count
 		for index: int in base:
 			table.append(index + offset)
 		have += 1
-	_index_tables[key] = table
+		grown = true
+	if grown:
+		_index_tables[key] = table
 	return table.slice(0, copies * base.size())
 
 
@@ -1111,53 +1312,6 @@ func _add_mesh(name_of: String, mesh: ArrayMesh) -> void:
 # =============================================================================
 #  THE TRUNKS (BUBBLE-1)
 # =============================================================================
-
-## One StaticBody3D per tree chunk holding every trunk prism of the chunk
-## as one trimesh, on no layer until the bubble says; the bubble itself
-## as the last child, fed the road's car (none: every body stays off).
-func _build_colliders() -> void:
-	var chunk_trees := {}
-	for i: int in tree_x.size():
-		var key := chunk_of(i)
-		if not chunk_trees.has(key):
-			chunk_trees[key] = PackedInt32Array()
-		chunk_trees[key].append(i)
-	for key: Vector2i in chunk_trees:
-		var trees: PackedInt32Array = chunk_trees[key]
-		var faces := PackedVector3Array()
-		faces.resize(trees.size() * TRUNK_SIDES * 6)
-		var box := [INF, INF, -INF, -INF]
-		var at := 0
-		for i: int in trees:
-			at = _write_trunk(faces, at, i)
-			var r := trunk_radius(i)
-			box[0] = minf(box[0], tree_x[i] - r)
-			box[1] = minf(box[1], tree_z[i] - r)
-			box[2] = maxf(box[2], tree_x[i] + r)
-			box[3] = maxf(box[3], tree_z[i] + r)
-		var shape := ConcavePolygonShape3D.new()
-		shape.backface_collision = true
-		shape.set_faces(faces)
-		var collider := CollisionShape3D.new()
-		collider.name = "Shape"
-		collider.shape = shape
-		var body := StaticBody3D.new()
-		body.name = "Trunks_%d_%d" % [key.x, key.y]
-		body.collision_layer = PhysicsBubble.INACTIVE_LAYER
-		body.collision_mask = PhysicsBubble.BODY_MASK
-		body.add_child(collider)
-		add_child(body)
-		trunk_chunk_keys.append(key)
-		trunk_bodies.append(body)
-		trunk_chunk_trees[key] = trees
-		trunk_boxes.append_array(PackedFloat64Array(box))
-		counts.trunks += trees.size()
-		counts.bodies += 1
-	bubble = PhysicsBubble.new()
-	bubble.name = "Bubble"
-	add_child(bubble)
-	bubble.attach(road.car if road != null else null, trunk_bodies, trunk_boxes)
-
 
 ## The chunk tree `i` stands in (the same key its mesh chunk uses).
 func chunk_of(i: int) -> Vector2i:

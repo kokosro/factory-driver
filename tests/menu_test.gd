@@ -120,6 +120,13 @@ var _tmp_dir := ""
 
 
 func _initialize() -> void:
+	# LOADING-1: the Ring row's route pinned to the synchronous build for
+	# this test (the Conductor's grant, 2026-09-27): the game's default
+	# routes the row through the loading scene, whose async build no
+	# three-frame check can see finished; the sync path is what the row
+	# check below has always asserted. The one additive check in
+	# _check_routes sets the game default for itself and restores this.
+	ProjectSettings.set_setting(LoadingScreen.SETTING, false)
 	_run.call_deferred()
 
 
@@ -344,6 +351,33 @@ func _check_routes() -> void:
 	unload_current_scene()
 	await _step(2)
 	_check(current_scene == null and not is_instance_valid(ring) and _main.is_inside_tree() and is_instance_valid(_car) and _car.is_inside_tree(), "the Ring unloaded again (no current scene), this scene and its car still here")
+	# LOADING-1 (the Conductor's grant, 2026-09-27; decisions.org C07BE6F1,
+	# no freezing load): with the setting at its GAME default the same row
+	# lands on the loading scene first - the current scene is
+	# scenes/loading.tscn while the build runs, reporting its progress - and
+	# on the Ring, built, once it hands over (was -> the Ring direct, the
+	# check above, which the pin in _initialize keeps on the sync path).
+	# Set for this check alone and restored after; a light check, not an
+	# async drive (tests/async_build_test.gd holds the pipeline itself).
+	ProjectSettings.set_setting(LoadingScreen.SETTING, true)
+	_garage.open()
+	var row_closed := _garage.activate_row(1) and not _garage.is_open
+	await _step(3)
+	var loading := current_scene as LoadingScreen
+	var landed_loading: bool = loading != null and loading.scene_file_path == LoadingScreen.SCENE and not loading.done and loading.step_name != "" and loading.progress >= 0.0 and loading.progress < 1.0 and loading.fallback_reason == ""
+	var reported := "%s: %s at %d %%" % [loading.scene_file_path, loading.step_name.replace("\n", " / "), int(loading.progress * 100.0)] if loading != null else "no loading scene"
+	if loading != null:
+		var gave_up := Time.get_ticks_msec() + 180000
+		while is_instance_valid(loading) and not loading.done and Time.get_ticks_msec() < gave_up:
+			await process_frame
+	await _step(2)
+	var async_ring := current_scene
+	var async_road := async_ring.get_node_or_null("Road") if async_ring else null
+	var async_car := async_ring.get_node_or_null("Car") if async_ring else null
+	_check(row_closed and landed_loading and async_ring != null and async_ring.scene_file_path == RING_SCENE and async_road is RoadBuilder and async_road.road_count > 0 and async_car is ArcadeCar and async_car.road_profile is WorldRoadProfile and async_car.road_profile == async_road.profile and _main.is_inside_tree(), "with %s at the game's default the Ring row lands on the loading scene first (%s), then the Ring once it hands over: the current scene %s, its road built (%d roads), its car on the road's WorldRoadProfile (LOADING-1; was -> the Ring direct)" % [LoadingScreen.SETTING, reported, async_ring.scene_file_path if async_ring else "none", async_road.road_count if async_road else 0])
+	unload_current_scene()
+	await _step(2)
+	ProjectSettings.set_setting(LoadingScreen.SETTING, false)
 	# The world map row (4B-6): the pad's own layer opens, not forced;
 	# Esc closes it and does not open the garage on the same press.
 	_garage.open()

@@ -395,11 +395,20 @@ func _build_drive_page() -> void:
 ## parked stays with queued item 3S).
 ## was a push_error, "changing scenes is not built yet" -> the change
 ## (4B-4, the Conductor's ruling: change_scene_to_file, the car
-## re-instanced fresh).
+## re-instanced fresh) -> the Ring through the loading scene (LOADING-1,
+## decisions.org C07BE6F1 "no freezing load": scripts/loading.gd builds
+## it on worker threads behind a live progress bar and hands over; was
+## the direct change, ~17 s of held window under the macOS loading
+## bubble). The pad stays direct (its build is trivial), and with the
+## setting application/use_async_build off every map is direct as before
+## (the suite's menu test pins it off; LoadingScreen.routes decides).
 func _free_drive(map: Dictionary) -> void:
 	close()
 	var scene_root := get_parent()
 	if scene_root != null and scene_root.scene_file_path == map.scene:
+		return
+	if LoadingScreen.routes(map.scene):
+		LoadingScreen.go(get_tree(), map.scene)
 		return
 	get_tree().change_scene_to_file(map.scene)
 
