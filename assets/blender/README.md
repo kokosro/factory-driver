@@ -66,7 +66,7 @@ grid divides the tile; the wheel ruts are a function of u alone.
 | `assets/textures/road/road_asphalt_1024_roughness.png` | 556 051 | 1024², roughness in R (= G = B), 0.84 body, ~0.6 in the ruts |
 | `assets/textures/road/road_asphalt_1024_normal.png` | 968 442 | 1024², OpenGL / Godot +Y tangent-space normal, shallow |
 | `assets/textures/vegetation/bark_256.png` | 57 346 | 256², opaque, tileable both ways |
-| `assets/textures/vegetation/foliage_wall_512.png` | 191 100 | 512², alpha, tileable in u; the V4 wall card |
+| `assets/textures/vegetation/foliage_wall_512.png` | 246 179 | 512², alpha, tileable in u; the V4 wall card (FOREST-2; was 191 100) |
 | `assets/textures/vegetation/foliage_spruce_512.png` | 233 484 | 512², alpha atlas: side card (left half), two whorls (right quadrants) |
 | `assets/textures/vegetation/foliage_beech_512.png` | 293 184 | 512², alpha atlas: crown card (left half), leaf fill (right half) |
 | `assets/meshes/tree_spruce.glb` | 6 984 | V2: 106 triangles, 121 vertices, 20 m |
@@ -121,10 +121,31 @@ table's business. Godot reads v downwards: a card's top is v 0 there and v 1 in
 Blender; the glTF exporter flips v for the meshes, and `forest_walls.gd` maps the
 wall card's top to v 0 by hand.
 
-* `foliage_wall_512.png` - the V4 forest-wall card: an opaque canopy body with tree
-  columns and three waved canopy tiers (darker undersides), the spruce tops a jagged
-  alpha skyline in the upper third, holes of sky just under it. A card offsets u by
-  its hash and mirrors by another, so neighbours show different skylines.
+* `foliage_wall_512.png` - the V4 forest-wall card, re-authored in FOREST-2 for a
+  see-through forest edge (the driver: the cards read "like a green wall, covering
+  the whole tree forest"). Was -> an opaque canopy body with tree columns and three
+  waved canopy tiers, a jagged alpha skyline in the upper third and small holes just
+  under it: measured, opaque over 0.764 of the tile, the bottom 291 rows solid, the
+  skyline within 0.14-0.29 of the height (std 0.032) and not one column gap - a
+  hedge. Now a row of 16 individual spruce columns (`WALL_COLUMNS`: centre,
+  half-width, tip, crown length, crown base, tier phase, shade) of varied height and
+  width, each a cone widening under its tip with drooping, waved tier fringes and a
+  ragged edge; a jagged skyline with deep notches (the first opaque row per column
+  0.05-0.89 of the height, std 0.166); daylight between the tips running down to
+  where the neighbours' crowns meet, and to the crown bases where a short column
+  stands between tall ones (22 column gaps carry sky below 60 % of the height, 17
+  below 75 %); holes of sky through the crowns' outer parts (never the trunk side);
+  dark trunks up the gaps; a solid undergrowth band at the foot (the bottom 54 rows
+  opaque for every column). The thinning band u 0.70-0.86 (`WALL_THIN_BAND`) is three
+  short, narrow columns set apart - opaque over 0.371 against 0.652 elsewhere - the
+  slice `forest_walls.gd` cuts a feathered wall end from (`FEATHER_U_BAND`, the same
+  band by hand). Opaque over 0.607 of the tile, mean grey 0.569 where opaque (was
+  0.624; the tints multiply it), no tip over `WALL_TIP_MAX` 0.95 so the top rows are
+  sky (the dressing test's pin). A card shows a hashed 0.14-0.30 slice of u and its
+  layer's v-window (`forest_walls.gd`, the card recipe), so neighbours differ in their
+  trees, not only in their phase. The regeneration left `bark_256.png`,
+  `foliage_spruce_512.png` and `foliage_beech_512.png` byte-identical (sha256
+  febdc695…, db13604f…, f4a2074a… before and after).
 * `foliage_spruce_512.png` - LEFT HALF (u 0..0.5, the full height) the spruce side
   card: a tapering silhouette of ten drooping tiers with ragged tips, gaps above the
   fringes here and there, the trunk dark up the middle; RIGHT-TOP quadrant the

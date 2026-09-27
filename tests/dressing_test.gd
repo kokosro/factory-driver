@@ -31,8 +31,8 @@ extends SceneTree
 ## prisms, on no layer until the PhysicsBubble child switches it onto the
 ## car's - and nothing else: no Area3D, no shape on a card, a crown or a
 ## chunk mesh, every other child a MeshInstance3D. THE TRUNK ACCOUNTING:
-## the bodies are the tree chunks, one each (42), the prisms 19 339 (one
-## per tree, none for a card), every tree's 36 face vertices in its
+## the bodies are the tree chunks, one each (42), the prisms one per
+## tree, none for a card (19 379 since FOREST-2; was 19 339), every tree's 36 face vertices in its
 ## chunk's shape at the tree's slot on its own cylinder (the axis at the
 ## tree's point, the radius the archetype's measured trunk × the tree's
 ## scale, the foot and the crown base the rows) and inside the body's
@@ -46,11 +46,23 @@ extends SceneTree
 ## at a sample of tiles' nearest nodes within half a lattice step's
 ## diagonal; the platform strips stand at every 2 m station and every
 ## skeleton point with no gap over 2 m, their offsets the paved edge, the
-## blend band's end and the apron. THE WALLS: every one of the ~79 000 V4
-## cards is within 60 m of a covered road on the builder's own distance,
-## and a sample every 400th card is within 60 m by brute force over every
-## chord; every card's polygon is a forest of the landcover; no edge-
-## sampled tree stands beyond the 60 m. THE CEILING: per road and side the
+## blend band's end and the apron. THE WALLS: every one of the ~63 000 V4
+## cards (FOREST-2; was ~79 000: a fifth of the slots are gaps) is within
+## 60 m of a covered road on the builder's own distance, and a sample
+## every 400th card is within 60 m by brute force over every chord; every
+## card's polygon is a forest of the landcover; no edge-sampled tree
+## stands beyond the 60 m. THE CARD RECIPE (FOREST-2; the driver's three
+## demands): the gapped slots' share of the slots within GAP_TOLERANCE of
+## the builder's CARD_GAP_RATE; every feathered card's taper in
+## [FEATHER_END_MIN, 1] and every terminal card's slice inside the
+## texture's thinning band; every card's u slice its width's share of the
+## 0.14-0.30 window and its v top inside its layer's band (the front's
+## at most 0.05: never a cut through canopy); the edge trees' inset,
+## jitter and scatter the demand's; the wall texture reads as many trees
+## - its skyline's first opaque row varies over u (std over 0.1 of the
+## height; was 0.032), column gaps carry sky below 60 % of the height
+## (was none), the thinning band is sparser than the rest, the bottom 8
+## rows solid. THE CEILING: per road and side the
 ## trees charged to it are at most floor(length / 8 m), recounted from the
 ## tree list; at 10 points along the Nordschleife (every ninth loop
 ## segment's first point) the trees within 500 m are under the §5 ceiling
@@ -132,6 +144,18 @@ const DISTANCE_TOLERANCE_M := 7.1
 ## cards for the brute-force 60 m.
 const TILE_SAMPLE_STRIDE := 401
 const CARD_SAMPLE_STRIDE := 400
+## FOREST-2, the card recipe: the gapped slots' share may sit this far
+## from the builder's rate (a hash is not a coin, but a fair one: ~30 000
+## slots put the binomial's own spread at 0.3 %); the wall texture's
+## skyline std over u at least this share of the height, at least this
+## many column gaps reaching below this share of the height, the thinning
+## band sparser than the rest by this margin, this many solid foot rows.
+const GAP_TOLERANCE := 0.02
+const WALL_SKYLINE_STD_MIN := 0.1
+const WALL_GAPS_MIN := 8
+const WALL_GAP_DEPTH := 0.6
+const WALL_BAND_MARGIN := 0.1
+const WALL_FOOT_ROWS := 8
 
 ## The forest rule and the ceilings (ring-region-decisions.md §5).
 const WALL_WITHIN_M := 60.0
@@ -788,6 +812,45 @@ func _check_strips(terrain: TerrainBuilder) -> void:
 #  THE WALLS AND THE TREES
 # =============================================================================
 
+## FOREST-2, the card recipe: the gaps' share, the feather tapers and
+## their slices, every card's texture window, the edge trees' constants.
+func _check_recipe(forest: ForestWalls) -> void:
+	var cards := forest.card_x.size()
+	var slots: int = forest.counts.slots
+	var gap_share := float(forest.counts.cards_skipped_gap) / float(maxi(1, slots))
+	var band: Vector2 = ForestWalls.FEATHER_U_BAND
+	var windows_ok := true
+	var tapers_ok := true
+	var feathered := 0
+	var terminal := 0
+	var front_top := 0.0
+	for i: int in cards:
+		var w: float = forest.card_width[i]
+		var taper: float = forest.card_taper[i]
+		var u0: float = forest.card_u0[i]
+		var span: float = forest.card_u_span[i]
+		var v0: float = forest.card_v0[i]
+		var v_band: Array = ForestWalls.CARD_V_TOP[mini(forest.card_layer[i], ForestWalls.CARD_V_TOP.size() - 1)]
+		windows_ok = windows_ok and v0 >= float(v_band[0]) - 1e-6 and v0 <= float(v_band[1]) + 1e-6
+		if forest.card_layer[i] == 0:
+			front_top = maxf(front_top, v0)
+		tapers_ok = tapers_ok and taper >= ForestWalls.FEATHER_END_MIN - 1e-6 and taper <= 1.0
+		if taper < 1.0:
+			feathered += 1
+		if taper <= ForestWalls.FEATHER_END_MAX + 1e-6:
+			# The terminal slot: its slice inside the thinning band.
+			terminal += 1
+			windows_ok = windows_ok and u0 >= band.x - 1e-6 and u0 + span <= band.y + 1e-6 and span > 0.0
+		else:
+			var span_lo := (ForestWalls.CARD_U_WINDOW - ForestWalls.CARD_U_WINDOW_JITTER * 0.5) * w / ForestWalls.CARD_WIDTH_M
+			var span_hi := (ForestWalls.CARD_U_WINDOW + ForestWalls.CARD_U_WINDOW_JITTER * 0.5) * w / ForestWalls.CARD_WIDTH_M
+			windows_ok = windows_ok and span >= span_lo - 1e-5 and span <= span_hi + 1e-5 and u0 >= 0.0 and u0 < 1.0
+	_ok(slots > 0 and absf(gap_share - ForestWalls.CARD_GAP_RATE) <= GAP_TOLERANCE and forest.counts.cards + forest.counts.cards_skipped_far + forest.counts.cards_skipped_gap * forest.layers == slots * forest.layers, "the wall's gaps (FOREST-2): %d of the %d slots draw no card in any layer - %.1f %%, within %.0f %% of the builder's %.0f %% (the demand's 15-25 %%); the slots' cards account exactly: %d built + %d beyond the 60 m + %d x %d gapped" % [forest.counts.cards_skipped_gap, slots, 100.0 * gap_share, 100.0 * GAP_TOLERANCE, 100.0 * ForestWalls.CARD_GAP_RATE, forest.counts.cards, forest.counts.cards_skipped_far, forest.counts.cards_skipped_gap, forest.layers], "gap share %.4f of %d slots; cards %d far %d gap %d layers %d" % [gap_share, slots, forest.counts.cards, forest.counts.cards_skipped_far, forest.counts.cards_skipped_gap, forest.layers])
+	_ok(feathered == forest.counts.cards_feathered and feathered > 0 and terminal > 0 and terminal < feathered and tapers_ok, "the wall's feathered ends (FOREST-2): %d cards taper where a layer's run ends (the slot before one the 60 m rule refuses or an edge skipped as far, the ring's edges one closed sequence, a gap no end) - %d terminal cards at [%.1f, %.1f] of their stone height and wearing the texture's thinning band u %.2f-%.2f, the slot before at the ramp's midpoint; every taper in [%.1f, 1]" % [feathered, terminal, ForestWalls.FEATHER_END_MIN, ForestWalls.FEATHER_END_MAX, band.x, band.y, ForestWalls.FEATHER_END_MIN], "feathered %d of %d counted, terminal %d, tapers ok %s" % [feathered, forest.counts.cards_feathered, terminal, tapers_ok])
+	_ok(windows_ok and front_top <= float(ForestWalls.CARD_V_TOP[0][1]) + 1e-6, "every card's texture window is legal (FOREST-2): its u slice %.2f-%.2f of the texture for an 8 m card, by its width (a terminal card's inside the band), its v top in its layer's band - the front at most %.2f (the highest built %.3f: no straight cut through canopy; was -> the full u wrap, v 0..1 on every card), the middle %.2f-%.2f, the back %.2f-%.2f - the foot always the texture's solid foot" % [ForestWalls.CARD_U_WINDOW - ForestWalls.CARD_U_WINDOW_JITTER * 0.5, ForestWalls.CARD_U_WINDOW + ForestWalls.CARD_U_WINDOW_JITTER * 0.5, ForestWalls.CARD_V_TOP[0][1], front_top, ForestWalls.CARD_V_TOP[1][0], ForestWalls.CARD_V_TOP[1][1], ForestWalls.CARD_V_TOP[2][0], ForestWalls.CARD_V_TOP[2][1]], "windows ok %s, front top %.3f" % [windows_ok, front_top])
+	_ok(ForestWalls.TREE_INSET_M >= 0.5 and ForestWalls.TREE_INSET_M <= 1.0 and ForestWalls.TREE_JITTER >= 0.4 and ForestWalls.TREE_SCATTER_M > 0.0, "the edge trees stand %.2f m into the forest (the demand's 0.5-1 m: at the card line; was 1.5), jittered +- %.0f %% of their gap along the edge (was +- 25 %%) and scattered +- %.1f m across it (new), through the mixed hash (a row was the hash's trailing-index weakness as much as the recipe: measured in the builder's THE HASH)" % [ForestWalls.TREE_INSET_M, 100.0 * ForestWalls.TREE_JITTER, ForestWalls.TREE_SCATTER_M])
+
+
 func _check_walls(terrain: TerrainBuilder, forest: ForestWalls, landcover: Dictionary) -> void:
 	_ok(forest.wall_within_m == WALL_WITHIN_M and forest.layers == 3 and forest.wall_height_m == [12.0, 18.0] and forest.trees_within_m == WALL_WITHIN_M, "the builder's forest rule is the catalogue's: walls within %.0f m, %d layers, %.0f-%.0f m; trees within %.0f m" % [forest.wall_within_m, forest.layers, forest.wall_height_m[0], forest.wall_height_m[1], forest.trees_within_m])
 	var cards := forest.card_x.size()
@@ -801,7 +864,8 @@ func _check_walls(terrain: TerrainBuilder, forest: ForestWalls, landcover: Dicti
 		heights_ok = heights_ok and forest.card_height[i] >= 12.0 and forest.card_height[i] <= 18.0
 		layers_seen[forest.card_layer[i]] = true
 	_ok(all_within and cards > 10000, "every one of the %d V4 cards is within %.0f m of a covered road on the builder's exact chord distance (the farthest at %.3f m)" % [cards, WALL_WITHIN_M, worst], "cards %d, within %s, worst %.3f" % [cards, all_within, worst])
-	_ok(heights_ok and layers_seen.size() == 3, "every card is 12-18 m tall and the three staggered layers are all built")
+	_ok(heights_ok and layers_seen.size() == 3, "every card's stone height is 12-18 m (a feathered end's built height is its taper's share of it) and the three staggered layers are all built")
+	_check_recipe(forest)
 	var sampled := 0
 	var brute_ok := true
 	var brute_worst := 0.0
@@ -1074,6 +1138,63 @@ func _check_authored_textures() -> void:
 		sky = sky and wall.get_pixel(x, 0).a < 0.5
 		foot = foot and wall.get_pixel(x, CARD_TEXTURE_SIZE - 1).a >= 0.5
 	_ok(grey_ok and alpha_ok and sky and foot, "the vegetation textures are greyscale-neutral (the tints colour them) and alpha-cut: the wall's top row is open sky and its foot solid, the atlases carry both cut and cover, the bark is opaque", "grey %s alpha %s sky %s foot %s" % [grey_ok, alpha_ok, sky, foot])
+	# FOREST-2: the wall reads as many trees - the skyline, the column
+	# gaps, the thinning band, the solid foot rows.
+	var size := CARD_TEXTURE_SIZE
+	var skyline := PackedFloat64Array()
+	var deep := PackedByteArray()
+	var band_opaque := 0
+	var band_columns := 0
+	var rest_opaque := 0
+	var rest_columns := 0
+	var band: Vector2 = ForestWalls.FEATHER_U_BAND
+	for x: int in size:
+		var first := size
+		var deepest := -1
+		var opaque := 0
+		for y: int in size:
+			if wall.get_pixel(x, y).a >= 0.5:
+				opaque += 1
+				if first == size:
+					first = y
+			else:
+				deepest = y
+		skyline.append(float(first) / float(size))
+		deep.append(1 if float(deepest + 1) / float(size) > WALL_GAP_DEPTH else 0)
+		var u := (float(x) + 0.5) / float(size)
+		if u >= band.x and u < band.y:
+			band_opaque += opaque
+			band_columns += 1
+		else:
+			rest_opaque += opaque
+			rest_columns += 1
+	var sky_mean := 0.0
+	var sky_lo := 1.0
+	var sky_hi := 0.0
+	for v: float in skyline:
+		sky_mean += v
+		sky_lo = minf(sky_lo, v)
+		sky_hi = maxf(sky_hi, v)
+	sky_mean /= float(size)
+	var sky_var := 0.0
+	for v: float in skyline:
+		sky_var += (v - sky_mean) * (v - sky_mean)
+	var sky_std := sqrt(sky_var / float(size))
+	var gaps := 0
+	for x: int in size:
+		if deep[x] == 1 and deep[(x + size - 1) % size] == 0:
+			gaps += 1
+	var foot_rows := 0
+	for y: int in range(size - 1, -1, -1):
+		var solid := true
+		for x: int in size:
+			solid = solid and wall.get_pixel(x, y).a >= 0.5
+		if not solid:
+			break
+		foot_rows += 1
+	var band_share := float(band_opaque) / float(maxi(1, band_columns * size))
+	var rest_share := float(rest_opaque) / float(maxi(1, rest_columns * size))
+	_ok(sky_std >= WALL_SKYLINE_STD_MIN and gaps >= WALL_GAPS_MIN and band_share < rest_share - WALL_BAND_MARGIN and foot_rows >= WALL_FOOT_ROWS, "the wall texture reads as many trees (FOREST-2): its skyline's first opaque row varies over u - %.3f to %.3f of the height, std %.3f (over %.2f; was 0.032, a rolling band) - %d column gaps carry sky below %.0f %% of the height (at least %d; was none), the thinning band u %.2f-%.2f is opaque over %.3f against %.3f elsewhere (the feathered ends' slice), and the bottom %d rows are solid for every column (at least %d)" % [sky_lo, sky_hi, sky_std, WALL_SKYLINE_STD_MIN, gaps, 100.0 * WALL_GAP_DEPTH, WALL_GAPS_MIN, band.x, band.y, band_share, rest_share, foot_rows, WALL_FOOT_ROWS], "skyline std %.3f gaps %d band %.3f rest %.3f foot rows %d" % [sky_std, gaps, band_share, rest_share, foot_rows])
 
 
 func _column_mean(image: Image, x: int) -> float:

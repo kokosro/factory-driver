@@ -14,12 +14,33 @@ dressing.json, multiplied in as the vertex colour):
                            bark ridges and dark fissures; wraps once
                            around a trunk and every 2 m up it.
   foliage_wall_512.png     512 x 512, alpha; tileable across (u): the V4
-                           forest-wall card. Opaque canopy body with tree
-                           columns and three layered canopy tiers, the
-                           spruce tops a jagged alpha silhouette in the
-                           upper third, holes of sky between the crowns.
-                           A card offsets u by its hash, so no two
-                           neighbours show the same skyline.
+                           forest-wall card, FOREST-2 re-authored for a
+                           see-through edge (was -> an opaque canopy body
+                           with three tiers and a jagged skyline in the
+                           upper third, small holes just under it: a
+                           hedge, opaque over 0.764 of the tile, its
+                           skyline within 0.14-0.29 of the height). A row
+                           of 16 spruce columns of varied height and
+                           width (WALL_COLUMNS), a jagged skyline with
+                           deep notches (the first opaque row per column
+                           0.05-0.89 of the height, std 0.166), daylight
+                           between the tips running down to where the
+                           neighbours' crowns meet and to the crown bases
+                           where a short column stands between tall ones
+                           (22 column gaps with sky below 60 % of the
+                           height), holes of sky through the crowns'
+                           outer parts, dark trunks up the gaps, a solid
+                           undergrowth band at the foot (the bottom 54
+                           rows). The thinning band u 0.70-0.86
+                           (WALL_THIN_BAND) is three short, narrow columns
+                           set apart - opaque over 0.371 against 0.652
+                           elsewhere - the slice a feathered wall end
+                           wears. Opaque over 0.607 of the tile, mean
+                           grey 0.569 where opaque (was 0.624), no tip
+                           over WALL_TIP_MAX 0.95 so the top rows are
+                           sky. A card shows a hashed 0.14-0.30 slice of
+                           u (scripts/forest_walls.gd), so neighbours
+                           differ in their trees, not only in their phase.
   foliage_spruce_512.png   512 x 512, alpha, an atlas of three regions:
                            LEFT HALF (u 0..0.5, full height) the spruce
                            side card - a tapering tiered silhouette with
@@ -76,49 +97,138 @@ def bark_grey(g: Graph):
 #  THE WALL CARD
 # =============================================================================
 
-def wall_top(g: Graph, u):
-    """The skyline of the wall card as a function of u alone (tileable):
-    rolling crowns with the pointed tops of spruces."""
-    roll = g.mul(g.sub(g.noise(u, 0.0, 5, 1, detail=1.0, phase=0.9), 0.5), 0.24)
-    top = g.add(0.74, roll)
-    for columns, phase, weight in ((9, 0.3, 0.11), (5, 0.7, 0.07)):
-        saw = g.sub(1.0, g.absolute(g.sub(g.mul(g.fract(g.mad(u, columns, phase)), 2.0), 1.0)))
-        height = g.noise(u, 0.0, columns, 1, detail=0.0, phase=phase * 9.0)
-        top = g.add(top, g.mul(g.power(saw, 1.5), g.mul(height, weight)))
-    return top
+# FOREST-2: the wall is a row of individual spruce columns, not a canopy
+# band. Every column is (centre u, half-width at full crown [u], tip v,
+# crown length [v] from the tip down to the full width, crown base v, the
+# tier phase, the shade). Centres run round the tile (a column's offset is
+# taken modulo 1, so the row tiles across u); the crowns reach their full
+# width only a crown length under the tip, so between two tips daylight
+# runs down to where the neighbours' cones meet, and a short column beside
+# tall ones (0.525) leaves a gap to the crown bases; low down the crowns
+# overlap and close the wall over the undergrowth. THE THINNING BAND
+# (WALL_THIN_BAND, u 0.70-0.86): three short, narrow columns set apart,
+# the open grove a feathered wall end is cut from (scripts/forest_walls.gd
+# FEATHER_U_BAND names the same band by hand). No column tip is over
+# WALL_TIP_MAX: the top rows stay sky (the dressing test pins the top
+# row), and the undergrowth band at the foot stays solid under every
+# column (the foot pin).
+WALL_COLUMNS = (
+    (0.030, 0.062, 0.86, 0.46, 0.12, 0.10, 0.60),
+    (0.085, 0.040, 0.64, 0.36, 0.10, 0.50, 0.53),
+    (0.150, 0.072, 0.93, 0.52, 0.14, 0.20, 0.57),
+    (0.215, 0.050, 0.74, 0.40, 0.08, 0.80, 0.63),
+    (0.272, 0.032, 0.56, 0.32, 0.12, 0.30, 0.50),
+    (0.340, 0.066, 0.88, 0.48, 0.14, 0.60, 0.55),
+    (0.400, 0.046, 0.70, 0.38, 0.10, 0.00, 0.61),
+    (0.450, 0.056, 0.80, 0.44, 0.16, 0.40, 0.52),
+    (0.525, 0.024, 0.42, 0.30, 0.08, 0.70, 0.58),
+    (0.585, 0.074, 0.95, 0.54, 0.18, 0.90, 0.54),
+    (0.650, 0.050, 0.76, 0.40, 0.10, 0.15, 0.62),
+    (0.722, 0.028, 0.50, 0.30, 0.10, 0.45, 0.51),
+    (0.780, 0.034, 0.58, 0.34, 0.12, 0.75, 0.56),
+    (0.842, 0.026, 0.46, 0.28, 0.08, 0.05, 0.59),
+    (0.905, 0.064, 0.84, 0.46, 0.12, 0.35, 0.55),
+    (0.965, 0.044, 0.68, 0.38, 0.10, 0.65, 0.60),
+)
+WALL_THIN_BAND = (0.70, 0.86)
+WALL_TIP_MAX = 0.95
+assert max(column[2] for column in WALL_COLUMNS) <= WALL_TIP_MAX
+# A trunk's half-width [u] (2.3 px of 512) and its grey; the undergrowth
+# band's base height, its ragged rise and its grey.
+WALL_TRUNK_HW = 0.0045
+WALL_TRUNK_GREY = 0.17
+WALL_UNDERGROWTH_V = 0.09
+WALL_UNDERGROWTH_RISE = 0.05
+WALL_UNDERGROWTH_GREY = 0.36
+# The tiers per column, the droop under each fringe, the ragged edge, the
+# fringes' wave across a crown, the cone's widening under the tip.
+WALL_TIERS = 9.0
+WALL_DROOP = 0.28
+WALL_RAGGED = 0.5
+WALL_TIER_WAVE = 0.5
+WALL_CONE_POWER = 0.7
+# Holes of sky through the crowns: the noise threshold, the height the
+# holes start above (the crown bases stay closed, the foot stays solid)
+# and how far out from a column's axis they may open (the trunk side of
+# a crown stays dense: a tree with sky through its middle falls apart).
+WALL_HOLE_LEVEL = 0.63
+WALL_HOLE_ABOVE_V = 0.34
+WALL_HOLE_EDGE = 0.35
+
+
+def wall_columns(g: Graph, u, v):
+    """Every column's crown mask (before the holes), its trunk mask and
+    its edge factor (0 on the axis, 1 at the crown's edge), each a
+    function of (u, v); the fringe sawtooth shared per column."""
+    ragged = g.mad(g.sub(g.noise(u, v, 60, 60, detail=2.0, phase=2.1), 0.5), WALL_RAGGED, 1.0)
+    # The tier fringes wave across a crown (a straight fringe reads as a
+    # stacked cup).
+    wave = g.mul(g.sub(g.noise(u, v, 18, 4, detail=1.0, phase=4.9), 0.5), WALL_TIER_WAVE)
+    columns = []
+    for centre, half_width, tip, crown, base, phase, shade in WALL_COLUMNS:
+        # The offset from the axis, wrapped: the row tiles across u.
+        du = g.absolute(g.sub(g.fract(g.add(g.sub(u, centre), 0.5)), 0.5))
+        # The cone: full width a crown length under the tip (widening
+        # fastest just under the tip: WALL_CONE_POWER), nothing above the
+        # tip; the spruce's drooping fringes as a sawtooth of tiers.
+        reach = g.mul(g.power(g.linstep(v, tip, tip - crown), WALL_CONE_POWER), half_width)
+        tier = g.fract(g.add(g.mad(v, WALL_TIERS, phase), wave))
+        droop = g.mad(g.sub(1.0, tier), WALL_DROOP, 1.0 - WALL_DROOP)
+        reach = g.mul(g.mul(reach, droop), ragged)
+        crown_mask = g.smoothstep(g.sub(du, reach), 0.004, -0.004)
+        crown_mask = g.mul(crown_mask, g.mul(g.greater(v, base), g.less(v, tip)))
+        trunk_mask = g.mul(g.less(du, WALL_TRUNK_HW), g.less(v, tip - 0.06))
+        edge = g.clamp01(g.div(du, g.maximum(reach, 0.002)))
+        columns.append((crown_mask, trunk_mask, edge, tier, shade))
+    return columns
 
 
 def wall_alpha(g: Graph):
     u, v = g.u, g.v
-    top = wall_top(g, u)
-    ragged = g.mul(g.sub(g.noise(u, v, 40, 40, detail=1.0, phase=2.1), 0.5), 0.03)
-    edge = g.sub(v, g.add(top, ragged))
-    alpha = g.smoothstep(edge, 0.006, -0.006)
-    # Sky through the crowns just under the skyline.
-    holes = g.noise(u, v, 16, 16, detail=2.0, phase=3.7)
-    near_top = g.smoothstep(v, g.sub(top, 0.3), g.sub(top, 0.05))
-    alpha = g.mul(alpha, g.sub(1.0, g.mul(near_top, g.greater(holes, 0.62))))
-    g.emit(alpha)
+    columns = wall_columns(g, u, v)
+    crown = 0.0
+    trunk = 0.0
+    edge_any = 1.0
+    for crown_mask, trunk_mask, edge, _, _ in columns:
+        crown = g.maximum(crown, crown_mask) if not isinstance(crown, float) else crown_mask
+        trunk = g.maximum(trunk, trunk_mask) if not isinstance(trunk, float) else trunk_mask
+        edge_any = g.mix(crown_mask, edge_any, edge)
+    # Sky through the crowns' outer parts above the crown bases; a trunk
+    # stays where it stands.
+    holes = g.mul(g.greater(g.noise(u, v, 28, 28, detail=2.0, phase=3.7), WALL_HOLE_LEVEL), g.greater(v, WALL_HOLE_ABOVE_V))
+    holes = g.mul(holes, g.greater(edge_any, WALL_HOLE_EDGE))
+    crown = g.mul(crown, g.sub(1.0, holes))
+    undergrowth = g.less(v, g.mad(g.noise(u, 0.0, 12, 1, detail=1.0, phase=5.3), WALL_UNDERGROWTH_RISE, WALL_UNDERGROWTH_V))
+    alpha = g.maximum(g.maximum(crown, trunk), undergrowth)
+    g.emit(g.clamp01(alpha))
 
 
 def wall_grey(g: Graph):
     u, v = g.u, g.v
-    top = wall_top(g, u)
-    columns = g.noise(u, v, 14, 1.6, detail=2.0, roughness=0.6, phase=1.3)
-    deep = g.power(g.sub(1.0, columns), 2.0)
+    columns = wall_columns(g, u, v)
     fine = g.noise(u, v, 70, 70, detail=2.0, roughness=0.55, phase=4.2)
-    clusters = g.noise(u, v, 9, 9, detail=2.0, phase=6.1)
-    wave = g.mul(g.sub(g.noise(u, 0.0, 6, 1, detail=1.0, phase=4.4), 0.5), 0.5)
-    tier = g.fract(g.add(g.mad(v, 3.0, 0.2), wave))
-    tier_shade = g.smoothstep(tier, 0.0, 0.6)
-    lit = g.smoothstep(v, g.sub(top, 0.25), top)
-    value = g.mad(v, 0.3, 0.5)
-    value = g.add(value, g.mul(g.sub(columns, 0.5), 0.3))
-    value = g.sub(value, g.mul(deep, 0.2))
-    value = g.add(value, g.mul(g.sub(fine, 0.5), 0.12))
-    value = g.add(value, g.mul(g.sub(clusters, 0.5), 0.16))
-    value = g.add(value, g.mul(g.sub(tier_shade, 0.5), 0.2))
-    value = g.add(value, g.mul(lit, 0.14))
+    clusters = g.noise(u, v, 12, 12, detail=2.0, phase=6.1)
+    # The crowns' grey: the column's own shade (the last column drawn
+    # wins where two overlap), the fringe undersides dark, the crown edge
+    # lit, needle clusters and fine grain, a little brighter up the card.
+    crown_grey = 0.5
+    crown = 0.0
+    for crown_mask, _, edge, tier, shade in columns:
+        underside = g.smoothstep(tier, 0.3, 0.0)
+        lit = g.mul(g.power(edge, 2.0), 0.14)
+        value = g.add(g.sub(shade, g.mul(underside, 0.12)), lit)
+        crown_grey = g.mix(crown_mask, crown_grey, value)
+        crown = g.maximum(crown, crown_mask) if not isinstance(crown, float) else crown_mask
+    crown_grey = g.add(crown_grey, g.mul(g.sub(fine, 0.5), 0.14))
+    crown_grey = g.add(crown_grey, g.mul(g.sub(clusters, 0.5), 0.12))
+    crown_grey = g.add(crown_grey, g.mul(v, 0.08))
+    # Under the crowns the trunks (where the alpha keeps them), the
+    # undergrowth in front of their feet.
+    undergrowth_grey = g.add(WALL_UNDERGROWTH_GREY, g.mul(g.sub(fine, 0.5), 0.16))
+    trunk_grey = g.add(WALL_TRUNK_GREY, g.mul(g.sub(fine, 0.5), 0.08))
+    undergrowth = g.less(v, g.mad(g.noise(u, 0.0, 12, 1, detail=1.0, phase=5.3), WALL_UNDERGROWTH_RISE, WALL_UNDERGROWTH_V))
+    value = g.mix(undergrowth, trunk_grey, undergrowth_grey)
+    value = g.mix(crown, value, crown_grey)
     g.emit(g.clamp01(value))
 
 

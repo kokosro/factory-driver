@@ -17,11 +17,14 @@ extends SceneTree
 ## on layer 1 (the car's mask - scripts/car.gd is frozen at the default),
 ## the rest on layer 0; no CollisionShape3D is ever disabled (a layer
 ## toggle, consistently). THE TREE STOP (a): the named tree - index
-## 12355, OSM 420556746, a V2 spruce at (4475.91, -2747.53) beside the
-## drive-start straight 683303211-0 (chainage 35.4, 11.5 m right: the
-## visual probe's forest_wall spot), 21.34 m tall, scale 1.067 of the
-## archetype's 20 m, its trunk radius the archetype's measured 0.32 m ×
-## the scale = 0.341 m - driven at nose-first from the straight's
+## 12369, OSM 420556746, a V2 spruce at (4469.06, -2744.16) beside the
+## drive-start straight 683303211-0 (chainage 43.1, 11.0 m off the
+## centreline: the visual probe's forest_wall spot), 21.15 m tall, scale
+## 1.058 of the archetype's 20 m, its trunk radius the archetype's
+## measured 0.32 m × the scale = 0.338 m (FOREST-2's re-pick, see the
+## constants; was -> index 12355 at (4475.91, -2747.53), chainage 35.4,
+## 11.5 m right, 21.34 m tall, scale 1.067, radius 0.341 m) - driven at
+## nose-first from the straight's
 ## centreline at chainage 0 (pure pursuit on the tree's point, throttle
 ## pinned): the tick the car first bites (get_slide_collision_count() >
 ## 0 against the chunk's body), the impact speed (the tick before), the
@@ -71,12 +74,30 @@ const RING_SCENE := "res://scenes/eifel_ring.tscn"
 const SETTLE_FRAMES := 20
 
 ## The named tree (the survey of this landing; the dressing test holds
-## the lists deterministic).
-const TREE_INDEX := 12355
+## the lists deterministic). FOREST-2 RE-PICK, the Conductor's narrow
+## freeze exception, its grounds: the fixture pins an edge-sampled tree
+## by literal constants, and FOREST-2 legitimately moved every edge-
+## sampled tree (TREE_INSET_M 1.5 -> 0.75, the jitter +- 25 -> 40 % of
+## the gap, the new +- 0.4 m scatter, the mixed hash), so the fixture
+## follows the distribution change: an edge-sampled tree of the SAME
+## way 420556746 beside the same approach segment, the one whose
+## geometry matches the old fixture's - 21.15 m tall against 21.34, the
+## prism radius 0.338 m against 0.341 - one slot further along the
+## straight (chainage 43.1, 11.0 m off the centreline, 7.6 m from the
+## old point; measured by .scratch/forest-2/find_tree.gd on the built
+## lists). The tree nearest the old point (index 12370, 0.95 m away) is
+## a 17.30 m spruce whose thinner prism (radius 0.277 m) the box
+## overshot by 0.14 m at the bite before the trunk pushed it out, so
+## the frozen never-past fence refused it; the fence is the fence.
+## was -> TREE_INDEX 12355, TREE_AT (4475.91, -2747.53), TREE_HEIGHT_M
+## 21.34 (scale 1.067, radius 0.341 m). Nothing else in this file
+## moved: the fence logic, the drives and the determinism checks derive
+## their expectations.
+const TREE_INDEX := 12369
 const TREE_OSM := 420556746
 const TREE_ELEMENT := "V2"
-const TREE_AT := Vector2(4475.91, -2747.53)
-const TREE_HEIGHT_M := 21.34
+const TREE_AT := Vector2(4469.06, -2744.16)
+const TREE_HEIGHT_M := 21.15
 const TREE_TOLERANCE_M := 0.01
 ## The archetypes' measured trunk radii at archetype scale [m] (the bark
 ## surface's widest horizontal extent read from the .glb).

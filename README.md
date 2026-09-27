@@ -645,10 +645,12 @@ widest horizontal extent measured from the imported .glb (V2 0.32 m, V1 0.35 m, 
 held to the 0.30-0.45 band) times the tree's scale. The prisms of one tree chunk (1 km) are
 ONE `StaticBody3D` ("Trunks_x_z", a sibling of the chunk's meshes) with ONE
 `CollisionShape3D` holding ONE `ConcavePolygonShape3D` of every trunk's faces in tree
-order, back faces solid (a closed hull the car is always outside of): 42 bodies for 19 339
-trunks, never a node per tree; a wall card is a picture and gets nothing. The meshes, the
+order, back faces solid (a closed hull the car is always outside of): 42 bodies for the
+trunks (19 379 since FOREST-2 moved the edge trees; was 19 339), never a node per tree; a
+wall card is a picture and gets nothing. The meshes, the
 placement, the lists and the counts are byte-equal to before (the dressing test's
-accounting holds it); `describe()` gained "19 339 trunk prisms in 42 bodies". Was -> the
+accounting holds it); `describe()` gained "19 339 trunk prisms in 42 bodies" (19 379 since
+FOREST-2). Was -> the
 forest was visuals only: no collision shape, no body, no Area3D under it.
 
 **The bubble.** `scripts/physics_bubble.gd` (`PhysicsBubble`, the "Bubble" child Forest
@@ -669,7 +671,7 @@ off. The distance is to the body's BOX, not its centre: a chunk is 1 km across, 
 20 m from the car can stand 500 m from its chunk's centre; the box distance is 0 inside
 the chunk and the gap to its nearest edge outside, so every trunk within 80 m of the car
 is under an active body. Cost: one pass over 42 bodies a tick (squared distances against
-squared radii, a write only on a change), never over the 19 339 elements, no allocation
+squared radii, a write only on a change), never over the ~19 000 elements, no allocation
 after the build, no RNG, no wall clock; the state after a tick is a function of the car's
 position and the state before, outside the band of the position alone - after any jump
 (`reset_to`, the reset test's teleport) the bubble around the new position is right at
@@ -775,11 +777,97 @@ read 1.0 / 1.0 / 0.0 on the pavement). `tests/bubble_test.gd` still passes all 1
 but its tree stop is an off-road approach by design - the car leaves the straight across
 the shoulder and the forest floor to hit a spruce 11.5 m out - so it now arrives at tick
 239 at 16.09 m/s (was tick 235 at 17.67 m/s, the figures *The physics bubble* above
-records from BUBBLE-1), is in contact 63 of its 359 ticks (was 112 of 355), slides 0.242 m
+records from BUBBLE-1; since FOREST-2's re-picked tree one slot further along: tick 264 at
+16.57 m/s from 44.4 m out), is in contact 63 of its 359 ticks (was 112 of 355), slides 0.242 m
 along the trunk (was 0.192 m), and its control passes the tree in 267 ticks (was 259); the
 held distance 2.438 m, the never-past rule and the radii's events are unchanged. The
 bubble test's census line reads five nodes more (the four continuation bands and the
 Surfaces node).
+
+### The forest edge (FOREST-2)
+
+The driver's three demands of 2026-09-26 (plan.org): the V4 forest-wall cards read "like a
+green wall, covering the whole tree forest" (no sky cut through, no gaps between the trees,
+the forest never seen through near its edge; the wall must fill the gaps BEHIND the
+archetype trees, not stand in front of them); "trees must be distributed more natural,
+these ones are an unnatural row"; and the wall ends must be feathered, not vertical
+cut-offs. Two root causes, both measured, both mended in `scripts/forest_walls.gd` and
+`assets/blender/scripts/foliage.py` and nowhere else.
+
+**The recipe was one skyline.** `_card_quad` mapped every card to the FULL u wrap of the
+512² wall texture (u0 the card's hash, u1 = u0 + 1), so every card showed the same skyline
+phase-turned; and the texture itself was a rolling canopy band with small holes near its
+top (opaque over 0.764 of the tile, the bottom 291 rows solid, the skyline within 0.14-0.29
+of the height, std 0.032, not one column gap - a hedge). Now (the constants at the head of
+`forest_walls.gd`, THE CARD RECIPE): a card shows a hashed SLICE of u, 0.14-0.30 of the
+texture for an 8 m card (`CARD_U_WINDOW` 0.22 ± `CARD_U_WINDOW_JITTER` / 2, scaled by the
+card's width so a tree column keeps its world width on a short or stretched card), the
+mirror hash as before; its v-window is [top, 1] with the top in its layer's band
+(`CARD_V_TOP`: the front at most 0.05 - no column of the texture reaches over 0.05 from the
+top, so the front never cuts a crown; the middle 0.03-0.08, the back 0.06-0.14, a step
+lower for the depth under their darker tints); a hashed fifth of the slots draw no card in
+any layer (`CARD_GAP_RATE` 0.2, the demand's 15-25 %; measured 6 154 of 30 777 slots,
+20.0 %) so the forest shows through; and where a layer's run of cards ends - the slot
+before one the 60 m rule refuses or an edge skipped as far from any road; a ring's edges
+are one closed sequence, so a polygon corner is no end, and a gap is a window, not an end
+- the last two slots taper (`FEATHER_SLOTS`), the terminal card to a hashed 0.5-0.7 of its
+stone height (`FEATHER_END_MIN` / `_MAX`) and wearing the texture's thinning band
+(`FEATHER_U_BAND` u 0.70-0.86, three short narrow columns set apart), the slot before at
+the ramp's midpoint: the wall sinks and thins out (measured 1 967 feathered cards, 1 016
+terminal). Not a v-shift for the ends: showing the texture's interior at a card's top puts
+a straight cut through the canopy, the chop itself. The texture (`foliage.py`
+`wall_columns` / `wall_alpha` / `wall_grey`) is now a row of 16 individual spruce columns
+of varied height and width - a jagged skyline (the first opaque row per column 0.05-0.89 of
+the height, std 0.166), daylight between the tips running down to where the neighbours'
+crowns meet and to the crown bases where a short column stands between tall ones (22
+column gaps with sky below 60 % of the height), holes through the crowns' outer parts, dark
+trunks up the gaps, a solid undergrowth band at the foot (54 rows) - opaque over 0.607 of
+the tile, mean grey 0.569 where opaque; `assets/blender/README.md` has the full measure.
+The tints (`dressing.json` V4_front / middle / back) are untouched.
+
+**The row was the hash.** Every jitter, height, yaw and shade went through
+`TerrainBuilder.hash_unit(osm, purpose, index)` with consecutive indices, and hash_unit's
+text ends in the index: two consecutive indices reach FNV-1a's last byte one multiply
+apart, so their units differ by 0.004 (measured on way 420556746, tree_height 12356..12359:
+0.7418, 0.7457, 0.7652, 0.7691) - every tree along an edge the same height to 5 cm, the same
+jitter and the same yaw, every card of a run the same height and the same texture phase. A
+20 % gap draw on the raw units came in 1 278 runs with the longest 27 slots (216 m without
+a wall) over 30 000 slots. `ForestWalls.unit()` now folds the OSM id and the index into a
+spatial mix (the continuation's `corner()` fold, (index × 73856093) xor (osm × 19349663))
+that stands in hash_unit's id field with the index still in its own: the same draw gives
+4 756 runs, the longest 7 - a fair draw; still no RNG, the same (osm, purpose, index) the
+same unit everywhere. The edge trees themselves stand `TREE_INSET_M` 0.75 m into the forest
+(was 1.5: at the card line, breaking the wall's face instead of hiding behind it), jittered
+± 40 % of their gap along the edge (`TREE_JITTER`, was ± 25 %) and scattered ± 0.4 m across it
+(`TREE_SCATTER_M`, new).
+
+**The counts.** 63 190 cards (was 79 102; 10 679 slot-layers beyond the 60 m, was 13 229),
+19 379 trees (118 V1, 19 261 V2, 32 in rows; was 19 339: 116 / 19 223 / 32), 2 598 435
+vertices and 2 183 322 triangles (was 2 657 227 / 2 210 858), 19 379 trunk prisms in the same
+42 bodies (697 644 face vertices, was 696 204); `describe()` now says "30777 slots, 63190
+cards (10679 beyond the 60 m, 6154 slots open as gaps, 1967 cards feathered)".
+`scripts/physics_bubble.gd`'s header still says "19 339 trunks" (frozen; the staleness
+accepted).
+
+**The fences** (`tests/dressing_test.gd`, 118 checks, was 113): the gapped slots' share of
+the slots within 2 % of the builder's rate and the slots' cards accounting exactly (built +
+far + 3 × gapped); every feathered taper in [0.5, 1], every terminal card's slice inside the
+thinning band; every card's u slice its width's share of the 0.14-0.30 window and its v top
+in its layer's band, the front's highest 0.050; the edge trees' inset, jitter and scatter
+the demand's; the wall texture's skyline std over 0.1 of the height, at least 8 column gaps
+below 60 %, the thinning band sparser than the rest by 0.1, the bottom 8 rows solid; the
+scene built twice still describes itself the same to the bit. `tests/bubble_test.gd` moved
+ONLY its named-tree constants (the Conductor's narrow freeze exception: the fixture pins an
+edge-sampled tree by literals and FOREST-2 legitimately moved every edge-sampled tree):
+index 12369 of the same way 420556746 beside the same straight, the one whose geometry
+matches the old fixture's (21.15 m tall, radius 0.338 m; the tree nearest the old point,
+index 12370, is a 17.30 m spruce whose thinner prism the box overshot by 0.14 m at the
+bite before the trunk pushed it out, and the frozen never-past fence refused it). The
+visual probe (frozen, the one sanctioned windowed run): before `.scratch/fd-visual/
+forest-2-before/`, after `forest-2-after/`; the straight reads as many spruces of many
+heights with gaps and trunks between them, the far end of a gap shows a neighbour's
+staggered deeper card with a vertical edge (the stagger fills two-thirds of a gap: the
+recipe's cost, noted).
 
 ### Data sources & licences
 
@@ -990,9 +1078,12 @@ nearest nodes within half a lattice step's diagonal, every sampled near-band ver
 lattice node at the node's own height, every mid vertex on a 50 m corner, the 3 304
 platform strips at every 2 m station and every skeleton point with no gap over 2 m and
 the pit lane's strip meeting the road at the paved edge within 2 mm; every one of the
-~79 000 V4 wall cards within 60 m of a covered road (the farthest 59.999 m), a sample
-every 400th within 60 m by brute force over every chord, every card on a forest polygon,
-12-18 m tall in three layers, ~13 000 slots beyond the 60 m left empty; no edge-sampled
+~63 000 V4 wall cards (FOREST-2; was ~79 000: a fifth of the 30 777 slots are gaps) within
+60 m of a covered road (the farthest 59.999 m), a sample every 400th within 60 m by brute
+force over every chord, every card on a forest polygon, 12-18 m tall in three layers,
+~10 700 slot-layers beyond the 60 m left empty (was ~13 000); the card recipe's fences
+(see *The forest edge*: the gap share, the feathers, every window legal, the texture's
+skyline and gaps); no edge-sampled
 tree beyond the 60 m; the density ceiling per road and side (at most floor(length / 8 m)
 trees, recounted from the tree list; the fullest side at its budget, ~1 300 samples
 refused); at ten Nordschleife points the objects within 500 m under the ceilings - at
@@ -1015,8 +1106,9 @@ every one of the 3 304 strips at every one of the 1 085 645 vertices within a th
 a tile, the road built twice carrying the same UVs and material; the geometry untouched (the
 ring drive test's lines the same byte for byte); and since BUBBLE-1 the trunk accounting
 (see *The physics bubble*): the 42 trunk bodies are the 42 tree chunks, one StaticBody3D
-with one ConcavePolygonShape3D each, back faces solid, the 19 339 prisms every tree and no
-card, every one of the 696 204 face vertices on its own tree's cylinder at the tree's slot
+with one ConcavePolygonShape3D each, back faces solid, the 19 379 prisms (FOREST-2; was
+19 339) every tree and no card, every one of the 697 644 face vertices (was 696 204) on its
+own tree's cylinder at the tree's slot
 (the axis at the tree's point, the radius the archetype's measured trunk × the tree's scale,
 0.19-0.54 m, the rows the foot and the crown base) within 2 mm, every disc inside its body's
 box, and the forest built twice carrying the same faces and boxes. Then
@@ -1082,11 +1174,15 @@ prisms and the one `PhysicsBubble` child fed the road's car, every body on mask 
 layer 1 (the car's mask) or 0, no shape ever disabled; the archetypes' trunks measured from
 the .glb bark surfaces (V2 0.32 m, V1 0.35 m, V6 0.25 m held to 0.30, at archetype scale;
 the tops the crown bases 12.4 / 7.0 / 4.5 m); the radii ordered (80 m < 110 m); the bubble
-right at the pit after the settle. The named tree: index 12355, OSM 420556746, a V2 spruce
-at (4475.91, -2747.53) beside the drive-start straight 683303211-0 (chainage 35.4, 11.5 m
-right of the centreline: the visual probe's forest_wall spot), 21.34 m tall, its prism
-radius 0.341 m (0.32 × the scale 1.067), its 36 faces at its slot in chunk (4,-3)'s body.
-The tree stop: from the straight's centreline at chainage 0, 37.2 m out, throttle pinned
+right at the pit after the settle. The named tree (since FOREST-2: index 12369, OSM
+420556746, a V2 spruce at (4469.06, -2744.16) beside the drive-start straight 683303211-0,
+chainage 43.1, 11.0 m off the centreline, 21.15 m tall, its prism radius 0.338 m; was ->
+index 12355 at (4475.91, -2747.53), chainage 35.4, 11.5 m right, 21.34 m tall, radius
+0.341 m, the scale 1.067), its 36 faces at its slot in chunk (4,-3)'s body. The tree stop
+as BUBBLE-1 measured it (since FOREST-2: from 44.4 m out, the bite at tick 264 at 16.57 m/s,
+79 of 384 ticks in contact, held at 2.426 m and never nearer than 2.425, the creep 2.5 mm,
+the slide 0.052 m, the control 290 ticks and 5.19 m past): from the straight's centreline
+at chainage 0, 37.2 m out, throttle pinned
 and pure pursuit on the tree's point, the car bites the body at tick 235 at 17.67 m/s
 (`get_slide_collision_count()` against that body and no other), is held at 2.438 m from
 the axis to its origin (the prism's inscribed 0.296 to 0.341 m plus the box's half-length

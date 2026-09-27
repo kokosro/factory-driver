@@ -37,7 +37,8 @@ extends Node3D
 ## triangles in tree-index order (backface_collision on: a trunk is a
 ## closed hull and the car is always outside it, so both faces solid
 ## costs nothing and leaves no winding to get wrong) - 42 bodies for
-## 19 339 trunks, never a node per tree (a wall card is a picture and
+## the trunks (FOREST-2: 19 379 after the trees' inset, jitter, scatter
+## and the mixed hash moved them; was 19 339), never a node per tree (a wall card is a picture and
 ## gets nothing). Every body starts on NO layer: the PhysicsBubble child
 ## ("Bubble", scripts/physics_bubble.gd, fed the bodies, their horizontal
 ## boxes and the road's car) switches a body onto the car's layer 1 when
@@ -64,7 +65,14 @@ extends Node3D
 ## base is within T6.road_distance_max_m (60 m) of a covered road
 ## centreline, measured EXACTLY against the chords through a cell index
 ## (never the lattice's rounded distance: the test recomputes the same
-## distance by brute force and holds every card to the 60 m). A card is a
+## distance by brute force and holds every card to the 60 m). FOREST-2
+## (THE CARD RECIPE at the constants): a hashed fifth of the slots draw
+## no card in any layer (the forest seen through), the runs' last two
+## slots taper in height and the terminal slot wears the texture's
+## thinning band (no vertical cut-off), and every card shows its own
+## slice of the texture's u with its layer's v-window - was -> every slot
+## three cards, every card the full u wrap phase-turned by its hash, the
+## driver's "green wall covering the whole tree forest". A card is a
 ## vertical quad along the edge, its base FOOT_SINK_M into the ground (the
 ## field's height at its centre: on a slope an 8 m card's ends would float
 ## or sink otherwise), the front layer the palette's spruce blue-green, the
@@ -72,8 +80,10 @@ extends Node3D
 ## not cull): a wall is seen from the road and from the forest track behind.
 ##
 ## THE TREES (V2 / V1): "near road" archetypes, sampled along the same
-## edges every TREE_SPACING_M (the ceiling's 8 m) one tree's step into the
-## forest, V2 unless the polygon's leaf_type is broadleaved (the Eifel
+## edges every TREE_SPACING_M (the ceiling's 8 m), TREE_INSET_M into the
+## forest (FOREST-2: 0.75 m, was 1.5 - at the card line), jittered
+## +- TREE_JITTER of the gap along the edge (was +- 0.25) and scattered
+## +- TREE_SCATTER_M across it (new), V2 unless the polygon's leaf_type is broadleaved (the Eifel
 ## default is the conifer); a tree beyond the 60 m is never placed (V7:
 ## "no trees inside beyond 60 m of a road"); a tree within it is charged to
 ## the nearest road's side, and a (road, side) whose budget - floor(the
@@ -111,10 +121,12 @@ extends Node3D
 ## is no MeshInstance3D: the dressing test pins the children) and over
 ## re-UV-mapping the old crossed quads (the authored silhouettes carry
 ## the tiers and the lobes; the crossed-card layout stays as the
-## archetype's own cards). A V4 card is the same quad as before, now
-## UV-mapped into foliage_wall_512.png - u offset by the card's hash and
-## mirrored by another so neighbours show different skylines, v 0 at the
-## top - so its top edge is the alpha-cut canopy skyline. FOUR MATERIALS
+## archetype's own cards). A V4 card is the same quad as before,
+## UV-mapped into foliage_wall_512.png by THE CARD RECIPE at the
+## constants (FOREST-2: a hashed slice of the texture's u per card, the
+## v-window per layer, the mirror by its hash; was -> the full u wrap
+## offset by the card's hash and mirrored by another, so its top edge was
+## the one alpha-cut skyline turned - the same skyline on every card). FOUR MATERIALS
 ## (was one): the wall (foliage_wall_512, alpha scissor, both faces), the
 ## spruce foliage (foliage_spruce_512, the same), the beech foliage
 ## (foliage_beech_512, the same; the row tree wears it too) and the bark
@@ -124,10 +136,15 @@ extends Node3D
 ## hard edges and no sorting over ~100 000 quads (period-correct).
 ## Placement is untouched: the same cards and trees at the same points.
 ##
-## DETERMINISM: no RNG; every jitter and height is TerrainBuilder.hash_unit
-## of (region seed, the polygon's OSM id, the purpose, the index), a
-## tree's yaw and shade and a card's texture offset hash_unit of (the OSM
-## id, the purpose, the tree's / card's list index). The edges are walked
+## DETERMINISM: no RNG; every jitter and height is unit() - THE HASH
+## below: TerrainBuilder.hash_unit of (region seed, the spatial mix of
+## the polygon's OSM id and the index, the purpose, the index) - a tree's
+## yaw and shade and a card's mirror unit() of (the OSM id, the purpose,
+## the tree's / card's list index), a card's window, its gap, its feather
+## and a tree's scatter unit() of (the OSM id, the purpose, the walk's
+## index): the purposes card_jitter, card_height, card_u_span, card_uv,
+## card_v_top, card_gap, card_feather, card_flip, tree_jitter,
+## tree_scatter, tree_height, tree_yaw, tree_shade. The edges are walked
 ## in the file's order (by OSM id), so the budgets are spent the same way
 ## every run and the lists index the same way.
 
@@ -144,9 +161,69 @@ const FOOT_SINK_M := 1.0
 ## The jitter of a card along its edge, as a share of the card's width.
 const CARD_JITTER := 0.25
 
-## A tree's step into the forest from the edge [m], and its trunk's
-## width [m].
-const TREE_INSET_M := 1.5
+## THE CARD RECIPE (FOREST-2; the driver's three demands of 2026-09-26,
+## plan.org: the cards read "like a green wall, covering the whole tree
+## forest"; "trees must be distributed more natural, these ones are an
+## unnatural row"; the wall ends feathered, not vertical cut-offs).
+## THE U-WINDOW: a card shows a hashed SLICE of the texture's u, not the
+## full wrap (was -> u0 the hash, u1 = u0 + 1: every card the same
+## skyline phase-rotated - the green wall): the slice for an 8 m card is
+## CARD_U_WINDOW +- CARD_U_WINDOW_JITTER / 2 by "card_u_span" (0.14-0.30
+## of the texture: 2-5 of its 16 spruce columns), scaled by the card's
+## width over CARD_WIDTH_M so a column keeps its world width on a
+## stretched or a short card; u0 by "card_uv" (now by the walk's index,
+## was the list's), the mirror by "card_flip" as before.
+const CARD_U_WINDOW := 0.22
+const CARD_U_WINDOW_JITTER := 0.16
+## THE V-WINDOW per layer, [top, 1]: the foot is always the texture's
+## solid foot; the top by "card_v_top" within the layer's band. The
+## front layer's band is a trim of at most 0.05: no column of the
+## texture reaches over v 0.05 from the top (foliage.py WALL_TIP_MAX), so
+## the front's top never cuts a crown - a straight cut through canopy is
+## the cut-off look. The middle and the back layers start a little lower
+## in the texture (their tips a step lower, their trees a shade taller
+## under their darker tints - the depth), and no further: the brief's
+## bands (middle 0.10-0.22, back 0.20-0.35) were measured in the probe
+## to cut the tallest columns flat, and a gap slot shows a neighbour's
+## staggered deeper card in full - a dark slab with a flat top at the
+## far end of the drive-start straight - so the bands end where only the
+## four tallest of the texture's 16 columns are touched near their tips
+## (v 0.14 from the top: tips over 0.86 of the height).
+const CARD_V_TOP := [[0.0, 0.05], [0.03, 0.08], [0.06, 0.14]]
+## THE GAPS: a hashed CARD_GAP_RATE of the slots draw no card in any
+## layer - the forest seen through them (the demand: 15-25 %; the
+## decision hash_unit(osm, "card_gap", the slot's front card's index) <
+## the rate). A gap slot consumes its layers' hash indices like a far
+## slot does, so the trees' indices are what they were; the slots count
+## into counts.cards_skipped_gap.
+const CARD_GAP_RATE := 0.2
+## THE FEATHERED ENDS: a run of cards ends at a slot the 60 m rule
+## refuses (per layer: a deeper layer, 4 m further in, may end sooner)
+## or at an edge the cheap rejection skipped; a ring's edges are one
+## sequence and the ring is closed, so a polygon corner is no end, and
+## a gap is a window, not an end. The last FEATHER_SLOTS slots of a run
+## taper: the card's height is scaled by a ramp from 1 down to a hashed
+## [FEATHER_END_MIN, FEATHER_END_MAX] at the terminal slot
+## ("card_feather"), and the terminal slot's u-window is cut from the
+## texture's thinning band FEATHER_U_BAND (foliage.py WALL_THIN_BAND:
+## three short, narrow columns set apart - an open grove), so the wall
+## sinks and thins out instead of stopping at a 12-18 m vertical edge.
+## Not a v-shift: showing the texture's interior at a card's top puts a
+## straight cut through the canopy, the chop itself.
+const FEATHER_SLOTS := 2
+const FEATHER_END_MIN := 0.5
+const FEATHER_END_MAX := 0.7
+const FEATHER_U_BAND := Vector2(0.70, 0.86)
+
+## A tree's step into the forest from the edge [m] (FOREST-2: 0.75, was
+## 1.5 - the demand's 0.5-1 m: the archetype trees stand at the card
+## line and break the wall's face instead of hiding behind it), its
+## jitter along the edge as a share of its gap (+- TREE_JITTER, was
+## +- 0.25: "an unnatural row"), its hashed scatter across the line
+## [m] ("tree_scatter", +- TREE_SCATTER_M), and its trunk's width [m].
+const TREE_INSET_M := 0.75
+const TREE_JITTER := 0.4
+const TREE_SCATTER_M := 0.4
 const TRUNK_WIDTH_M := 0.4
 
 ## The trunk prisms (BUBBLE-1): the archetype's measured trunk radius is
@@ -237,6 +314,13 @@ var card_road_distance: PackedFloat32Array
 ## frame] and its width along the edge [m].
 var card_heading: PackedFloat32Array
 var card_width: PackedFloat32Array
+## FOREST-2: the card's texture window - u0 and its u span (before the
+## mirror), the v of its top - and its feather taper (the height's
+## scale, 1 where the run goes on).
+var card_u0: PackedFloat32Array
+var card_u_span: PackedFloat32Array
+var card_v0: PackedFloat32Array
+var card_taper: PackedFloat32Array
 ## Every tree: position, element, height, the source's OSM id, the road
 ## and side it is charged to ("" / 0 when beyond the 60 m: only V6 rows
 ## and mapped trees can be there).
@@ -262,7 +346,7 @@ var trunk_chunk_trees: Dictionary = {}
 var trunk_boxes := PackedFloat64Array()
 var bubble: PhysicsBubble = null
 
-var counts := {"forests_walked": 0, "edges": 0, "cards": 0, "cards_skipped_far": 0, "trees": 0, "trees_v1": 0, "trees_v2": 0, "trees_rows": 0, "trees_skipped_far": 0, "trees_skipped_budget": 0, "vertices": 0, "triangles": 0, "trunks": 0, "bodies": 0}
+var counts := {"forests_walked": 0, "edges": 0, "slots": 0, "cards": 0, "cards_skipped_far": 0, "cards_skipped_gap": 0, "cards_feathered": 0, "trees": 0, "trees_v1": 0, "trees_v2": 0, "trees_rows": 0, "trees_skipped_far": 0, "trees_skipped_budget": 0, "vertices": 0, "triangles": 0, "trunks": 0, "bodies": 0}
 var elements: Dictionary = {}
 var build_ms := 0
 ## The archetypes by their key ("V1", "V2", "V6") and the four materials by
@@ -348,6 +432,10 @@ func _reset_lists() -> void:
 	card_road_distance = PackedFloat32Array()
 	card_heading = PackedFloat32Array()
 	card_width = PackedFloat32Array()
+	card_u0 = PackedFloat32Array()
+	card_u_span = PackedFloat32Array()
+	card_v0 = PackedFloat32Array()
+	card_taper = PackedFloat32Array()
 	tree_x = PackedFloat64Array()
 	tree_z = PackedFloat64Array()
 	tree_element = PackedStringArray()
@@ -417,6 +505,32 @@ func nearest_road(x: float, z: float, limit: float) -> Dictionary:
 
 
 # =============================================================================
+#  THE HASH
+# =============================================================================
+
+## Every hashed decision of the forest: TerrainBuilder.hash_unit of the
+## region seed, the purpose and a SPATIAL MIX of the OSM id and the index
+## (FOREST-2; the continuation's corner() fold: (index x 73856093) xor
+## (osm x 19349663), masked positive, standing in the id field with the
+## index in the index field). THE WEAKNESS IT MENDS, measured (.scratch/
+## forest-2/hash_probe.gd): hash_unit's text ends in the index, and two
+## consecutive indices reach FNV-1a's last byte one multiply apart, so
+## their units differ by 0.004 (tree_height 12356..12359 on way 420556746:
+## 0.7418, 0.7457, 0.7652, 0.7691) - every tree along an edge the same
+## height to 5 cm, the same jitter, the same yaw, every card of a run the
+## same height and the same texture phase: THE ROW and THE GREEN WALL were
+## the hash as much as the recipe. A 20 % gap draw on the raw units came
+## in 1 278 runs with the longest 27 slots (216 m without a wall) over
+## 30 000 slots; on the mixed key 4 756 runs, the longest 7 - a fair
+## draw. Still no RNG: the same (osm, purpose, index) gives the same unit
+## on every machine and every run. was -> TerrainBuilder.hash_unit(osm,
+## purpose, index) straight.
+static func unit(osm: int, purpose: String, index: int) -> float:
+	var mix := ((index * 73856093) ^ (osm * 19349663)) & 0x7FFFFFFF
+	return TerrainBuilder.hash_unit(mix, purpose, index)
+
+
+# =============================================================================
 #  THE WALK
 # =============================================================================
 
@@ -434,14 +548,56 @@ func _walk_forests() -> void:
 			index = _walk_ring(ring, osm, broadleaved, -1.0, index)
 
 
+## One ring's slot sequence (FOREST-2): per slot its heading and width
+## and whether it is a void (an edge the cheap rejection skipped: a run
+## ends there); per (slot, layer) the card's base, its hash index, its
+## 60 m verdict and its road distance.
+class RingRun:
+	var headings := PackedFloat32Array()
+	var widths := PackedFloat32Array()
+	var voids := PackedByteArray()
+	var xs := PackedFloat64Array()
+	var zs := PackedFloat64Array()
+	var indices := PackedInt32Array()
+	var fars := PackedByteArray()
+	var distances := PackedFloat32Array()
+
+	func push_void(layer_count: int) -> void:
+		headings.append(0.0)
+		widths.append(0.0)
+		voids.append(1)
+		for layer: int in layer_count:
+			push_card(0.0, 0.0, -1, true, 0.0)
+
+	func push_slot(heading: float, width: float) -> void:
+		headings.append(heading)
+		widths.append(width)
+		voids.append(0)
+
+	func push_card(x: float, z: float, index: int, far: bool, distance: float) -> void:
+		xs.append(x)
+		zs.append(z)
+		indices.append(index)
+		fars.append(1 if far else 0)
+		distances.append(distance)
+
+
 ## One ring's edges: the cards and the trees along each. `forest_side` is
 ## +1 when the forest is inside the ring, -1 for a hole. Returns the next
-## card index (the hash's).
+## card index (the hash's). FOREST-2, two passes: the first walks the
+## edges in order, files every slot's layers (the position, the 60 m
+## verdict, the hash index) into one sequence for the ring and places
+## the trees as it goes (the budgets spent in the order they always
+## were; the index flow the same: a card's index per slot and layer,
+## built or not, then the edge's trees'); the second (_build_run) knows
+## where every layer's runs end and builds the cards with the gaps and
+## the feathered ends.
 func _walk_ring(ring: Array, osm: int, broadleaved: bool, forest_side: float, index: int) -> int:
 	var area := 0.0
 	for k: int in range(ring.size() - 1):
 		area += ring[k][0] * ring[k + 1][1] - ring[k + 1][0] * ring[k][1]
 	var inward_sign := (1.0 if area > 0.0 else -1.0) * forest_side
+	var run := RingRun.new()
 	for k: int in range(ring.size() - 1):
 		var ax: float = ring[k][0]
 		var az: float = ring[k][1]
@@ -460,43 +616,129 @@ func _walk_ring(ring: Array, osm: int, broadleaved: bool, forest_side: float, in
 		# Only an edge that comes near a road can hold a card: a cheap
 		# rejection through the lattice's distance before the exact test.
 		if terrain != null and terrain.distance_at(ax, az) > wall_within_m + length + terrain.step and terrain.distance_at(bx, bz) > wall_within_m + length + terrain.step:
+			run.push_void(layers)
 			continue
 		var slots := maxi(1, ceili(length / CARD_WIDTH_M))
 		var width := length / slots
+		var heading := atan2(ez, ex)
 		for slot: int in slots:
+			run.push_slot(heading, width)
 			for layer: int in layers:
-				var jitter := (TerrainBuilder.hash_unit(osm, "card_jitter", index) - 0.5) * CARD_JITTER * width
+				var jitter := (unit(osm, "card_jitter", index) - 0.5) * CARD_JITTER * width
 				var along := (float(slot) + 0.5 + float(layer) / float(layers)) * width + jitter
 				along = clampf(along, width * 0.5, length - width * 0.5)
 				var depth := float(layer) * LAYER_DEPTH_M
 				var x := ax + ex * along + nx * depth
 				var z := az + ez * along + nz * depth
 				var found := nearest_road(x, z, wall_within_m)
-				if found.is_empty() or not profile.covers(x, z):
-					counts.cards_skipped_far += 1
-					index += 1
-					continue
-				var height := lerpf(wall_height_m[0], wall_height_m[1], TerrainBuilder.hash_unit(osm, "card_height", index))
-				card_x.append(x)
-				card_z.append(z)
-				card_layer.append(layer)
-				card_height.append(height)
-				card_osm.append(osm)
-				card_road_distance.append(found.distance)
-				card_heading.append(atan2(ez, ex))
-				card_width.append(width)
-				counts.cards += 1
+				var far := found.is_empty() or not profile.covers(x, z)
+				run.push_card(x, z, index, far, 0.0 if far else float(found.distance))
 				index += 1
-		# The trees along the edge, one step into the forest.
+		# The trees along the edge, a step into the forest, jittered along
+		# it and scattered across the line (FOREST-2: +- TREE_JITTER of the
+		# gap, was +- 0.25; the scatter new).
 		var trees := maxi(1, floori(length / tree_spacing_m))
 		var tree_gap := length / trees
 		for t: int in trees:
-			var along := (float(t) + 0.5) * tree_gap + (TerrainBuilder.hash_unit(osm, "tree_jitter", index) - 0.5) * tree_gap * 0.5
-			var x := ax + ex * along + nx * TREE_INSET_M
-			var z := az + ez * along + nz * TREE_INSET_M
+			var along := (float(t) + 0.5) * tree_gap + (unit(osm, "tree_jitter", index) - 0.5) * tree_gap * 2.0 * TREE_JITTER
+			var inset := TREE_INSET_M + (unit(osm, "tree_scatter", index) - 0.5) * 2.0 * TREE_SCATTER_M
+			var x := ax + ex * along + nx * inset
+			var z := az + ez * along + nz * inset
 			_place_tree(x, z, "V1" if broadleaved else "V2", osm, index, true)
 			index += 1
+	_build_run(run, osm)
 	return index
+
+
+## The second pass over a ring's sequence: the distance of every (slot,
+## layer) to its run's end, then the cards - a hashed share of the slots
+## gapped, the ends feathered, the texture window per card.
+func _build_run(run: RingRun, osm: int) -> void:
+	var n := run.widths.size()
+	if n == 0:
+		return
+	var ends := _run_ends(run, n)
+	for s: int in n:
+		if run.voids[s] == 1:
+			continue
+		counts.slots += 1
+		var front := s * layers
+		if unit(osm, "card_gap", run.indices[front]) < CARD_GAP_RATE:
+			counts.cards_skipped_gap += 1
+			continue
+		for layer: int in layers:
+			var c := front + layer
+			if run.fars[c] == 1:
+				counts.cards_skipped_far += 1
+				continue
+			var index := run.indices[c]
+			var u_span := (CARD_U_WINDOW + (unit(osm, "card_u_span", index) - 0.5) * CARD_U_WINDOW_JITTER) * run.widths[s] / CARD_WIDTH_M
+			var u0 := unit(osm, "card_uv", index)
+			var taper := 1.0
+			var d := ends[c]
+			if d < FEATHER_SLOTS:
+				var end_scale := lerpf(FEATHER_END_MIN, FEATHER_END_MAX, unit(osm, "card_feather", index))
+				taper = lerpf(end_scale, 1.0, float(d) / float(FEATHER_SLOTS))
+				counts.cards_feathered += 1
+				if d == 0:
+					var band := FEATHER_U_BAND.y - FEATHER_U_BAND.x
+					u_span = minf(u_span, band)
+					u0 = FEATHER_U_BAND.x + u0 * (band - u_span)
+			var v_band: Array = CARD_V_TOP[mini(layer, CARD_V_TOP.size() - 1)]
+			var v0 := lerpf(float(v_band[0]), float(v_band[1]), unit(osm, "card_v_top", index))
+			var height := lerpf(wall_height_m[0], wall_height_m[1], unit(osm, "card_height", index))
+			card_x.append(run.xs[c])
+			card_z.append(run.zs[c])
+			card_layer.append(layer)
+			card_height.append(height)
+			card_osm.append(osm)
+			card_road_distance.append(run.distances[c])
+			card_heading.append(run.headings[s])
+			card_width.append(run.widths[s])
+			card_u0.append(u0)
+			card_u_span.append(u_span)
+			card_v0.append(v0)
+			card_taper.append(taper)
+			counts.cards += 1
+
+
+## Per (slot, layer): how many building slots stand between it and the
+## nearest slot the rule refuses (or a void), the nearer way round the
+## closed ring - 0 for a run's terminal slot; n where the layer's wall
+## runs all the way round (no end).
+func _run_ends(run: RingRun, n: int) -> PackedInt32Array:
+	var ends := PackedInt32Array()
+	ends.resize(n * layers)
+	ends.fill(n)
+	for layer: int in layers:
+		var any_far := false
+		for s: int in n:
+			if run.fars[s * layers + layer] == 1:
+				any_far = true
+				break
+		if not any_far:
+			continue
+		# Twice round in each direction: every slot sees a refused slot
+		# before it and one after it.
+		var count := -1
+		for step: int in range(2 * n):
+			var s := step % n
+			var c := s * layers + layer
+			if run.fars[c] == 1:
+				count = 0
+			elif count >= 0:
+				ends[c] = mini(ends[c], count)
+				count += 1
+		count = -1
+		for step: int in range(2 * n):
+			var s := (2 * n - 1 - step) % n
+			var c := s * layers + layer
+			if run.fars[c] == 1:
+				count = 0
+			elif count >= 0:
+				ends[c] = mini(ends[c], count)
+				count += 1
+	return ends
 
 
 ## A tree at (x, z) if the ceiling allows: within the 60 m it is charged to
@@ -522,7 +764,7 @@ func _place_tree(x: float, z: float, element: String, osm: int, index: int, edge
 		budget[side] += 1
 		budgets[road_id] = budget
 	var range_of: Array = v1_height_m if element == "V1" else v2_height_m
-	var height := lerpf(range_of[0], range_of[1], TerrainBuilder.hash_unit(osm, "tree_height", index))
+	var height := lerpf(range_of[0], range_of[1], unit(osm, "tree_height", index))
 	tree_x.append(x)
 	tree_z.append(z)
 	tree_element.append(element)
@@ -737,7 +979,7 @@ func archetype_of(i: int) -> String:
 func tree_transform(i: int) -> Transform3D:
 	var archetype: Archetype = archetypes.get(archetype_of(i))
 	var scale := tree_height[i] / archetype.height if archetype != null and archetype.height > 0.0 else 1.0
-	var yaw := TAU * TerrainBuilder.hash_unit(tree_osm[i], "tree_yaw", i)
+	var yaw := TAU * unit(tree_osm[i], "tree_yaw", i)
 	var basis := Basis(Vector3.UP, yaw).scaled(Vector3(scale, scale, scale))
 	var x := tree_x[i]
 	var z := tree_z[i]
@@ -746,7 +988,7 @@ func tree_transform(i: int) -> Transform3D:
 
 ## Tree `i`'s shade: the tint's multiplier in [TREE_SHADE_MIN, 1].
 func tree_shade(i: int) -> float:
-	return lerpf(TREE_SHADE_MIN, 1.0, TerrainBuilder.hash_unit(tree_osm[i], "tree_shade", i))
+	return lerpf(TREE_SHADE_MIN, 1.0, unit(tree_osm[i], "tree_shade", i))
 
 
 ## Bakes the trees of one archetype into two surfaces of the chunk's mesh
@@ -804,9 +1046,12 @@ func _offset_indices(key: String, base: PackedInt32Array, vertex_count: int, cop
 
 
 ## A card: a vertical quad along its edge's heading, FOOT_SINK_M into the
-## ground at its centre, its layer's colour, UV-mapped into the wall
-## texture: u offset by the card's hash (the texture tiles across) and
-## mirrored by another, v 0 at the top (the alpha skyline), 1 at the foot.
+## ground at its centre, its stone height times its feather taper, its
+## layer's colour, UV-mapped into the wall texture by the window the
+## walk chose: u from card_u0 over card_u_span (the texture tiles across;
+## was -> u0 + 1, the full wrap), mirrored by the "card_flip" hash as
+## before, v card_v0 at the top (the front's the alpha skyline, a deeper
+## layer's the canopy's interior), 1 at the foot (the solid undergrowth).
 func _card_quad(vertices: PackedVector3Array, normals: PackedVector3Array, uvs: PackedVector2Array, colours: PackedColorArray, indices: PackedInt32Array, i: int) -> void:
 	var heading := card_heading[i]
 	var ex := cos(heading)
@@ -815,16 +1060,17 @@ func _card_quad(vertices: PackedVector3Array, normals: PackedVector3Array, uvs: 
 	var x := card_x[i]
 	var z := card_z[i]
 	var base := profile.elevation_height(x, z) - FOOT_SINK_M
-	var top := base + card_height[i]
+	var top := base + card_height[i] * card_taper[i]
 	var colour := _wall_colours[mini(card_layer[i], _wall_colours.size() - 1)]
 	var normal := Vector3(-ez, 0.0, ex)
-	var u0 := TerrainBuilder.hash_unit(card_osm[i], "card_uv", i)
-	var u1 := u0 + 1.0
-	if TerrainBuilder.hash_unit(card_osm[i], "card_flip", i) < 0.5:
+	var u0 := card_u0[i]
+	var u1 := u0 + card_u_span[i]
+	var v0 := card_v0[i]
+	if unit(card_osm[i], "card_flip", i) < 0.5:
 		var swap := u0
 		u0 = u1
 		u1 = swap
-	_quad(vertices, normals, uvs, colours, indices, Vector3(x - ex * half, base, z - ez * half), Vector3(x + ex * half, base, z + ez * half), Vector3(x + ex * half, top, z + ez * half), Vector3(x - ex * half, top, z - ez * half), normal, colour, Vector2(u0, 1.0), Vector2(u1, 1.0), Vector2(u1, 0.0), Vector2(u0, 0.0))
+	_quad(vertices, normals, uvs, colours, indices, Vector3(x - ex * half, base, z - ez * half), Vector3(x + ex * half, base, z + ez * half), Vector3(x + ex * half, top, z + ez * half), Vector3(x - ex * half, top, z - ez * half), normal, colour, Vector2(u0, 1.0), Vector2(u1, 1.0), Vector2(u1, v0), Vector2(u0, v0))
 
 
 func _quad(vertices: PackedVector3Array, normals: PackedVector3Array, uvs: PackedVector2Array, colours: PackedColorArray, indices: PackedInt32Array, a: Vector3, b: Vector3, c: Vector3, d: Vector3, normal: Vector3, colour: Color, uv_a: Vector2, uv_b: Vector2, uv_c: Vector2, uv_d: Vector2) -> void:
@@ -972,4 +1218,4 @@ func _write_trunk(faces: PackedVector3Array, at: int, i: int) -> int:
 
 ## One line on what was built (no wall time).
 func describe() -> String:
-	return "%d forests walked, %d edges, %d cards (%d beyond the %.0f m), %d trees (%d V1, %d V2, %d in rows; %d beyond the %.0f m, %d over the budget), %d vertices, %d triangles, %d trunk prisms in %d bodies" % [counts.forests_walked, counts.edges, counts.cards, counts.cards_skipped_far, wall_within_m, counts.trees, counts.trees_v1, counts.trees_v2, counts.trees_rows, counts.trees_skipped_far, trees_within_m, counts.trees_skipped_budget, counts.vertices, counts.triangles, counts.trunks, counts.bodies]
+	return "%d forests walked, %d edges, %d slots, %d cards (%d beyond the %.0f m, %d slots open as gaps, %d cards feathered), %d trees (%d V1, %d V2, %d in rows; %d beyond the %.0f m, %d over the budget), %d vertices, %d triangles, %d trunk prisms in %d bodies" % [counts.forests_walked, counts.edges, counts.slots, counts.cards, counts.cards_skipped_far, wall_within_m, counts.cards_skipped_gap, counts.cards_feathered, counts.trees, counts.trees_v1, counts.trees_v2, counts.trees_rows, counts.trees_skipped_far, trees_within_m, counts.trees_skipped_budget, counts.vertices, counts.triangles, counts.trunks, counts.bodies]

@@ -18,7 +18,9 @@ BUBBLE-1 the forest build also writes the trunk bodies, a few hundred millisecon
 OFFROAD-1 the terrain build also writes the continuation skirt, about a second).
 `tests/run_tests.sh --parallel` runs the twenty-seven tests side by side after the import and
 prints the same lines in the same order. What each test checks is in the main
-`README.md`.
+`README.md` (since FOREST-2 the dressing test also holds the forest edge's card recipe -
+the gap share, the feathers, every card's texture window, the wall texture's skyline and
+column gaps - 118 checks, was 113; the bubble test's named tree is index 12369, was 12355).
 
 ## Gating a commit, not a working tree
 
