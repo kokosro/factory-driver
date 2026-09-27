@@ -59,6 +59,24 @@ extends SceneTree
 ##       root holds what it held before, nothing of the Ring left under
 ##       it.
 ## Exits 0 on success, 1 on any failed check.
+##
+## THE PINS' HISTORY (the digests and counts this test printed, the
+## reference build's; the checks compare the two builds, never a
+## literal): LOADING-1 - Road 0affd901536981e0 (3 304 meshes, 3 305
+## shapes), Terrain 5fe56671536fbd58 (3 352 meshes; 1 855 846 vertices,
+## 3 111 171 triangles), Forest 37d8d855599b8de2 (84 meshes, 42 shapes).
+## ROAD-3 (the carve and the road body; was -> those): Road
+## dfa68bb59bdb78c7 (6 608 meshes: a Skirt_<id> MeshInstance3D beside
+## every strip, the 3 305 shapes the same - the strips' trimeshes and the
+## floor's box untouched, the road's describe() and seven counters
+## byte-identical: 3 304 roads, 361 393 sections, 1 085 645 vertices,
+## 1 435 286 triangles, 3 304 bodies), Terrain f3d51da12b5f6547 (the
+## same 3 352 meshes; 2 772 530 vertices, 4 466 373 triangles: the
+## platform strips' ten columns, was six, no quad across the paved
+## width, and 331 888 vertices capped under other roads' footprints),
+## Forest 37d8d855599b8de2 unchanged. The Road digest now covers
+## the skirts' surfaces too, in child order (Strip_, Body_, Skirt_ per
+## road) - 9 913 children under Road, was 6 609.
 
 const RING_SCENE := "res://scenes/eifel_ring.tscn"
 const PAD_SCENE := "res://scenes/main.tscn"

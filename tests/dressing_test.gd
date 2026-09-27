@@ -46,7 +46,18 @@ extends SceneTree
 ## at a sample of tiles' nearest nodes within half a lattice step's
 ## diagonal; the platform strips stand at every 2 m station and every
 ## skeleton point with no gap over 2 m, their offsets the paved edge, the
-## blend band's end and the apron. THE WALLS: every one of the ~63 000 V4
+## verge, the shoulder's end, the blend band's end and the apron. THE
+## CARVE AND THE ROAD BODY (ROAD-3, the driver's road flicker and flat
+## surface): no strip draws a quad across the paved width, its paved-edge
+## columns stand CARVE_DEPTH_M under the field, its verge columns
+## CARVE_LIP_M above the road body's foot and its shoulder columns at the
+## field's undercut, every vertex inside another road's footprint (and its
+## quad neighbours) under that road's platform (THE CAP: the hill that
+## covered the road was the neighbouring strips' fans); every road under Road has its Skirt_<id> mesh, a
+## bevel SKIRT_OUT_M out and SKIRT_DOWN_M down from the strip's own edge
+## vertices, no physics, and the road's certified counters unchanged
+## (was -> the strips' six columns at the field with the quad across:
+## the terrain on the road's own plane, the flicker). THE WALLS: every one of the ~63 000 V4
 ## cards (FOREST-2; was ~79 000: a fifth of the slots are gaps) is within
 ## 60 m of a covered road on the builder's own distance, and a sample
 ## every 400th card is within 60 m by brute force over every chord; every
@@ -215,6 +226,7 @@ func _initialize() -> void:
 		_check_no_physics(terrain, forest)
 		_check_lattice_plan(terrain)
 		_check_strips(terrain)
+		_check_carve(terrain, road)
 		_check_walls(terrain, forest, landcover)
 		_check_assets(forest)
 		_check_ceiling(terrain, forest)
@@ -792,20 +804,160 @@ func _check_strips(terrain: TerrainBuilder) -> void:
 		var offsets: PackedFloat64Array = strip.offsets
 		var hw := ribbon.half_width
 		var blend := WorldRoadProfile.BLEND_BAND_M
-		ok = ok and offsets.size() == 6 and offsets[2] == -hw and offsets[3] == hw and offsets[1] == -(hw + blend) and offsets[4] == hw + blend and offsets[0] == -(hw + blend + TerrainBuilder.APRON_M) and offsets[5] == hw + blend + TerrainBuilder.APRON_M
+		var skirt := RoadBuilder.SKIRT_OUT_M
+		var shoulder := TerrainBuilder.CARVE_SHOULDER_M
+		# ROAD-3: ten columns (was -> six: apron, blend end, paved edge
+		# either side); the verge (the road body's foot) and the shoulder's
+		# end joined them, the paved edges at STRIP_EDGE_LEFT / _RIGHT.
+		ok = ok and offsets.size() == TerrainBuilder.STRIP_COLUMNS and TerrainBuilder.STRIP_COLUMNS == 10 and TerrainBuilder.STRIP_EDGE_LEFT == 4 and TerrainBuilder.STRIP_EDGE_RIGHT == 5
+		ok = ok and offsets[4] == -hw and offsets[5] == hw and offsets[3] == -(hw + skirt) and offsets[6] == hw + skirt and offsets[2] == -(hw + shoulder) and offsets[7] == hw + shoulder
+		ok = ok and offsets[1] == -(hw + blend) and offsets[8] == hw + blend and offsets[0] == -(hw + blend + TerrainBuilder.APRON_M) and offsets[9] == hw + blend + TerrainBuilder.APRON_M
 		ok = ok and strip.vertices == chainages.size() * offsets.size()
 		strips_ok = strips_ok and ok
 		checked += 1
-	_ok(strips_ok and checked == terrain.ribbons.size(), "every one of the %d platform strips stands at every %.0f m station from 0 to the road's end (within the station rule's millimetre) and at every skeleton point (widest gap %.3f m), with offsets at the paved edge, the blend band's end (%.0f m out) and the apron (%.0f m further)" % [checked, PLATFORM_M, worst_gap, WorldRoadProfile.BLEND_BAND_M, TerrainBuilder.APRON_M], "strips %s, checked %d of %d" % [strips_ok, checked, terrain.ribbons.size()])
-	# A strip's inner edge is the field's platform edge: the road strip's
-	# edge height at the same point.
+	_ok(strips_ok and checked == terrain.ribbons.size(), "every one of the %d platform strips stands at every %.0f m station from 0 to the road's end (within the station rule's millimetre) and at every skeleton point (widest gap %.3f m), with offsets at the paved edge, the verge (the road body's foot, %.2f m out; ROAD-3), the shoulder's end (%.1f m, the surfaces table's), the blend band's end (%.0f m out) and the apron (%.0f m further)" % [checked, PLATFORM_M, worst_gap, RoadBuilder.SKIRT_OUT_M, TerrainBuilder.CARVE_SHOULDER_M, WorldRoadProfile.BLEND_BAND_M, TerrainBuilder.APRON_M], "strips %s, checked %d of %d" % [strips_ok, checked, terrain.ribbons.size()])
+	# A strip's inner edge follows the field's platform edge: the road
+	# strip's edge height at the same point, CARVE_DEPTH_M under it (ROAD-3;
+	# was -> at the profile's height itself: the flat quad across the road
+	# that fought the road mesh in the depth buffer).
 	var pit: Dictionary = terrain.strips.get("199642470-0", {})
 	var edge_ok := false
 	if not pit.is_empty():
 		var vertices: PackedVector3Array = pit.mesh.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
-		var v := vertices[3]  # section 0, the right paved edge
-		edge_ok = absf(v.y - terrain.profile.sample_height(v.x, v.z)) < 0.002
-	_ok(edge_ok, "the pit lane's strip meets the road at the paved edge: its edge vertex is the profile's height there within 2 mm")
+		var v := vertices[TerrainBuilder.STRIP_EDGE_RIGHT]  # section 0, the right paved edge
+		# The pit lane's start stands at a junction: the cap of the road
+		# it joins may hold the vertex lower still (THE CAP).
+		var caps := terrain.strip_caps("199642470-0", pit.chainages.size(), vertices)
+		var expected := minf(terrain.profile.sample_height(v.x, v.z) - TerrainBuilder.CARVE_DEPTH_M, caps[TerrainBuilder.STRIP_EDGE_RIGHT])
+		edge_ok = absf(v.y - expected) < 0.002
+	_ok(edge_ok, "the pit lane's strip meets the road at the paved edge %.1f m under it: its edge vertex is the profile's height there less CARVE_DEPTH_M within 2 mm (ROAD-3; was -> at the profile's height), or the cap of the road it joins where that is lower" % TerrainBuilder.CARVE_DEPTH_M)
+
+
+## ROAD-3, the carve and the road body: on every platform strip no quad
+## is drawn across the paved width, the paved-edge columns stand
+## CARVE_DEPTH_M under the field, the verge columns CARVE_LIP_M above the
+## road body's foot (RoadBuilder.skirt_foot_height, the one rule) and
+## never above their own field's undercut, the shoulder columns at the
+## field's undercut; and under Road every strip has its Skirt_<id>
+## MeshInstance3D - four vertices a section, its edges the strip's own
+## edge vertices to the bit, its feet SKIRT_OUT_M out (the mitre's
+## stretch kept) at skirt_foot_height, at least SKIRT_DOWN_M under the
+## edge - with no physics under it, and the road's certified counters
+## count the paved platform alone (the skirt's vertices are their own
+## count). Sampled every SAMPLE_SECTIONS-th section of every strip.
+const SAMPLE_SECTIONS := 7
+const CARVE_TOLERANCE_M := 0.002
+
+func _check_carve(terrain: TerrainBuilder, road: RoadBuilder) -> void:
+	var profile: WorldRoadProfile = terrain.profile
+	var across := TerrainBuilder.STRIP_COLUMNS
+	var left := TerrainBuilder.STRIP_EDGE_LEFT
+	var right := TerrainBuilder.STRIP_EDGE_RIGHT
+	var no_quad_across := true
+	var edges_ok := true
+	var verges_ok := true
+	var shoulders_ok := true
+	var strips := 0
+	var sampled := 0
+	var worst_edge := 0.0
+	var worst_verge := 0.0
+	var lowest_lip := INF
+	var capped := 0
+	var caps_ok := true
+	for id: String in terrain.strips:
+		var record: Dictionary = terrain.strips[id]
+		var arrays: Array = record.mesh.mesh.surface_get_arrays(0)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		var sections: int = record.chainages.size()
+		no_quad_across = no_quad_across and indices.size() == (sections - 1) * (across - 2) * 6
+		# THE CAP as the builder computed it, recomputed here on the
+		# built vertices' (x, z) (one function: TerrainBuilder.strip_caps).
+		var strip_caps := terrain.strip_caps(id, sections, vertices)
+		# Every quad's first index names its left column: never the left
+		# paved edge (the pair across the road).
+		var t := 0
+		while t < indices.size():
+			no_quad_across = no_quad_across and indices[t] % across != left
+			t += 6
+		strips += 1
+		for k: int in range(0, sections, SAMPLE_SECTIONS):
+			sampled += 1
+			for side: int in 2:
+				var edge := k * across + (left if side == 0 else right)
+				var verge := edge + (-1 if side == 0 else 1)
+				var shoulder := edge + (-2 if side == 0 else 2)
+				var ev := vertices[edge]
+				var vv := vertices[verge]
+				var sv := vertices[shoulder]
+				var edge_field := profile.elevation_height(ev.x, ev.z)
+				var verge_field := profile.elevation_height(vv.x, vv.z)
+				var shoulder_field := profile.elevation_height(sv.x, sv.z)
+				# THE CAP: the column's rule, or the cap of another road's
+				# footprint around the vertex where that is lower.
+				var edge_cap := strip_caps[edge]
+				var verge_cap := strip_caps[verge]
+				var shoulder_cap := strip_caps[shoulder]
+				var edge_expected := minf(edge_field - TerrainBuilder.CARVE_DEPTH_M, edge_cap)
+				var edge_gap := absf(ev.y - edge_expected)
+				var verge_expected := minf(minf(RoadBuilder.skirt_foot_height(edge_field, verge_field) + TerrainBuilder.CARVE_LIP_M, verge_field - TerrainBuilder.BLEND_UNDERCUT_M), verge_cap)
+				var verge_gap := absf(vv.y - verge_expected)
+				var shoulder_expected := minf(shoulder_field - TerrainBuilder.BLEND_UNDERCUT_M, shoulder_cap)
+				if is_finite(edge_cap) or is_finite(verge_cap) or is_finite(shoulder_cap):
+					capped += 1
+					caps_ok = caps_ok and (not is_finite(edge_cap) or ev.y <= edge_cap + CARVE_TOLERANCE_M) and (not is_finite(verge_cap) or vv.y <= verge_cap + CARVE_TOLERANCE_M) and (not is_finite(shoulder_cap) or sv.y <= shoulder_cap + CARVE_TOLERANCE_M)
+				worst_edge = maxf(worst_edge, edge_gap)
+				worst_verge = maxf(worst_verge, verge_gap)
+				lowest_lip = minf(lowest_lip, verge_field - vv.y)
+				edges_ok = edges_ok and edge_gap <= CARVE_TOLERANCE_M
+				# The verge never over the foot's lip: SKIRT_DOWN_M under the
+				# edge's FIELD (a capped edge vertex stands lower than the
+				# field, so the edge vertex itself is no bound here).
+				verges_ok = verges_ok and verge_gap <= CARVE_TOLERANCE_M and vv.y <= verge_field - TerrainBuilder.BLEND_UNDERCUT_M + CARVE_TOLERANCE_M and vv.y <= edge_field - RoadBuilder.SKIRT_DOWN_M + TerrainBuilder.CARVE_LIP_M + CARVE_TOLERANCE_M
+				shoulders_ok = shoulders_ok and absf(sv.y - shoulder_expected) <= CARVE_TOLERANCE_M
+	_ok(no_quad_across and edges_ok and verges_ok and shoulders_ok and caps_ok and capped > 100 and terrain.counts.capped_vertices > 1000 and strips == terrain.ribbons.size() and sampled > 10000, "THE CARVE (ROAD-3) on every one of the %d strips: no quad across the paved width (%d - 2 column pairs a section), and at %d sampled sections both paved-edge columns stand CARVE_DEPTH_M (%.1f m) under the field (worst %.4f m off), both verge columns CARVE_LIP_M (%.2f m) above the road body's foot and never above their field's undercut (worst %.4f m off, the ground at least %.3f m under the field there), both shoulder columns at the field's undercut - within %.0f mm - or under THE CAP of another road's footprint around the vertex where that is lower (%d sampled sections capped; %d vertices capped in all)" % [strips, across, sampled, TerrainBuilder.CARVE_DEPTH_M, worst_edge, TerrainBuilder.CARVE_LIP_M, worst_verge, lowest_lip, CARVE_TOLERANCE_M * 1000.0, capped, terrain.counts.capped_vertices], "no quad across %s, edges %s (worst %.4f), verges %s (worst %.4f, lip %.4f), shoulders %s, caps %s (%d sampled capped, %d in all), strips %d of %d, sampled %d" % [no_quad_across, edges_ok, worst_edge, verges_ok, worst_verge, lowest_lip, shoulders_ok, caps_ok, capped, terrain.counts.capped_vertices, strips, terrain.ribbons.size(), sampled])
+	var skirts := 0
+	var skirts_ok := true
+	var feet_ok := true
+	var platform_vertices := 0
+	var skirt_vertices := 0
+	var skirt_triangles := 0
+	var worst_foot := 0.0
+	var worst_out := 0.0
+	var physics_under := 0
+	for id: String in road.strips:
+		var strip: RoadBuilder.Strip = road.strips[id]
+		platform_vertices += strip.vertices.size()
+		var skirt: MeshInstance3D = road.get_node_or_null("Skirt_" + id)
+		if skirt == null or not skirt.mesh is ArrayMesh:
+			skirts_ok = false
+			continue
+		skirts += 1
+		physics_under += _physics_under(skirt).size()
+		var arrays: Array = skirt.mesh.surface_get_arrays(0)
+		var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+		var sections := strip.chainages.size()
+		skirts_ok = skirts_ok and skirt.mesh.get_surface_count() == 1 and vertices.size() == sections * 4 and indices.size() == (sections - 1) * 2 * 6 and skirt.get_parent() == road
+		skirt_vertices += vertices.size()
+		skirt_triangles += indices.size() / 3
+		var last := strip.offsets.size() - 1
+		var stretch_out := RoadBuilder.SKIRT_OUT_M / (2.0 * strip.half_width)
+		for k: int in range(0, sections, SAMPLE_SECTIONS):
+			var left_edge := strip.vertex(k, 0)
+			var right_edge := strip.vertex(k, last)
+			skirts_ok = skirts_ok and vertices[k * 4 + 1] == left_edge and vertices[k * 4 + 2] == right_edge
+			var span := Vector2(right_edge.x - left_edge.x, right_edge.z - left_edge.z).length() * stretch_out
+			for side: int in 2:
+				var edge := left_edge if side == 0 else right_edge
+				var foot := vertices[k * 4 + (0 if side == 0 else 3)]
+				var out := Vector2(foot.x - edge.x, foot.z - edge.z).length()
+				worst_out = maxf(worst_out, absf(out - span))
+				var expected := RoadBuilder.skirt_foot_height(edge.y, profile.elevation_height(foot.x, foot.z))
+				worst_foot = maxf(worst_foot, absf(foot.y - expected))
+				feet_ok = feet_ok and absf(out - span) <= CARVE_TOLERANCE_M and absf(foot.y - expected) <= CARVE_TOLERANCE_M and foot.y <= edge.y - RoadBuilder.SKIRT_DOWN_M + CARVE_TOLERANCE_M
+	var counters_ok: bool = road.vertex_count == platform_vertices and road.skirt_vertex_count == skirt_vertices and road.skirt_triangle_count == skirt_triangles and skirt_vertices == 4 * road.section_count and skirt_triangles == 4 * (road.section_count - road.road_count)
+	_ok(skirts_ok and feet_ok and counters_ok and physics_under == 0 and skirts == road.road_count, "THE ROAD BODY (ROAD-3): every one of the %d strips has its Skirt_<id> MeshInstance3D under Road, one surface of four vertices a section (%d in all, their own count beside the platform's %d: describe() counts the paved platform alone) and a quad a side between sections (%d triangles), no physics under it; at the sampled sections its edge vertices are the strip's own to the bit and its feet stand SKIRT_OUT_M (%.2f m, the mitre's stretch kept; worst %.4f m off) out at skirt_foot_height - SKIRT_DOWN_M (%.2f m) under the edge or SKIRT_FOOT_UNDER_M under the field where that is lower (worst %.4f m off)" % [skirts, skirt_vertices, platform_vertices, skirt_triangles, RoadBuilder.SKIRT_OUT_M, worst_out, RoadBuilder.SKIRT_DOWN_M, worst_foot], "skirts %d of %d ok %s, feet %s (out %.4f, foot %.4f), counters %s (%d / %d platform, %d / %d skirt vertices, %d / %d triangles), physics %d" % [skirts, road.road_count, skirts_ok, feet_ok, worst_out, worst_foot, counters_ok, road.vertex_count, platform_vertices, road.skirt_vertex_count, skirt_vertices, road.skirt_triangle_count, skirt_triangles, physics_under])
 
 
 # =============================================================================

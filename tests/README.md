@@ -25,7 +25,7 @@ prints the same lines in the same order (was twenty-seven -> the async build tes
 What each test checks is in the main
 `README.md` (since FOREST-2 the dressing test also holds the forest edge's card recipe -
 the gap share, the feathers, every card's texture window, the wall texture's skyline and
-column gaps - 118 checks, was 113; the bubble test's named tree is index 12369, was 12355;
+column gaps - 120 checks since ROAD-3 (the carve and the road body), was 118, was 113; the bubble test's named tree is index 12369, was 12355;
 since LOADING-1 the menu test has one check more,
 its Ring row's route through the loading scene, and the suite has the async build test's 15).
 

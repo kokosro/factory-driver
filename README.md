@@ -922,6 +922,112 @@ nodes entering the tree), against 17 s held before. The frame-delta log of the s
 windowed run is under `.scratch/loading-1/` (untracked). What is NOT this pass: the
 world-around-the-car streaming (L2) - the whole Ring is built, once, off the main thread.
 
+### The road body and the carve (ROAD-3)
+
+The driver's finding: the road flickered against the ground and read as a flat sheet laid on
+the grass. Two root causes, both measured before anything was changed
+(`.scratch/road-3/separation_probe.gd`, untracked: a headless probe that reads every
+terrain platform strip and the road strip of the same id as parametric sheets - sections x
+offsets, the meshes' own vertices, only the quads their indices draw - and samples both at the
+same chainage and offset across the paved width, at every terrain section and the midpoints
+between; separation is road height minus terrain height, at or under 0 is terrain on or over
+the road):
+
+* **the terrain drew one flat quad across the paved width** at the field's own height, and its
+  paved-edge columns sat *at* the road's edge - the same plane as the road mesh wherever the
+  crossfall is a plane (every bend at or over the 2 % crown), the same line along every edge.
+  The depth buffer chose either from one pixel to the next: the flicker. At a layer crossing
+  the quad's straight chord between two edges answered by different roads stood metres over
+  the lower road. Before: every one of the 229 171 strip sections had terrain at or above the
+  road, 1 665 494 of 2 740 140 samples (60.8 %; 869 215 of 910 076 at the paved edges), the
+  worst 8.45 m over (82512873-0 at a crossing), all 3 304 roads;
+* **the road had no body**: a surface with nothing under its edge, so the verge met it on the
+  same plane and nothing said "slab".
+
+**The carve** (`scripts/terrain_builder.gd`, THE CARVE at `CARVE_DEPTH_M`): the footprint - the
+paved width plus the shoulder band - is carved out of the platform strip. No quad is drawn
+across the paved width at all (the road mesh is the only surface there; a chord across the
+Karussell's bowl would stand over its flat strip, so nothing is drawn under the road), the
+paved-edge columns stand `CARVE_DEPTH_M` (0.5 m) under the field, a verge column at the road
+body's foot (`RoadBuilder.SKIRT_OUT_M`, 0.5 m out) is held `CARVE_LIP_M` (0.07 m) *above* where
+that foot stands and never above its own field's undercut (so the foot is buried: no gap under
+the body's edge on an embankment, no gutter beside it on flat ground - the grass meets the bevel
+about 0.44 m out), a shoulder column at the shoulder band's end (`CARVE_SHOULDER_M` 1.5 m, the
+surfaces table's `rules.shoulder_m`) at the field's undercut, the blend band and the apron
+beyond as before: ten columns a section, was six. The fields, the forms, `surface_at`, the
+distance field and the car's read are untouched: a wheel on the shoulder stands where it stood,
+the ground drawn under it a little lower (0.2 m at the verge column on flat ground, 0.03 m at
+the shoulder's end). The near lattice, the mid tiles, the water and the continuation are
+byte-identical. The terrain's count moves: 2 772 530 vertices / 4 466 373 triangles (was
+1 855 846 / 3 111 171); the describe() line gains the capped count below, its other numbers stay.
+
+**The cap** (THE CAP at `CAP_SAMPLE_M`; the driver's *"hill covering the road"*, issues 0024-0065
+in `docs/road-3-analysis.md`): the carve alone left the NEIGHBOURING strips over a road - a side
+road's blend and apron chords fan across the loop at every junction (the field beside a side
+road's end eases toward the raw lattice, metres up in a cutting, and the chord to the next row on
+the loop's pavement crossed the loop's edge that high), and beside a parallel road the same. A
+second probe (`.scratch/road-3/spill_probe.gd`, untracked: every 10th section of every road at
+the centre and both paved edges against every OTHER strip within reach, projected onto that
+strip's own chainage and offset, and against any drawn lattice cell) measured 14 330 of 112 758
+points with another road's strip above the road on the committed tree (5 732 by over 10 cm, 747
+by over a metre, the worst 6.73 m; 8 481 sections on 2 789 roads; the lattice cells never - a
+cell a road crosses always has a node in the road's reach and is dropped). Now every strip
+vertex inside another road's footprint (its paved width plus the shoulder band) is capped under
+that road: `cap_at()` reads the profile's own chord index and answers the other road's platform
+height at the vertex's chainage and offset less `CARVE_DEPTH_M`; `strip_caps()` takes the lowest
+of that at the vertex, at its quad neighbours (so no chord out of a capped vertex rises over the
+pavement) and along its row's apron chords sampled every 2.5 m (a 3 m road's 6 m footprint can
+fall between two columns). 331 888 vertices capped, counted in the describe() line. After: 6
+points of the 112 758 (4 sections, 4 roads), the worst 0.94 m - each a strip END standing on
+another road's pavement (a side road drawn to the loop's centreline; its end row is capped, the
+chord from the row before is not, a 2 m cutting at the join) - and at every one of the nine
+reported issue spots nothing stands over the road (the committed tree had 325813597-0's strip
+0.22 m over issue 0026's spot and 696037709-0's 1.78 m over 0065's).
+
+**The road body** (`scripts/road_builder.gd`, THE ROAD BODY at `SKIRT_OUT_M`): a visual-only
+skirt along both paved edges, one `MeshInstance3D` per road (`Skirt_<id>`, after its strip and
+its body under Road), no collider, no part of the strip's arrays: a bevel from the paved edge
+`SKIRT_OUT_M` (0.5 m) out along the section's own across direction (the mitre's stretch kept,
+so the foot runs parallel to the edge) and `SKIRT_DOWN_M` (0.3 m) down, the foot pushed further
+to `SKIRT_FOOT_UNDER_M` (0.1 m) under the field where the field has fallen away from the edge
+(an embankment: the foot never hangs in the air) - `skirt_foot_height()`, the one rule the
+terrain's verge column reads too. Built in the data stage (`sweep_road`, the profile read is
+pure, so the loading scene's workers build it as they build the strip) and added in the node
+stage beside the strip's nodes; tinted the asphalt's darker side (`SKIRT_TINT`, the canon's
+neutral-dark), rough, no texture. The road's certified counters and `describe()` are byte for
+byte what they were (3 304 roads, 361 393 sections, 1 085 645 vertices, 1 435 286 triangles,
+3 304 bodies): the skirt's own are `skirt_vertex_count` (1 445 572, four a section) and
+`skirt_triangle_count` (1 432 356). Under Road the children are now Strip_, Body_, Skirt_ per
+road (9 912 and the floor, was 6 608).
+
+**After** (the separation probe on this tree): 5 samples at 5 of the 229 171 sections still
+read terrain at or above the road, all at a paved edge, on 3 roads (the worst 0.80 m over on
+32743989-0) - each a place where the single-valued field steps between two terrain sections
+(another road answers one section and this road the next, a layer crossing: the road mesh
+itself walls there, and the terrain's 2 m chord between its sections crosses that wall) - the
+profile's recorded known issue, not the carve's (was 23 at 22 sections on 17 roads before the
+cap, the carve alone); everywhere else the paved-edge columns are 0.5 m under the road (878 439
+of the 910 076 edge samples between 0.5 and 1 m, 29 310 between 0.4 and 0.5: the crossfall's
+chord between sections, 2 239 over a metre: capped). In the shoulder band, 0.25 m beyond the
+edge the terrain is under the skirt at every one of 458 342 sampled sections (by at least
+0.148 m); at the foot it stands the lip above it as designed. The visual probe's four shots (before `.scratch/fd-visual/road-3-before/`,
+after `road-3-after/`, untracked) show the straight's edge as a slab with a dark bevel and the
+verge meeting it, the ruts shot's edge line no longer a seam.
+
+**The fences** (`tests/dressing_test.gd`, 120 checks, was 118): the strips' ten columns at the
+named offsets (was six); the pit lane's edge vertex `CARVE_DEPTH_M` under the profile within
+2 mm (was at the profile's height); THE CARVE on every strip - no quad across the paved width,
+at every 7th section both paved-edge columns 0.5 m under the field, both verge columns the lip
+above the foot and never above their field's undercut, both shoulder columns at the field's
+undercut, within 2 mm, or under THE CAP where one holds (`strip_caps` recomputed on the built
+vertices, every capped vertex at or under it); THE ROAD BODY - every strip's `Skirt_<id>` under Road, one surface,
+four vertices a section and a quad a side between sections, no physics, its edge vertices the
+strip's own to the bit, its feet `SKIRT_OUT_M` out at `skirt_foot_height` within 2 mm, the
+road's counters the platform's alone. `tests/async_build_test.gd` (its header's was ->) hashes
+the skirts and the carved strips in both builds as it hashes everything else: the async build's
+meshes are still the sync build's to the byte. The certification metrics are byte-identical (a
+mesh under the road is not a force). Frozen files untouched.
+
 ### Data sources & licences
 
 The Ring region's world data under `data/regions/eifel_ring/` is derived from two public
@@ -1130,7 +1236,9 @@ every road), the field held to a brute-force point-to-chord distance at sampled 
 nearest nodes within half a lattice step's diagonal, every sampled near-band vertex on a
 lattice node at the node's own height, every mid vertex on a 50 m corner, the 3 304
 platform strips at every 2 m station and every skeleton point with no gap over 2 m and
-the pit lane's strip meeting the road at the paved edge within 2 mm; every one of the
+the pit lane's strip meeting the road at the paved edge 0.5 m under it within 2 mm (ROAD-3's
+carve, and its two fences - no quad across the paved width, the road body's skirts - see *The
+road body and the carve*); every one of the
 ~63 000 V4 wall cards (FOREST-2; was ~79 000: a fifth of the 30 777 slots are gaps) within
 60 m of a covered road (the farthest 59.999 m), a sample every 400th within 60 m by brute
 force over every chord, every card on a forest polygon, 12-18 m tall in three layers,

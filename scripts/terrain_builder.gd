@@ -45,7 +45,9 @@ extends Node3D
 ##     band's end and the apron's end either side, every vertex's height
 ##     the profile's own field at the vertex (elevation_height: the
 ##     platform's edge, the eased band, the terrain beyond), so the strip
-##     and the road meet edge to edge. The apron reaches one lattice cell's
+##     and the road meet edge to edge (since ROAD-3 the edge columns sit
+##     CARVE_DEPTH_M under the road and nothing is drawn across the paved
+##     width: THE CARVE, at the constant). The apron reaches one lattice cell's
 ##     diagonal beyond the blend band and dives APRON_UNDERCUT_M under the
 ##     lattice: the near mesh drops every cell that has a node inside a
 ##     road's reach (a 10 m cell across the platform would hide the road
@@ -179,6 +181,75 @@ const APRON_M := 15.0
 const APRON_UNDERCUT_M := 0.3
 const BLEND_UNDERCUT_M := 0.03
 
+## THE CARVE (ROAD-3, the driver's road flicker and flat surface): the
+## strip used to draw one flat quad ACROSS the paved width at the field's
+## own height, and its paved-edge columns sat AT the road's edge - the
+## same plane as the road mesh wherever the crossfall is a plane (every
+## bend at or over the 2 % crown), the same line along every edge, so
+## the depth buffer chose either from one pixel to the next (the
+## flicker), and at a layer crossing the quad's straight chord between
+## two edges at different roads' heights stood metres over the lower
+## road. Measured before the carve (.scratch/road-3/separation_probe.gd,
+## the terrain mesh against the road mesh at the same (chainage, offset)
+## across the paved width): every one of the 229 171 strip sections had
+## terrain at or above the road, 60.8 % of 2 740 140 samples (869 215 of
+## 910 076 at the paved edges), the worst 8.45 m over (82512873-0 at a
+## crossing). Now the footprint - the paved width plus the shoulder band
+## - is carved: NO quad across the paved width (the road mesh is the only
+## surface there; a chord across the Karussell's bowl would stand over
+## its flat strip, so nothing is drawn under the road at all), the
+## paved-edge columns CARVE_DEPTH_M under the field, a VERGE column at
+## the road body's skirt foot (RoadBuilder.SKIRT_OUT_M beyond the edge)
+## held CARVE_LIP_M above where that foot stands (RoadBuilder
+## .skirt_foot_height, the one rule: the foot buried in the verge, so no
+## gap shows under the body's edge on an embankment and no gutter runs
+## beside it on flat ground - the grass meets the bevel about 0.44 m
+## out) and never above the field's own undercut, a SHOULDER column at
+## the shoulder band's end (CARVE_SHOULDER_M, the surfaces table's
+## rules.shoulder_m, data/regions/eifel_ring/surfaces.json) at the
+## field's undercut as the blend band's end is, the blend band and the
+## apron beyond as before. was -> six columns (apron, blend end, paved
+## edge either side) at the field with the quad across. The car's read
+## is untouched (the field through the RingProfile): a wheel on the
+## shoulder stands where it stood, the ground drawn under it a little
+## lower (0.2 m at the verge column on flat ground, 0.03 m at the
+## shoulder's end); visuals only, the surfaces and the fields unchanged.
+const CARVE_DEPTH_M := 0.5
+const CARVE_LIP_M := 0.07
+const CARVE_SHOULDER_M := 1.5
+const CAP_SAMPLE_M := 2.5
+## THE CAP (ROAD-3, the driver's "hill covering the road"): a strip's
+## vertex inside ANOTHER road's footprint (its paved width plus the
+## shoulder band) is capped under that road - cap_at(): the other
+## road's own platform height at the vertex's chainage and offset less
+## CARVE_DEPTH_M - and so is every vertex a quad edge away from a
+## capped one (the chord from a capped vertex to its neighbour never
+## rises over the other road's pavement: the strips' sections are 2 m
+## apart and the neighbour is lowered to the same cap; where it stands
+## the other road's own strip or the lattice draws the ground), and the
+## apron chords (the blend band's end to the apron's end, 15 m) are
+## sampled every CAP_SAMPLE_M for a footprint they cross with no vertex
+## inside it (a 3 m road's footprint is 6 m wide; both ends of such a
+## chord take the sample's cap) - strip_caps(), one function, the test
+## recomputes it. Measured
+## before the cap (.scratch/road-3/spill_probe.gd, every 10th section
+## of every road at the centre and both paved edges against every other
+## strip within reach and any drawn lattice cell): 19 999 of 112 758
+## points had another road's strip above the road, 15 523 by over 10 cm
+## and 3 834 by over a metre, the worst 12.4 m, on 2 872 roads - the
+## side roads' blend and apron chords fanning over the loop at the
+## junctions (the field beside a side road's end eases toward the raw
+## lattice, metres up in a cutting, and the chord to the next row on the
+## loop's pavement crossed the loop's edge that high) and beside the
+## parallel roads; the lattice cells never (a cell a road crosses always
+## has a node in the road's reach). Counted in counts.capped_vertices.
+## The strip's columns, outer to inner on the left then inner to outer
+## on the right: apron, blend end, shoulder end, verge (the skirt's
+## foot), paved edge | paved edge, verge, shoulder end, blend end, apron.
+const STRIP_COLUMNS := 10
+const STRIP_EDGE_LEFT := 4
+const STRIP_EDGE_RIGHT := 5
+
 ## The valley rule (T4): within this of the window's lowest ground, in a
 ## window of this size with at least this relief.
 const VALLEY_RISE_M := 6.0
@@ -295,6 +366,12 @@ class Ribbon:
 
 var ribbons: Array[Ribbon] = []
 
+## THE CAP's fast exit (strip_caps): per cell of the profile's chord
+## index, the one road filed there (its index in the profile's roads) or
+## -1 where more than one is; a strip's own road alone in a cell caps
+## nothing. Built once in compute_fields, read by every strip job.
+var _cell_single_road: Dictionary = {}
+
 
 ## One mesh's data stage (LOADING-1, the header's THE ASYNC SEAM): the
 ## arrays a worker fills - a pure function of the fields, disjoint from
@@ -342,7 +419,7 @@ var widest_reach := 0.0
 var strips: Dictionary = {}
 
 ## What was built: counts (no wall time but build_ms).
-var counts := {"near_tiles": 0, "mid_tiles": 0, "far_blocks": 0, "near_cells": 0, "near_cells_dropped": 0, "skirts": 0, "strips": 0, "strip_sections": 0, "water_planes": 0, "waterway_strips": 0, "continuation_cells": 0, "continuation_skirts": 0, "vertices": 0, "triangles": 0}
+var counts := {"near_tiles": 0, "mid_tiles": 0, "far_blocks": 0, "near_cells": 0, "near_cells_dropped": 0, "skirts": 0, "strips": 0, "strip_sections": 0, "capped_vertices": 0, "water_planes": 0, "waterway_strips": 0, "continuation_cells": 0, "continuation_skirts": 0, "vertices": 0, "triangles": 0}
 var elements: Dictionary = {}
 var build_ms := 0
 var _material: StandardMaterial3D
@@ -660,9 +737,27 @@ func compute_fields(skeleton_data: Dictionary, drape_data: Dictionary, landcover
 	_rasterise_landcover()
 	_classify_forms()
 	_plan_tiles()
+	_index_cell_roads()
 	_tint_of("T8", Color(0.26, 0.33, 0.32))
 	_tint_of("T9", Color(0.32, 0.37, 0.42))
 	return true
+
+
+## THE CAP's fast exit: which cells of the profile's chord index hold one
+## road alone (see _cell_single_road).
+func _index_cell_roads() -> void:
+	_cell_single_road = {}
+	var cells: Dictionary = profile._cells
+	for key: Vector2i in cells:
+		var single := -1
+		for packed: int in cells[key]:
+			var r: int = packed / WorldRoadProfile.CHORD_STRIDE
+			if single == -1:
+				single = r
+			elif r != single:
+				single = -1
+				break
+		_cell_single_road[key] = single
 
 
 ## CHUNK_ORDER: every mesh job, in the order the meshes are added under
@@ -1388,20 +1483,24 @@ func _skirt(job: MeshJob, a: Vector2i, b: Vector2i, far: bool) -> void:
 	job.count("skirts")
 
 
-## The platform band: one strip per covered road (see the header); one
-## job per ribbon (was the loop over the ribbons here, LOADING-1).
+## The platform band: one strip per covered road (see the header and
+## THE CARVE at CARVE_DEPTH_M); one job per ribbon (was the loop over
+## the ribbons here, LOADING-1).
 func _strip_job(job: MeshJob) -> void:
 	var blend := WorldRoadProfile.BLEND_BAND_M
 	var ribbon := ribbons[job.index]
 	var chainages := _strip_chainages(ribbon)
 	var hw := ribbon.half_width
-	var offsets := PackedFloat64Array([-(hw + blend + APRON_M), -(hw + blend), -hw, hw, hw + blend, hw + blend + APRON_M])
-	var undercut := PackedFloat64Array([APRON_UNDERCUT_M, BLEND_UNDERCUT_M, 0.0, 0.0, BLEND_UNDERCUT_M, APRON_UNDERCUT_M])
+	var skirt := RoadBuilder.SKIRT_OUT_M
+	var shoulder := CARVE_SHOULDER_M
+	var offsets := PackedFloat64Array([-(hw + blend + APRON_M), -(hw + blend), -(hw + shoulder), -(hw + skirt), -hw, hw, hw + skirt, hw + shoulder, hw + blend, hw + blend + APRON_M])
 	var across := offsets.size()
 	var vertices := PackedVector3Array()
 	var colours := PackedColorArray()
 	vertices.resize(chainages.size() * across)
 	colours.resize(chainages.size() * across)
+	var field := PackedFloat64Array()
+	field.resize(across)
 	var cursor := 0
 	for k: int in chainages.size():
 		var s := chainages[k]
@@ -1410,15 +1509,27 @@ func _strip_job(job: MeshJob) -> void:
 		var frame := _frame(ribbon, s, cursor)
 		for i: int in across:
 			var vertex := Vector3(frame[0] + frame[2] * offsets[i], 0.0, frame[1] + frame[3] * offsets[i])
-			vertex.y = profile.elevation_height(vertex.x, vertex.z) - undercut[i]
+			field[i] = profile.elevation_height(vertex.x, vertex.z)
 			vertices[k * across + i] = vertex
 			colours[k * across + i] = _colour_at(vertex.x, vertex.z)
+		for i: int in across:
+			vertices[k * across + i].y = _strip_height(i, field)
 		job.element(_form_element(form[_node_at(frame[0], frame[1])]))
+	# THE CAP: every vertex under the caps of other roads' footprints.
+	var caps := strip_caps(ribbon.id, chainages.size(), vertices)
+	for v: int in vertices.size():
+		if vertices[v].y > caps[v]:
+			vertices[v].y = caps[v]
+			job.count("capped_vertices")
+	# A quad per column pair per section pair, none across the paved width
+	# (the pair STRIP_EDGE_LEFT .. STRIP_EDGE_RIGHT: THE CARVE).
 	var indices := PackedInt32Array()
-	indices.resize((chainages.size() - 1) * (across - 1) * 6)
+	indices.resize((chainages.size() - 1) * (across - 2) * 6)
 	var next := 0
 	for k: int in chainages.size() - 1:
 		for i: int in across - 1:
+			if i == STRIP_EDGE_LEFT:
+				continue
 			var a := k * across + i
 			var b := (k + 1) * across + i
 			var c := (k + 1) * across + i + 1
@@ -1437,6 +1548,117 @@ func _strip_job(job: MeshJob) -> void:
 	job.strip = {"chainages": chainages, "offsets": offsets, "vertices": vertices.size()}
 	job.count("strips")
 	job.count("strip_sections", chainages.size())
+
+
+## THE CAP (at CARVE_DEPTH_M): the highest a strip vertex of the road
+## `own` may stand at (x, z) for the OTHER roads whose footprint (the
+## paved width plus CARVE_SHOULDER_M) holds the point - each such road's
+## own platform height at the point's chainage and signed offset (the
+## profile's _platform_height: the crown, the superelevation, the bank;
+## the offset clamped to the paved edge, so in the shoulder band it is
+## the edge's) less CARVE_DEPTH_M; INF where no other road's footprint
+## holds the point. Reads the profile's chord index the way its own
+## _nearest_chord reads it (world_road_profile.gd, frozen: the index is
+## filed with each road's reach, the half width plus the blend band,
+## wider than the footprint, so every road whose footprint holds the
+## point is in the point's cell). Pure and thread-safe: the loading
+## scene's workers call it as they call elevation_height.
+func cap_at(x: float, z: float, own: String) -> float:
+	var key := Vector2i(floori(x / WorldRoadProfile.CELL_M), floori(z / WorldRoadProfile.CELL_M))
+	var cells: Dictionary = profile._cells
+	if not cells.has(key):
+		return INF
+	var single: int = _cell_single_road.get(key, -1)
+	if single >= 0 and profile._roads[single].id == own:
+		return INF
+	var cap := INF
+	for packed: int in cells[key]:
+		var r: int = packed / WorldRoadProfile.CHORD_STRIDE
+		var c: int = packed % WorldRoadProfile.CHORD_STRIDE
+		var road: WorldRoadProfile.Road = profile._roads[r]
+		if road.id == own:
+			continue
+		var ax := road.xs[c]
+		var az := road.zs[c]
+		var dx := road.xs[c + 1] - ax
+		var dz := road.zs[c + 1] - az
+		var chord := road.chain[c + 1] - road.chain[c]
+		if chord <= 0.0:
+			continue
+		var t := clampf(((x - ax) * dx + (z - az) * dz) / (chord * chord), 0.0, 1.0)
+		var cx := ax + t * dx
+		var cz := az + t * dz
+		var distance := sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz))
+		if distance > road.half_width + CARVE_SHOULDER_M:
+			continue
+		# Right of travel in the x-east / z-south frame: (-tz, tx).
+		var offset := ((x - ax) * (-dz) + (z - az) * dx) / chord
+		cap = minf(cap, profile._platform_height(road, road.chain[c] + t * chord, offset) - CARVE_DEPTH_M)
+	return cap
+
+
+## THE CAP over a strip's vertices (at CARVE_DEPTH_M): per vertex the
+## lowest of cap_at at its own point, at its quad neighbours' points
+## (the row before and after, the column either side - none across the
+## paved width, where no quad is drawn) and along the apron chords of its
+## row (the blend band's end to the apron's end, sampled every
+## CAP_SAMPLE_M: a chord crossing a footprint with no vertex inside it -
+## 6 m at the narrowest road - is caught, and both its ends take the
+## sample's cap); INF where none. A pure function of the vertices' (x, z)
+## and the profile: the dressing test recomputes it on the built strip.
+func strip_caps(own: String, sections: int, vertices: PackedVector3Array) -> PackedFloat64Array:
+	var across := STRIP_COLUMNS
+	var own_caps := PackedFloat64Array()
+	own_caps.resize(sections * across)
+	for v: int in sections * across:
+		own_caps[v] = cap_at(vertices[v].x, vertices[v].z, own)
+	var pieces := ceili(APRON_M / CAP_SAMPLE_M)
+	for k: int in sections:
+		for pair: Array in [[0, 1], [across - 2, across - 1]]:
+			var a: int = k * across + pair[0]
+			var b: int = k * across + pair[1]
+			var found := INF
+			for p: int in range(1, pieces):
+				var t := float(p) / float(pieces)
+				found = minf(found, cap_at(lerpf(vertices[a].x, vertices[b].x, t), lerpf(vertices[a].z, vertices[b].z, t), own))
+			if found < INF:
+				own_caps[a] = minf(own_caps[a], found)
+				own_caps[b] = minf(own_caps[b], found)
+	var caps := PackedFloat64Array()
+	caps.resize(sections * across)
+	for k: int in sections:
+		for i: int in across:
+			var v := k * across + i
+			var cap := own_caps[v]
+			if k > 0:
+				cap = minf(cap, own_caps[v - across])
+			if k < sections - 1:
+				cap = minf(cap, own_caps[v + across])
+			if i > 0 and i != STRIP_EDGE_RIGHT:
+				cap = minf(cap, own_caps[v - 1])
+			if i < across - 1 and i != STRIP_EDGE_LEFT:
+				cap = minf(cap, own_caps[v + 1])
+			caps[v] = cap
+	return caps
+
+
+## A strip column's height from the section's field samples (THE CARVE):
+## the paved edges CARVE_DEPTH_M under the field at the edge; the verge
+## columns CARVE_LIP_M above the road body's foot (RoadBuilder
+## .skirt_foot_height of the edge's field and the verge's own), never
+## above the verge's field less BLEND_UNDERCUT_M; the shoulder's end and
+## the blend band's end BLEND_UNDERCUT_M under their field; the apron
+## APRON_UNDERCUT_M under its own.
+static func _strip_height(column: int, field: PackedFloat64Array) -> float:
+	if column == STRIP_EDGE_LEFT or column == STRIP_EDGE_RIGHT:
+		return field[column] - CARVE_DEPTH_M
+	if column == STRIP_EDGE_LEFT - 1:
+		return minf(RoadBuilder.skirt_foot_height(field[STRIP_EDGE_LEFT], field[column]) + CARVE_LIP_M, field[column] - BLEND_UNDERCUT_M)
+	if column == STRIP_EDGE_RIGHT + 1:
+		return minf(RoadBuilder.skirt_foot_height(field[STRIP_EDGE_RIGHT], field[column]) + CARVE_LIP_M, field[column] - BLEND_UNDERCUT_M)
+	if column == 0 or column == STRIP_COLUMNS - 1:
+		return field[column] - APRON_UNDERCUT_M
+	return field[column] - BLEND_UNDERCUT_M
 
 
 ## The strip's sections: every station of the platform band's step from 0
@@ -1727,4 +1949,4 @@ static func _flat_material() -> StandardMaterial3D:
 
 ## One line on what was built (no wall time: the same on every machine).
 func describe() -> String:
-	return "%d near tiles (%d cells, %d dropped under roads), %d mid tiles, %d far blocks, %d skirts, %d strips of %d sections, %d water planes, %d waterway strips, %d continuation cells to %.0f m (%d skirts), %d vertices, %d triangles" % [counts.near_tiles, counts.near_cells, counts.near_cells_dropped, counts.mid_tiles, counts.far_blocks, counts.skirts, counts.strips, counts.strip_sections, counts.water_planes, counts.waterway_strips, counts.continuation_cells, WorldContinuation.CONTINUATION_MARGIN_M, counts.continuation_skirts, counts.vertices, counts.triangles]
+	return "%d near tiles (%d cells, %d dropped under roads), %d mid tiles, %d far blocks, %d skirts, %d strips of %d sections (%d vertices capped under other roads), %d water planes, %d waterway strips, %d continuation cells to %.0f m (%d skirts), %d vertices, %d triangles" % [counts.near_tiles, counts.near_cells, counts.near_cells_dropped, counts.mid_tiles, counts.far_blocks, counts.skirts, counts.strips, counts.strip_sections, counts.capped_vertices, counts.water_planes, counts.waterway_strips, counts.continuation_cells, WorldContinuation.CONTINUATION_MARGIN_M, counts.continuation_skirts, counts.vertices, counts.triangles]

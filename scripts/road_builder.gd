@@ -297,6 +297,32 @@ const ASPHALT_TINT := Color(0.55, 0.55, 0.55, 1.0)
 const TILE_ALONG_M := 8.0
 const NORMAL_SCALE := 2.0
 
+## THE ROAD BODY (ROAD-3, the driver's flat surface: the road read as a
+## sheet laid on the grass, the verge on the very same plane at its
+## edge, and flickered against the terrain's quad under it - the
+## terrain's carve, TerrainBuilder's THE CARVE, is the other half): a
+## visual-only skirt along both paved edges - one MeshInstance3D per
+## road (Skirt_<id>, after its strip and its body under Road), no
+## collider, no part of the strip's arrays, the counters or describe()
+## (the certified counters are the paved platform's alone, byte for byte
+## as before; the skirt's own are skirt_vertex_count and
+## skirt_triangle_count) - a bevel from the paved edge SKIRT_OUT_M out
+## along the section's own across direction (the mitre's stretch kept:
+## the foot runs parallel to the edge) and SKIRT_DOWN_M down, the foot
+## pushed further to SKIRT_FOOT_UNDER_M under the field where the field
+## has fallen away from the edge (an embankment: the foot never hangs in
+## the air) - skirt_foot_height(), the ONE rule the terrain's verge
+## column reads too, standing TerrainBuilder.CARVE_LIP_M above this foot
+## so the foot is buried and the grass meets the bevel. Built in the
+## data stage (sweep_road: _skirt_arrays reads the profile, pure) and
+## added in the node stage beside the strip's nodes. Tinted the
+## asphalt's darker side (SKIRT_TINT under the canon's neutral-dark
+## shadows), rough, no texture, no vertex colour.
+const SKIRT_OUT_M := 0.5
+const SKIRT_DOWN_M := 0.3
+const SKIRT_FOOT_UNDER_M := 0.1
+const SKIRT_TINT := Color(0.34, 0.34, 0.35, 1.0)
+
 ## Where the car is; given the profile once it is built (as TestPad hands
 ## the pad's to a car without one), and followed by the floor.
 @export var car: ArcadeCar
@@ -327,8 +353,12 @@ var fine_split_count := 0
 var vertex_count := 0
 var triangle_count := 0
 var body_count := 0
+## The road body's skirts (ROAD-3; not in describe(): visual only).
+var skirt_vertex_count := 0
+var skirt_triangle_count := 0
 
 var _material: StandardMaterial3D
+var _skirt_material: StandardMaterial3D
 var _floor: StaticBody3D
 
 ## LOADING-1 (the header's THE ASYNC SEAM): true when the loading scene
@@ -368,8 +398,16 @@ class Strip:
 	var normals: PackedVector3Array
 	var uvs: PackedVector2Array
 	var faces: PackedVector3Array
+	## The road body's skirt (ROAD-3, SKIRT_OUT_M): four vertices per
+	## section - the left foot, the left paved edge, the right paved
+	## edge, the right foot - a quad per side between sections; the
+	## data stage's arrays, released once the skirt node holds them.
+	var skirt_vertices: PackedVector3Array
+	var skirt_normals: PackedVector3Array
+	var skirt_indices: PackedInt32Array
 	var mesh_instance: MeshInstance3D
 	var body: StaticBody3D
+	var skirt_instance: MeshInstance3D
 
 	## The vertex of section `k` at offset index `i`.
 	func vertex(k: int, i: int) -> Vector3:
@@ -492,6 +530,7 @@ func apply_prepared(prepared: Dictionary) -> bool:
 		# main.tscn's pad has no RoadBuilder and keeps its start-line reset.
 		car.reset_to_last_pose = true
 	_material = _asphalt_material()
+	_skirt_material = _skirt_material_of()
 	return true
 
 
@@ -518,12 +557,17 @@ static func roads_of(skeleton: Dictionary, drape: Dictionary) -> Array[Road]:
 func sweep_road(road: Road) -> Strip:
 	var strip := _sweep(road)
 	_strip_arrays(strip)
+	_skirt_arrays(strip)
 	return strip
 
 
 ## THE NODE STAGE of one strip (main thread): its mesh and its body from
 ## the arrays, the strip on the list, the counts.
 func add_strip(strip: Strip) -> void:
+	# The skirt's arrays are released by _add_nodes once its mesh holds
+	# them (the strip's own vertices and indices stay: the collider's).
+	var skirt_vertices := strip.skirt_vertices.size()
+	var skirt_triangles := strip.skirt_indices.size() / 3
 	_add_nodes(strip)
 	strips[strip.id] = strip
 	road_count += 1
@@ -531,6 +575,8 @@ func add_strip(strip: Strip) -> void:
 	vertex_count += strip.vertices.size()
 	triangle_count += strip.indices.size() / 3
 	body_count += 1
+	skirt_vertex_count += skirt_vertices
+	skirt_triangle_count += skirt_triangles
 
 
 ## THE NODE STAGE'S LAST STEP (main thread): the floor and the wall time
@@ -889,9 +935,84 @@ func _strip_arrays(strip: Strip) -> void:
 	strip.faces = faces
 
 
+## Where the road body's foot stands (SKIRT_OUT_M): SKIRT_DOWN_M under
+## the paved edge, or SKIRT_FOOT_UNDER_M under the field at the foot
+## where that is lower (the field fallen away: an embankment). The one
+## rule; TerrainBuilder's verge column reads it too.
+static func skirt_foot_height(edge_y: float, field_y: float) -> float:
+	return minf(edge_y - SKIRT_DOWN_M, field_y - SKIRT_FOOT_UNDER_M)
+
+
+## The road body's skirt arrays (the data stage, ROAD-3; SKIRT_OUT_M):
+## per section the left foot, the left paved edge, the right paved edge
+## and the right foot - the edges the strip's own edge vertices, a foot
+## SKIRT_OUT_M out along the section's across direction (the edge-to-edge
+## span over the paved width: the mitre's stretch kept) at
+## skirt_foot_height - and a quad per side between sections, wound as
+## the strip's quads are (the front face up and out); a flat normal per
+## side and section from the bevel and the edge's own run. A pure
+## function of the strip and the profile.
+func _skirt_arrays(strip: Strip) -> void:
+	var across := strip.offsets.size()
+	var sections := strip.chainages.size()
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	vertices.resize(sections * 4)
+	normals.resize(sections * 4)
+	var scale := SKIRT_OUT_M / (2.0 * strip.half_width)
+	for k: int in sections:
+		var left := strip.vertex(k, 0)
+		var right := strip.vertex(k, across - 1)
+		var out := Vector3((right.x - left.x) * scale, 0.0, (right.z - left.z) * scale)
+		var left_foot := left - out
+		left_foot.y = skirt_foot_height(left.y, profile.elevation_height(left_foot.x, left_foot.z))
+		var right_foot := right + out
+		right_foot.y = skirt_foot_height(right.y, profile.elevation_height(right_foot.x, right_foot.z))
+		vertices[k * 4] = left_foot
+		vertices[k * 4 + 1] = left
+		vertices[k * 4 + 2] = right
+		vertices[k * 4 + 3] = right_foot
+	for k: int in sections:
+		var k0 := maxi(k - 1, 0)
+		var k1 := mini(k + 1, sections - 1)
+		for side: int in 2:
+			var edge := k * 4 + (1 if side == 0 else 2)
+			var foot := k * 4 + (0 if side == 0 else 3)
+			var along := strip.vertex(k1, 0 if side == 0 else across - 1) - strip.vertex(k0, 0 if side == 0 else across - 1)
+			# Across to the right, as the strip's normals are taken: from
+			# the foot to the edge on the left, from the edge to the foot
+			# on the right.
+			var to_right := vertices[edge] - vertices[foot] if side == 0 else vertices[foot] - vertices[edge]
+			var normal := to_right.cross(along)
+			normal = normal.normalized() if normal.length_squared() > 0.0 else Vector3.UP
+			normals[edge] = normal
+			normals[foot] = normal
+	var indices := PackedInt32Array()
+	indices.resize((sections - 1) * 2 * 6)
+	var next := 0
+	for k: int in sections - 1:
+		for i: int in [0, 2]:
+			var a := k * 4 + i
+			var b := (k + 1) * 4 + i
+			var c := (k + 1) * 4 + i + 1
+			var d := k * 4 + i + 1
+			indices[next] = a
+			indices[next + 1] = b
+			indices[next + 2] = c
+			indices[next + 3] = a
+			indices[next + 4] = c
+			indices[next + 5] = d
+			next += 6
+	strip.skirt_vertices = vertices
+	strip.skirt_normals = normals
+	strip.skirt_indices = indices
+
+
 ## The strip's MeshInstance3D and its StaticBody3D with the same
-## triangles as a trimesh, from the arrays _strip_arrays made (the node
-## stage: main thread); the arrays released once the nodes hold them.
+## triangles as a trimesh, from the arrays _strip_arrays made, and the
+## road body's skirt (Skirt_<id>, ROAD-3: a MeshInstance3D alone, no
+## body) from _skirt_arrays' (the node stage: main thread); the arrays
+## released once the nodes hold them.
 func _add_nodes(strip: Strip) -> void:
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
@@ -919,6 +1040,21 @@ func _add_nodes(strip: Strip) -> void:
 	strip.normals = PackedVector3Array()
 	strip.uvs = PackedVector2Array()
 	strip.faces = PackedVector3Array()
+	var skirt_arrays := []
+	skirt_arrays.resize(Mesh.ARRAY_MAX)
+	skirt_arrays[Mesh.ARRAY_VERTEX] = strip.skirt_vertices
+	skirt_arrays[Mesh.ARRAY_NORMAL] = strip.skirt_normals
+	skirt_arrays[Mesh.ARRAY_INDEX] = strip.skirt_indices
+	var skirt_mesh := ArrayMesh.new()
+	skirt_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, skirt_arrays)
+	skirt_mesh.surface_set_material(0, _skirt_material)
+	strip.skirt_instance = MeshInstance3D.new()
+	strip.skirt_instance.name = "Skirt_" + strip.id
+	strip.skirt_instance.mesh = skirt_mesh
+	add_child(strip.skirt_instance)
+	strip.skirt_vertices = PackedVector3Array()
+	strip.skirt_normals = PackedVector3Array()
+	strip.skirt_indices = PackedInt32Array()
 
 
 ## The floor the car meets (see the header): one level slab on the car's
@@ -967,6 +1103,15 @@ func _asphalt_material() -> StandardMaterial3D:
 	material.normal_scale = NORMAL_SCALE
 	material.normal_texture = load(ASPHALT_NORMAL)
 	material.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS_ANISOTROPIC
+	return material
+
+
+## The road body's one material (ROAD-3): SKIRT_TINT flat, rough, the
+## back face culled (the bevel's front faces up and out).
+static func _skirt_material_of() -> StandardMaterial3D:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = SKIRT_TINT
+	material.roughness = 1.0
 	return material
 
 
