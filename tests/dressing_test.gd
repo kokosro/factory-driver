@@ -827,10 +827,10 @@ func _check_strips(terrain: TerrainBuilder) -> void:
 		var v := vertices[TerrainBuilder.STRIP_EDGE_RIGHT]  # section 0, the right paved edge
 		# The pit lane's start stands at a junction: the cap of the road
 		# it joins may hold the vertex lower still (THE CAP).
-		var caps := terrain.strip_caps("199642470-0", pit.chainages.size(), vertices)
+		var caps := terrain.strip_caps("199642470-0", pit.chainages, pit.offsets, vertices)
 		var expected := minf(terrain.profile.sample_height(v.x, v.z) - TerrainBuilder.CARVE_DEPTH_M, caps[TerrainBuilder.STRIP_EDGE_RIGHT])
 		edge_ok = absf(v.y - expected) < 0.002
-	_ok(edge_ok, "the pit lane's strip meets the road at the paved edge %.1f m under it: its edge vertex is the profile's height there less CARVE_DEPTH_M within 2 mm (ROAD-3; was -> at the profile's height), or the cap of the road it joins where that is lower" % TerrainBuilder.CARVE_DEPTH_M)
+	_ok(edge_ok, "the pit lane's strip meets the road at the paved edge %.1f m under it: its edge vertex is the profile's height there less CARVE_DEPTH_M within 2 mm (ROAD-3; was -> at the profile's height), or the cap of the road it joins where that is lower (ROAD-4: strip_caps' zone, own cap or step cap; was -> the joined road's platform alone)" % TerrainBuilder.CARVE_DEPTH_M)
 
 
 ## ROAD-3, the carve and the road body: on every platform strip no quad
@@ -873,7 +873,7 @@ func _check_carve(terrain: TerrainBuilder, road: RoadBuilder) -> void:
 		no_quad_across = no_quad_across and indices.size() == (sections - 1) * (across - 2) * 6
 		# THE CAP as the builder computed it, recomputed here on the
 		# built vertices' (x, z) (one function: TerrainBuilder.strip_caps).
-		var strip_caps := terrain.strip_caps(id, sections, vertices)
+		var strip_caps := terrain.strip_caps(id, record.chainages, record.offsets, vertices)
 		# Every quad's first index names its left column: never the left
 		# paved edge (the pair across the road).
 		var t := 0
@@ -915,7 +915,7 @@ func _check_carve(terrain: TerrainBuilder, road: RoadBuilder) -> void:
 				# field, so the edge vertex itself is no bound here).
 				verges_ok = verges_ok and verge_gap <= CARVE_TOLERANCE_M and vv.y <= verge_field - TerrainBuilder.BLEND_UNDERCUT_M + CARVE_TOLERANCE_M and vv.y <= edge_field - RoadBuilder.SKIRT_DOWN_M + TerrainBuilder.CARVE_LIP_M + CARVE_TOLERANCE_M
 				shoulders_ok = shoulders_ok and absf(sv.y - shoulder_expected) <= CARVE_TOLERANCE_M
-	_ok(no_quad_across and edges_ok and verges_ok and shoulders_ok and caps_ok and capped > 100 and terrain.counts.capped_vertices > 1000 and strips == terrain.ribbons.size() and sampled > 10000, "THE CARVE (ROAD-3) on every one of the %d strips: no quad across the paved width (%d - 2 column pairs a section), and at %d sampled sections both paved-edge columns stand CARVE_DEPTH_M (%.1f m) under the field (worst %.4f m off), both verge columns CARVE_LIP_M (%.2f m) above the road body's foot and never above their field's undercut (worst %.4f m off, the ground at least %.3f m under the field there), both shoulder columns at the field's undercut - within %.0f mm - or under THE CAP of another road's footprint around the vertex where that is lower (%d sampled sections capped; %d vertices capped in all)" % [strips, across, sampled, TerrainBuilder.CARVE_DEPTH_M, worst_edge, TerrainBuilder.CARVE_LIP_M, worst_verge, lowest_lip, CARVE_TOLERANCE_M * 1000.0, capped, terrain.counts.capped_vertices], "no quad across %s, edges %s (worst %.4f), verges %s (worst %.4f, lip %.4f), shoulders %s, caps %s (%d sampled capped, %d in all), strips %d of %d, sampled %d" % [no_quad_across, edges_ok, worst_edge, verges_ok, worst_verge, lowest_lip, shoulders_ok, caps_ok, capped, terrain.counts.capped_vertices, strips, terrain.ribbons.size(), sampled])
+	_ok(no_quad_across and edges_ok and verges_ok and shoulders_ok and caps_ok and capped > 100 and terrain.counts.capped_vertices > 1000 and strips == terrain.ribbons.size() and sampled > 10000, "THE CARVE (ROAD-3) on every one of the %d strips: no quad across the paved width (%d - 2 column pairs a section), and at %d sampled sections both paved-edge columns stand CARVE_DEPTH_M (%.1f m) under the field (worst %.4f m off), both verge columns CARVE_LIP_M (%.2f m) above the road body's foot and never above their field's undercut (worst %.4f m off, the ground at least %.3f m under the field there), both shoulder columns at the field's undercut - within %.0f mm - or under THE CAP of another road's footprint around the vertex where that is lower - ROAD-4: the cap THE ZONE's lowest platform in reach (was -> the footprint road's own platform), THE OWN CAP (own's platform at the row and column) on every column but the verges inside another footprint, THE STEP CAP on the paved edges, all recomputed by strip_caps on the built strip (%d sampled sections capped, was -> 18 225: a finite cap now stands at every paved edge in a cell two roads share; %d vertices capped in all, was -> 331 888)" % [strips, across, sampled, TerrainBuilder.CARVE_DEPTH_M, worst_edge, TerrainBuilder.CARVE_LIP_M, worst_verge, lowest_lip, CARVE_TOLERANCE_M * 1000.0, capped, terrain.counts.capped_vertices], "no quad across %s, edges %s (worst %.4f), verges %s (worst %.4f, lip %.4f), shoulders %s, caps %s (%d sampled capped, %d in all), strips %d of %d, sampled %d" % [no_quad_across, edges_ok, worst_edge, verges_ok, worst_verge, lowest_lip, shoulders_ok, caps_ok, capped, terrain.counts.capped_vertices, strips, terrain.ribbons.size(), sampled])
 	var skirts := 0
 	var skirts_ok := true
 	var feet_ok := true

@@ -243,6 +243,59 @@ const CAP_SAMPLE_M := 2.5
 ## loop's pavement crossed the loop's edge that high) and beside the
 ## parallel roads; the lattice cells never (a cell a road crosses always
 ## has a node in the road's reach). Counted in counts.capped_vertices.
+## THE ZONE, THE OWN CAP AND THE STEP CAP (ROAD-4, the residuals ROAD-3
+## measured and left: 5 samples with the terrain at or above the road
+## at a paved edge, the worst 0.80 m on 32743989-0, and other strips over
+## the road at 3 of 37 586 sampled sections, the worst 0.91 m, by the
+## geometric probe .scratch/road-4/geo_spill.gd - every strip triangle
+## tested in world (x, z), no parametric shortcut). ONE ROOT CAUSE for
+## all of them, measured: a road MESH vertex is the FIELD's value at the
+## vertex, and the field answers the NEAREST chord, so where two roads'
+## chords tie within a section - a crossing, a junction, a mitred
+## corner beyond the loop's right of way - the mesh steps by the two
+## platforms' difference (32743989-0's edge climbed 2 m onto 30815119-2
+## between s 9.5 and 10 and fell back at 15; 30815119-2's own edge at
+## its s 12.57 read the side road's blend, 616.89 against its platform
+## 619.5), while the terrain's chord between its own sections (2 m
+## apart) straddles the step, and a cap read from the OTHER road's
+## platform stood 0.91 m over that road's mesh where the mesh had
+## dipped. So: (1) THE ZONE - a footprint road R's mesh over a point is
+## interpolated from vertices within a station step along and R's half
+## width across, each the platform of the nearest chord, nearer than
+## R's half width, so every road with a chord within
+## R.half_width + sqrt(step² + R.half_width²) + CAP_SLACK_M of the point
+## is one the mesh there may read (own excepted: own's strip carries
+## its own platform as THE OWN CAP), and the cap is the LOWEST of their
+## platforms less CARVE_DEPTH_M - each platform read at the point's
+## projection and, the grade over that reach counted, at the reach's
+## length either side along the road; CAP_SLACK_M (2.4) is how far a
+## terrain point can lie from the nearest capped vertex or sample -
+## sqrt(step² + (CAP_SAMPLE_M / 2)²) = 2.36 - now that EVERY row chord
+## is sampled every CAP_SAMPLE_M (was -> the apron chords alone at a
+## sixth of APRON_M, whatever their mitred length) and a FAN quad (a
+## column edge longer than CAP_SAMPLE_M: the rows diverge at a mitred
+## corner, 28 m at the apron's end of a MAX_MITRE row - 827051169-0's
+## row at s 69.6, whose triangle crossed 699273918-0's start 0.67 m of
+## grade away from the vertex its cap was read at) is sampled across its
+## inside on a CAP_SAMPLE_M grid, every sample's cap pushed to the
+## quad's corners; (2) THE OWN CAP - a vertex of own's strip inside
+## another road's footprint (and the ends of a sampled chord whose
+## sample is) stands no higher than own's OWN platform at the row's
+## chainage and the column's offset (the offset clamped to the paved
+## edge) less CARVE_DEPTH_M: the other road's mesh there may have
+## dipped to own's level; the verge columns keep their rule (the road
+## body's foot stays buried), and the own cap never propagates; (3)
+## THE STEP CAP - own's paved-edge columns stand no higher than the
+## lowest platform of any road with a chord within own's half width plus
+## a station step of the vertex (own's included: where the field answers
+## own, that is the carve itself) less CARVE_DEPTH_M - the road's own
+## edge vertex within a station step may read any of them.
+const CAP_SLACK_M := 2.4
+## THE FOLD (step_cap_at): a skeleton corner whose mitre stretches the
+## frame by this or more (a 60 degree turn: 1 / cos 30) folds the inner
+## edge onto the corner's other chord; the step cap reads every chord of
+## own within reach of a paved-edge vertex within the step radius of it.
+const FOLD_STRETCH := 1.15
 ## The strip's columns, outer to inner on the left then inner to outer
 ## on the right: apron, blend end, shoulder end, verge (the skirt's
 ## foot), paved edge | paved edge, verge, shoulder end, blend end, apron.
@@ -371,6 +424,16 @@ var ribbons: Array[Ribbon] = []
 ## -1 where more than one is; a strip's own road alone in a cell caps
 ## nothing. Built once in compute_fields, read by every strip job.
 var _cell_single_road: Dictionary = {}
+## THE OWN CAP's lookup (strip_caps): each covered road's index in the
+## profile's roads by id. Built once in compute_fields, read only after.
+var _road_index: Dictionary = {}
+## THE ZONE's one-cell bound (cap_at): per cell of the profile's chord
+## index, the narrowest reach of any road filed in it or its eight
+## neighbours - the margin a chord is filed into the cells with, so a
+## chord within that of a point in the cell is in the cell itself, and
+## a zone no wider than it needs no neighbouring cell read. Built once
+## in compute_fields, read by every strip job.
+var _cell_min_reach: Dictionary = {}
 
 
 ## One mesh's data stage (LOADING-1, the header's THE ASYNC SEAM): the
@@ -758,6 +821,22 @@ func _index_cell_roads() -> void:
 				single = -1
 				break
 		_cell_single_road[key] = single
+	_road_index = {}
+	for r: int in profile._roads.size():
+		_road_index[profile._roads[r].id] = r
+	var own_min := {}
+	for key: Vector2i in cells:
+		var least := INF
+		for packed: int in cells[key]:
+			least = minf(least, profile._roads[packed / WorldRoadProfile.CHORD_STRIDE].reach())
+		own_min[key] = least
+	_cell_min_reach = {}
+	for key: Vector2i in cells:
+		var least := INF
+		for di: int in range(-1, 2):
+			for dj: int in range(-1, 2):
+				least = minf(least, float(own_min.get(Vector2i(key.x + dj, key.y + di), INF)))
+		_cell_min_reach[key] = least
 
 
 ## CHUNK_ORDER: every mesh job, in the order the meshes are added under
@@ -1515,8 +1594,9 @@ func _strip_job(job: MeshJob) -> void:
 		for i: int in across:
 			vertices[k * across + i].y = _strip_height(i, field)
 		job.element(_form_element(form[_node_at(frame[0], frame[1])]))
-	# THE CAP: every vertex under the caps of other roads' footprints.
-	var caps := strip_caps(ribbon.id, chainages.size(), vertices)
+	# THE CAP: every vertex under the caps of other roads' footprints (and
+	# THE OWN CAP and THE STEP CAP, ROAD-4).
+	var caps := strip_caps(ribbon.id, chainages, offsets, vertices)
 	for v: int in vertices.size():
 		if vertices[v].y > caps[v]:
 			vertices[v].y = caps[v]
@@ -1552,17 +1632,24 @@ func _strip_job(job: MeshJob) -> void:
 
 ## THE CAP (at CARVE_DEPTH_M): the highest a strip vertex of the road
 ## `own` may stand at (x, z) for the OTHER roads whose footprint (the
-## paved width plus CARVE_SHOULDER_M) holds the point - each such road's
-## own platform height at the point's chainage and signed offset (the
-## profile's _platform_height: the crown, the superelevation, the bank;
-## the offset clamped to the paved edge, so in the shoulder band it is
-## the edge's) less CARVE_DEPTH_M; INF where no other road's footprint
-## holds the point. Reads the profile's chord index the way its own
+## paved width plus CARVE_SHOULDER_M) holds the point; INF where no
+## other road's footprint holds it. ROAD-4 (THE ZONE, at CAP_SLACK_M):
+## the footprint roads set the zone - the widest of
+## R.half_width + sqrt(step² + R.half_width²) + CAP_SLACK_M, the reach
+## within which a road's chord can be what R's mesh vertices over the
+## point read - and the cap is the lowest platform of every road but own
+## with a chord inside it, each read at the point's projection on the
+## chord and at the reach's length either side along the road, less
+## CARVE_DEPTH_M (was -> the footprint roads' own platforms at the
+## point alone, 0.91 m over a mesh that had dipped to a neighbour's
+## field). Reads the profile's chord index the way its own
 ## _nearest_chord reads it (world_road_profile.gd, frozen: the index is
 ## filed with each road's reach, the half width plus the blend band,
 ## wider than the footprint, so every road whose footprint holds the
-## point is in the point's cell). Pure and thread-safe: the loading
-## scene's workers call it as they call elevation_height.
+## point is in the point's cell; the zone reads the neighbouring cells
+## only where it outruns the narrowest reach filed around the cell,
+## _cell_min_reach). Pure and thread-safe: the loading scene's workers
+## call it as they call elevation_height.
 func cap_at(x: float, z: float, own: String) -> float:
 	var key := Vector2i(floori(x / WorldRoadProfile.CELL_M), floori(z / WorldRoadProfile.CELL_M))
 	var cells: Dictionary = profile._cells
@@ -1571,12 +1658,75 @@ func cap_at(x: float, z: float, own: String) -> float:
 	var single: int = _cell_single_road.get(key, -1)
 	if single >= 0 and profile._roads[single].id == own:
 		return INF
-	var cap := INF
-	for packed: int in cells[key]:
+	var slots := PackedInt64Array()
+	var found := PackedFloat64Array()
+	_scan_cell(cells[key], x, z, own, false, false, slots, found)
+	# The footprint roads set the zone.
+	var step := WorldRoadProfile.STATION_STEP_M
+	var radius := 0.0
+	var along := 0.0
+	for at: int in slots.size():
+		var road: WorldRoadProfile.Road = profile._roads[int(found[at * 4 + 3])]
+		if found[at * 4] > road.half_width + CARVE_SHOULDER_M:
+			continue
+		var reach := sqrt(step * step + road.half_width * road.half_width) + CAP_SLACK_M
+		radius = maxf(radius, road.half_width + reach)
+		along = maxf(along, reach)
+	if radius <= 0.0:
+		return INF
+	if radius > float(_cell_min_reach.get(key, INF)):
+		_scan_around(key, x, z, own, radius, false, false, slots, found)
+	return _lowest_platform(slots, found, radius, along)
+
+
+## THE STEP CAP (ROAD-4, at CAP_SLACK_M): the highest a paved-edge
+## vertex of the road `own` may stand at (x, z) - the lowest platform of
+## every road, own included, with a chord within `radius` (own's half
+## width plus a station step: what own's own edge vertex within a
+## station step may read) less CARVE_DEPTH_M; INF where own is alone in
+## every cell the radius touches - unless `folded`: THE FOLD, at a
+## skeleton corner mitred by FOLD_STRETCH or more, the inner edge's
+## vertices project onto the corner's other chord, a stretch of
+## chainage back or ahead, and own's own mesh vertex between two
+## terrain sections reads that chord's platform (1497884205-0's right
+## edge at s 1325.0 read 498.13 against 498.57 and 498.78 either side:
+## a 16 % grade at a fold), so near a fold every chord of own in reach
+## is read, alone or not.
+func step_cap_at(x: float, z: float, own: String, radius: float, folded: bool = false) -> float:
+	var key := Vector2i(floori(x / WorldRoadProfile.CELL_M), floori(z / WorldRoadProfile.CELL_M))
+	var cells: Dictionary = profile._cells
+	if not cells.has(key):
+		return INF
+	var single: int = _cell_single_road.get(key, -1)
+	if single >= 0 and not folded and profile._roads[single].id == own:
+		return INF
+	var slots := PackedInt64Array()
+	var found := PackedFloat64Array()
+	_scan_cell(cells[key], x, z, own, true, folded, slots, found)
+	if radius > float(_cell_min_reach.get(key, INF)):
+		_scan_around(key, x, z, own, radius, true, folded, slots, found)
+	# Own alone in reach: its platform there is the field, nothing to step to.
+	var others := 0
+	for at: int in slots.size():
+		if found[at * 4] <= radius and profile._roads[int(found[at * 4 + 3])].id != own:
+			others += 1
+	if others == 0 and not folded:
+		return INF
+	return _lowest_platform(slots, found, radius, 0.0)
+
+
+## One cell of the profile's chord index scanned for (x, z): per road
+## (per chord when `every_chord` counts) the nearest chord's distance,
+## chainage, signed offset and road index, appended to `slots` (the road
+## or chord) and `found` (four numbers a slot) or replacing a farther
+## chord's; own's chords skipped unless `with_own`. The projection is
+## _nearest_chord's (world_road_profile.gd, frozen).
+func _scan_cell(chords: Array, x: float, z: float, own: String, with_own: bool, every_chord: bool, slots: PackedInt64Array, found: PackedFloat64Array) -> void:
+	for packed: int in chords:
 		var r: int = packed / WorldRoadProfile.CHORD_STRIDE
 		var c: int = packed % WorldRoadProfile.CHORD_STRIDE
 		var road: WorldRoadProfile.Road = profile._roads[r]
-		if road.id == own:
+		if road.id == own and not with_own:
 			continue
 		var ax := road.xs[c]
 		var az := road.zs[c]
@@ -1589,44 +1739,189 @@ func cap_at(x: float, z: float, own: String) -> float:
 		var cx := ax + t * dx
 		var cz := az + t * dz
 		var distance := sqrt((x - cx) * (x - cx) + (z - cz) * (z - cz))
-		if distance > road.half_width + CARVE_SHOULDER_M:
+		var slot := packed if every_chord else r
+		var at := slots.find(slot)
+		if at >= 0 and found[at * 4] <= distance:
 			continue
 		# Right of travel in the x-east / z-south frame: (-tz, tx).
 		var offset := ((x - ax) * (-dz) + (z - az) * dx) / chord
-		cap = minf(cap, profile._platform_height(road, road.chain[c] + t * chord, offset) - CARVE_DEPTH_M)
-	return cap
+		if at < 0:
+			at = slots.size()
+			slots.append(slot)
+			found.resize(at * 4 + 4)
+		found[at * 4] = distance
+		found[at * 4 + 1] = road.chain[c] + t * chord
+		found[at * 4 + 2] = offset
+		found[at * 4 + 3] = float(r)
+
+
+## The cells within `radius` of (x, z) other than `key` scanned as
+## _scan_cell scans (a zone wider than the narrowest road's reach can
+## hold a chord filed in a neighbouring cell alone); a cell own has to
+## itself is skipped unless every chord counts.
+func _scan_around(key: Vector2i, x: float, z: float, own: String, radius: float, with_own: bool, every_chord: bool, slots: PackedInt64Array, found: PackedFloat64Array) -> void:
+	var cells: Dictionary = profile._cells
+	var cell := WorldRoadProfile.CELL_M
+	for i: int in range(floori((z - radius) / cell), floori((z + radius) / cell) + 1):
+		for j: int in range(floori((x - radius) / cell), floori((x + radius) / cell) + 1):
+			var other := Vector2i(j, i)
+			if other == key or not cells.has(other):
+				continue
+			var single: int = _cell_single_road.get(other, -1)
+			if single >= 0 and not every_chord and profile._roads[single].id == own:
+				continue
+			_scan_cell(cells[other], x, z, own, with_own, every_chord, slots, found)
+
+
+## THE ZONE's answer over a scan: the lowest platform of the slots
+## within `radius`, each read at its projection and, when `along` is
+## positive and more than one slot is in reach (a step needs two), that
+## far either side along the road (the grade over the zone) for every
+## road that can be what another road's mesh reads there - a road whose
+## footprint holds the point is read at the point alone unless a second
+## footprint holds it too (its mesh over the point interpolates its own
+## platform: no grade to count) - less CARVE_DEPTH_M; INF where no slot
+## is within reach.
+func _lowest_platform(slots: PackedInt64Array, found: PackedFloat64Array, radius: float, along: float) -> float:
+	var within := 0
+	var footprints := 0
+	for at: int in slots.size():
+		if found[at * 4] > radius:
+			continue
+		within += 1
+		var road: WorldRoadProfile.Road = profile._roads[int(found[at * 4 + 3])]
+		if found[at * 4] <= road.half_width + CARVE_SHOULDER_M:
+			footprints += 1
+	if within == 0:
+		return INF
+	var cap := INF
+	var stepped := along > 0.0 and within > 1
+	for at: int in slots.size():
+		var distance := found[at * 4]
+		if distance > radius:
+			continue
+		var road: WorldRoadProfile.Road = profile._roads[int(found[at * 4 + 3])]
+		var s := found[at * 4 + 1]
+		var offset := found[at * 4 + 2]
+		cap = minf(cap, profile._platform_height(road, s, offset))
+		if stepped and (footprints > 1 or distance > road.half_width + CARVE_SHOULDER_M):
+			cap = minf(cap, profile._platform_height(road, maxf(s - along, 0.0), offset))
+			cap = minf(cap, profile._platform_height(road, minf(s + along, road.length), offset))
+	return cap - CARVE_DEPTH_M
 
 
 ## THE CAP over a strip's vertices (at CARVE_DEPTH_M): per vertex the
 ## lowest of cap_at at its own point, at its quad neighbours' points
 ## (the row before and after, the column either side - none across the
-## paved width, where no quad is drawn) and along the apron chords of its
-## row (the blend band's end to the apron's end, sampled every
-## CAP_SAMPLE_M: a chord crossing a footprint with no vertex inside it -
-## 6 m at the narrowest road - is caught, and both its ends take the
-## sample's cap); INF where none. A pure function of the vertices' (x, z)
-## and the profile: the dressing test recomputes it on the built strip.
-func strip_caps(own: String, sections: int, vertices: PackedVector3Array) -> PackedFloat64Array:
+## paved width, where no quad is drawn) and along the row chords of its
+## row (every column pair but the one across the paved width, sampled
+## every CAP_SAMPLE_M of the chord's own length: a chord crossing a
+## footprint with no vertex inside it - 6 m at the narrowest road - is
+## caught, and both its ends take the sample's cap; was -> the apron
+## chords alone, six pieces whatever their length) and across the inside
+## of a FAN quad (a column edge longer than CAP_SAMPLE_M, sampled on a
+## CAP_SAMPLE_M grid, all four corners taking the samples' caps); then
+## THE OWN CAP - own's platform at the row's chainage and the column's
+## offset less CARVE_DEPTH_M at every vertex but the verges' inside
+## another road's footprint and at the ends of a sampled chord whose
+## sample is, never propagated - and THE STEP CAP on the paved-edge
+## columns (ROAD-4); INF where none. A pure function of the strip's
+## chainages, offsets and vertices' (x, z) and the profile: the dressing
+## test recomputes it on the built strip.
+func strip_caps(own: String, chainages: PackedFloat64Array, offsets: PackedFloat64Array, vertices: PackedVector3Array) -> PackedFloat64Array:
 	var across := STRIP_COLUMNS
+	var sections := chainages.size()
+	var own_index: int = _road_index.get(own, -1)
+	var own_road: WorldRoadProfile.Road = profile._roads[own_index] if own_index >= 0 else null
 	var own_caps := PackedFloat64Array()
 	own_caps.resize(sections * across)
-	for v: int in sections * across:
-		own_caps[v] = cap_at(vertices[v].x, vertices[v].z, own)
-	var pieces := ceili(APRON_M / CAP_SAMPLE_M)
+	own_caps.fill(INF)
+	var own_platform := PackedFloat64Array()
+	own_platform.resize(sections * across)
+	own_platform.fill(INF)
+	# A QUIET row - every cell its vertices span holds own's chords alone
+	# or none - caps nothing: no other road's footprint, no step, no
+	# zone reaches it (the cells are filed with the roads' reach).
+	var quiet := _quiet_rows(own_index, sections, across, vertices)
 	for k: int in sections:
-		for pair: Array in [[0, 1], [across - 2, across - 1]]:
-			var a: int = k * across + pair[0]
-			var b: int = k * across + pair[1]
+		if quiet[k] == 1:
+			continue
+		for i: int in across:
+			var v := k * across + i
+			own_caps[v] = cap_at(vertices[v].x, vertices[v].z, own)
+			if own_caps[v] < INF and own_road != null and not _is_verge(i):
+				own_platform[v] = profile._platform_height(own_road, chainages[k], offsets[i]) - CARVE_DEPTH_M
+	# The row chords, every pair but the one across the paved width.
+	for k: int in sections:
+		if quiet[k] == 1:
+			continue
+		for i: int in across - 1:
+			if i == STRIP_EDGE_LEFT:
+				continue
+			var a := k * across + i
+			var b := a + 1
+			var pieces := ceili(Vector2(vertices[b].x - vertices[a].x, vertices[b].z - vertices[a].z).length() / CAP_SAMPLE_M)
 			var found := INF
+			var own_found := INF
 			for p: int in range(1, pieces):
 				var t := float(p) / float(pieces)
-				found = minf(found, cap_at(lerpf(vertices[a].x, vertices[b].x, t), lerpf(vertices[a].z, vertices[b].z, t), own))
+				var cap := cap_at(lerpf(vertices[a].x, vertices[b].x, t), lerpf(vertices[a].z, vertices[b].z, t), own)
+				if cap < INF:
+					found = minf(found, cap)
+					if own_road != null:
+						own_found = minf(own_found, profile._platform_height(own_road, chainages[k], lerpf(offsets[i], offsets[i + 1], t)) - CARVE_DEPTH_M)
 			if found < INF:
 				own_caps[a] = minf(own_caps[a], found)
 				own_caps[b] = minf(own_caps[b], found)
+			if own_found < INF:
+				if not _is_verge(i):
+					own_platform[a] = minf(own_platform[a], own_found)
+				if not _is_verge(i + 1):
+					own_platform[b] = minf(own_platform[b], own_found)
+	# THE FAN: a quad whose column edges outrun the sample spacing (its
+	# inside may leave its rows' cells: no quiet-row exit here).
+	for k: int in sections - 1:
+		for i: int in across - 1:
+			if i == STRIP_EDGE_LEFT:
+				continue
+			var a := k * across + i
+			var b := a + 1
+			var c := a + across
+			var d := c + 1
+			var column := maxf(Vector2(vertices[c].x - vertices[a].x, vertices[c].z - vertices[a].z).length(), Vector2(vertices[d].x - vertices[b].x, vertices[d].z - vertices[b].z).length())
+			if column <= CAP_SAMPLE_M:
+				continue
+			var row := maxf(Vector2(vertices[b].x - vertices[a].x, vertices[b].z - vertices[a].z).length(), Vector2(vertices[d].x - vertices[c].x, vertices[d].z - vertices[c].z).length())
+			var n_u := ceili(column / CAP_SAMPLE_M)
+			var n_v := ceili(row / CAP_SAMPLE_M)
+			var found := INF
+			var own_found := INF
+			for au: int in range(1, n_u):
+				var u := float(au) / float(n_u)
+				for bv: int in range(0, n_v + 1):
+					var t := float(bv) / float(n_v)
+					var x := lerpf(lerpf(vertices[a].x, vertices[b].x, t), lerpf(vertices[c].x, vertices[d].x, t), u)
+					var z := lerpf(lerpf(vertices[a].z, vertices[b].z, t), lerpf(vertices[c].z, vertices[d].z, t), u)
+					var cap := cap_at(x, z, own)
+					if cap < INF:
+						found = minf(found, cap)
+						if own_road != null:
+							own_found = minf(own_found, profile._platform_height(own_road, lerpf(chainages[k], chainages[k + 1], u), lerpf(offsets[i], offsets[i + 1], t)) - CARVE_DEPTH_M)
+			if found < INF:
+				for corner: int in [a, b, c, d]:
+					own_caps[corner] = minf(own_caps[corner], found)
+			if own_found < INF:
+				for corner: int in [a, b, c, d]:
+					if not _is_verge(corner % across):
+						own_platform[corner] = minf(own_platform[corner], own_found)
 	var caps := PackedFloat64Array()
 	caps.resize(sections * across)
+	var step_radius := float(half_widths.get(own, offsets[STRIP_EDGE_RIGHT])) + WorldRoadProfile.STATION_STEP_M
+	var folds := _folds_of(own_road)
 	for k: int in sections:
+		# THE FOLD: within the step radius of a sharply mitred corner.
+		var at := folds.bsearch(chainages[k])
+		var folded := (at < folds.size() and folds[at] - chainages[k] <= step_radius) or (at > 0 and chainages[k] - folds[at - 1] <= step_radius)
 		for i: int in across:
 			var v := k * across + i
 			var cap := own_caps[v]
@@ -1638,8 +1933,83 @@ func strip_caps(own: String, sections: int, vertices: PackedVector3Array) -> Pac
 				cap = minf(cap, own_caps[v - 1])
 			if i < across - 1 and i != STRIP_EDGE_LEFT:
 				cap = minf(cap, own_caps[v + 1])
+			# THE OWN CAP (never propagated) and THE STEP CAP (the paved edges).
+			cap = minf(cap, own_platform[v])
+			if (i == STRIP_EDGE_LEFT or i == STRIP_EDGE_RIGHT) and (quiet[k] == 0 or folded):
+				cap = minf(cap, step_cap_at(vertices[v].x, vertices[v].z, own, step_radius, folded))
 			caps[v] = cap
 	return caps
+
+
+## The QUIET rows of a strip (strip_caps): 1 where every cell of the
+## profile's chord index the row's vertices span is absent or holds the
+## chords of the road `own_index` alone, 0 where another road is filed
+## in any of them.
+func _quiet_rows(own_index: int, sections: int, across: int, vertices: PackedVector3Array) -> PackedByteArray:
+	var quiet := PackedByteArray()
+	quiet.resize(sections)
+	var cells: Dictionary = profile._cells
+	var cell := WorldRoadProfile.CELL_M
+	for k: int in sections:
+		var x_lo := INF
+		var x_hi := -INF
+		var z_lo := INF
+		var z_hi := -INF
+		for i: int in across:
+			var v := vertices[k * across + i]
+			x_lo = minf(x_lo, v.x)
+			x_hi = maxf(x_hi, v.x)
+			z_lo = minf(z_lo, v.z)
+			z_hi = maxf(z_hi, v.z)
+		var alone := 1
+		for i: int in range(floori(z_lo / cell), floori(z_hi / cell) + 1):
+			for j: int in range(floori(x_lo / cell), floori(x_hi / cell) + 1):
+				var key := Vector2i(j, i)
+				if cells.has(key) and _cell_single_road.get(key, -1) != own_index:
+					alone = 0
+					break
+			if alone == 0:
+				break
+		quiet[k] = alone
+	return quiet
+
+
+## THE FOLD's corners: the chainages of a road's interior skeleton
+## points whose mitre (the frame's rule, _frame) stretches the frame by
+## FOLD_STRETCH or more, ascending; empty for no road.
+static func _folds_of(road: WorldRoadProfile.Road) -> PackedFloat64Array:
+	var folds := PackedFloat64Array()
+	if road == null:
+		return folds
+	for c: int in range(1, road.xs.size() - 1):
+		var before := _unit_normal(road.xs[c - 1], road.zs[c - 1], road.xs[c], road.zs[c])
+		var after := _unit_normal(road.xs[c], road.zs[c], road.xs[c + 1], road.zs[c + 1])
+		if before.is_empty() or after.is_empty():
+			continue
+		var mx := before[0] + after[0]
+		var mz := before[1] + after[1]
+		var m := sqrt(mx * mx + mz * mz)
+		if m <= 1e-9:
+			continue
+		var half_cos := (mx * after[0] + mz * after[1]) / m
+		if 1.0 / maxf(half_cos, 1.0 / MAX_MITRE) >= FOLD_STRETCH:
+			folds.append(road.chain[c])
+	return folds
+
+
+## A chord's right unit normal, empty for a chord of no length.
+static func _unit_normal(ax: float, az: float, bx: float, bz: float) -> PackedFloat64Array:
+	var dx := bx - ax
+	var dz := bz - az
+	var length := sqrt(dx * dx + dz * dz)
+	if length <= 0.0:
+		return PackedFloat64Array()
+	return PackedFloat64Array([-dz / length, dx / length])
+
+
+## Whether a strip column is a verge (the road body's foot line).
+static func _is_verge(column: int) -> bool:
+	return column == STRIP_EDGE_LEFT - 1 or column == STRIP_EDGE_RIGHT + 1
 
 
 ## A strip column's height from the section's field samples (THE CARVE):

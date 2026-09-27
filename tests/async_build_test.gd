@@ -76,7 +76,12 @@ extends SceneTree
 ## width, and 331 888 vertices capped under other roads' footprints),
 ## Forest 37d8d855599b8de2 unchanged. The Road digest now covers
 ## the skirts' surfaces too, in child order (Strip_, Body_, Skirt_ per
-## road) - 9 913 children under Road, was 6 609.
+## road) - 9 913 children under Road, was 6 609. ROAD-4 (the zone,
+## the own cap and the step cap in TerrainBuilder.strip_caps; was ->
+## Terrain f3d51da12b5f6547): Terrain b5646e3bd1f1a7a8 (the same 3 352
+## meshes, 2 772 530 vertices and 4 466 373 triangles; 361 787 vertices
+## capped, was 331 888), Road dfa68bb59bdb78c7 and Forest
+## 37d8d855599b8de2 unchanged.
 
 const RING_SCENE := "res://scenes/eifel_ring.tscn"
 const PAD_SCENE := "res://scenes/main.tscn"
