@@ -24,8 +24,15 @@ extends Node3D
 ##     parallel bay and the parking bay, the reversing lane and the emergency
 ##     stop lane, painted lines and cones (see "Licence course"), and a pair
 ##     of bars across the straight for the turn in the road.
-## Painted markings, posts, pylons and cones are visual only and can be driven
-## through; cones the car touches topple without slowing it down.
+## Painted markings, posts and pylons are visual only and can be driven
+## through. The cones are rigid bodies (PadCone, assets/cone_physics.tscn:
+## 2 kg, a square base plate under a convex hull of the frustum, the centre of
+## mass in the base) the car pushes but never feels: a creeping car shoves one
+## along, leaning, a hit sends it tumbling away with spin, the further the
+## faster (issue-0067, docs/pad-physics-diagnosis.md §2; was a scripted
+## topple: any touch fell the cone over in 0.35 s and slid it 0.12 m per m/s).
+## They stand on the pad's own ground, a trimesh floor on the cones' layer, and
+## sleep until the car comes near; see "Cones" below.
 ##
 ## Missions and handling tests ask the pad where things are: see the
 ## "Course queries" section (cone groups, slalom gates, skid circle, stop box).
@@ -113,12 +120,23 @@ const GROUND_TEXTURE_SIZE := 256  # Pixels along one edge of the asphalt tile.
 const GROUND_TEXTURE_TILE := 6.0  # The tile repeats every this many metres.
 const GROUND_TEXTURE_SEED := 1997  # Same seed = same pixels, every run.
 
-## How close the car's footprint has to come to topple a cone [m].
-const CONE_TOPPLE_MARGIN := 0.28
-const CONE_TOPPLE_TIME := 0.35  # Time a cone takes to fall over [s].
-const CONE_PUSH_PER_SPEED := 0.12  # A hit cone skids this far per m/s of car speed [m].
-const CONE_MAX_PUSH := 4.0
-const CAR_HALF_SIZE := Vector2(0.9, 2.1)  # Car footprint half-extents, X and Z [m].
+## Car footprint half-extents, X and Z [m]: what the licence exams and the
+## handling tests measure against painted lines (the car's own box is 1.8 x 4.2).
+const CAR_HALF_SIZE := Vector2(0.9, 2.1)
+
+## The cone: a rigid body the pad instantiates per cone (PadCone; issue-0067).
+## was CONE_TOPPLE_MARGIN 0.28 / CONE_TOPPLE_TIME 0.35 / CONE_PUSH_PER_SPEED
+## 0.12 / CONE_MAX_PUSH 4.0, the scripted topple's numbers
+## (docs/pad-physics-diagnosis.md §2) -> the physics server's own response.
+const CONE_SCENE := preload("res://assets/cone_physics.tscn")
+## A cone within this far of the car [m] has the car's box looked for it (the
+## bumper query, _drive_cones): the box reaches 2.3 m from the car's origin, a
+## cone's hull 0.4 from its own; no cone further off can be inside the box.
+const CONE_REACH_M := 4.0
+## The car's box, should the car carry no CollisionShape3D (scenes/car.tscn
+## does: 1.8 x 1.08 x 4.2 m, 0.66 m up): CAR_HALF_SIZE and the same height.
+const CONE_QUERY_BOX_HEIGHT := 1.08
+const CONE_QUERY_BOX_CENTRE_Y := 0.66
 
 const GROUP_SLALOM := &"slalom_cones"
 const GROUP_SKID_INNER := &"skid_inner_cones"
@@ -214,7 +232,8 @@ const POST_COLORS: Array[Color] = [
 	Color(0.9, 0.2, 0.2), Color(0.95, 0.95, 0.92), Color(0.2, 0.5, 0.9), Color(0.95, 0.8, 0.2),
 ]
 
-## The car that topples cones. Optional: without it the cones just stand.
+## The car that knocks the cones about. Optional: without it the cones just
+## stand (asleep: nothing wakes them).
 @export var car: ArcadeCar
 
 ## The road: the height field the ground is shaped to, everything on the pad
@@ -224,12 +243,16 @@ const POST_COLORS: Array[Color] = [
 @export var road_profile: RoadProfile
 
 var _materials: Dictionary[Color, StandardMaterial3D] = {}
-var _cone_mesh: CylinderMesh
-var _cones: Array[Dictionary] = []
+## Every cone on the pad, in the order they were placed (PadCone: its home,
+## group and verdict are its own). reset_cones replaces them all.
+var _cones: Array[PadCone] = []
 var _rng := RandomNumberGenerator.new()
 var _ground_image: Image
 var _ground_material: StandardMaterial3D
 var _ground_collider: CollisionShape3D
+## The cones' floor: a StaticBody3D on PadCone.LAYER carrying a trimesh of the
+## ground mesh (see _build_cone_floor). Null until the ground is built.
+var _cone_floor: StaticBody3D
 
 ## The ground mesh's lattice: vertex x and z coordinates [m], the elevation at
 ## every vertex (row by row along z) and where a coordinate sits in its list.
@@ -246,15 +269,10 @@ func _ready() -> void:
 	if car != null and car.road_profile == null:
 		car.road_profile = road_profile
 	_rng.seed = GROUND_TEXTURE_SEED
-	_cone_mesh = CylinderMesh.new()
-	_cone_mesh.top_radius = 0.04
-	_cone_mesh.bottom_radius = 0.28
-	_cone_mesh.height = 0.75
-	_cone_mesh.radial_segments = 12
-	_cone_mesh.rings = 1
 	_ground_collider = get_node_or_null("Ground/CollisionShape3D") as CollisionShape3D
 
 	_build_ground_surface()
+	_build_cone_floor()
 	_build_patches()
 	_build_grid()
 	_build_motion_ticks()
@@ -269,11 +287,11 @@ func _ready() -> void:
 	_build_licence_course()
 
 
-func _physics_process(delta: float) -> void:
+func _physics_process(_delta: float) -> void:
 	if Input.is_action_just_pressed("reset_car"):
 		reset_cones()
 	_follow_car()
-	_update_cones(delta)
+	_drive_cones()
 
 
 # =============================================================================
@@ -408,11 +426,13 @@ func get_cone_positions(group: StringName) -> Array[Vector3]:
 	return positions
 
 
-## How many cones of a group the car has knocked over since the last reset.
+## How many cones of a group the car has knocked over since the last reset
+## (PadCone.watch: tilted past 45 degrees or moved half a metre, latched; read
+## live, so the answer is the bodies' pose now, not the last tick's).
 func get_toppled_count(group: StringName) -> int:
 	var count := 0
 	for cone in _cones:
-		if cone.group == group and cone.toppled:
+		if cone.group == group and cone.watch():
 			count += 1
 	return count
 
@@ -420,18 +440,31 @@ func get_toppled_count(group: StringName) -> int:
 ## True if the cone of `group` standing at `home` has been knocked over.
 func is_cone_toppled(group: StringName, home: Vector3) -> bool:
 	for cone in _cones:
-		if cone.group == group and cone.toppled and cone.home.distance_to(home) < 0.01:
+		if cone.group == group and cone.home.distance_to(home) < 0.01 and cone.watch():
 			return true
 	return false
 
 
-## Stands every cone back up where it belongs.
+## The cone bodies themselves, in placement order (PadCone: home, group,
+## toppled; a fresh set after every reset_cones).
+func get_cones() -> Array[PadCone]:
+	return _cones
+
+
+## Stands every cone back up where it belongs: the bodies are cleared and
+## re-instanced (a fresh PadCone asleep on each home, its verdict clear), so a
+## cone lying under the car, spinning or half off the pad leaves no state
+## behind. The old bodies leave the tree and the physics space this call and
+## are freed at the frame's end.
 func reset_cones() -> void:
+	var stood: Array[PadCone] = []
 	for cone in _cones:
-		cone.toppled = false
-		cone.fall = 0.0
-		var node: MeshInstance3D = cone.node
-		node.transform = Transform3D(Basis.IDENTITY, cone.home + Vector3.UP * _cone_mesh.height * 0.5)
+		var parent := cone.get_parent()
+		var material := (cone.get_node("Mesh") as MeshInstance3D).material_override
+		parent.remove_child(cone)
+		cone.queue_free()
+		stood.append(_place_cone(parent, cone.home, material, cone.group))
+	_cones = stood
 
 
 ## The asphalt material on the ground plane (albedo texture = the noise tile).
@@ -1052,50 +1085,128 @@ func _add_box(parent: Node3D, centre: Vector3, size: Vector3, color: Color, soli
 		var collider := CollisionShape3D.new()
 		collider.shape = shape
 		var body := StaticBody3D.new()
+		# The car's layer (1, its mask) and the cones' (PadCone.LAYER, theirs): a
+		# shed stops both. The cones' mask is their own layer alone (PadCone, THE
+		# LAYERS), so what a cone is to stop against must carry it.
+		body.collision_layer = 1 | PadCone.LAYER
 		body.add_child(collider)
 		instance.add_child(body)
 	return instance
 
 
+# --- Cones ---------------------------------------------------------------------
+# Issue-0067 (docs/pad-physics-diagnosis.md §2): the cones were visual-only
+# meshes, toppled by a footprint test against the car's box plus a margin and
+# animated over 0.35 s, skidding 0.12 m per m/s of car speed (4 m at most) -
+# no mass, no impulse, a 1 km/h touch and a 20 km/h hit alike. Now each cone
+# is a PadCone (assets/cone_physics.tscn): a RigidBody3D the physics server
+# moves. The car pushes them through the server (one-way: PadCone's layers)
+# and its own motion is untouched - the smoke test's "does not slow or
+# deflect" pin and the certified handling metrics hold to the bit.
+
 ## A cone in a named group (GROUP_*), standing on the ground at `base_position`
-## (its home, ground height included). No collision: see _update_cones.
+## (its home, ground height included): a PadCone body, asleep.
 func _add_cone(parent: Node3D, base_position: Vector3, color: Color, group: StringName) -> void:
 	base_position.y += _ground_y(base_position.x, base_position.z)
-	var instance := MeshInstance3D.new()
-	instance.mesh = _cone_mesh
-	instance.material_override = _get_material(color)
-	instance.position = base_position + Vector3.UP * _cone_mesh.height * 0.5
-	instance.add_to_group(group)
-	parent.add_child(instance)
-	_cones.append({
-		"node": instance, "home": base_position, "group": group,
-		"toppled": false, "fall": 0.0, "push": Vector3.ZERO,
-	})
+	_cones.append(_place_cone(parent, base_position, _get_material(color), group))
 
 
-## Knock-away-lite: a cone inside the car's footprint falls over and skids off
-## the way the car was going. Purely visual; the car never feels it.
-func _update_cones(delta: float) -> void:
-	if car == null:
+## Instantiates a cone standing asleep on `home` under `parent`, in its node
+## group. The car's body and the car's ground plane are no partners of the
+## cone by its mask (PadCone, THE LAYERS: the bumper is _drive_cones', not the
+## server's, and the cone has a floor of its own, _build_cone_floor) - not by
+## exceptions, which the first draft used and which let the plane wake every
+## cone. What _add_cone and reset_cones share.
+func _place_cone(parent: Node, home: Vector3, material: Material, group: StringName) -> PadCone:
+	var cone: PadCone = CONE_SCENE.instantiate()
+	cone.stand(home, group, material)
+	cone.add_to_group(group)
+	parent.add_child(cone)
+	# The cone puts itself to sleep on its first physics tick (PadCone.
+	# _physics_process: a `sleeping` set here does not survive the tree's
+	# transform flush; measured, the reasons there).
+	return cone
+
+
+## The cones' floor: a StaticBody3D on the cones' layer (and on no mask: it
+## pairs with what looks for it, the cones) carrying a trimesh of the ground
+## mesh the pad shows, so a cone stands and rolls on the swell it is drawn on.
+## The car's own floor (Ground/CollisionShape3D, a plane that follows the car's
+## elevation) is no floor for a cone: away from the car it is the wrong height.
+## The car never meets this body (its mask is layer 1; scripts/car.gd, frozen).
+func _build_cone_floor() -> void:
+	var ground_mesh := get_node_or_null("Ground/MeshInstance3D") as MeshInstance3D
+	if ground_mesh == null:
+		ground_mesh = get_node_or_null("GroundSurface") as MeshInstance3D
+	if ground_mesh == null or ground_mesh.mesh == null:
 		return
-	var to_car := car.global_transform.affine_inverse()
-	var reach := CAR_HALF_SIZE + Vector2.ONE * CONE_TOPPLE_MARGIN
+	var collider := CollisionShape3D.new()
+	collider.shape = ground_mesh.mesh.create_trimesh_shape()
+	_cone_floor = StaticBody3D.new()
+	_cone_floor.name = "ConeFloor"
+	_cone_floor.collision_layer = PadCone.LAYER
+	_cone_floor.collision_mask = 0
+	_cone_floor.add_child(collider)
+	add_child(_cone_floor)
+
+
+## Every tick: the bumper and the verdicts. With a cone within CONE_REACH_M of
+## the car, the car's box is cast on the cones' layer (the cones' floor left
+## out); every cone the box holds is bumped with the car's velocity and its
+## place across the car (PadCone.bump: the kick on the first tick, the shove
+## below KICK_SPEED), every other cone is told it is clear; then every cone's
+## verdict is read (PadCone.watch latches toppled). No cone near: no query.
+func _drive_cones() -> void:
+	var held: Dictionary[PadCone, bool] = {}
+	if car != null:
+		var car_position := car.global_position
+		var reach_sq := CONE_REACH_M * CONE_REACH_M
+		var near := false
+		for cone in _cones:
+			if cone.global_position.distance_squared_to(car_position) < reach_sq:
+				near = true
+				break
+		if near:
+			for hit in _cones_in_car_box():
+				held[hit] = true
+		if not held.is_empty():
+			var to_car := car.global_transform.affine_inverse()
+			var outward := car.global_basis.x
+			for cone in held:
+				var side := (to_car * cone.global_position).x / CAR_HALF_SIZE.x
+				cone.bump(car.velocity, side, outward)
 	for cone in _cones:
-		if not cone.toppled:
-			var local: Vector3 = to_car * cone.home
-			if absf(local.x) < reach.x and absf(local.z) < reach.y:
-				cone.toppled = true
-				var push := Vector3(car.velocity.x, 0.0, car.velocity.z)
-				cone.push = push.limit_length(CONE_MAX_PUSH / CONE_PUSH_PER_SPEED) * CONE_PUSH_PER_SPEED
-		elif cone.fall < 1.0:
-			cone.fall = minf(cone.fall + delta / CONE_TOPPLE_TIME, 1.0)
-			var push: Vector3 = cone.push
-			var direction := push.normalized() if push.length() > 0.01 else Vector3.FORWARD
-			var tip_axis := Vector3.UP.cross(direction).normalized()
-			var tip_basis := Basis(tip_axis, cone.fall * PI * 0.5)
-			var height := lerpf(_cone_mesh.height * 0.5, _cone_mesh.bottom_radius, cone.fall)
-			var node: MeshInstance3D = cone.node
-			node.transform = Transform3D(tip_basis, cone.home + push * cone.fall + Vector3.UP * height)
+		if not held.has(cone):
+			cone.clear_of_car()
+		cone.watch()
+
+
+## The cones inside the car's box now: the car's own CollisionShape3D cast on
+## PadCone.LAYER (a box of CAR_HALF_SIZE without one), the cones' floor excepted.
+func _cones_in_car_box() -> Array[PadCone]:
+	var found: Array[PadCone] = []
+	var space := get_world_3d().direct_space_state
+	if space == null:
+		return found
+	var query := PhysicsShapeQueryParameters3D.new()
+	var collider := car.get_node_or_null("CollisionShape3D") as CollisionShape3D
+	if collider != null and collider.shape != null:
+		query.shape = collider.shape
+		query.transform = collider.global_transform
+	else:
+		var box := BoxShape3D.new()
+		box.size = Vector3(CAR_HALF_SIZE.x * 2.0, CONE_QUERY_BOX_HEIGHT, CAR_HALF_SIZE.y * 2.0)
+		query.shape = box
+		query.transform = car.global_transform.translated_local(Vector3.UP * CONE_QUERY_BOX_CENTRE_Y)
+	query.collision_mask = PadCone.LAYER
+	query.collide_with_areas = false
+	if _cone_floor != null:
+		query.exclude = [_cone_floor.get_rid()]
+	for hit in space.intersect_shape(query, _cones.size()):
+		var cone := hit.get("collider") as PadCone
+		if cone != null:
+			found.append(cone)
+	return found
 
 
 ## Flat painted ring (or disc, or arc) on the ground round `centre`, level: the

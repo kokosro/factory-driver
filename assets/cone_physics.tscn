@@ -1,0 +1,41 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/pad_cone.gd" id="1_cone"]
+
+[sub_resource type="PhysicsMaterial" id="cone_rubber"]
+friction = 0.9
+bounce = 0.05
+
+[sub_resource type="CylinderMesh" id="cone_mesh"]
+top_radius = 0.04
+bottom_radius = 0.28
+height = 0.75
+radial_segments = 12
+rings = 1
+
+[sub_resource type="BoxShape3D" id="cone_plate"]
+size = Vector3(0.4, 0.04, 0.4)
+
+[sub_resource type="ConvexPolygonShape3D" id="cone_hull"]
+points = PackedVector3Array(0, -0.335, 0.267, 0, 0.375, 0.04, 0.1335, -0.335, 0.231229, 0.02, 0.375, 0.034641, 0.231229, -0.335, 0.1335, 0.034641, 0.375, 0.02, 0.267, -0.335, 0, 0.04, 0.375, 0, 0.231229, -0.335, -0.1335, 0.034641, 0.375, -0.02, 0.1335, -0.335, -0.231229, 0.02, 0.375, -0.034641, 0, -0.335, -0.267, 0, 0.375, -0.04, -0.1335, -0.335, -0.231229, -0.02, 0.375, -0.034641, -0.231229, -0.335, -0.1335, -0.034641, 0.375, -0.02, -0.267, -0.335, 0, -0.04, 0.375, 0, -0.231229, -0.335, 0.1335, -0.034641, 0.375, 0.02, -0.1335, -0.335, 0.231229, -0.02, 0.375, 0.034641)
+
+[node name="Cone" type="RigidBody3D"]
+collision_layer = 4
+collision_mask = 4
+mass = 2.0
+physics_material_override = SubResource("cone_rubber")
+center_of_mass_mode = 1
+center_of_mass = Vector3(0, -0.175, 0)
+linear_damp = 0.4
+angular_damp = 0.6
+script = ExtResource("1_cone")
+
+[node name="Mesh" type="MeshInstance3D" parent="."]
+mesh = SubResource("cone_mesh")
+
+[node name="Plate" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.355, 0)
+shape = SubResource("cone_plate")
+
+[node name="Shape" type="CollisionShape3D" parent="."]
+shape = SubResource("cone_hull")
