@@ -19,6 +19,38 @@ extends Node
 ## every car, attach() takes a null manager (a scene without missions) and
 ## the manager, where there is one, joins in through listen().
 ##
+## THE SURFACE AND THE RESET (2026-09-27; docs/telemetry-0924-analysis.md
+## §2 and §3 could name neither: "a search for "event":"reset" across all
+## JSONL files returned zero hits" and "does not contain a surface-type
+## identifier"): two additions to the schema, both READS.
+##   - Where the scene carries a Surfaces node (scripts/surfaces.gd, the
+##     Ring's; a sibling of the car under the scene root) every sample
+##     carries "front_surface" and "rear_surface": the axle's surface name
+##     as that node classified it this tick (road, gravel, grass,
+##     field_stubble, forest_floor; Surfaces.SURFACE_NAMES), as plain
+##     strings. attach() looks the node up ONCE under the car's scene root
+##     (find_surfaces) and keeps it; a scene without one (the pad, the
+##     garage, the world map) writes NEITHER key - omitted, never null.
+##     Surfaces ticks at physics priority -1 and this node last at 0, so
+##     the names are the tick's own. The sample grows by ~40 bytes on the
+##     Ring (measured by tests/telemetry_watch_test.gd; the band 200-450).
+##   - A reset: the car's position moved by more than RESET_JUMP_M
+##     between two consecutive samples of the SAME stream - a teleport (R,
+##     the garage's spawn, a test's reset_to), never a drive (300 m/s at
+##     60 Hz) - writes one event line RIGHT AFTER the sample that landed:
+##       {"event": "reset", "t": <t_session_s of that sample>,
+##        "before": {"pos": [x, y, z], "odometer": <m>},
+##        "after":  {"pos": [x, y, z], "odometer": <m>}}
+##     before = the previous sample's position and the car's odometer then,
+##     after = the sample's own. The memory is the stream's: it starts
+##     empty when a file opens, when a run's file opens (the run's first
+##     sample is the car PLACED at the start point - not a reset) and when
+##     the free file resumes after a run (the run's whole drive lies between
+##     its two samples - not a reset either). The car's odometer does not
+##     jump on a teleport (ArcadeCar.reset_to re-bases it), so the two
+##     odometers read alike and the pair is the evidence the analysis
+##     asked for. Nothing in car.gd moved for either.
+##
 ## Where the files go:
 ##   user://telemetry/<YYYY-MM-DD>/<session>_<HHMMSS>_<context>.jsonl
 ##   user://telemetry/index.json          the running summary (see load_index)
@@ -76,6 +108,12 @@ const FREE_SAMPLE_STRIDE_TICKS := 1
 ## this, never a clock reading.
 const TICK_SECONDS := 1.0 / 60.0
 
+## A jump longer than this between two consecutive samples of one stream
+## [m] is a reset (the header's THE SURFACE AND THE RESET): a car at 300 m/s
+## would cover it in a tick, nothing drives that fast, a teleport always
+## does (R lands metres away, a spawn tens or thousands).
+const RESET_JUMP_M := 5.0
+
 # was: `const SESSIONS_KEPT := 20`, how many sessions' files were kept on disk,
 # the oldest deleted when a new session started -> no such number: every
 # session's files stay until the driver deletes them (2026-09-24).
@@ -100,6 +138,12 @@ const TIME_SNAP := 0.00001
 
 ## The car being recorded. Read only: the recorder never sets anything on it.
 var car: ArcadeCar
+
+## The scene's Surfaces node where it has one (the Ring), found once by
+## attach() under the car's scene root; null everywhere else (the pad, a
+## bare car). Read only, like the car: the two axle names it holds go into
+## every sample as "front_surface" / "rear_surface".
+var surfaces: Surfaces
 
 ## True while a file is open and samples are going into it.
 var recording := false
@@ -128,6 +172,13 @@ var _mission_test: Dictionary = {}
 ## written under user:// at all.
 var _fixed_path := ""
 
+## The stream's last sample - the car's position and odometer as it was
+## written - for the reset detection; _jump_armed false while the stream
+## has none (a file just opened, a run just started or ended).
+var _jump_from_position := Vector3.ZERO
+var _jump_from_odometer := 0.0
+var _jump_armed := false
+
 
 # =============================================================================
 #  Turning it on
@@ -152,9 +203,39 @@ static func should_record() -> bool:
 # that finds the recorder later joins through listen().
 func attach(manager: Node, target_car: ArcadeCar) -> void:
 	car = target_car
+	surfaces = find_surfaces(target_car)
 	index = load_index()
 	if manager != null:
 		listen(manager)
+
+
+## The Surfaces node of the scene `target_car` stands in: the first one
+## found under the car's scene root - the car's topmost ancestor below the
+## tree's root (TelemetryWatcher.scene_root_of's rule) - or null for a car
+## outside the tree, a car straight under the root (a bare test car: the
+## root's subtree is every scene, none of them its own) or a scene without
+## one (the pad). Read once at attach; the node is the scene's and lives
+## as long as the scene, i.e. as long as this recorder does.
+static func find_surfaces(target_car: Node) -> Surfaces:
+	if target_car == null or not target_car.is_inside_tree():
+		return null
+	var tree_root := target_car.get_tree().root
+	var top := target_car
+	while top.get_parent() != null and top.get_parent() != tree_root:
+		top = top.get_parent()
+	if top == target_car:
+		return null
+	return _surfaces_under(top)
+
+
+static func _surfaces_under(node: Node) -> Surfaces:
+	if node is Surfaces:
+		return node
+	for child in node.get_children():
+		var found := _surfaces_under(child)
+		if found != null:
+			return found
+	return null
 
 
 ## Listens to `manager`'s runs from now on: mission_started opens the run's
@@ -193,6 +274,7 @@ func start_session() -> void:
 	index["sessions"] = sessions
 	_save_index()
 	_session_ticks = 0
+	_jump_armed = false
 	_free_file = _open(_unique_path(_file_path("free")))
 	if _free_file == null:
 		return
@@ -208,6 +290,7 @@ func record_to_file(path: String) -> void:
 	DirAccess.make_dir_recursive_absolute(path.get_base_dir())
 	_fixed_path = path
 	_session_ticks = 0
+	_jump_armed = false
 	_free_file = _open(path)
 	if _free_file == null:
 		return
@@ -243,11 +326,40 @@ func _physics_process(_delta: float) -> void:
 		return
 	if not _mission_test.is_empty():
 		if _run_ticks % SAMPLE_STRIDE_TICKS == 0:
-			_write(_mission_file if _mission_file != null else _free_file, _sample(true))
+			_write_sample(_mission_file if _mission_file != null else _free_file, true)
 		_run_ticks += 1
 	elif _session_ticks % FREE_SAMPLE_STRIDE_TICKS == 0:
-		_write(_free_file, _sample(false))
+		_write_sample(_free_file, false)
 	_session_ticks += 1
+
+
+## The sample line into `file`, then - where the car stands more than
+## RESET_JUMP_M from where the stream's previous sample left it - the reset
+## event line right after it (the header's THE SURFACE AND THE RESET). The
+## position and the odometer are read once, before the sample, so the
+## event's "after" is the sample's own to the bit.
+func _write_sample(file: FileAccess, in_mission: bool) -> void:
+	var position := car.global_position
+	var odometer: float = car.odometer_m
+	_write(file, _sample(in_mission))
+	if _jump_armed and position.distance_to(_jump_from_position) > RESET_JUMP_M:
+		_write(file, _reset_line(position, odometer))
+	_jump_from_position = position
+	_jump_from_odometer = odometer
+	_jump_armed = true
+
+
+## The reset event: where the car was at the stream's previous sample and
+## where it is now, each with the odometer, at the landing sample's own
+## time. The odometer is the car's (ArcadeCar.odometer_m [m], the level way
+## it has driven; re-based by reset_to, so a teleport adds nothing to it).
+func _reset_line(after_position: Vector3, after_odometer: float) -> String:
+	return JSON.stringify({
+		"event": "reset",
+		"t": _seconds(_session_ticks),
+		"before": {"pos": _snapped_position(_jump_from_position), "odometer": snappedf(_jump_from_odometer, VALUE_SNAP)},
+		"after": {"pos": _snapped_position(after_position), "odometer": snappedf(after_odometer, VALUE_SNAP)},
+	})
 
 
 ## One sample line. The car's state as the physics left it, plus the mission's
@@ -260,7 +372,7 @@ func _sample(in_mission: bool) -> String:
 		"t_session_s": _seconds(_session_ticks),
 		# Where the car is [m], world space, and where its nose points
 		# [degrees], left positive.
-		"pos": [snappedf(position.x, VALUE_SNAP), snappedf(position.y, VALUE_SNAP), snappedf(position.z, VALUE_SNAP)],
+		"pos": _snapped_position(position),
 		"heading_deg": snappedf(rad_to_deg(car.global_rotation.y), VALUE_SNAP),
 		# Speed along the nose [m/s], negative while reversing.
 		"speed_ms": snappedf(car.forward_speed, VALUE_SNAP),
@@ -291,6 +403,12 @@ func _sample(in_mission: bool) -> String:
 		# How fast the nose is swinging [degrees/s], left positive.
 		"yaw_rate_deg_s": snappedf(rad_to_deg(car.yaw_rate), VALUE_SNAP),
 	}
+	# What each axle stands on, where the scene has a Surfaces node (the
+	# Ring): the node's own names, as plain strings. Absent otherwise - the
+	# keys are not written at all, never as null.
+	if is_instance_valid(surfaces):
+		sample["front_surface"] = String(surfaces.front_surface)
+		sample["rear_surface"] = String(surfaces.rear_surface)
 	if in_mission:
 		# Seconds since the test began (the car put on its start point), counted
 		# in ticks, and what the run says about itself (HandlingTests.progress(),
@@ -314,6 +432,11 @@ func _seconds(ticks: int) -> float:
 	return snappedf(ticks * TICK_SECONDS, TIME_SNAP)
 
 
+## A position [m] as it is written: three floats to the snap.
+func _snapped_position(position: Vector3) -> Array:
+	return [snappedf(position.x, VALUE_SNAP), snappedf(position.y, VALUE_SNAP), snappedf(position.z, VALUE_SNAP)]
+
+
 ## The same dictionary with its floats snapped, so a run's own numbers are
 ## written as tidily as the car's.
 func _snapped_dictionary(values: Dictionary) -> Dictionary:
@@ -333,6 +456,10 @@ func _on_mission_started(_index: int, definition: Dictionary) -> void:
 		return
 	_mission_test = definition
 	_run_ticks = 0
+	# The run's stream starts here: its first sample is the car placed at
+	# the test's start point (HandlingTests._start's reset_to), a placement
+	# the run's file opens with, not a reset inside it.
+	_jump_armed = false
 	if _fixed_path != "":
 		return
 	# A file of its own for the run, e.g. 0007_103312_mission_slalom.jsonl.
@@ -383,6 +510,9 @@ func _end_run(last_line: String) -> void:
 	_close(_mission_file)
 	_mission_file = null
 	_mission_test = {}
+	# The free stream resumes with no memory: the run's whole drive lies
+	# between its last sample before the run and its first after.
+	_jump_armed = false
 	if _fixed_path != "":
 		stop()
 
