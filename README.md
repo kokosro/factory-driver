@@ -684,6 +684,103 @@ slab: it reads its velocity back after `move_and_slide`, no car change (measured
 variation over two seconds of floored throttle). A forest built without a road or a car
 (a fixture) stands its bodies on no layer and leaves them there.
 
+### Surfaces, the off-road feel and the continuation
+
+OFFROAD-1, the driver's two findings: off the road the car felt *"like going through
+water"* (no surface grip model, no micro-profile: the raw 10 m lattice with road grip
+everywhere), and the terrain read snow-covered green (*"the roads are different, but it's
+hard to see them as they are covered like it has snowed with green texture on them"*). The
+canon: decisions.org DAF72FC6 (OPEN-WORLD CONTINUITY: everything reachable, no walls, the
+world continues procedurally beyond the OSM data, deterministic hash randomness via
+`hash_unit()`, never RNG), plan.org ECD301C4 (SURFACES & GRIP DEPTH: grip varies by surface
+type and condition, suspension/tire feel), the driver's rule that everything is
+parameterised from the start, and `docs/art-direction.md` for the colours.
+
+**The terrain's colour space.** Godot reads a mesh's VERTEX colours as linear albedo as they
+are (`BaseMaterial3D.vertex_color_is_srgb` is off by default; a colour texture is converted
+from sRGB on import, a vertex colour never is), and the palette's tints in
+`data/regions/eifel_ring/dressing.json` are display colours. Read as linear, T1's
+(0.36, 0.44, 0.24) - display luminance 0.41 - was an albedo of display value ~(0.63, 0.70,
+0.53): the visual probe's lit T1 hillside (the Karussell shot, a lattice slope of 14 % at
+NdotL 0.605 to the 45° sun, the restrained ambient 0.45 × 0.85 + 0.15 of the sky, Filmic,
+sRGB) measured (191, 202, 163), display luminance 0.77 - the snow. `TerrainBuilder.albedo()`
+converts a tint once (`Color.srgb_to_linear`) at the vertex writer, the stored vertex
+colour the linear value; the forest's `tint()` reads stay raw (`scripts/forest_walls.gd`,
+frozen: its tints multiply an sRGB-converted texture and were measured to the canon as they
+are - converted too, the wall cards went from (46, 62, 52) to (10, 23, 15) in the probe,
+black). Beside the conversion the nine terrain tints were re-authored down (T1 (0.36, 0.44,
+0.24) -> (0.28, 0.35, 0.19), the others in the table's note) so the lit terrain lands in
+display luminance 0.30-0.45: the same box now reads (98, 117, 77), luminance 0.43, muted
+olive; the walls unchanged; the road ribbon brighter than everything beside it.
+
+**The surfaces.** `data/regions/eifel_ring/surfaces.json` names the region's surfaces as
+data: a grip multiplier on the axle's tyre grip, a rolling drag [m/s²] and a bump amplitude
+[m] - road {1.0, 0.0, 0.0} exactly (the certified baseline), gravel {0.62, 1.6, 0.035},
+grass {0.55, 0.9, 0.02}, field stubble {0.7, 1.0, 0.025}, forest floor {0.48, 1.2, 0.05},
+each with its note, and the shoulder rule (1.5 m beyond the paved edge is gravel);
+`Surfaces.validate()` holds the schema and the bounds (grip in [0.2, 1.0], drag and bump
+non-negative, the road exact). `scripts/surfaces.gd` (the `Surfaces` node, a scene-root
+sibling after Road at physics priority -1) classifies each wheel's contact point every
+tick - the road on its paved width, gravel within the shoulder, else
+`TerrainBuilder.surface_at`'s ground: forest floor under the V7 canopy, field stubble on a
+T7 field, grass everywhere else and outside the coverage - and writes the car's three
+surface inputs: the Conductor's narrow grant (decisions.org 5B7CD993) added
+`front_surface_grip`, `rear_surface_grip` and `surface_rolling_decel` to `scripts/car.gd`
+(three public vars, three consumption points: each axle's grip multiplied, the rolling drag
+`COAST_DECEL + surface_rolling_decel`; nothing else moved). Per-axle honesty: the front pair
+and the rear pair are classified on their own (an axle's factor the mean of its two wheels).
+On the road all three read 1.0 / 1.0 / 0.0 and the certified drives are byte-identical.
+The brakes need no hook: brake force is delivered through the grip budget.
+
+**The wrapper and the micro-profile.** `scripts/ring_profile.gd` (`RingProfile`, a
+`WorldRoadProfile`) wraps the real profile as `inner` and delegates every public member
+to it verbatim; the Surfaces node swaps it into `road.profile` and `car.road_profile` at
+its first physics tick, after every `_ready` consumed the original (Terrain and Forest keep
+the smooth field; the ring drive test's pin `road.profile is WorldRoadProfile and
+car.road_profile == road.profile` holds: a subclass, one object). On a road or in its blend
+band the three height reads pass through the inner BIT-EXACT (the wrapper asks
+`inner.describe()` once and returns its own `height`); off-road inside the coverage they
+add the micro-profile - deterministic value noise on `hash_unit` at 2.5 m and 0.9 m
+wavelengths, the amplitude the ground surface's `bump`, weighed in from zero at the
+widest road's reach over 20 m of the terrain's distance field and faded to zero at the
+coverage box's edge - the car's read only, through its existing per-wheel
+`sample_height` path (the terrain mesh does not show it: the seam, stated in the header);
+outside the coverage they answer the continuation. Measured on the fence's grass drive:
+the pinned throttle launches at a peak 2.71 m/s² against the road's 6.87, 11.7 m/s at
+tick 300 against 22.7; the wheels' travel-rate variance 0.0021 (m/s)² against 0.0002 with
+the bumps zeroed.
+
+**The continuation.** `scripts/world_continuation.gd` (`WorldContinuation`, static,
+stateless): outside the drape's coverage box (x 0..7000, z -6000..0; the frozen profile
+answers a flat 0 there) the height is the real field's value at the nearest point of the
+box's edge plus fBm value noise - five octaves at 2 048 / 1 024 / 512 / 256 / 128 m with
+amplitudes 175 / 38 / 31 / 27 / 15.5 m FITTED to the lattice's measured relief (the rms
+height difference at lag L over the 701 × 601 lattice: 90.7 m at 2 048 m, 58.8 at 1 024,
+40.0 at 512, 26.9 at 256, 16.2 at 128, 9.1 at 64; height std 67.4 m; the model 88.8 /
+63.7 / 41.0 / 26.3 / 16.3 / 9.0 at the same lags) - weighed in over an 800 m blend band
+from the edge, reaching 6 km out (twice the haze's sky-coloured distance; NOT infinite,
+the honest limit) and faded to flat 0 over its last kilometre. Every corner hash is
+`hash_unit` on the cell's indices folded into a spatial mix (FNV-1a's last byte only
+reaches the hash through one multiply, so adjacent cells keyed on a trailing index hashed
+one prime apart and the noise barely varied along z: measured, fixed). The terrain draws
+it: four bands of 50 m quads (120 000 cells, 121 484 vertices) from the box's edge to the
+margin, every vertex the same static function the car reads, tinted T9, a 6 m skirt
+hanging along the box's edge (`describe()` gained "120000 continuation cells to 6000 m
+(520 skirts)"; the build about a second longer). At the edge the field is continuous to
+under 1 cm (measured 7 mm worst over 484 points, 1 cm either side).
+
+**What moved, honestly.** The certified ring drives, the licence certs and the reset test
+are byte-identical to before (on-road reads pass through the inner; the three car inputs
+read 1.0 / 1.0 / 0.0 on the pavement). `tests/bubble_test.gd` still passes all 17 checks,
+but its tree stop is an off-road approach by design - the car leaves the straight across
+the shoulder and the forest floor to hit a spruce 11.5 m out - so it now arrives at tick
+239 at 16.09 m/s (was tick 235 at 17.67 m/s, the figures *The physics bubble* above
+records from BUBBLE-1), is in contact 63 of its 359 ticks (was 112 of 355), slides 0.242 m
+along the trunk (was 0.192 m), and its control passes the tree in 267 ticks (was 259); the
+held distance 2.438 m, the never-past rule and the radii's events are unchanged. The
+bubble test's census line reads five nodes more (the four continuation bands and the
+Surfaces node).
+
 ### Data sources & licences
 
 The Ring region's world data under `data/regions/eifel_ring/` is derived from two public
@@ -878,7 +975,11 @@ points to 0.7 mm at all 9 188 way starts, `landcover.py --prove`). The region's
 dressing table (`data/regions/eifel_ring/dressing.json` beside the focus table, whose four
 top keys the buildings test pins; ring-region-decisions.md §5: S1 / S5, the sun's bearing,
 the palette's tints under the canon's 0.6 luminance cap, the density ceilings) through
-`validate_dressing()`, and `focus.json` untouched and still silent under `Buildings.validate()`. Every element the
+`validate_dressing()`, and `focus.json` untouched and still silent under `Buildings.validate()`; since
+OFFROAD-1 a T1 vertex carrying the palette's tint converted to linear (`TerrainBuilder.albedo()`,
+*Surfaces, the off-road feel and the continuation* below), the Surfaces node a scene-root sibling
+(Terrain's children still meshes only), and Terrain and Forest reading the `RingProfile`'s inner while
+the car reads the wrapper (was -> the very profile the road handed the car). Every element the
 three builders instantiate an id of the catalogue (T1-T4, T7-T9, V7; V1, V2, V4, V6; S1,
 S5) and nothing outside their declared lists. The scene loaded as the ring drive test loads
 it: the lattice plan's bands the catalogue's T1 table (2 m at the platform, 10 m within
@@ -1008,6 +1109,37 @@ face counts the same before and after every drive. With `FD_BUBBLE_PERF=1` in th
 environment the test also prints wall-time `perf:` lines (the builds, every tick of the
 radii drive, the activation ticks, an `update()` micro-benchmark) - never in the suite.
 Then
+`tests/offroad_test.gd`: the surfaces and the continuation (OFFROAD-1; *Surfaces, the
+off-road feel and the continuation* above): the surfaces table checked in, valid, the five
+surfaces named, the road exactly {1.0, 0.0, 0.0}, every other surface losing grip and
+adding drag and bumps, and `validate()` naming a grip out of bounds, a negative drag, a
+missing surface, a road off the baseline and a surface the pass does not name; the Ring
+scene loaded as the ring drive test loads it: the Surfaces node after Road at priority -1,
+`road.profile` a `RingProfile` (a `WorldRoadProfile`) and `car.road_profile` the same
+object, Terrain and Forest on the inner, the wrapper carrying the table's bumps, the pit
+lane's wheels all on the road with the car reading 1.0 / 1.0 / 0.0; every delegated member
+equal to the inner's to the bit at 1 221 grid points 250 m apart over the box and 1 km
+around it, `coverage()`, `road_count()` and `point_along()` the inner's; `sample_height`,
+`elevation_height` and `ramp_gradient` equal to the inner's to the bit at every one of the
+3 429 strip vertices of the certified loop drive's first 2 km from the drive-start straight
+and between sections on the centreline; the named points classifying as named (the
+straight's centreline the road, 0.75 m beyond its paved edge gravel, 3 m beyond it the
+forest floor, (6120, -2640) grass, (2890, -4510) field stubble, (5340, -3460) forest floor,
+(-100, -3000) outside the coverage grass); the field continuous at the box's edge (484
+points, 1 cm either side, within 1 cm), a ray west out of the box carrying relief inside
+the 6 km margin and exactly 0 beyond it, a gradient out there where the inner's is zero;
+the four continuation bands with 120 000 cells and 520 skirts, every sampled vertex at the
+static field's height (or a skirt's 6 m under) in T9, every vertex on the box's edge the
+wrapper's own height; the grass drive - the car reset to (6120, -2640), a T1 node 110 m
+south of the 3 m track 420472180-0, nose north, throttle pinned 660 ticks: every wheel on
+grass from the first tick, the axle grips 0.55 and the rolling decel 0.9, the launch peak
+2.71 m/s² under 0.6 of the road reference's 6.87 (11.7 m/s at tick 300 against 22.7),
+the wheels' travel-rate variance over ticks 60-300 above the floor and four times the
+control's (the same drive with the bumps zeroed), the front axle reading the track's 1.0
+at tick 600 and the rear at 607, and reset onto the straight's centreline the three inputs
+back at 1.0 / 1.0 / 0.0 within two ticks; and two scenes instanced fresh driven the same
+660 ticks on the grass first thing landing on the same position with the same peak to the
+bit, the continuation the same at 2 812 points outside the box to the bit. Then
 `tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the

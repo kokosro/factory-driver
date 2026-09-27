@@ -25,49 +25,49 @@
   "sky": "pale blue",
   "tints": {
    "T1": [
-    0.36,
-    0.44,
-    0.24
+    0.28,
+    0.35,
+    0.19
    ],
    "T2": [
-    0.33,
-    0.38,
-    0.22
+    0.25,
+    0.3,
+    0.17
    ],
    "T3": [
-    0.42,
-    0.43,
-    0.45
+    0.32,
+    0.33,
+    0.35
    ],
    "T4": [
-    0.46,
-    0.52,
-    0.28
+    0.31,
+    0.38,
+    0.2
    ],
    "T7a": [
-    0.5,
-    0.48,
-    0.3
+    0.36,
+    0.34,
+    0.22
    ],
    "T7b": [
-    0.42,
-    0.5,
-    0.28
+    0.31,
+    0.37,
+    0.21
    ],
    "T7c": [
-    0.4,
-    0.47,
-    0.26
+    0.29,
+    0.35,
+    0.19
    ],
    "T8": [
-    0.32,
-    0.4,
-    0.38
+    0.26,
+    0.33,
+    0.32
    ],
    "T9": [
-    0.45,
-    0.5,
-    0.55
+    0.32,
+    0.37,
+    0.42
    ],
    "V7": [
     0.12,
@@ -104,7 +104,8 @@
     0.2,
     0.15
    ]
-  }
+  },
+  "tints_note": "OFFROAD-1: the tints are DISPLAY colours (what the author sees on a lit flat surface). The terrain's flat materials carry them as vertex colours, which Godot reads as linear albedo, so TerrainBuilder.albedo() converts them (Color.srgb_to_linear) at the vertex writer - the one conversion; the forest's tints (V4_*, V2, V1, trunk) multiply an sRGB-converted texture and are read raw by forest_walls.gd (converted too, the walls measured (10, 23, 15): black). Beside the conversion the terrain tints were re-authored DOWN so the lit terrain lands in display luminance 0.30-0.45 on the probe's stack (was -> T1 [0.36, 0.44, 0.24] -> [0.28, 0.35, 0.19]; T2 [0.33, 0.38, 0.22] -> [0.25, 0.3, 0.17]; T3 [0.42, 0.43, 0.45] -> [0.32, 0.33, 0.35]; T4 [0.46, 0.52, 0.28] -> [0.31, 0.38, 0.2]; T7a [0.5, 0.48, 0.3] -> [0.36, 0.34, 0.22]; T7b [0.42, 0.5, 0.28] -> [0.31, 0.37, 0.21]; T7c [0.4, 0.47, 0.26] -> [0.29, 0.35, 0.19]; T8 [0.32, 0.4, 0.38] -> [0.26, 0.33, 0.32]; T9 [0.45, 0.5, 0.55] -> [0.32, 0.37, 0.42]); V7 (the forest interior canopy, the canon's dark mass) unchanged"
  },
  "forest": {
   "wall_tint": "blue-green spruce over beech",

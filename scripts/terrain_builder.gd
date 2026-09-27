@@ -73,10 +73,54 @@ extends Node3D
 ## under the canon's ~0.6 luminance. Placeholder materials: flat colours,
 ## no texture, no new asset (the canon's tiled 1024 grass is 4B-8+).
 ##
+## THE COLOUR SPACE (OFFROAD-1, the driver's "covered like it has snowed
+## with green texture"): Godot reads a mesh's VERTEX colours as LINEAR
+## albedo as they are (BaseMaterial3D.vertex_color_is_srgb is off by
+## default; a colour TEXTURE is converted from sRGB on import, a vertex
+## colour never is), and the palette's tints are DISPLAY colours - what
+## the author sees on a lit flat surface. Read as linear, a T1 of (0.36,
+## 0.44, 0.24) was an albedo of display value ~(0.63, 0.70, 0.53): the
+## visual probe's lit T1 hillside measured (191, 202, 163), display
+## luminance 0.77 (the light stack there: sun (1.0, 0.965, 0.9) at NdotL
+## 0.605, the restrained ambient 0.45 x 0.85 + 0.15 of the sky, Filmic,
+## sRGB - an effective illumination of 0.93 on a 0.41-luminance tint read
+## as linear lands at 0.77; read as display it lands at 0.42). So the
+## palette's terrain tints become albedo through albedo(): the ONE
+## conversion, Color.srgb_to_linear at the vertex writer (_tint_of), the
+## stored vertex colour the linear value. The forest's reads
+## (TerrainBuilder.tint(), scripts/forest_walls.gd, frozen) stay raw: its
+## tints multiply an sRGB-converted TEXTURE and were measured to the canon
+## as they are (converted too, the walls went from (46, 62, 52) to (10, 23,
+## 15) in the probe: black, outside any reading of "deep green-black"). The
+## palette's T-tints were re-authored down beside the conversion so the lit
+## terrain lands in display luminance 0.30-0.45 (dressing.json's was ->).
+##
 ## DETERMINISM (data-pipeline.md §7): no RNG, no wall clock; every choice
 ## (a field's patch tint) is fnv1a(region_id) hashed with (osm_id, purpose)
 ## - hash_unit(). The same files build the same meshes; build_ms is the
 ## only number that differs between runs and it is never printed by a test.
+##
+## THE SURFACE READ (OFFROAD-1; plan.org ECD301C4, SURFACES & GRIP DEPTH):
+## the node fields double as the ground classification the car's surface
+## model reads - ground_surface_at(x, z): a V7 node is forest floor, a T7
+## node field stubble, everything else grass; surface_at(x, z, shoulder_m)
+## puts the road first (the profile's describe: on the paved width the
+## road, within the shoulder band beyond the paved edge gravel) and the
+## ground after; road_distance_at(x, z) is the distance field bilinear
+## between nodes (the RingProfile's bump fade) and widest_reach the
+## widest ribbon's reach. Pure reads of the built arrays: no state, no
+## RNG; a point outside the lattice is grass at an infinite distance.
+##
+## THE CONTINUATION SKIRT (OFFROAD-1; decisions.org DAF72FC6, no walls):
+## beyond the coverage box the world went on as a flat 0 the fog half-hid;
+## now four bands of CONTINUATION_CELL_M quads (west, east, south, north)
+## reach WorldContinuation.CONTINUATION_MARGIN_M out, every vertex's
+## height the ONE static field WorldContinuation.height() the RingProfile
+## reads for the car (the same function, the same bits), tinted T9 (the
+## far band's tint: the distant ridge under the haze), with the LOD skirt
+## hanging SKIRT_M down along the box's edge where the bands meet the
+## finer tiles (the crack rule above). Built from the profile the terrain
+## was built from; deterministic (the dressing test builds twice).
 ##
 ## THE REGION TABLE: dressing.json beside focus.json (region_dressing(),
 ## validate_dressing()) names the region's choices - the sky set, the
@@ -132,6 +176,17 @@ const WATERWAY_STEP_M := 10.0
 ## renderer's culling (one MeshInstance3D each).
 const CHUNK_M := 1000.0
 
+## The continuation skirt's cell [m] (the mid band's tile: the box is a
+## whole number of them either way, so the bands' vertices sit on the
+## tile corners of the box's edge) and the surface names the ground
+## classification answers (the surfaces table's keys).
+const CONTINUATION_CELL_M := TILE_M
+const SURFACE_ROAD := &"road"
+const SURFACE_GRAVEL := &"gravel"
+const SURFACE_GRASS := &"grass"
+const SURFACE_FIELD := &"field_stubble"
+const SURFACE_FOREST := &"forest_floor"
+
 ## The mitre cap at a skeleton point (RoadBuilder.MAX_MITRE, the same idea).
 const MAX_MITRE := 2.0
 const SAME_CHAINAGE_M := 1e-6
@@ -140,7 +195,7 @@ const SAME_CHAINAGE_M := 1e-6
 const DRESSING_KEYS := ["region", "stone", "sky_set", "haze", "sun", "palette", "forest", "density"]
 const DRESSING_STONE_KEYS := ["doc", "section", "lines", "note"]
 const DRESSING_SUN_KEYS := ["azimuth_deg", "note"]
-const DRESSING_PALETTE_KEYS := ["vegetation", "forest_wall", "rock", "water", "sky", "tints"]
+const DRESSING_PALETTE_KEYS := ["vegetation", "forest_wall", "rock", "water", "sky", "tints", "tints_note"]
 const DRESSING_FOREST_KEYS := ["wall_tint", "interior_tint", "note"]
 const DRESSING_DENSITY_KEYS := ["trees_within_60_m_per_8_m_per_side", "meaningful_objects_within_500_m", "note"]
 ## The tints the palette has to name (the forms and the masses this pass draws).
@@ -219,12 +274,16 @@ class Ribbon:
 	var half_width: float
 
 var ribbons: Array[Ribbon] = []
+## The ribbons' paved half widths by road id [m], and the widest ribbon's
+## reach (half width plus the blend band) [m]: where the bumps start.
+var half_widths: Dictionary = {}
+var widest_reach := 0.0
 ## The platform strips by road id: {"chainages": PackedFloat64Array,
 ## "offsets": PackedFloat64Array, "mesh": MeshInstance3D, "vertices": int}.
 var strips: Dictionary = {}
 
 ## What was built: counts (no wall time but build_ms).
-var counts := {"near_tiles": 0, "mid_tiles": 0, "far_blocks": 0, "near_cells": 0, "near_cells_dropped": 0, "skirts": 0, "strips": 0, "strip_sections": 0, "water_planes": 0, "waterway_strips": 0, "vertices": 0, "triangles": 0}
+var counts := {"near_tiles": 0, "mid_tiles": 0, "far_blocks": 0, "near_cells": 0, "near_cells_dropped": 0, "skirts": 0, "strips": 0, "strip_sections": 0, "water_planes": 0, "waterway_strips": 0, "continuation_cells": 0, "continuation_skirts": 0, "vertices": 0, "triangles": 0}
 var elements: Dictionary = {}
 var build_ms := 0
 var _material: StandardMaterial3D
@@ -431,13 +490,22 @@ static func luminance(colour: Color) -> float:
 	return 0.2126 * colour.r + 0.7152 * colour.g + 0.0722 * colour.b
 
 
-## A tint from the region table, or the default when the table lacks it.
+## A tint from the region table, or the default when the table lacks it:
+## the palette's value as written (a display colour; the forest multiplies
+## it over an sRGB-converted texture as it is).
 static func tint(name: String, fallback: Color) -> Color:
 	var palette: Variant = region_dressing().get("palette", {})
 	if palette is Dictionary and palette.get("tints") is Dictionary and palette.tints.get(name) is Array and palette.tints[name].size() == 3:
 		var t: Array = palette.tints[name]
 		return Color(t[0], t[1], t[2], 1.0)
 	return fallback
+
+
+## A tint as ALBEDO: the palette's display colour converted to linear, the
+## one conversion (the header's THE COLOUR SPACE), for a material whose
+## vertex colour is the whole albedo (this builder's flat materials).
+static func albedo(name: String, fallback: Color) -> Color:
+	return tint(name, fallback).srgb_to_linear()
 
 
 # =============================================================================
@@ -496,6 +564,7 @@ func build(built_profile: WorldRoadProfile, skeleton_data: Dictionary, drape_dat
 	_build_mid_and_far()
 	_build_strips()
 	_build_water()
+	_build_continuation()
 	build_ms = Time.get_ticks_msec() - started
 
 
@@ -560,6 +629,8 @@ func _read_ribbons(skeleton_data: Dictionary, drape_data: Dictionary) -> void:
 		ribbon.half_width = segment.width_m / 2.0
 		if ribbon.length > 0.0:
 			ribbons.append(ribbon)
+			half_widths[ribbon.id] = ribbon.half_width
+			widest_reach = maxf(widest_reach, ribbon.half_width + WorldRoadProfile.BLEND_BAND_M)
 
 
 # =============================================================================
@@ -666,6 +737,58 @@ func distance_at(x: float, z: float) -> float:
 	if j < 0 or j >= cols or i < 0 or i >= rows:
 		return INF
 	return distance[i * cols + j]
+
+
+## The distance field between the nodes [m]: bilinear (continuous, within
+## half a lattice step of the exact chord distance); INF outside the
+## lattice. What the RingProfile's bump fade reads.
+func road_distance_at(x: float, z: float) -> float:
+	var fx := (x - x0) / step
+	var fz := (z - z0) / step
+	if fx < 0.0 or fz < 0.0 or fx > cols - 1 or fz > rows - 1 or distance.is_empty():
+		return INF
+	var j0 := mini(floori(fx), cols - 2)
+	var i0 := mini(floori(fz), rows - 2)
+	var tx := fx - j0
+	var tz := fz - i0
+	var top := lerpf(distance[i0 * cols + j0], distance[i0 * cols + j0 + 1], tx)
+	var bottom := lerpf(distance[(i0 + 1) * cols + j0], distance[(i0 + 1) * cols + j0 + 1], tx)
+	return lerpf(top, bottom, tz)
+
+
+## The ground under a point, road or no road: the nearest node's form -
+## forest floor under the V7 canopy, field stubble on a T7 field, grass
+## everywhere else (the rock and the valley floor included) and outside
+## the lattice (the header's THE SURFACE READ).
+func ground_surface_at(x: float, z: float) -> StringName:
+	var j := roundi((x - x0) / step)
+	var i := roundi((z - z0) / step)
+	if j < 0 or j >= cols or i < 0 or i >= rows or form.is_empty():
+		return SURFACE_GRASS
+	match form[i * cols + j]:
+		FORM_V7:
+			return SURFACE_FOREST
+		FORM_T7:
+			return SURFACE_FIELD
+	return SURFACE_GRASS
+
+
+## The surface under a point: the road on its paved width, gravel within
+## `shoulder_m` beyond the paved edge (the profile names the road and the
+## distance; the ribbon its half width), the ground otherwise; grass
+## outside the coverage.
+func surface_at(x: float, z: float, shoulder_m: float) -> StringName:
+	if profile == null:
+		return ground_surface_at(x, z)
+	var found := profile.describe(x, z)
+	if not found.covered:
+		return SURFACE_GRASS
+	if found.road != "":
+		if found.on_road:
+			return SURFACE_ROAD
+		if found.distance <= float(half_widths.get(found.road, 0.0)) + shoulder_m:
+			return SURFACE_GRAVEL
+	return ground_surface_at(x, z)
 
 
 ## Whether every node of a tile (its 6 × 6 nodes) is beyond a distance.
@@ -855,23 +978,25 @@ func _classify_forms() -> void:
 func _node_colour(node: int) -> Color:
 	match form[node]:
 		FORM_T2:
-			return _tint_of("T2", Color(0.33, 0.38, 0.22))
+			return _tint_of("T2", Color(0.25, 0.3, 0.17))
 		FORM_T3:
-			return _tint_of("T3", Color(0.42, 0.43, 0.45))
+			return _tint_of("T3", Color(0.32, 0.33, 0.35))
 		FORM_T4:
-			return _tint_of("T4", Color(0.46, 0.52, 0.28))
+			return _tint_of("T4", Color(0.31, 0.38, 0.2))
 		FORM_T7:
-			return _tint_of(["T7a", "T7b", "T7c"][mini(cover_tint[node], 2)], Color(0.48, 0.47, 0.3))
+			return _tint_of(["T7a", "T7b", "T7c"][mini(cover_tint[node], 2)], Color(0.31, 0.37, 0.21))
 		FORM_V7:
 			return _tint_of("V7", Color(0.12, 0.2, 0.13))
 		FORM_T9:
-			return _tint_of("T9", Color(0.45, 0.5, 0.55))
-	return _tint_of("T1", Color(0.36, 0.44, 0.24))
+			return _tint_of("T9", Color(0.32, 0.37, 0.42))
+	return _tint_of("T1", Color(0.28, 0.35, 0.19))
 
 
+## The albedo of a named tint, read once per build (the linear value the
+## vertices carry: albedo(), never the raw tint()).
 func _tint_of(name: String, fallback: Color) -> Color:
 	if not _tints.has(name):
-		_tints[name] = tint(name, fallback)
+		_tints[name] = albedo(name, fallback)
 	return _tints[name]
 
 
@@ -1087,7 +1212,7 @@ func _quad(vertices: PackedVector3Array, normals: PackedVector3Array, colours: P
 		vertices.append(Vector3(x0 + corner.y * step, heights[node], z0 + corner.x * step))
 		normals.append(_lattice_normal(corner.x, corner.y))
 		if far:
-			colours.append(_tint_of("T9", Color(0.45, 0.5, 0.55)))
+			colours.append(_tint_of("T9", Color(0.32, 0.37, 0.42)))
 			_count_element("T9")
 		else:
 			colours.append(_node_colour(node))
@@ -1103,8 +1228,8 @@ func _skirt(vertices: PackedVector3Array, normals: PackedVector3Array, colours: 
 	var nb := b.x * cols + b.y
 	var top_a := Vector3(x0 + a.y * step, heights[na], z0 + a.x * step)
 	var top_b := Vector3(x0 + b.y * step, heights[nb], z0 + b.x * step)
-	var colour_a := _tint_of("T9", Color(0.45, 0.5, 0.55)) if far else _node_colour(na)
-	var colour_b := _tint_of("T9", Color(0.45, 0.5, 0.55)) if far else _node_colour(nb)
+	var colour_a := _tint_of("T9", Color(0.32, 0.37, 0.42)) if far else _node_colour(na)
+	var colour_b := _tint_of("T9", Color(0.32, 0.37, 0.42)) if far else _node_colour(nb)
 	var along := (top_b - top_a).normalized()
 	var normal := along.cross(Vector3.UP)
 	for v: Vector3 in [top_a, top_b, top_b - Vector3(0.0, SKIRT_M, 0.0), top_a - Vector3(0.0, SKIRT_M, 0.0)]:
@@ -1250,7 +1375,7 @@ func _colour_at(x: float, z: float) -> Color:
 func _build_water() -> void:
 	if landcover.is_empty():
 		return
-	var water_colour := _tint_of("T8", Color(0.32, 0.4, 0.38))
+	var water_colour := _tint_of("T8", Color(0.26, 0.33, 0.32))
 	var vertices := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colours := PackedColorArray()
@@ -1328,6 +1453,92 @@ func _waterway_strip(vertices: PackedVector3Array, normals: PackedVector3Array, 
 	_count_element("T8")
 
 
+## The continuation skirt (the header): four bands of CONTINUATION_CELL_M
+## quads from the box's edge to the margin, heights the static field, T9.
+func _build_continuation() -> void:
+	var box := profile.coverage()
+	var margin := WorldContinuation.CONTINUATION_MARGIN_M
+	var c := CONTINUATION_CELL_M
+	var cache := {}
+	var colour := _tint_of("T9", Color(0.32, 0.37, 0.42))
+	# Each band: its x range and z range [m] and the box edge it hangs a
+	# skirt along (the edge's fixed coordinate and the edge's span).
+	var bands := [
+		{"name": "Continuation_west", "x": [box.position.x - margin, box.position.x], "z": [box.position.y - margin, box.end.y + margin], "edge": "x", "at": box.position.x, "from": box.position.y, "to": box.end.y},
+		{"name": "Continuation_east", "x": [box.end.x, box.end.x + margin], "z": [box.position.y - margin, box.end.y + margin], "edge": "x", "at": box.end.x, "from": box.position.y, "to": box.end.y},
+		{"name": "Continuation_south", "x": [box.position.x, box.end.x], "z": [box.position.y - margin, box.position.y], "edge": "z", "at": box.position.y, "from": box.position.x, "to": box.end.x},
+		{"name": "Continuation_north", "x": [box.position.x, box.end.x], "z": [box.end.y, box.end.y + margin], "edge": "z", "at": box.end.y, "from": box.position.x, "to": box.end.x},
+	]
+	for band_spec: Dictionary in bands:
+		var nx := roundi((band_spec.x[1] - band_spec.x[0]) / c)
+		var nz := roundi((band_spec.z[1] - band_spec.z[0]) / c)
+		var across := nx + 1
+		var vertices := PackedVector3Array()
+		var normals := PackedVector3Array()
+		var colours := PackedColorArray()
+		vertices.resize((nz + 1) * across)
+		normals.resize((nz + 1) * across)
+		colours.resize((nz + 1) * across)
+		for i: int in nz + 1:
+			var z: float = band_spec.z[0] + i * c
+			for j: int in across:
+				var x: float = band_spec.x[0] + j * c
+				vertices[i * across + j] = Vector3(x, WorldContinuation.height(profile, x, z, cache), z)
+				colours[i * across + j] = colour
+		for i: int in nz + 1:
+			var i0 := maxi(i - 1, 0)
+			var i1 := mini(i + 1, nz)
+			for j: int in across:
+				var j0 := maxi(j - 1, 0)
+				var j1 := mini(j + 1, nx)
+				var sx := (vertices[i * across + j1].y - vertices[i * across + j0].y) / (float(j1 - j0) * c)
+				var sz := (vertices[i1 * across + j].y - vertices[i0 * across + j].y) / (float(i1 - i0) * c)
+				normals[i * across + j] = Vector3(-sx, 1.0, -sz).normalized()
+		var indices := PackedInt32Array()
+		indices.resize(nz * nx * 6)
+		var next := 0
+		for i: int in nz:
+			for j: int in nx:
+				var v00 := i * across + j
+				var v01 := v00 + 1
+				var v10 := v00 + across
+				var v11 := v10 + 1
+				indices[next] = v00
+				indices[next + 1] = v01
+				indices[next + 2] = v11
+				indices[next + 3] = v00
+				indices[next + 4] = v11
+				indices[next + 5] = v10
+				next += 6
+		counts.continuation_cells += nz * nx
+		# The hanging skirt along the box's edge: the band's vertices on
+		# the edge, SKIRT_M down, both faces (the material does not cull).
+		var edge_from: float = band_spec.from
+		var pieces := roundi((band_spec.to - edge_from) / c)
+		for k: int in pieces:
+			var a := Vector3.ZERO
+			var b := Vector3.ZERO
+			if band_spec.edge == "x":
+				a = Vector3(band_spec.at, 0.0, edge_from + k * c)
+				b = Vector3(band_spec.at, 0.0, edge_from + (k + 1) * c)
+			else:
+				a = Vector3(edge_from + k * c, 0.0, band_spec.at)
+				b = Vector3(edge_from + (k + 1) * c, 0.0, band_spec.at)
+			a.y = WorldContinuation.height(profile, a.x, a.z, cache)
+			b.y = WorldContinuation.height(profile, b.x, b.z, cache)
+			var base := vertices.size()
+			var along := (b - a).normalized()
+			var normal := along.cross(Vector3.UP)
+			for v: Vector3 in [a, b, b - Vector3(0.0, SKIRT_M, 0.0), a - Vector3(0.0, SKIRT_M, 0.0)]:
+				vertices.append(v)
+				normals.append(normal)
+				colours.append(colour)
+			indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
+			counts.continuation_skirts += 1
+		_count_element("T9", (nz + 1) * across)
+		_add_mesh(band_spec.name, vertices, normals, colours, indices, _material)
+
+
 ## One MeshInstance3D from arrays: vertices, normals, vertex colours,
 ## indices; no body, no shape.
 func _add_mesh(name_of: String, vertices: PackedVector3Array, normals: PackedVector3Array, colours: PackedColorArray, indices: PackedInt32Array, material: StandardMaterial3D) -> MeshInstance3D:
@@ -1362,4 +1573,4 @@ static func _flat_material() -> StandardMaterial3D:
 
 ## One line on what was built (no wall time: the same on every machine).
 func describe() -> String:
-	return "%d near tiles (%d cells, %d dropped under roads), %d mid tiles, %d far blocks, %d skirts, %d strips of %d sections, %d water planes, %d waterway strips, %d vertices, %d triangles" % [counts.near_tiles, counts.near_cells, counts.near_cells_dropped, counts.mid_tiles, counts.far_blocks, counts.skirts, counts.strips, counts.strip_sections, counts.water_planes, counts.waterway_strips, counts.vertices, counts.triangles]
+	return "%d near tiles (%d cells, %d dropped under roads), %d mid tiles, %d far blocks, %d skirts, %d strips of %d sections, %d water planes, %d waterway strips, %d continuation cells to %.0f m (%d skirts), %d vertices, %d triangles" % [counts.near_tiles, counts.near_cells, counts.near_cells_dropped, counts.mid_tiles, counts.far_blocks, counts.skirts, counts.strips, counts.strip_sections, counts.water_planes, counts.waterway_strips, counts.continuation_cells, WorldContinuation.CONTINUATION_MARGIN_M, counts.continuation_skirts, counts.vertices, counts.triangles]

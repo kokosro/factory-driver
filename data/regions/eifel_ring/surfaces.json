@@ -1,0 +1,40 @@
+{
+ "region": "eifel_ring",
+ "doc": "OFFROAD-1: the region's surfaces as named data (the driver's rule: everything parameterised from the start; plan.org ECD301C4 SURFACES & GRIP DEPTH: grip varies by surface type and condition, suspension/tire feel). Read and validated by scripts/surfaces.gd (Surfaces.validate); the car's surface model classifies each wheel's contact point (the road on its paved width, gravel within rules.shoulder_m beyond the paved edge, else TerrainBuilder's ground: forest floor under a V7 canopy, field stubble on a T7 field, grass everywhere else and outside the coverage) and writes the axle grip factors and the rolling decel into the car (scripts/car.gd front_surface_grip / rear_surface_grip / surface_rolling_decel, the Conductor's narrow grant, decisions.org 5B7CD993); the bump amplitude is the RingProfile's micro-profile off the road. Units: grip a multiplier on the axle's tyre grip (1.0 = the certified road), rolling_drag an added deceleration [m/s^2] (times the car's mass), bump the micro-profile's amplitude [m]. Bounds (Surfaces.validate): grip in [0.2, 1.0], rolling_drag >= 0, bump >= 0; road is exactly {1.0, 0.0, 0.0}.",
+ "rules": {
+  "shoulder_m": 1.5,
+  "note": "the gravel shoulder: a wheel within this of the paved edge (beyond it) is on gravel; inside WorldRoadProfile.BLEND_BAND_M (6 m), where the profile's height is still the eased platform"
+ },
+ "surfaces": {
+  "road": {
+   "grip": 1.0,
+   "rolling_drag": 0.0,
+   "bump": 0.0,
+   "note": "the certified baseline, exact: on the paved width nothing changes (the cert byte-lock)"
+  },
+  "gravel": {
+   "grip": 0.62,
+   "rolling_drag": 1.6,
+   "bump": 0.035,
+   "note": "the shoulder: loose stones under the tyre - grip down a third, the heaviest rolling drag (the tyre ploughs), 3.5 cm bumps"
+  },
+  "grass": {
+   "grip": 0.55,
+   "rolling_drag": 0.9,
+   "bump": 0.02,
+   "note": "the verge and the open ground: the driver's 'water' feel needs grip loss AND drag AND bumps together - about half the road's grip, a 0.9 m/s^2 drag, 2 cm bumps"
+  },
+  "field_stubble": {
+   "grip": 0.7,
+   "rolling_drag": 1.0,
+   "bump": 0.025,
+   "note": "a harvested field (T7): firmer than grass, a little more drag from the stubble, 2.5 cm bumps"
+  },
+  "forest_floor": {
+   "grip": 0.48,
+   "rolling_drag": 1.2,
+   "bump": 0.05,
+   "note": "under the canopy (V7): roots, needles and moss - the least grip, 5 cm bumps"
+  }
+ }
+}

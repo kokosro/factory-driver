@@ -2821,6 +2821,12 @@ const SHIFT_LIGHT_RPM := 6500.0
 		if is_inside_tree():
 			_settle_suspension()
 
+## Per-axle surface grip factors written by the scene's surface model (1.0 = road).
+var front_surface_grip := 1.0
+var rear_surface_grip := 1.0
+## Extra rolling drag from the surface [m/s^2], written by the surface model.
+var surface_rolling_decel := 0.0
+
 ## Signed speed along the nose [m/s]. Negative while reversing.
 var forward_speed := 0.0
 
@@ -3980,8 +3986,8 @@ func _physics_process(delta: float) -> void:
 	#    was _axle_grip(load, static load) -> with the axle's tyre temperature:
 	#    the same number to the bit inside the window (see Thermal: tyres and
 	#    brakes), every certified run.
-	var front_grip := FRONT_TYRE_GRIP * _axle_grip(front_axle_load, weight * (1.0 - REAR_WEIGHT_FRACTION), front_tyre_temp)
-	var rear_grip := REAR_TYRE_GRIP * _axle_grip(rear_axle_load, weight * REAR_WEIGHT_FRACTION, rear_tyre_temp)
+	var front_grip := FRONT_TYRE_GRIP * _axle_grip(front_axle_load, weight * (1.0 - REAR_WEIGHT_FRACTION), front_tyre_temp) * front_surface_grip
+	var rear_grip := REAR_TYRE_GRIP * _axle_grip(rear_axle_load, weight * REAR_WEIGHT_FRACTION, rear_tyre_temp) * rear_surface_grip
 	#    Worn tyres grip less again (front/rear_tyre_wear_factor: exactly 1
 	#    under a hundredth of wear, every certified run, and the grip as it
 	#    was; see Wear and aging).
@@ -4117,7 +4123,7 @@ func _physics_process(delta: float) -> void:
 	# same number, with a wheel on the road.
 	# was COAST_DECEL x the mass, on the road or off it -> nothing in the air
 	# (the user's catch on the ramp jump, 2026-09-22; see _corner_forces).
-	var rolling_drag := COAST_DECEL * total_mass() if carried > 0.0 else 0.0
+	var rolling_drag := (COAST_DECEL + surface_rolling_decel) * total_mass() if carried > 0.0 else 0.0
 	var rolling_w := rolling_drag * absf(forward_speed)
 	var front_slip_w := absf(front_drive * (front_omega * WHEEL_RADIUS - front_along)) + absf(front_force * front_across)
 	var rear_slip_w := absf(rear_drive * (rear_omega * WHEEL_RADIUS - forward_speed)) + absf(rear_force * rear_lateral)

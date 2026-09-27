@@ -76,7 +76,11 @@ extends SceneTree
 ## the ruts darker and smoother than the lane centres and mirrored about
 ## u 0.5, the shoulders darker still, the tile seamless along the road;
 ## the vegetation textures greyscale-neutral with their alpha (the wall's
-## top row open sky, its foot solid). THE ASPHALT WIRING (4B-ASSETS-2):
+## top row open sky, its foot solid). THE COLOUR SPACE (OFFROAD-1): a T1 vertex carries the
+## palette's display tint converted to linear (TerrainBuilder.albedo()),
+## the Surfaces node stands beside Terrain, and the terrain and the forest
+## read the RingProfile's inner while the car reads the wrapper. THE
+## ASPHALT WIRING (4B-ASSETS-2):
 ## the road's one material wears the authored set - albedo, roughness and
 ## normal each 1024² (the procedural it replaced was 256²), the albedo
 ## colour RoadBuilder.ASPHALT_TINT kept, the normal map on at the
@@ -406,7 +410,26 @@ func _check_catalogue() -> void:
 
 func _check_scene(scene: Node, terrain: TerrainBuilder, forest: ForestWalls, sky: SkySet, road: RoadBuilder) -> void:
 	_ok(terrain != null and forest != null and sky != null and road != null, "the scene loads headless with Road, Terrain, Forest and Sky")
-	_ok(terrain.profile == road.profile and forest.profile == road.profile and road.car != null and road.car.road_profile == road.profile, "the terrain and the forest read the very profile the road handed the car (one height source: the car's)")
+	var inner: WorldRoadProfile = (road.profile as RingProfile).inner if road.profile is RingProfile else road.profile
+	_ok(road.profile is RingProfile and terrain.profile == inner and forest.profile == inner and road.car != null and road.car.road_profile == road.profile, "the terrain and the forest read the profile the road built - the RingProfile's inner, the smooth field; the car reads the same field through the wrapper the Surfaces node swapped in at its first tick (OFFROAD-1; was -> the very profile the road handed the car)")
+	_ok(scene.get_node_or_null("Surfaces") != null and scene.get_node_or_null("Surfaces").get_parent() == scene and terrain.get_node_or_null("Surfaces") == null, "the Surfaces node is a scene-root sibling, not under Terrain (Terrain's children stay meshes only)")
+	var t1_stored := Color.WHITE
+	var t1_found := false
+	for child: Node in terrain.get_children():
+		if child.name.begins_with("Near_") and not t1_found:
+			var arrays: Array = (child as MeshInstance3D).mesh.surface_get_arrays(0)
+			var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+			var colours: PackedColorArray = arrays[Mesh.ARRAY_COLOR]
+			for k: int in vertices.size():
+				var node := terrain._node_at(vertices[k].x, vertices[k].z)
+				if terrain.form[node] == TerrainBuilder.FORM_T1:
+					t1_stored = colours[k]
+					t1_found = true
+					break
+	var t1_albedo := TerrainBuilder.albedo("T1", Color.WHITE)
+	var t1_tint := TerrainBuilder.tint("T1", Color.WHITE)
+	var stored_linear: bool = t1_found and absf(t1_stored.r - t1_albedo.r) <= 1.0 / 255.0 + 1.0e-6 and absf(t1_stored.g - t1_albedo.g) <= 1.0 / 255.0 + 1.0e-6 and absf(t1_stored.b - t1_albedo.b) <= 1.0 / 255.0 + 1.0e-6
+	_ok(stored_linear and t1_albedo == t1_tint.srgb_to_linear() and TerrainBuilder.luminance(t1_albedo) < TerrainBuilder.luminance(t1_tint), "a T1 vertex carries the palette's tint converted to linear (%s -> stored %s, within an 8-bit step): the terrain's vertex colour is its whole albedo and Godot reads vertex colours as linear, so TerrainBuilder.albedo() converts the display value once (OFFROAD-1: the 'snowed green' terrain read (191, 202, 163) with the tint as linear; the forest's tint() reads stay raw over their textures)" % [t1_tint, t1_stored], "found %s stored %s albedo %s tint %s" % [t1_found, t1_stored, t1_albedo, t1_tint])
 	_ok(terrain.counts.near_tiles > 0 and terrain.counts.strips == road.road_count and terrain.counts.vertices > 1000000, "the terrain built: %s" % terrain.describe(), "terrain: %s" % terrain.describe())
 	_ok(forest.counts.cards > 10000 and forest.counts.trees > 1000 and forest.counts.forests_walked == TerrainBuilder.read_landcover().counts.forests, "the forest built: %s" % forest.describe(), "forest: %s" % forest.describe())
 	_ok(terrain.build_ms > 0 and forest.build_ms > 0, "both builders took measurable time at load (not printed: the suite's lines are the same on every machine)")

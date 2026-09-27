@@ -9,6 +9,7 @@
 [ext_resource type="Script" path="res://scripts/terrain_builder.gd" id="7_terrain"]
 [ext_resource type="Script" path="res://scripts/forest_walls.gd" id="8_forest"]
 [ext_resource type="Script" path="res://scripts/sky_set.gd" id="9_sky"]
+[ext_resource type="Script" path="res://scripts/surfaces.gd" id="10_surfaces"]
 
 [sub_resource type="ProceduralSkyMaterial" id="sky_material"]
 sky_top_color = Color(0.5, 0.66, 0.85, 1)
@@ -39,6 +40,12 @@ transform = Transform3D(0.836857, 0, 0.547422, 0, 1, 0, -0.547422, 0, 0.836857, 
 
 [node name="Road" type="Node3D" parent="." node_paths=PackedStringArray("car")]
 script = ExtResource("1_road")
+car = NodePath("../Car")
+
+[node name="Surfaces" type="Node3D" parent="." node_paths=PackedStringArray("road", "terrain", "car")]
+script = ExtResource("10_surfaces")
+road = NodePath("../Road")
+terrain = NodePath("../Terrain")
 car = NodePath("../Car")
 
 [node name="Terrain" type="Node3D" parent="." node_paths=PackedStringArray("road")]
