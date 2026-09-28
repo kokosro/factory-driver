@@ -11,12 +11,12 @@
 # the smoke test, then the handling,
 # camera, mission, battery, thermal, tyre/brake thermal, steering-feel,
 # wear, licence, menu, issue flag, minimap, airborne, reset, refuel,
-# telemetry watch and first run tests. Fails on a non-zero exit code or on
-# any engine/script error in the output.
+# telemetry watch, marks and first run tests. Fails on a non-zero exit code
+# or on any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the twenty-eight tests side by side
-#                                   (was twenty-seven -> the async build test, LOADING-1)
+#   tests/run_tests.sh --parallel   the import first, then the twenty-nine tests side by side
+#                                   (was twenty-eight -> the marks test, SKIDMARKS-1)
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -169,6 +169,13 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 # TELEMETRY EVERYWHERE's never-again fence: every scene that carries a car
 # has a recorder attached and writing (was: the Ring had none).
 "$STEP" "telemetry watch test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/telemetry_watch_test.gd
+# SKIDMARKS-1, the marks everywhere: the MarksWatch autoload's layer on the
+# pad (its own TyreMarks stripped) and on the Ring, the three triggers, the
+# drives that mark and the ones that must not, the grass gate, determinism,
+# the FD_MARKS switch and the car's samples byte-identical with and without
+# the layer (the suite's FD_MARKS default is off headless: no other test
+# sees a layer).
+"$STEP" "marks test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/marks_test.gd
 # 4B-6, the first run: the world map, the pin, the test centre's yard, the L0
 # voucher, the rental lock and the first car; the store pinned off, a world
 # file of the test's own.

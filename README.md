@@ -2504,6 +2504,51 @@ A reset **clears** the marks (`R`, a test or mission starting, anything that goe
 through `reset_to` / `reset_to_spawn`): the pad is as it was before the drive. Every
 threshold, size and time is a commented constant at the top of the script.
 
+### Skidmarks (SKIDMARKS-1)
+
+The pad's tyre marks above are a node of `main.tscn`; the Ring had none - driver
+issue-0003: "there is no tire markings left on tarmac, this is not only for this zone,
+it's everywhere on the green hell". So the marks go everywhere the car goes, the way the
+telemetry does: the `MarksWatch` autoload (`scripts/marks_watch.gd`, registered in
+`project.godot` after `TelemetryWatch`) puts a `MarksLayer` (`scripts/marks.gd`, the node
+`Marks`) under the scene root of every car that enters any scene, one deferred call after
+the car, in front of the `TelemetryRecorder` (which stays the root's last child), and frees
+it when the car leaves. A scene root that already carries a `TyreMarks` node for the car -
+the pad - gets no second layer; the Ring gets this one.
+
+Every physics tick (priority -1: after the bubble, with `Surfaces`, before the car) the
+layer reads the car's public slip numbers per axle and, for each wheel of an axle past a
+threshold whose contact point (`global_transform * WHEEL_CONTACT_POINTS[i]`) the scene's
+`Surfaces` node classifies as **road** - grass, gravel, a field and the forest floor never
+mark; a scene without the node is all road - trails a streak on the tarmac: a quad every
+0.5 m of the contact patch's way over the ground, from where it was to where it is, the
+way it went (a locked wheel's streak is as long as the car slid). Three triggers, each an
+intensity 0..1 from its onset to its solid point, a quad's alpha the largest over the way
+it covers, 0.7 at solid: **lateral** - the slip angle past 1.5 times the axle's own peak
+(`FRONT_` / `REAR_PEAK_SLIP_ANGLE`: 0.165 / 0.15 rad), solid at 3 peaks; **wheelspin** -
+a driven axle's slip ratio past `DRIVE_SLIP_RATIO` x 1.15 (0.2875: the clutch limit and
+TCS hold a launch under 0.25), solid at 1; **lock** - a slip ratio past 0.5 either way
+(ABS holds 0.15; a locked wheel reads -1), solid at 1. Normal cornering, an ordinary
+launch, a full pedal with ABS and straight driving lay nothing.
+
+A quad lies on the ground the profile shows (`road_profile.elevation_height` at the
+contact point: the `RingProfile`'s height on the Ring, bit-exact on a road), 2.5 cm up to
+clear the road mesh, tilted to the grade along it and the crossfall across it, the tread's
+width (0.20 m front, 0.24 m rear), dark rubber with its alpha; it fades in a line over
+**180 s** of physics time and its place is then free; the pool holds **4 096** (about 2 km
+of streak; four wheels sliding at 20 m/s lay 160 a second) and, full, lays over the
+oldest. One `MultiMesh`, colour and alpha per quad, no node per quad, no collision shape;
+the colours are refreshed in stride, a 32nd of the pool a tick. A reset (`R`, `reset_to`)
+ends every streak without drawing one from the old place to the new and **keeps** the
+quads: the rubber is on the road. Purely visual and deterministic: nothing writes the
+car, the `Surfaces` node or the profile; no random, no wall clock; every quad's origin is
+snapped to 1 mm and its alpha to 0.001 as it is laid, and the same drive lays the same
+records to the bit.
+
+`FD_MARKS` in the environment switches it: `0` off everywhere (no node, no quad), `1` on
+even with no window, unset on in the game and off headless - so the test suite sees no
+layer unless a test asks (`tests/marks_test.gd` does, for its own scenes, and restores).
+
 ### Odometer
 
 The car counts its metres (`odometer_m` on the car, `ODO 12.3 km` over the aid lamps on

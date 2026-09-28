@@ -3,7 +3,7 @@
 `tests/run_tests.sh` is the gate: a headless import, then the config, element catalogue,
 skeleton, world profile, buildings, dressing, ring drive, bubble, offroad, async build, smoke, handling, camera, mission, battery,
 thermal, tyre/brake thermal, steering-feel, wear, licence, menu, issue flag, minimap, airborne, reset,
-refuel, telemetry watch and first run tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
+refuel, telemetry watch, marks and first run tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
 minutes (the dressing test builds the Ring scene twice; the ring drive test builds the Ring's
 road twice and drives 2 km on it twice; the bubble test builds it twice more and drives
 700 m of the loop twice, at a tree twice and a teleport (BUBBLE-1; `FD_BUBBLE_PERF=1` in
@@ -15,13 +15,20 @@ then a fallback and an abandonment (LOADING-1; `FD_LOADING_FRAMES=1` in the envi
 per-frame lines - the suite never sets it); the
 minimap test builds it once more, the reset test twice more and drives 400 m (the menu
 test's additive LOADING-1 check builds it once more through the loading scene), the telemetry
-watch test once more and drives a second on it, the first run test once more for the
+watch test once more and drives a second on it, the marks test once more and slides on
+its straight and its grass (SKIDMARKS-1: the `MarksWatch` autoload's layer on the pad with
+its own `TyreMarks` stripped and on the Ring, the three triggers, the drives that mark and
+the ones that must not, the grass gate, two fresh pad scenes driven the same slide to the
+same records, the pool's bound and the 180 s fade run out on the tick clock, `FD_MARKS=0`
+leaving no layer and the recorder's samples of the same slide byte-identical with and
+without it; `FD_MARKS` is unset in the suite, which is off headless, so no other test sees
+a layer), the first run test once more for the
 dealership and sits the L0 exam twice on the pad; since 4B-7 every Ring scene load also
 builds the terrain, the forest walls and the sky, about nine seconds more each; since
 BUBBLE-1 the forest build also writes the trunk bodies, a few hundred milliseconds; since
 OFFROAD-1 the terrain build also writes the continuation skirt, about a second).
-`tests/run_tests.sh --parallel` runs the twenty-eight tests side by side after the import and
-prints the same lines in the same order (was twenty-seven -> the async build test, LOADING-1).
+`tests/run_tests.sh --parallel` runs the twenty-nine tests side by side after the import and
+prints the same lines in the same order (was twenty-eight -> the marks test, SKIDMARKS-1).
 What each test checks is in the main
 `README.md` (since FOREST-2 the dressing test also holds the forest edge's card recipe -
 the gap share, the feathers, every card's texture window, the wall texture's skyline and
@@ -52,7 +59,8 @@ outside the project are the smoke test's `/tmp/fd-3R-smoke-<pid>/`, the battery
 test's `/tmp/fd-3T-battery-<pid>/`, the wear test's `/tmp/fd-3L-wear-<pid>/`, the
 licence test's `/tmp/fd-3K-licence-<pid>/`, the menu test's `/tmp/fd-4A-menu-<pid>/`, the
 issue flag test's `/tmp/fd-3IF-issue-<pid>/`, the telemetry watch test's
-`/tmp/fd-TW-telemetry-<pid>/` and the first run test's `/tmp/fd-4B6-first-<pid>/` (its
+`/tmp/fd-TW-telemetry-<pid>/`, the marks test's `/tmp/fd-SM-marks-<pid>/` (two recorder
+files of the pad's slide, compared and removed) and the first run test's `/tmp/fd-4B6-first-<pid>/` (its
 own world.json and cars.json; the data folder's never), one per process each, removed when the
 test finishes (the ring drive test writes nothing:
 it reads the checked-in skeleton and drape and builds in memory; the buildings test writes

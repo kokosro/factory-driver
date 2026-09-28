@@ -23,6 +23,7 @@ use_async_build=true
 
 DataBootstrap="*res://scripts/data_bootstrap.gd"
 TelemetryWatch="*res://scripts/telemetry_watch.gd"
+MarksWatch="*res://scripts/marks_watch.gd"
 
 [display]
 
