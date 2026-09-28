@@ -998,7 +998,8 @@ func _check_legend_and_keys() -> void:
 	var pages := PackedStringArray()
 	for title in Garage.PAGE_TITLES:
 		pages.append(title)
-	_check(pages == PackedStringArray(["DRIVE", "THE STUDY", "CAR", "LICENCE", "SETTINGS"]), "the five pages, in order")
+	# was five pages -> six: ML-1 adds MISSIONS after SETTINGS.
+	_check(pages == PackedStringArray(["DRIVE", "THE STUDY", "CAR", "LICENCE", "SETTINGS", "MISSIONS"]), "the six pages, in order")
 
 
 # =============================================================================

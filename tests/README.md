@@ -3,7 +3,7 @@
 `tests/run_tests.sh` is the gate: a headless import, then the config, element catalogue,
 skeleton, world profile, buildings, dressing, ring drive, bubble, offroad, async build, smoke, handling, camera, mission, battery,
 thermal, tyre/brake thermal, steering-feel, wear, licence, menu, issue flag, minimap, airborne, reset,
-refuel, telemetry watch, marks, side road, road edge and first run tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
+refuel, telemetry watch, marks, side road, road edge, mission ladder and first run tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
 minutes (the dressing test builds the Ring scene twice; the ring drive test builds the Ring's
 road twice and drives 2 km on it twice; the bubble test builds it twice more and drives
 700 m of the loop twice, at a tree twice and a teleport (BUBBLE-1; `FD_BUBBLE_PERF=1` in
@@ -27,8 +27,8 @@ dealership and sits the L0 exam twice on the pad; since 4B-7 every Ring scene lo
 builds the terrain, the forest walls and the sky, about nine seconds more each; since
 BUBBLE-1 the forest build also writes the trunk bodies, a few hundred milliseconds; since
 OFFROAD-1 the terrain build also writes the continuation skirt, about a second).
-`tests/run_tests.sh --parallel` runs the thirty-one tests side by side after the import and
-prints the same lines in the same order (was thirty -> the ROAD-5 road edge test; 33 markers including import and the final verdict).
+`tests/run_tests.sh --parallel` runs the thirty-two tests side by side after the import and
+prints the same lines in the same order (was thirty-one -> the ML-1 mission ladder test; 34 markers including import and the final verdict).
 The side road test adds nine checks: the skeleton SHA, the 5.0 m issue segment, a
 covered 3.0 m control, sideways heading, four individual wheel classifications and
 front/rear road readings at issue-0069’s exact pose.
@@ -90,3 +90,13 @@ native dialog: the garage's folder picker is a GUI path the menu test never take
 `tests/visual_probe.gd` is not in the suite: the one sanctioned windowed run (the
 Conductor's visual probe, `godot --path . --script res://tests/visual_probe.gd
 --quit-after 900`), photographing four road-derived spots into `.scratch/fd-visual/`.
+
+## Mission ladder (ML-1)
+
+After road edge, `mission_ladder_test.gd` runs 100 checks: schema types, medals,
+references and cycles; store round-trip, version-zero migration, corruption, gating,
+overrides and atomic failure; L1 enrollment, driver-wide rank, prerequisites and
+FD-12/22/33 transactions; retry scoring, Ace terminal, ordered gates, cone failure,
+abort without writes, idle runner, garage briefing/results and six-page order.
+The test-only `ml1_proof.json` also drives the actual pad car using HandlingTests'
+input mechanics. Production has no missions. Result lines use `episode result:`.

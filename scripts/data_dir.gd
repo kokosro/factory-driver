@@ -54,7 +54,8 @@ const MARKER_FILE := ".factory-driver-data"
 # rental; 4B-6): a fresh data folder seeded without it would open the
 # first-run map again and lose the voucher. A source without it copies
 # nothing new.
-const SEEDED_FILES: Array[String] = ["cars.json", "issues.json", "world.json"]
+# was three files -> campaign.json follows the driver to a chosen folder (ML-1).
+const SEEDED_FILES: Array[String] = ["cars.json", "issues.json", "world.json", "campaign.json"]
 const SEEDED_DIRS: Array[String] = ["telemetry"]
 
 ## Where the game kept its data before it had a folder of its own: Godot's

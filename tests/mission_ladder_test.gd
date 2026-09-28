@@ -1,0 +1,243 @@
+extends SceneTree
+## ML-1: independent campaign persistence, validation, transactions and pad proof.
+var failures := 0
+var checks := 0
+var changes := 0
+var fixture: Dictionary
+var test_path := "/tmp/fd-ml1-%d/campaign.json" % OS.get_process_id()
+
+func _initialize() -> void:
+	_run.call_deferred()
+
+func ok(value: bool, label: String) -> void:
+	checks += 1
+	if not value:
+		failures += 1
+	print("  %s %s" % ["ok" if value else "FAIL", label])
+
+func write_json(value: Variant) -> void:
+	DirAccess.make_dir_recursive_absolute(test_path.get_base_dir())
+	var file := FileAccess.open(test_path, FileAccess.WRITE)
+	file.store_string(JSON.stringify(value))
+	file.close()
+
+func promoted(id: String, rank: String) -> Dictionary:
+	var m := fixture.duplicate(true)
+	m.id = id
+	m.rank = rank
+	m.unlock.required_rank = rank
+	return m
+
+func _run() -> void:
+	OS.set_environment("FD_TELEMETRY", "0")
+	fixture = JSON.parse_string(FileAccess.get_file_as_string("res://tests/ml1_proof.json"))
+	_schema()
+	_store()
+	await _episode()
+	CampaignStore.path_override = ""
+	DirAccess.remove_absolute(test_path)
+	DirAccess.remove_absolute(test_path.get_base_dir())
+	print("MISSION LADDER TEST %s: %d checks" % ["PASSED" if failures == 0 else "FAILED", checks])
+	quit(0 if failures == 0 else 1)
+
+func _schema() -> void:
+	ok(MissionSchema.validate(fixture).is_empty(), "proof schema accepted")
+	for value in [null, [], 3, "bad"]:
+		ok(not MissionSchema.validate(value).is_empty(), "non-object refused: " + str(value))
+	for field in ["id", "rank", "title", "briefing", "environment", "episode", "scoring", "unlock"]:
+		var m := fixture.duplicate(true)
+		m[field] = false
+		ok(not MissionSchema.validate(m).is_empty(), "bad type refused: " + field)
+	for pair in [["radius", -1], ["position", [0, 0]], ["sequence", 2], ["type", false], ["radius", INF], ["position", [0, "x", 0]]]:
+		var m := fixture.duplicate(true)
+		m.episode[0][pair[0]] = pair[1]
+		ok(not MissionSchema.validate(m).is_empty(), "bad step refused: " + str(pair[0]) + str(pair[1]))
+	for band in ["gold", "silver", "bronze"]:
+		var m := fixture.duplicate(true)
+		m.scoring.medal_times[band] = 99
+		ok(not MissionSchema.validate(m).is_empty(), "bad medal refused: " + band)
+	var invalid := fixture.duplicate(true)
+	invalid.scoring.failure_conditions = ["damage"]
+	ok(not MissionSchema.validate(invalid).is_empty(), "unsupported failure refused")
+	invalid = fixture.duplicate(true)
+	invalid.input_script.steps[0].press = ["reset_car"]
+	ok(not MissionSchema.validate(invalid).is_empty(), "unsafe script action refused")
+	invalid = fixture.duplicate(true)
+	invalid.episode[0].type = "delivery_return"
+	ok(not MissionSchema.validate(invalid).is_empty(), "return before pickup refused")
+	var a := fixture.duplicate(true)
+	a.unlock.required_missions = ["MISSING"]
+	ok(MissionSchema.catalog_errors([a]).has(a.id), "unknown reference refused")
+	var b := fixture.duplicate(true)
+	b.id = "B"
+	a.unlock.required_missions = ["B"]
+	b.unlock.required_missions = [a.id]
+	ok(MissionSchema.catalog_errors([a, b]).size() == 2, "cycle excludes both entries")
+	ok(MissionSchema.catalog_errors([fixture, fixture]).has(fixture.id), "duplicate excluded")
+	b.unlock.required_missions = []
+	b.title = 1
+	ok(MissionSchema.catalog_errors([a, b]).size() == 2, "invalid predecessor excludes dependent")
+	for pair in [[8.0, "gold"], [8.001, "silver"], [12.0, "silver"], [12.001, "bronze"], [18.0, "bronze"], [18.001, "complete"], [20.0, "complete"], [20.001, ""], [-1.0, ""], [INF, ""]]:
+		ok(MissionSchema.medal(fixture.scoring, pair[0]) == pair[1], "medal boundary " + str(pair[0]))
+
+func _store() -> void:
+	ok(CampaignStore.active_path() == "", "telemetry zero gates default IO")
+	CampaignStore.path_override = test_path
+	ok(CampaignStore.active_path() == test_path, "override enables isolated IO")
+	var store := CampaignStore.new()
+	store.load_state()
+	ok(store.state == CampaignStore.defaults(), "missing file defaults")
+	store.changed.connect(func(): changes += 1)
+	store.reconcile(LicenceExams.LICENCE_NONE)
+	store.reconcile(LicenceExams.LICENCE_L0)
+	ok(store.state.rank == "" and changes == 0, "L0 is not campaign enrollment")
+	var manager := LicenceManager.new()
+	manager.licence = {"level": LicenceExams.LICENCE_L1}
+	store.attach(manager)
+	ok(store.state.rank == "junior", "existing L1 enrolls immediately")
+	ok(store.state.credentials.junior_licence, "Junior credential granted")
+	manager.licence_changed.emit(1)
+	ok(changes == 1, "repeated L1 signal is idempotent")
+	var bytes := FileAccess.get_file_as_string(test_path)
+	manager.licence_changed.emit(0)
+	ok(FileAccess.get_file_as_string(test_path) == bytes, "car switch cannot demote driver")
+	store.attach(null)
+	manager.free()
+	var loaded := CampaignStore.new()
+	loaded.load_state()
+	ok(loaded.state == store.state, "enrollment round-trip")
+	ok(not FileAccess.file_exists(test_path + ".tmp"), "atomic write consumes temporary file")
+	ok(store.unlock_reason(fixture) == "", "Junior episode unlocked")
+	var m := promoted("FD-12", "junior")
+	m.unlock.required_missions = [fixture.id]
+	ok(store.unlock_reason(m) != "", "missing prerequisite locks")
+	store.state.results[fixture.id] = {"attempts": 1, "best_time_s": -1, "medal": "gold"}
+	ok(store.unlock_reason(m) != "", "corrupt predecessor cannot unlock")
+	store.state.results.clear()
+	ok(store.record_result(fixture, 9, false), "failure attempt saved")
+	ok(store.unlock_reason(m) != "", "failed predecessor cannot unlock")
+	ok(store.record_result(fixture, 8, true), "success saved")
+	ok(store.unlock_reason(m) == "", "passed predecessor unlocks")
+	store.record_result(fixture, 15, true)
+	ok(store.state.results[fixture.id].best_time_s == 8, "worse replay keeps best")
+	ok(store.state.results[fixture.id].medal == "gold" and store.state.results[fixture.id].attempts == 3, "medal kept and attempts counted")
+	ok(store.record_result(m, 21, true) and store.state.rank == "junior", "timeout cannot promote")
+	ok(store.record_result(m, 7, false) and not store.state.rewards.test_driver, "failed promotion grants nothing")
+	ok(store.record_result(m, 7, true), "FD-12 promotion commits")
+	loaded.load_state()
+	ok(loaded.state.rank == "test_driver" and loaded.state.credentials.test_driver_licence and loaded.state.rewards.test_driver, "rank credential and RS entitlement together on disk")
+	store.record_result(m, 6, true)
+	ok(store.state.rank == "test_driver" and not store.state.rewards.chief, "promotion replay grants nothing new")
+	ok(store.unlock_reason(promoted("FD-33", "chief")) != "", "cannot skip rank")
+	store.record_result(promoted("FD-22", "test_driver"), 8, true)
+	ok(store.state.rank == "chief" and store.state.rewards.chief, "FD-22 grants Chief and Boxster")
+	store.record_result(promoted("FD-33", "chief"), 8, true)
+	ok(store.state.rank == "ace" and store.state.rewards.ace, "FD-33 grants Ace and 996")
+	store.record_result(promoted("FD-33", "chief"), 8, true)
+	ok(store.state.rank == "ace" and store.state.rewards.size() == 3, "Ace terminal")
+	var committed := store.state.duplicate(true)
+	CampaignStore.path_override = test_path.get_base_dir()
+	ok(not store.record_result(m, 5, true) and store.state == committed, "failed atomic rename publishes no partial state")
+	DirAccess.remove_absolute(test_path.get_base_dir() + ".tmp")
+	CampaignStore.path_override = test_path
+	ok(DataDir.SEEDED_FILES.has("campaign.json"), "campaign follows data folder migration")
+	var legacy := store.state.duplicate(true)
+	legacy.version = 0
+	legacy.missions = legacy.results
+	legacy.erase("results")
+	write_json(legacy)
+	loaded.load_state()
+	ok(loaded.state == store.state, "version zero results migrate")
+	ok(JSON.parse_string(FileAccess.get_file_as_string(test_path)).version == 0, "migration read does not write")
+	legacy.credentials.ace_licence = "true"
+	write_json(legacy)
+	loaded.load_state()
+	ok(loaded.state.rank == "", "wrong credential type cannot promote")
+	write_json({"version": 99, "rank": "ace"})
+	loaded.load_state()
+	ok(loaded.state == CampaignStore.defaults(), "future version defaults")
+	write_json({"version": 1, "rank": "ace", "results": {"bad": {"medal": "gold"}}})
+	loaded.load_state()
+	ok(loaded.state == CampaignStore.defaults(), "corrupt credentials and results default")
+	var file := FileAccess.open(test_path, FileAccess.WRITE)
+	file.store_string("{broken")
+	file.close()
+	loaded.load_state()
+	ok(loaded.state == CampaignStore.defaults(), "malformed JSON defaults")
+	DirAccess.remove_absolute(test_path)
+	manager = LicenceManager.new()
+	manager.licence = {"level": -1}
+	loaded.attach(manager)
+	manager.licence_changed.emit(1)
+	ok(loaded.state.rank == "junior", "fresh L1 signal enrolls")
+	loaded.attach(null)
+	manager.free()
+	CampaignStore.path_override = ""
+	var gated := CampaignStore.new()
+	gated.load_state()
+	ok(gated.state.rank == "", "gate reads no persisted progress")
+	gated.reconcile(1)
+	ok(gated.state.rank == "junior", "gated play retains session progress")
+	CampaignStore.path_override = test_path
+
+func _episode() -> void:
+	var runner := MissionRunner.of(self)
+	ok(runner != null and runner.catalog.is_empty(), "autoload has zero production missions")
+	ok(runner.get_child_count() == 0 and not runner.is_physics_processing() and not runner.is_processing_input(), "idle runner inert")
+	var scene: Node = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	await process_frame
+	var car: ArcadeCar = scene.get_node("Car")
+	var garage: Garage = scene.get_node("Garage")
+	var manager: MissionManager = scene.get_node("MissionManager")
+	runner.campaign.load_state()
+	runner.campaign.reconcile(1)
+	runner.configure(car, scene.get_node("HUD"))
+	ok(not runner.start("MISSING"), "unknown mission cannot start")
+	runner.load_catalog(PackedStringArray(["res://tests/ml1_proof.json"]))
+	ok(runner.catalog.size() == 1, "test-only catalog loads proof")
+	garage.show_page(Garage.Page.MISSIONS)
+	ok(Garage.PAGE_TITLES.size() == 6 and Garage.PAGE_TITLES[5] == "MISSIONS", "six-page pin")
+	ok(garage.page_text().contains("JUNIOR"), "campaign rank displayed")
+	ok(garage.page_rows()[0].hint.contains(fixture.briefing), "briefing displayed")
+	ok(not garage.page_rows()[-1].enabled, "reward row disabled")
+	ok(runner.start(fixture.id), "pad episode starts")
+	ok(not garage.can_open() and manager.process_mode == Node.PROCESS_MODE_DISABLED, "episode owns driving context")
+	ok(not runner.start(fixture.id), "cannot overlap episodes")
+	var before := FileAccess.get_file_as_string(test_path)
+	runner.abort()
+	ok(FileAccess.get_file_as_string(test_path) == before and runner.last_result.is_empty(), "abort writes nothing")
+	ok(not runner.is_physics_processing() and manager.process_mode != Node.PROCESS_MODE_DISABLED, "abort restores context")
+	runner.start(fixture.id)
+	runner._previous = Vector3(10, 0.7, -18)
+	runner.tick(1, Vector3(0, 0.7, -18))
+	ok(not runner.last_result.passed and runner.last_result.reason == "skipped gate", "skipped gate fails")
+	runner.start(fixture.id)
+	runner._previous = Vector3(5, 0.7, -10)
+	runner.tick(1, Vector3(4, 0.7, -10))
+	ok(runner.last_result.reason == "cone hit", "cone constraint fails")
+	runner.start(fixture.id)
+	for step: Dictionary in fixture.episode:
+		runner.tick(1, Vector3(step.position[0], step.position[1], step.position[2]))
+	var ordered_pass: bool = runner.last_result.passed and runner.last_result.medal == "gold"
+	runner.start(fixture.id)
+	runner._previous = Vector3(0, 0.7, 0)
+	runner.tick(1, Vector3(0, 0.7, -20))
+	ok(ordered_pass and runner.last_result.passed, "ordered gates and timed finish pass, including several crossings in one tick")
+	ok(runner.result_text().begins_with("episode result:"), "episode result text owns its prefix")
+	ok(not runner.is_physics_processing() and runner.get_child_count() == 0, "finish returns to inert")
+	# Real car, same input driver as handling tests, no position injection.
+	runner.start(fixture.id, true)
+	for i in 1300:
+		await physics_frame
+		if runner.active.is_empty():
+			break
+	ok(not runner.last_result.is_empty() and runner.last_result.passed, "scripted proof drives the actual pad car")
+	ok(not Input.is_action_pressed("accelerate"), "script inputs released after finish")
+	garage.show_page(Garage.Page.MISSIONS)
+	ok(garage.page_text().contains("episode result:"), "results visible in garage")
+	runner.load_catalog()
+	garage.show_page(Garage.Page.MISSIONS)
+	ok(garage.page_text().contains("No playable campaign missions yet"), "production empty state honest")
+	scene.queue_free()
+	await process_frame

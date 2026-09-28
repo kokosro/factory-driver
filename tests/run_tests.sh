@@ -11,13 +11,13 @@
 # the smoke test, then the handling,
 # camera, mission, battery, thermal, tyre/brake thermal, steering-feel,
 # wear, licence, menu, issue flag, minimap, airborne, reset, refuel,
-# telemetry watch, marks, side road, road edge and first run tests (33 markers including
+# telemetry watch, marks, side road, road edge, mission ladder and first run tests (34 markers including
 # import and the final verdict). Fails on a non-zero exit code
 # or on any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the thirty-one tests side by side
-#                                   (was thirty -> the road edge test, ROAD-5)
+#   tests/run_tests.sh --parallel   the import first, then the thirty-two tests side by side
+#                                   (was thirty-one -> the mission ladder test, ML-1)
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -181,6 +181,8 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 "$STEP" "side road test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/side_road_test.gd
 # ROAD-5: loop lip physics, byte-exact pavement and matching rumble meshes.
 "$STEP" "road edge test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/road_edge_test.gd
+# ML-1: separate campaign store, schema, promotions and a test-only pad episode.
+"$STEP" "mission ladder test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/mission_ladder_test.gd
 # 4B-6, the first run: the world map, the pin, the test centre's yard, the L0
 # voucher, the rental lock and the first car; the store pinned off, a world
 # file of the test's own.

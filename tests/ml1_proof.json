@@ -1,0 +1,82 @@
+{
+  "id": "ML1-PROOF",
+  "rank": "junior",
+  "title": "Skeleton proof",
+  "briefing": "Pass the ordered gates, avoid the cone, cross the timed finish. Test fixture only.",
+  "environment": "pad",
+  "episode": [
+    {
+      "type": "waypoint_gate",
+      "position": [
+        0,
+        0.7,
+        -4
+      ],
+      "radius": 1.5,
+      "sequence": 0
+    },
+    {
+      "type": "cone_slalom",
+      "position": [
+        0,
+        0.7,
+        -10
+      ],
+      "radius": 1.5,
+      "sequence": 1,
+      "cones": [
+        [
+          4,
+          0.7,
+          -10
+        ]
+      ],
+      "cone_radius": 1.0
+    },
+    {
+      "type": "timed_finish",
+      "position": [
+        0,
+        0.7,
+        -18
+      ],
+      "radius": 1.5,
+      "sequence": 2
+    }
+  ],
+  "scoring": {
+    "time_limit_s": 20,
+    "medal_times": {
+      "gold": 8,
+      "silver": 12,
+      "bronze": 18
+    },
+    "failure_conditions": [
+      "skipped_gate",
+      "cone_hit"
+    ]
+  },
+  "unlock": {
+    "required_rank": "junior",
+    "required_missions": []
+  },
+  "input_script": {
+    "steps": [
+      {
+        "press": [
+          "accelerate"
+        ],
+        "steer_deg": 0
+      },
+      {
+        "when": {
+          "after": 19
+        },
+        "release": [
+          "accelerate"
+        ]
+      }
+    ],
+    "hold_speed": 8
+  }
+}

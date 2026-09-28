@@ -12,7 +12,7 @@ extends CanvasLayer
 ## the bit, whether the garage was open in between or not
 ## (tests/menu_test.gd holds it there). No time scale, no delta of its own.
 ##
-## Five pages, tabs across the top, the arrow keys and Enter or the mouse:
+## Six pages, tabs across the top, the arrow keys and Enter or the mouse:
 ##   DRIVE      free driving on a map (MAPS: exactly the maps there are), the
 ##              world map (the first run's layer, scripts/world_map.gd,
 ##              opened again from here; 4B-6), the dealership's rows where
@@ -33,6 +33,7 @@ extends CanvasLayer
 ##   SETTINGS   the data folder (DataDir: where it is, choose another, back
 ##              to the default - a native folder dialog, opened only from
 ##              here), the HUD bar legend (HUD.bar_legend) and the keys.
+##   MISSIONS   campaign rank, episodes, promotion credentials and entitlements.
 ## Built from Controls alone, in _build: no scene, no assets. Inert until
 ## opened: closed it costs a key check a tick.
 
@@ -46,8 +47,8 @@ const ACTION_CLOSE := &"abort_mission"
 ## Above the HUD (its layer is 1).
 const LAYER := 10
 
-enum Page { DRIVE, STUDY, CAR, LICENCE, SETTINGS }
-const PAGE_TITLES: Array[String] = ["DRIVE", "THE STUDY", "CAR", "LICENCE", "SETTINGS"]
+enum Page { DRIVE, STUDY, CAR, LICENCE, SETTINGS, MISSIONS }
+const PAGE_TITLES: Array[String] = ["DRIVE", "THE STUDY", "CAR", "LICENCE", "SETTINGS", "MISSIONS"]
 
 ## The maps free driving can be had on: exactly the ones there are, the
 ## scene each is, and the row's hint (what is true of that map). Two: the
@@ -167,6 +168,9 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
 	_build()
+	var runner := MissionRunner.of(get_tree())
+	if runner:
+		runner.campaign.changed.connect(_campaign_changed)
 
 
 func _physics_process(_delta: float) -> void:
@@ -206,6 +210,9 @@ func _physics_process(_delta: float) -> void:
 ## does, and Tab or Esc pressed under a forced first-run map must not open
 ## the garage over it and then unpause the world under the map; 4B-6).
 func can_open() -> bool:
+	var runner := MissionRunner.of(get_tree())
+	if runner and not runner.active.is_empty():
+		return false
 	if missions and missions.is_running():
 		return false
 	var map := world_map(false)
@@ -298,6 +305,8 @@ func show_page(wanted: Page) -> void:
 			_build_licence_page()
 		Page.SETTINGS:
 			_build_settings_page()
+		Page.MISSIONS:
+			_build_missions_page()
 	cursor = 0 if not _rows.is_empty() else -1
 	_scroll.scroll_vertical = 0
 	_highlight_cursor()
@@ -908,3 +917,47 @@ func _add_bar(label: String, fraction: float, reading: String, color: Color) -> 
 	line.add_child(value)
 	_body.add_child(line)
 	_texts.append("%s: %s" % [label, reading])
+
+
+# --- MISSIONS --------------------------------------------------------------------
+
+func _campaign_changed() -> void:
+	if is_open and page == Page.MISSIONS:
+		show_page(Page.MISSIONS)
+
+func _build_missions_page() -> void:
+	var runner := MissionRunner.of(get_tree())
+	if runner == null:
+		_add_text("Campaign unavailable.", COLOR_DIM_TEXT)
+		return
+	runner.configure(car, hud)
+	var record := runner.campaign.state
+	_add_heading("CAMPAIGN RANK: " + (record.rank.replace("_", " ").to_upper() if record.rank != "" else "NOT ENROLLED — earn L1 FACTORY ENTRY"))
+	var credentials := PackedStringArray()
+	for rank: String in CampaignStore.RANKS:
+		if record.credentials[rank + "_licence"]:
+			credentials.append(rank.replace("_", " ").capitalize() + " licence")
+	_add_text("Campaign credentials: " + (", ".join(credentials) if not credentials.is_empty() else "none yet"), COLOR_TEXT)
+	_add_text("Ace is the final rank." if record.rank == "ace" else "Promotion tests: FD-12 → Test Driver, FD-22 → Chief, FD-33 → Ace. Unlimited retries.", COLOR_TEXT)
+	_add_text(runner.result_text(), COLOR_TEXT)
+	if runner.catalog.is_empty():
+		_add_text("No playable campaign missions yet. The mission ladder is under construction.", COLOR_DIM_TEXT)
+	for id: String in runner.catalog:
+		var mission: Dictionary = runner.catalog[id]
+		var reason := runner.campaign.unlock_reason(mission)
+		if reason == "" and not runner.environment_matches(mission.environment):
+			reason = "Open the " + mission.environment + " from DRIVE first"
+		var best: Dictionary = record.results.get(id, {})
+		var hint: String = mission.briefing + ("\nLocked: " + reason if reason != "" else "\nEnter to start — " + mission.environment)
+		if not best.is_empty():
+			hint += "\nBest %.3f s — %s — %d attempts" % [best.best_time_s, best.medal, best.attempts]
+		_add_row(id + " — " + mission.title, hint, "mission", _start_episode.bind(id), reason == "", id)
+	_add_heading("REWARD ENTITLEMENTS")
+	for rank: String in CampaignStore.REWARDS:
+		_add_row(CampaignStore.REWARDS[rank], ("Earned" if record.rewards[rank] else "Requires " + rank.replace("_", " ")) + " — car configuration coming later", "reward", Callable(), false, rank)
+
+func _start_episode(id: String) -> void:
+	var runner := MissionRunner.of(get_tree())
+	runner.configure(car, hud)
+	close()
+	runner.start(id)

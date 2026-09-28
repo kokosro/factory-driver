@@ -2706,3 +2706,18 @@ licences has no `licence` object, reads as unlicensed, and is written back with
 everything else it holds. The headless suite writes nothing: every driver there starts
 unlicensed, and the tests that need the switches and the clutch are granted L0 through
 the manager's record.
+
+## Mission ladder
+
+The garage's sixth page, MISSIONS, shows driver-wide campaign progress. L1 FACTORY
+ENTRY enrolls Junior; FD-12, FD-22 and FD-33 promotion hooks grant Test Driver, Chief
+and terminal Ace credentials with their reward-car entitlements. Rewards remain
+disabled rows until their car configurations arrive. Promotion retries are unlimited.
+
+ML-1 ships no playable campaign missions. The ordered gate/cone/timed-finish proof
+lives only in `tests/ml1_proof.json`. Future JSON episodes load from
+`configs/missions/`; invalid definitions and their dependents are excluded.
+`campaign.json` in the chosen data directory keeps version, rank, results
+(best time, medal, attempts), credentials and reward entitlements separately from
+the numeric licence and car records. Writes use a temporary file and atomic rename;
+`FD_TELEMETRY=0` keeps campaign play in memory. Aborts record nothing.
