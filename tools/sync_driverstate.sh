@@ -23,11 +23,17 @@
 # default is used - never a guess, and never the next candidate.
 #
 # THE BUNDLE is one folder, fd-driverstate-<host>-<YYYYmmdd-HHMMSS>/, holding
-#   telemetry/     the whole tree, index.json included
+#   telemetry/     new/changed files since this machine's last successful push;
+#                  index.json excluded (pull rebuilds it)
 #   cars.json      the per-car store
 #   issues.json    the issue store, when one exists (none until an issue is filed)
 # packed in a temporary folder that is removed afterwards, uploaded with
 # `ird ipfs add <folder> --encrypt --name <the folder's name>`.
+# The data root's .sync-pushed.json records SHA-256 hashes and the push date,
+# outside telemetry/ so neither push nor pull carries it between machines.
+# Only a successful upload replaces it atomically; a failed one retries the
+# same files next time. An unchanged tree and stores cost no upload. A missing
+# or unusable manifest warns and packs the full tree to start or repair it.
 #
 # A PULL NEVER CLOBBERS:
 #   telemetry/     file by file: a path already here is kept (the local file
@@ -194,16 +200,74 @@ push() {
 	TMP="$(mktemp -d)" || fail "mktemp failed"
 	bundle="$TMP/$label"
 	mkdir -p "$bundle" || fail "could not make $bundle"
-	cp -R "$DATA_DIR/telemetry" "$bundle/telemetry" || fail "could not copy telemetry/"
-	echo "packed  telemetry/ ($(count_files "$bundle/telemetry") files)"
-	cp "$DATA_DIR/cars.json" "$bundle/cars.json" || fail "could not copy cars.json"
-	echo "packed  cars.json"
-	if [ -f "$DATA_DIR/issues.json" ]; then
-		cp "$DATA_DIR/issues.json" "$bundle/issues.json" || fail "could not copy issues.json"
-		echo "packed  issues.json"
-	else
-		echo "absent  issues.json (no issue filed on this machine yet: nothing to pack)"
-	fi
+	# Hash the bytes we pack, so a live session changing during the push cannot
+	# mark bytes as uploaded that were never in the bundle. The candidate stays
+	# in our temporary folder until ird succeeds: prepaid storage buys new data.
+	python3 - "$DATA_DIR" "$bundle" "$TMP/pushed.json" <<'PY_PUSH' || fail "could not prepare push bundle"
+import datetime, hashlib, json, os, re, sys
+from pathlib import Path
+root, bundle, candidate = map(Path, sys.argv[1:])
+
+def digest_ok(value):
+	return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+try:
+	with (root / ".sync-pushed.json").open() as f:
+		old = json.load(f)
+	if not (isinstance(old, dict) and type(old.get("version")) is int
+		and old["version"] == 1 and isinstance(old.get("pushed_at"), str)
+		and isinstance(old.get("telemetry"), dict)
+		and all(digest_ok(v) for v in old["telemetry"].values())
+		and all(k in old and (old[k] is None or digest_ok(old[k]))
+			for k in ("issues.json", "cars.json"))):
+		raise ValueError("invalid manifest schema")
+	datetime.datetime.fromisoformat(old["pushed_at"].replace("Z", "+00:00"))
+except (OSError, ValueError, TypeError):
+	print("sync_driverstate: warning: no usable push manifest: packing the full tree (a first push or a repair)", file=sys.stderr)
+	old = None
+
+out = {"version": 1, "pushed_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+	"telemetry": dict(old["telemetry"]) if old else {}}
+packed = skipped = 0
+(bundle / "telemetry").mkdir()
+
+def traversal_failed(error):
+	raise error
+
+# os.walk must report an unreadable subtree, never mistake it for no changes.
+for directory, _, names in os.walk(root / "telemetry", onerror=traversal_failed):
+	for name in sorted(names):
+		path = Path(directory) / name
+		rel = path.relative_to(root / "telemetry").as_posix()
+		if rel == "index.json" or not path.is_file():
+			continue
+		data = path.read_bytes()
+		digest = hashlib.sha256(data).hexdigest()
+		if old and old["telemetry"].get(rel) == digest:
+			skipped += 1
+		else:
+			destination = bundle / "telemetry" / rel
+			destination.parent.mkdir(parents=True, exist_ok=True)
+			destination.write_bytes(data)
+			packed += 1
+		out["telemetry"][rel] = digest
+print("telemetry/: packed %d new/changed, skipped %d already-pushed" % (packed, skipped))
+for name in ("cars.json", "issues.json"):
+	path = root / name
+	if name == "issues.json" and not path.is_file():
+		out[name] = None
+		print("absent  issues.json (no issue filed on this machine yet: nothing to pack)")
+	else:
+		data = path.read_bytes()
+		(bundle / name).write_bytes(data)
+		out[name] = hashlib.sha256(data).hexdigest()
+		print("packed  " + name)
+if old and packed == 0 and all(out[k] == old[k] for k in ("cars.json", "issues.json")):
+	print("nothing new to push (%d files already synced on %s); no upload" % (skipped, old["pushed_at"]))
+else:
+	candidate.write_text(json.dumps(out, indent=2) + "\n")
+PY_PUSH
+	[ -f "$TMP/pushed.json" ] || return 0
 	echo "bundle: $label ($(count_files "$bundle") files); uploading encrypted"
 	local output cid url status
 	output="$TMP/ird-add.out"
@@ -217,6 +281,22 @@ push() {
 	if [ "$status" -ne 0 ]; then
 		fail "ird ipfs add failed (exit $status, its output is above)"
 	fi
+	# A sibling rename is atomic on the data folder's filesystem; neither an
+	# upload failure nor a torn write may destroy the last successful record.
+	python3 - "$TMP/pushed.json" "$DATA_DIR/.sync-pushed.json" <<'PY_PUSH' || fail "could not save push manifest"
+import os, sys, tempfile
+from pathlib import Path
+candidate, destination = map(Path, sys.argv[1:])
+data = candidate.read_bytes()
+fd, sibling = tempfile.mkstemp(prefix=".sync-pushed-", suffix=".tmp", dir=destination.parent)
+try:
+	with os.fdopen(fd, "wb") as f:
+		f.write(data)
+	os.replace(sibling, destination)
+finally:
+	if os.path.exists(sibling):
+		os.unlink(sibling)
+PY_PUSH
 	# Any CIDv1 base32 (bafy… folder, bafkrei… raw blob - an encrypted pin is
 	# one opaque blob, its CID bafkrei…) or the old base58 Qm….
 	cid="$(grep -oE '(baf[a-z2-7]{20,}|Qm[1-9A-HJ-NP-Za-km-z]{44})' "$output" | head -n 1)"

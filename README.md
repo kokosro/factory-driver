@@ -2247,10 +2247,10 @@ its own checks run the seed on folders of the test's own.
 ### Sync: the driver state between machines
 
 The test sessions happen on one machine and the analysis on another, so the data
-folder travels: `tools/sync_driverstate.sh` packs the driver state - the whole of
-`telemetry/`, `issues.json` and `cars.json`, nothing else - into one bundle, uploads it
-encrypted through `ird ipfs add --encrypt`, and pulls it back down on the other side
-and **merges** it into that machine's data folder. The loop:
+folder travels: `tools/sync_driverstate.sh` packs the driver state - new/changed files in
+`telemetry/` (excluding `index.json`), fresh `issues.json` and `cars.json`, nothing else -
+into one bundle, uploads it encrypted through `ird ipfs add --encrypt`, and pulls it
+back down on the other side and **merges** it into that machine's data folder. The loop:
 
 ```
 # on the test machine, after driving
@@ -2263,6 +2263,12 @@ The data folder is resolved exactly as the game resolves it (`FD_DATA_DIR`, else
 bootstrap file `data_dir.txt` in the default location, else the default folder; a value
 that is no absolute folder is reported and the default used), so what the game reads is
 what is packed and what is merged into.
+
+**Push remembers what it sent.** The data root's `.sync-pushed.json` records SHA-256
+hashes after a successful upload, replaced atomically; a failed upload is retried.
+Already-pushed telemetry is skipped, and unchanged telemetry and stores mean no upload
+and no storage credits spent. A missing or unusable manifest warns and packs the full
+tree. The manifest stays on the pushing machine, outside every bundle.
 
 **A pull never clobbers.** Every telemetry file the bundle holds is copied in only
 where the same relative path is not there yet; a file already on this machine wins and
