@@ -3,7 +3,7 @@
 `tests/run_tests.sh` is the gate: a headless import, then the config, element catalogue,
 skeleton, world profile, buildings, dressing, ring drive, bubble, offroad, async build, smoke, handling, camera, mission, battery,
 thermal, tyre/brake thermal, steering-feel, wear, licence, menu, issue flag, minimap, airborne, reset,
-refuel, telemetry watch, marks and first run tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
+refuel, telemetry watch, marks, side road and first run tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
 minutes (the dressing test builds the Ring scene twice; the ring drive test builds the Ring's
 road twice and drives 2 km on it twice; the bubble test builds it twice more and drives
 700 m of the loop twice, at a tree twice and a teleport (BUBBLE-1; `FD_BUBBLE_PERF=1` in
@@ -27,8 +27,11 @@ dealership and sits the L0 exam twice on the pad; since 4B-7 every Ring scene lo
 builds the terrain, the forest walls and the sky, about nine seconds more each; since
 BUBBLE-1 the forest build also writes the trunk bodies, a few hundred milliseconds; since
 OFFROAD-1 the terrain build also writes the continuation skirt, about a second).
-`tests/run_tests.sh --parallel` runs the twenty-nine tests side by side after the import and
-prints the same lines in the same order (was twenty-eight -> the marks test, SKIDMARKS-1).
+`tests/run_tests.sh --parallel` runs the thirty tests side by side after the import and
+prints the same lines in the same order (was twenty-nine -> the ROAD-6 side road test; 32 markers including import and the final verdict).
+The side road test adds nine checks: the skeleton SHA, the 5.0 m issue segment, a
+covered 3.0 m control, sideways heading, four individual wheel classifications and
+front/rear road readings at issue-0069’s exact pose.
 What each test checks is in the main
 `README.md` (since FOREST-2 the dressing test also holds the forest edge's card recipe -
 the gap share, the feathers, every card's texture window, the wall texture's skyline and

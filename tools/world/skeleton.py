@@ -13,7 +13,7 @@ inside is the snapshot's own identity. Heights are not here: the drape (4B-3)
 adds them; a point is [x, z] only.
 
 Usage:
-  venv/bin/python tools/world/skeleton.py --snapshot <folder> --out data/regions/eifel_ring/skeleton.json
+  venv/bin/python tools/world/skeleton.py --snapshot <folder> --coverage-drape <drape.json> --out data/regions/eifel_ring/skeleton.json
   venv/bin/python tools/world/skeleton.py --snapshot <folder> --selftest
   venv/bin/python tools/world/skeleton.py --reference
 
@@ -55,7 +55,8 @@ BBOX = [50.3, 6.8, 50.45, 7.1]  # [deg] south, west, north, east
 # 1 = the 4B-2 pipeline (projection, split, DP 0.3 m + heading keep, widths,
 # loop), as first shipped. chosen for the skeleton: the docs' schema gained
 # the field with this commit, the loader and the test hold it.
-PIPELINE_VERSION = 1
+# 2 = ROAD-6 selected side-track widths with explicit road6 provenance.
+PIPELINE_VERSION = 2  # ROAD-6: selected covered side tracks, explicit width provenance
 
 # The simplification (data-pipeline.md §4 item 2): Douglas-Peucker at 0.3 m
 # removes collinear noise only. chosen for the skeleton: a node whose heading
@@ -361,6 +362,69 @@ def build_skeleton(ways, loop_way_ids, osm_base, query_sha):
     return skeleton, summary
 
 
+def polyline_near_junctions(points, junctions, radius=250.0):
+    """Every point of every chord lies in the union of the junction disks.
+    Solve disk/chord intersections and merge their parameter intervals:
+    checking only vertices could miss a gap between two nearby disks.
+    """
+    for a, b in zip(points, points[1:]):
+        dx, dz = b[0] - a[0], b[1] - a[1]
+        length_sq = dx * dx + dz * dz
+        if length_sq == 0.0:
+            if not any((a[0] - j["x"]) ** 2 + (a[1] - j["z"]) ** 2 <= radius ** 2 for j in junctions):
+                return False
+            continue
+        intervals = []
+        for j in junctions:
+            ox, oz = a[0] - j["x"], a[1] - j["z"]
+            dot = ox * dx + oz * dz
+            discriminant = dot * dot - length_sq * (ox * ox + oz * oz - radius * radius)
+            if discriminant >= 0.0:
+                root = math.sqrt(discriminant)
+                lo, hi = max(0.0, (-dot - root) / length_sq), min(1.0, (-dot + root) / length_sq)
+                if lo <= hi:
+                    intervals.append((lo, hi))
+        reach = 0.0
+        for lo, hi in sorted(intervals):
+            if lo > reach:
+                break
+            reach = max(reach, hi)
+        if reach < 1.0:
+            return False
+    return True
+
+
+def widen_side_tracks(skeleton, coverage):
+    """ROAD-6 / issue-0069. Coverage is the drape's centreline DEM coverage,
+    independent of paved width. Only covered non-loop 3 m tracks qualify.
+    The mandatory issue segment, loop endpoint neighbours, or entire
+    polylines within 250 m of loop junctions become 5 m paved.
+    """
+    loop = set(skeleton["loops"][0]["segments"])
+    junctions = [j for j in skeleton["junctions"] if loop.intersection(j["segments"])]
+    neighbours = {sid for j in junctions for sid in j["segments"]}
+    covered = {s["id"] for s in coverage["segments"] if s["covered"]}
+    selected = {}
+    for s in skeleton["segments"]:
+        sid = s["id"]
+        if sid in loop or sid not in covered or s["class"] != "track" or s["width_m"] != 3.0:
+            continue
+        reasons = []
+        if sid == "314755146-2":
+            reasons.append("mandatory")
+        if sid in neighbours:
+            reasons.append("endpoint")
+        if polyline_near_junctions(s["points"], junctions):
+            reasons.append("proximity")
+        if reasons:
+            s["width_m"] = 5.0
+            s["width_source"] = "road6"
+            selected[sid] = reasons
+    if "314755146-2" not in selected:
+        raise ValueError("ROAD-6 mandatory covered 3 m side track is missing")
+    return selected
+
+
 def chain_loop(segments, ends, loop_way_ids):
     """Relation 38566's members as one ordered chain of segment ids (the
     rule in the header comment). Raises when the members do not close into
@@ -574,6 +638,7 @@ def selftest(folder):
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--snapshot", help="the snapshot folder extract_osm.py wrote")
+    parser.add_argument("--coverage-drape", help="drape whose covered centreline records select ROAD-6 tracks")
     parser.add_argument("--out", help="where to write skeleton.json")
     parser.add_argument("--selftest", action="store_true", help="prove the pipeline's rules on the sample, a fixture and the snapshot")
     parser.add_argument("--reference", action="store_true", help="print the pinned projection table for tests/skeleton_test.gd")
@@ -589,6 +654,11 @@ def main(argv):
         parser.error("--out is needed")
     ways, loop_way_ids, osm_base, query_sha = load_snapshot(args.snapshot)
     skeleton, summary = build_skeleton(ways, loop_way_ids, osm_base, query_sha)
+    if not args.coverage_drape:
+        parser.error("--coverage-drape is needed for ROAD-6 (bootstrap with drape.py on a baseline skeleton)")
+    with open(args.coverage_drape, encoding="utf-8") as handle:
+        selected = widen_side_tracks(skeleton, json.load(handle))
+    print("ROAD-6 widened %d: %s" % (len(selected), json.dumps(selected, sort_keys=True)))
     size, sha = write_skeleton(args.out, skeleton)
     print("wrote %s: %d bytes, sha256 %s" % (args.out, size, sha))
     print("  %s" % summary)

@@ -64,7 +64,8 @@ const KARUSSELL_WIDTH_M := 7.5  # [m]
 ## Where a segment's width came from: the class table, or an OSM width=*
 ## tag inside the plausibility band (skeleton.py's choice, flagged there:
 ## [0.5, 2.0] × the class value). A raceway never takes the tag.
-const WIDTH_SOURCES := ["class", "tag"]
+## ROAD-6 selections carry road6: exactly 5.0 m, track class only.
+const WIDTH_SOURCES := ["class", "tag", "road6"]
 const TAG_WIDTH_BAND := [0.5, 2.0]  # [× class width]
 const WIDTH_TAG_IGNORED_CLASSES := ["raceway"]
 
@@ -94,7 +95,7 @@ const TOP_KEYS := ["snapshot", "origin", "segments", "junctions", "loops"]
 const SNAPSHOT_KEYS := ["osm_base", "bbox", "query_sha", "pipeline_version"]
 ## The pipeline version this loader reads (skeleton.py's PIPELINE_VERSION):
 ## a file of another version is refused, not silently mis-read.
-const SKELETON_PIPELINE_VERSION := 1
+const SKELETON_PIPELINE_VERSION := 2
 const ORIGIN_KEYS := ["epsg", "e0", "n0"]
 const SEGMENT_REQUIRED_KEYS := ["id", "osm_way", "class", "width_m", "width_source", "points"]
 const JUNCTION_KEYS := ["id", "x", "z", "segments"]
@@ -561,6 +562,9 @@ static func _check_width(errors: PackedStringArray, id: String, element: Diction
 		var expected := width_by_class(int(element.osm_way), road_class)
 		if width != expected:
 			errors.append("segment %s.width_m is %s by class, %s's is %s" % [id, width, road_class, expected])
+	elif source == "road6":
+		if road_class != "track" or width != 5.0:
+			errors.append("segment %s: ROAD-6 requires a track of width 5.0 m" % id)
 	elif not tag_width_plausible(road_class, width):
 		errors.append("segment %s.width_m is %s by tag, outside %s's band [%s, %s]" % [id, width, road_class, TAG_WIDTH_BAND[0] * class_width(road_class), TAG_WIDTH_BAND[1] * class_width(road_class)])
 

@@ -65,7 +65,10 @@ const RING_SCENE := "res://scenes/eifel_ring.tscn"
 ## the crossfall-twist rule's arrays and the Karussell blend's ramped
 ## array and label, nothing else (the dense heights, the lattice and every
 ## other label byte-equal, proven by a structural diff at the landing).
-const DRAPE_SHA256 := "d36ccf27690be2596d39b28258e7ab4564eecf5503b467d5a3e47764e7233ea0"
+## ROAD-6: regenerated from the same DEM; only snapshot skeleton SHA/version
+## changed. Road sections 361393 -> 369357, vertices 1085645 -> 1109537,
+## triangles 1435286 -> 1467142; covered/swept counts remain 3314/3304.
+const DRAPE_SHA256 := "9909c378787636792fc64381d7b6150a5fc0b80da8e5737b5ce2f8f294229e9a"
 
 ## The drape's covered segments (tests/world_profile_test.gd's count) and
 ## the loop's (tests/skeleton_test.gd's): every one swept but the ten
@@ -349,7 +352,7 @@ func _step(frames: int) -> void:
 
 func _check_files() -> void:
 	_ok(_skeleton is Dictionary and _drape is Dictionary, "the skeleton and the drape read as JSON")
-	_ok(FileAccess.get_sha256(WorldRoadProfile.PATH) == DRAPE_SHA256, "drape.json is byte-identical to the ROAD-GEOMETRY FIX-NOW regeneration's (sha256 %s; was ROAD-SMOOTHING's f3ca142b..., before that 4B-3's b8d4e531...): the rim rule corrects parsed data, never the file" % DRAPE_SHA256.left(12), "drape.json's sha256 is %s" % FileAccess.get_sha256(WorldRoadProfile.PATH))
+	_ok(FileAccess.get_sha256(WorldRoadProfile.PATH) == DRAPE_SHA256, "drape.json is byte-identical to the ROAD-6 regeneration's (sha256 %s; was ROAD-SMOOTHING's f3ca142b..., before that 4B-3's b8d4e531...): the rim rule corrects parsed data, never the file" % DRAPE_SHA256.left(12), "drape.json's sha256 is %s" % FileAccess.get_sha256(WorldRoadProfile.PATH))
 	var entry: Dictionary = Garage.MAPS[Garage.MAPS.size() - 1] if Garage.MAPS.size() == 2 else {}
 	_ok(Garage.MAPS.size() == 2 and entry.get("id") == "eifel_ring" and entry.get("scene") == RING_SCENE and ResourceLoader.exists(RING_SCENE), "Garage.MAPS lists the Ring after the pad: id %s, scene %s, and the scene file exists (was one map, the Ring row a push_error)" % [entry.get("id"), entry.get("scene")], "Garage.MAPS is %s" % [Garage.MAPS])
 
@@ -894,7 +897,7 @@ func _check_lookahead_fixture() -> void:
 
 static func _lookahead_skeleton(approach_m: float) -> Dictionary:
 	return {
-		"snapshot": {"osm_base": "2026-09-22T08:45:51Z", "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 1},
+		"snapshot": {"osm_base": "2026-09-22T08:45:51Z", "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 2},
 		"origin": {"epsg": SkeletonLoader.EPSG, "e0": SkeletonLoader.E0, "n0": SkeletonLoader.N0},
 		"segments": [
 			{"id": "1-0", "osm_way": 1, "class": "primary", "width_m": 7.0, "width_source": "class", "bridge": "yes", "layer": "1", "points": [[0.0, 0.0], [20.0, 0.0]]},

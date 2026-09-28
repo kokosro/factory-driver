@@ -82,6 +82,11 @@ extends SceneTree
 ## meshes, 2 772 530 vertices and 4 466 373 triangles; 361 787 vertices
 ## capped, was 331 888), Road dfa68bb59bdb78c7 and Forest
 ## 37d8d855599b8de2 unchanged.
+## ROAD-6 (217 selected side tracks 3 -> 5 m): Road a76bb21a8ba8d268,
+## Terrain cee78c6ead17be04, Forest ec3096859e758d72. Mesh/shape counts
+## remain 6608/3305, 3352, 84/42. Width changes the road twist subdivision,
+## terrain carve/caps and the field heights used by forest geometry. The
+## full hashes still compare independently built sync and async arrays.
 
 const RING_SCENE := "res://scenes/eifel_ring.tscn"
 const PAD_SCENE := "res://scenes/main.tscn"
