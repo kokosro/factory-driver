@@ -13,8 +13,9 @@ extends RoadProfile
 ##     the nearest segment plus the crossfall across it (a 2 % crown on a
 ##     straight, superelevation into a bend, the Karussell's bank); within
 ##     BLEND_BAND_M outside the paved edge, the platform's edge eased into
-##     the terrain (smoothstep); off the road, the terrain lattice, bilinear.
-##   * ramp_gradient(x, z): the surface gradient of that height field by
+##     the terrain (smoothstep); a loop-only 0.11 m lip in the first 0.40 m
+##     outside pavement; off the road, the terrain lattice, bilinear.
+##   * ramp_gradient(x, z): the smooth field's gravity gradient (no lip) by
 ##     central differences over GRADIENT_SPAN_M (the shape of
 ##     RoadProfile.elevation_slope): what gravity pulls the car down.
 ##   * elevation_height / elevation_mask: the same field and 1 inside the
@@ -117,6 +118,21 @@ const TUNNEL_RAMP_M := 30.0
 ## The blend band outside the paved edge [m] (§5; the pad's
 ## LANE_BAND_HALF_WIDTH is the same idea).
 const BLEND_BAND_M := 6.0
+
+## ROAD-5 / issue-0068: a suspension-scale lip strictly outside LOOP
+## pavement. Zero at both ends; the old shoulder field resumes at 0.40 m.
+## Keep ramp_gradient on the old metre-scale field: gravity must remain
+## byte-identical on pavement even when a difference tap crosses this lip.
+const EDGE_WIDTH_M := 0.40
+const EDGE_PEAK_AT_M := 0.15
+const EDGE_HEIGHT_M := 0.11
+
+static func edge_lift(outside_m: float) -> float:
+	if outside_m <= 0.0 or outside_m >= EDGE_WIDTH_M:
+		return 0.0
+	return EDGE_HEIGHT_M * minf(outside_m / EDGE_PEAK_AT_M,
+		(EDGE_WIDTH_M - outside_m) / (EDGE_WIDTH_M - EDGE_PEAK_AT_M))
+
 
 ## The Karussell's bank (ring-region-decisions.md §3, branch (c)): way
 ## 414785755 takes the R9 element's numbers in drape.py; mirrored for the
@@ -433,6 +449,10 @@ func sample_height(x: float, z: float) -> float:
 ## The height field: the platform on a road, the blend band beside it, the
 ## terrain lattice elsewhere inside the coverage; exactly 0 outside.
 func elevation_height(x: float, z: float) -> float:
+	return _height(x, z, true)
+
+
+func _height(x: float, z: float, with_edge: bool) -> float:
 	if not covers(x, z):
 		return 0.0
 	var found := _nearest_chord(x, z)
@@ -444,7 +464,14 @@ func elevation_height(x: float, z: float) -> float:
 		return _platform_height(road, found.chainage, found.offset)
 	var edge := _platform_height(road, found.chainage, signf(found.offset) * road.half_width)
 	var eased := smoothstep(0.0, 1.0, (distance - road.half_width) / BLEND_BAND_M)
-	return lerpf(edge, terrain_height(x, z), eased)
+	var height := lerpf(edge, terrain_height(x, z), eased)
+	# Preserve the old operations and return verbatim wherever the lip is
+	# zero. Priority is derived from skeleton loops, using EACH road's width.
+	if with_edge and road.priority:
+		var lift := edge_lift(distance - road.half_width)
+		if lift > 0.0:
+			return height + lift
+	return height
 
 
 ## 1 inside the drape's coverage, 0 outside: the world is drawn where it is.
@@ -452,7 +479,8 @@ func elevation_mask(x: float, z: float) -> float:
 	return 1.0 if covers(x, z) else 0.0
 
 
-## The surface gradient of the height field at (x, z): rise per metre along
+## The gravity gradient of the smooth field (excluding the narrow lip):
+## rise per metre along
 ## x and along z, by central differences over GRADIENT_SPAN_M. Exactly
 ## Vector2.ZERO where any tap is outside the coverage (flat there, no cliff
 ## at the edge).
@@ -460,8 +488,8 @@ func ramp_gradient(x: float, z: float) -> Vector2:
 	var span := GRADIENT_SPAN_M
 	if not (covers(x - span, z) and covers(x + span, z) and covers(x, z - span) and covers(x, z + span)):
 		return Vector2.ZERO
-	var slope_x := (elevation_height(x + span, z) - elevation_height(x - span, z)) / (2.0 * span)
-	var slope_z := (elevation_height(x, z + span) - elevation_height(x, z - span)) / (2.0 * span)
+	var slope_x := (_height(x + span, z, false) - _height(x - span, z, false)) / (2.0 * span)
+	var slope_z := (_height(x, z + span, false) - _height(x, z - span, false)) / (2.0 * span)
 	return Vector2(slope_x, slope_z)
 
 

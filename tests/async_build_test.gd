@@ -87,6 +87,15 @@ extends SceneTree
 ## remain 6608/3305, 3352, 84/42. Width changes the road twist subdivision,
 ## terrain carve/caps and the field heights used by forest geometry. The
 ## full hashes still compare independently built sync and async arrays.
+## ROAD-5 (loop lip and 92 rumble meshes): Road a76bb21a8ba8d268 ->
+## af1cd69f426516cc, meshes 6608 -> 6700, shapes unchanged at 3305;
+## Road children 9913 -> 10005. New bands: 135444 vertices / 179856
+## triangles, counted separately from the unchanged paved platform.
+## Terrain cee78c6ead17be04 -> 5c5ee1f6ba4d1b4a (3352 meshes unchanged,
+## cap count 364819 -> 364933); Forest ec3096859e758d72 ->
+## 3241b4b76c9e000a (84 meshes / 42 shapes unchanged). Their vertices
+## sample the changed shoulder field. No literal pin was relaxed: every
+## array, collider and child order still compares sync against async.
 
 const RING_SCENE := "res://scenes/eifel_ring.tscn"
 const PAD_SCENE := "res://scenes/main.tscn"

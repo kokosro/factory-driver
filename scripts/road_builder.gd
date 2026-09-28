@@ -358,6 +358,11 @@ var skirt_vertex_count := 0
 var skirt_triangle_count := 0
 
 var _material: StandardMaterial3D
+## ROAD-5 counters are separate from the certified paved-platform census.
+var rumble_mesh_count := 0
+var rumble_vertex_count := 0
+var rumble_triangle_count := 0
+var _rumble_material: ShaderMaterial
 var _skirt_material: StandardMaterial3D
 var _floor: StaticBody3D
 
@@ -398,6 +403,8 @@ class Strip:
 	var normals: PackedVector3Array
 	var uvs: PackedVector2Array
 	var faces: PackedVector3Array
+	## ROAD-5 loop band arrays, released after the node stage uploads them.
+	var rumble_arrays: Array = []
 	## The road body's skirt (ROAD-3, SKIRT_OUT_M): four vertices per
 	## section - the left foot, the left paved edge, the right paved
 	## edge, the right foot - a quad per side between sections; the
@@ -531,6 +538,18 @@ func apply_prepared(prepared: Dictionary) -> bool:
 		car.reset_to_last_pose = true
 	_material = _asphalt_material()
 	_skirt_material = _skirt_material_of()
+	_rumble_material = ShaderMaterial.new()
+	var shader := Shader.new()
+	shader.code = """
+shader_type spatial;
+render_mode cull_disabled;
+void fragment() {
+	ALBEDO = mod(floor(UV.y / 2.0), 2.0) < 1.0
+		? vec3(0.75, 0.045, 0.035) : vec3(0.88);
+	ROUGHNESS = 0.85;
+}
+"""
+	_rumble_material.shader = shader
 	return true
 
 
@@ -558,6 +577,13 @@ func sweep_road(road: Road) -> Strip:
 	var strip := _sweep(road)
 	_strip_arrays(strip)
 	_skirt_arrays(strip)
+	# Read the same loop membership as the height field, including R9's
+	# own half width. No mutable state in this worker-thread data stage.
+	for r: WorldRoadProfile.Road in profile._roads:
+		if r.id == strip.id:
+			if r.priority:
+				_rumble_arrays(strip)
+			break
 	return strip
 
 
@@ -935,6 +961,53 @@ func _strip_arrays(strip: Strip) -> void:
 	strip.faces = faces
 
 
+## ROAD-5: both loop edges, 0.40 m wide, sampled from the physical field
+## at the toe, 0.15 m crest and outer toe. A 2 cm paint lift avoids fighting
+## the pavement/verge. No collision shape: car support reads the profile.
+## Existing mitres and section chainages keep the strips joined at bends.
+func _rumble_arrays(strip: Strip) -> void:
+	var vertices := PackedVector3Array()
+	var normals := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var indices := PackedInt32Array()
+	var offsets := [0.0, WorldRoadProfile.EDGE_PEAK_AT_M, WorldRoadProfile.EDGE_WIDTH_M]
+	for k: int in strip.chainages.size():
+		var left := strip.vertex(k, 0)
+		var right := strip.vertex(k, strip.offsets.size() - 1)
+		var across := (right - left) / (2.0 * strip.half_width)
+		across.y = 0.0
+		for side: int in 2:
+			for offset: float in offsets:
+				var v := (left - across * offset) if side == 0 else (right + across * offset)
+				v.y = profile.elevation_height(v.x, v.z) + 0.02
+				vertices.append(v)
+				normals.append(Vector3.UP)
+				uvs.append(Vector2(offset, strip.chainages[k]))
+		if k == 0:
+			continue
+		for side: int in 2:
+			for j: int in 2:
+				var a := (k - 1) * 6 + side * 3 + j
+				var b := k * 6 + side * 3 + j
+				indices.append_array(PackedInt32Array([a, b, a + 1, a + 1, b, b + 1]))
+	# Smooth normals from the actual sampled cross-section slopes.
+	for k: int in strip.chainages.size():
+		var k0 := maxi(k - 1, 0)
+		var k1 := mini(k + 1, strip.chainages.size() - 1)
+		for side: int in 2:
+			for j: int in 3:
+				var a := side * 3 + j
+				var along := vertices[k1 * 6 + a] - vertices[k0 * 6 + a]
+				var across := vertices[k * 6 + side * 3 + mini(j + 1, 2)] - vertices[k * 6 + side * 3 + maxi(j - 1, 0)]
+				var normal := across.cross(along).normalized()
+				normals[k * 6 + a] = normal if normal.y >= 0.0 else -normal
+	strip.rumble_arrays.resize(Mesh.ARRAY_MAX)
+	strip.rumble_arrays[Mesh.ARRAY_VERTEX] = vertices
+	strip.rumble_arrays[Mesh.ARRAY_NORMAL] = normals
+	strip.rumble_arrays[Mesh.ARRAY_TEX_UV] = uvs
+	strip.rumble_arrays[Mesh.ARRAY_INDEX] = indices
+
+
 ## Where the road body's foot stands (SKIRT_OUT_M): SKIRT_DOWN_M under
 ## the paved edge, or SKIRT_FOOT_UNDER_M under the field at the foot
 ## where that is lower (the field fallen away: an embankment). The one
@@ -1014,6 +1087,18 @@ func _skirt_arrays(strip: Strip) -> void:
 ## body) from _skirt_arrays' (the node stage: main thread); the arrays
 ## released once the nodes hold them.
 func _add_nodes(strip: Strip) -> void:
+	if not strip.rumble_arrays.is_empty():
+		var rumble_mesh := ArrayMesh.new()
+		rumble_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, strip.rumble_arrays)
+		rumble_mesh.surface_set_material(0, _rumble_material)
+		var rumble := MeshInstance3D.new()
+		rumble.name = "Rumble_" + strip.id
+		rumble.mesh = rumble_mesh
+		add_child(rumble)
+		rumble_mesh_count += 1
+		rumble_vertex_count += strip.rumble_arrays[Mesh.ARRAY_VERTEX].size()
+		rumble_triangle_count += strip.rumble_arrays[Mesh.ARRAY_INDEX].size() / 3
+		strip.rumble_arrays = []
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = strip.vertices

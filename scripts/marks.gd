@@ -327,6 +327,11 @@ func lay_quad(from: Vector3, to: Vector3, wheel: int, intensity: float) -> bool:
 	# The crossfall: the ground at the two edges of the quad's middle.
 	var width := TYRE_WIDTH_FRONT if wheel < 2 else TYRE_WIDTH_REAR
 	var middle := (from + to) * 0.5
+	# ROAD-5: the lip makes the shoulder's height vary ~0.055 m within the
+	# band, so the middle's own ground is what the quad lies on - the ends'
+	# mean could sit up to half the lip off the field at the origin (measured
+	# 0.021 m on the marks test's straight, tolerance 0.005 m).
+	middle.y = ground_height(middle.x, middle.z)
 	var left := middle - across * (width * 0.5)
 	var right := middle + across * (width * 0.5)
 	var tilt := ground_height(right.x, right.z) - ground_height(left.x, left.z)
