@@ -1,0 +1,101 @@
+{
+  "id": "FD-05",
+  "title": "Car Delivery 1",
+  "rank": "junior",
+  "briefing": "Dieter: Collect the car at dispatch and deliver it to the docks within 110 seconds.\nFollow the marked route across the pad to the handover and finish gates. The pad stands in for C\u00f4te d\u2019Azur; police, traffic and vehicle damage are not simulated.",
+  "environment": "pad",
+  "episode": [
+    {
+      "sequence": 0,
+      "type": "delivery_pickup",
+      "position": [
+        0.0,
+        0.7,
+        -20.0
+      ],
+      "radius": 4.0
+    },
+    {
+      "sequence": 1,
+      "type": "waypoint_gate",
+      "position": [
+        0.0,
+        0.7,
+        -100.0
+      ],
+      "radius": 4.0
+    },
+    {
+      "sequence": 2,
+      "type": "waypoint_gate",
+      "position": [
+        0.0,
+        0.7,
+        -200.0
+      ],
+      "radius": 4.0
+    },
+    {
+      "sequence": 3,
+      "type": "delivery_return",
+      "position": [
+        0.0,
+        0.7,
+        -300.0
+      ],
+      "radius": 4.0
+    },
+    {
+      "sequence": 4,
+      "type": "timed_finish",
+      "position": [
+        0.0,
+        0.7,
+        -330.0
+      ],
+      "radius": 4.0
+    }
+  ],
+  "scoring": {
+    "time_limit_s": 110,
+    "medal_times": {
+      "gold": 31,
+      "silver": 36,
+      "bronze": 43
+    },
+    "failure_conditions": [
+      "skipped_gate"
+    ]
+  },
+  "unlock": {
+    "required_rank": "junior",
+    "required_missions": [
+      "FD-04"
+    ]
+  },
+  "input_script": {
+    "hold_speed": 12.0,
+    "steps": [
+      {
+        "steer_deg": 0.0
+      },
+      {
+        "when": {
+          "after": 100.0
+        },
+        "release": [
+          "accelerate"
+        ]
+      }
+    ]
+  },
+  "provenance": {
+    "source": "docs/mission-ladder-source.md: FD-05 (Junior Test Driver)",
+    "medals": {
+      "scripted_time_s": 28.583333,
+      "method": "ceil(measured scripted seconds * 1.05 / 1.25 / 1.50) for gold / silver / bronze; source time remains the limit",
+      "run": "Godot 4.7.2, headless fixed 60 Hz, tests/mission_ladder_test.gd, fresh pad Boxster, shipped input_script, 2026-09-28"
+    },
+    "adaptation": "Ordered delivery_pickup at dispatch, two route gates, delivery_return as dock handover, separate timed_finish; crossing only, no stopping, cargo, police or damage verdict."
+  }
+}

@@ -1,10 +1,10 @@
 extends SceneTree
-## ML-1 persistence and runner proof; ML-2 production ladder and scripted drives.
+## ML-1/2 ladder proof; ML-3 delivery, extended slaloms and promotion car.
 var failures := 0
 var checks := 0
 var changes := 0
 var fixture: Dictionary
-var test_path := "/tmp/fd-ml1-%d/campaign.json" % OS.get_process_id()
+var test_path := ProjectSettings.globalize_path("res://build/ml3-test-%d/campaign.json" % OS.get_process_id())
 
 func _initialize() -> void:
 	_run.call_deferred()
@@ -32,10 +32,15 @@ func _run() -> void:
 	OS.set_environment("FD_TELEMETRY", "0")
 	fixture = JSON.parse_string(FileAccess.get_file_as_string("res://tests/ml1_proof.json"))
 	_schema()
+	var rs: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://configs/cars/fd_1073.json"))
+	ok(CarConfigValidation.validate(rs, "fd_1073").is_empty(), "RS config validates every field and exact mass ledger")
 	_store()
 	await _episode()
 	await _production()
+	WorldStore.path_override = ""
 	CampaignStore.path_override = ""
+	for file in DirAccess.get_files_at(test_path.get_base_dir()):
+		DirAccess.remove_absolute(test_path.get_base_dir().path_join(file))
 	DirAccess.remove_absolute(test_path)
 	DirAccess.remove_absolute(test_path.get_base_dir())
 	print("MISSION LADDER TEST %s: %d checks" % ["PASSED" if failures == 0 else "FAILED", checks])
@@ -183,7 +188,7 @@ func _store() -> void:
 
 func _episode() -> void:
 	var runner := MissionRunner.of(self)
-	ok(runner != null and runner.catalog.size() == 5, "autoload discovers five production missions")
+	ok(runner != null and runner.catalog.size() == 8, "autoload discovers eight production missions")
 	ok(runner.get_child_count() == 0 and not runner.is_physics_processing() and not runner.is_processing_input(), "idle runner inert")
 	var scene: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
@@ -248,7 +253,7 @@ func _episode() -> void:
 	scene.queue_free()
 	await process_frame
 
-const PRODUCTION_IDS := ["FD-01", "FD-02", "FD-03", "FD-04", "FD-12"]
+const PRODUCTION_IDS := ["FD-01", "FD-02", "FD-03", "FD-04", "FD-05", "FD-06", "FD-07", "FD-12"]
 
 func _mission_rows(garage: Garage) -> Dictionary:
 	garage.show_page(Garage.Page.MISSIONS)
@@ -268,17 +273,25 @@ func _point(position: Array) -> Vector3:
 func _production() -> void:
 	var runner := MissionRunner.of(self)
 	runner.load_catalog()
-	ok(runner.catalog.size() == 5, "production scan finds exactly five missions")
+	ok(runner.catalog.size() == 8, "production scan finds exactly eight missions")
 	ok(MissionSchema.catalog_errors(runner.catalog.values()).is_empty(), "production catalog has no reference or schema errors")
 	for id: String in PRODUCTION_IDS:
 		ok(runner.catalog.has(id), id + " discovered")
 		if not runner.catalog.has(id):
 			return
 		ok(MissionSchema.validate(runner.catalog[id]).is_empty(), id + " validates without errors")
+	for id: String in ["FD-05", "FD-06", "FD-07"]:
+		var m: Dictionary = runner.catalog[id]
+		var bands: Dictionary = m.scoring.medal_times
+		var source_limit: int = {"FD-05": 110, "FD-06": 50, "FD-07": 58}[id]
+		ok(m.rank == "junior" and m.scoring.time_limit_s == source_limit, id + " preserves source rank and limit")
+		ok(bands.gold < bands.silver and bands.silver < bands.bronze and bands.bronze < source_limit, id + " medal bands strictly precede source limit")
+	var delivery: Array = runner.catalog["FD-05"].episode
+	ok(delivery[0].type == "delivery_pickup" and delivery[-2].type == "delivery_return" and delivery[-1].type == "timed_finish", "delivery uses existing pickup/handover/finish steps")
 	# Production constraints use the existing landmark coordinates, not an
 	# invented alternating cone layout. Gates weave around that straight line.
 	var real_cones := TestPad.slalom_cone_positions()
-	for id: String in ["FD-01", "FD-04", "FD-12"]:
+	for id: String in ["FD-01", "FD-04", "FD-06", "FD-07", "FD-12"]:
 		var cones: Array = runner.catalog[id].episode[0].cones
 		var count := 6 if id == "FD-01" else 14
 		var matches := cones.size() == count
@@ -292,8 +305,14 @@ func _production() -> void:
 	var garage: Garage = scene.get_node("Garage")
 	runner.configure(car, scene.get_node("HUD"))
 	_fresh_campaign(runner)
+	WorldStore.path_override = test_path.get_base_dir().path_join("world.json")
 	var rows := _mission_rows(garage)
-	ok(rows.size() == 5 and rows["FD-01"].enabled and rows["FD-01"].label == "FD-01 — Simple Slalom", "fresh Junior sees playable FD-01")
+	ok(not runner.campaign.owns_car("fd_1073"), "fresh Junior does not own the RS")
+	ok(not runner.campaign.take_car("fd_1073", WorldStore.active_path()), "fresh driver cannot TAKE the RS")
+	for row: Dictionary in garage.page_rows():
+		if row.kind == "reward" and row.id == "test_driver":
+			ok(not row.enabled and not row.label.contains("OWNED"), "fresh garage reward is locked")
+	ok(rows.size() == 8 and rows["FD-01"].enabled and rows["FD-01"].label == "FD-01 — Simple Slalom", "fresh Junior sees playable FD-01")
 	for i in range(1, PRODUCTION_IDS.size()):
 		var id: String = PRODUCTION_IDS[i]
 		var reason: String = "Complete " + PRODUCTION_IDS[i - 1]
@@ -304,6 +323,8 @@ func _production() -> void:
 	for i in range(PRODUCTION_IDS.size() - 1):
 		var id: String = PRODUCTION_IDS[i]
 		var mission: Dictionary = runner.catalog[id]
+		ok(runner.campaign.record_result(mission, 1, false) and runner.campaign.unlock_reason(runner.catalog[PRODUCTION_IDS[i + 1]]) == "Complete " + id, id + " failed attempt cannot unlock successor")
+		ok(not runner.start(PRODUCTION_IDS[i + 1]), id + " successor cannot bypass lock via runner")
 		ok(runner.campaign.record_result(mission, mission.scoring.medal_times.silver, true), id + " prerequisite result saved")
 		rows = _mission_rows(garage)
 		var next_id: String = PRODUCTION_IDS[i + 1]
@@ -314,7 +335,7 @@ func _production() -> void:
 		var mission: Dictionary = runner.catalog[id]
 		ok(runner.start(id), id + " starts for failure injection")
 		runner.set_physics_process(false)
-		if id == "FD-02":
+		if id in ["FD-02", "FD-05"]:
 			var gate := _point(mission.episode[2].position)
 			runner._previous = gate + Vector3(10, 0, 0)
 			runner.tick(0.1, gate)
@@ -341,9 +362,11 @@ func _production() -> void:
 				runner.tick(float(samples[medal]) / mission.episode.size(), point)
 			ok(runner.last_result.get("passed", false) and runner.last_result.get("medal") == medal and is_equal_approx(runner.last_result.get("time_s", -1.0), samples[medal]), id + " injected elapsed awards " + medal)
 		if id == "FD-12":
+			_reward_roundtrip(runner, garage)
 			ok(runner.campaign.state.rank == "test_driver" and runner.campaign.state.credentials.test_driver_licence and runner.campaign.state.rewards.test_driver, "production FD-12 grants Test Driver and RS 2.7 entitlement")
 	scene.queue_free()
 	await process_frame
+	WorldStore.path_override = ""
 	# Every shipped script runs on a newly loaded, otherwise untouched pad car.
 	# Never assert a medal or fixed completion time for the measured drives.
 	_fresh_campaign(runner)
@@ -365,9 +388,49 @@ func _production() -> void:
 		var result: Dictionary = loaded.state.results.get(id, {})
 		ok(runner.last_result.get("saved", false) and result.get("medal", "") != "" and is_equal_approx(result.get("best_time_s", -1.0), runner.last_result.get("time_s", -2.0)), id + " scripted pass survives store reload")
 		ok(not Input.is_action_pressed("accelerate") and not Input.is_action_pressed("steer_left") and not Input.is_action_pressed("steer_right"), id + " script releases its inputs")
+		if id in ["FD-05", "FD-06", "FD-07"]:
+			var shipped: Dictionary = runner.catalog[id].input_script
+			runner.catalog[id].input_script = {"steps": [{"press": ["brake" if id == "FD-05" else "accelerate"]}]}
+			ok(runner.start(id, true), id + " bad scripted drive starts")
+			for frame in 7200:
+				await physics_frame
+				if runner.active.is_empty():
+					break
+			ok(runner.active.is_empty() and not runner.last_result.get("passed", true), id + " bad scripted drive fails on the actual pad car")
+			runner.catalog[id].input_script = shipped
+			loaded.load_state()
+			ok(loaded.state.results[id].attempts == 2 and loaded.state.results[id].best_time_s == result.best_time_s, id + " failed drive persists attempt and preserves best")
 		runner.abort()
 		scene.queue_free()
 		await process_frame
 	var persisted := CampaignStore.new()
 	persisted.load_state()
-	ok(persisted.state.rank == "test_driver" and persisted.state.credentials.test_driver_licence and persisted.state.rewards.test_driver, "scripted promotion persists rank, licence and RS entitlement together")
+	ok(persisted.state.rank == "test_driver" and persisted.state.credentials.test_driver_licence and persisted.state.rewards.test_driver and persisted.owns_car("fd_1073"), "scripted promotion persists rank, licence and RS entitlement together")
+
+func _reward_roundtrip(runner: MissionRunner, garage: Garage) -> void:
+	var loaded := CampaignStore.new()
+	loaded.load_state()
+	ok(loaded.owns_car("fd_1073"), "FD-12 grant auto-owns RS before TAKE and survives reload")
+	garage.show_page(Garage.Page.MISSIONS)
+	var take_row := -1
+	for i in garage.page_rows().size():
+		var row: Dictionary = garage.page_rows()[i]
+		if row.kind == "reward" and row.id == "test_driver":
+			take_row = i
+			ok(row.enabled and row.label.contains("OWNED — TAKE"), "entitled garage offers owned RS TAKE")
+	ok(take_row >= 0, "RS reward listed")
+	if take_row >= 0:
+		garage.activate_row(take_row)
+	ok(WorldStore.load_driver(WorldStore.active_path()).active_car == "fd_1073", "garage TAKE persists active RS without a voucher")
+	garage.show_page(Garage.Page.CAR)
+	ok(garage.page_text().contains("OWNED  " + CampaignStore.REWARDS.test_driver) and garage.page_text().contains("SELECTED"), "CAR page identifies owned and selected promotion RS")
+	var cars_path := test_path.get_base_dir().path_join("cars.json")
+	ok(loaded.take_car("fd_1073", WorldStore.active_path(), cars_path, true), "reward TAKE creates isolated condition entry")
+	ok(OdometerStore.load_odometer("fd_1073", cars_path) == 0 and OdometerStore.load_fuel("fd_1073", 85, cars_path).fuel_l == 85, "new RS has zero distance and its own full 85 L tank")
+	OdometerStore.save_car("fd_1073", 1234, 42, cars_path)
+	var before := FileAccess.get_file_as_string(cars_path)
+	ok(loaded.take_car("fd_1073", WorldStore.active_path(), cars_path, true) and FileAccess.get_file_as_string(cars_path) == before, "repeated TAKE cannot reset condition")
+	var campaign_bytes := FileAccess.get_file_as_string(test_path)
+	loaded.load_state()
+	ok(loaded.owns_car("fd_1073") and FileAccess.get_file_as_string(test_path) == campaign_bytes, "reward ownership reload never rewrites campaign")
+	ok(not loaded.owns_car("fd_1001"), "reward grant does not manufacture other ownership")

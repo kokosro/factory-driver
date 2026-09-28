@@ -9,6 +9,7 @@ const PATH := "user://campaign.json"
 const VERSION := 1
 const RANKS := MissionSchema.RANKS
 const PROMOTIONS := {"FD-12": "test_driver", "FD-22": "chief", "FD-33": "ace"}
+const REWARD_CARS := {"test_driver": "fd_1073"}
 const REWARDS := {
 	"test_driver": "Customised 1973 Porsche 911 Carrera RS 2.7 Coupe",
 	"chief": "Customised 1997 Porsche Boxster",
@@ -89,6 +90,42 @@ func unlock_reason(mission: Dictionary) -> String:
 		if not valid_result(result) or result.medal == "":
 			return "Complete " + id
 	return ""
+
+## The promotion grant IS ownership, committed atomically with the result.
+## Deriving it from the entitlement also covers existing ML-1/ML-2 saves;
+## no purchase, second ownership flag, or write on load is needed.
+func owns_car(car_id: String) -> bool:
+	for rank: String in REWARD_CARS:
+		if REWARD_CARS[rank] == car_id:
+			return state.rewards.get(rank, false) == true
+	return false
+
+## Select an already-owned reward using FirstCar's store idiom. The live
+## car swap is deferred there too: ArcadeCar's config/static tuning is frozen.
+## Explicit paths let tests opt into isolated IO while default headless play
+## keeps no records. Taking again preserves all existing condition fields.
+func take_car(car_id: String, world_path: String, store_path := OdometerStore.PATH, store_kept := false, target_car: ArcadeCar = null) -> bool:
+	if not owns_car(car_id) or world_path == "":
+		return false
+	var config: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://configs/cars/" + car_id + ".json"))
+	if not CarConfigValidation.validate(config, car_id).is_empty():
+		return false
+	if store_kept and not OdometerStore._cars(OdometerStore._read(store_path)).has(car_id):
+		var entry := FirstCar.default_entry()
+		entry.fuel_l = config.fuel.tank_capacity_l
+		OdometerStore.save_car(car_id, entry.odometer_m, entry.fuel_l, store_path, entry.driver, entry.battery, entry.wear)
+		OdometerStore.save_licence(car_id, entry.licence, store_path)
+		if not OdometerStore._cars(OdometerStore._read(store_path)).has(car_id):
+			return false
+	WorldStore.set_active_car(car_id, world_path)
+	if WorldStore.load_driver(world_path).active_car != car_id:
+		return false
+	var rental := RentalGate.active_on(target_car)
+	if rental:
+		rental.end()
+	elif WorldStore.rental_active(world_path):
+		WorldStore.clear_rental(world_path)
+	return true
 
 ## Aborts never call this. Failed attempts count but cannot unlock anything.
 func record_result(mission: Dictionary, seconds: float, passed: bool) -> bool:

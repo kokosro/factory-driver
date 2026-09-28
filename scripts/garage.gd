@@ -544,9 +544,15 @@ func _build_car_page() -> void:
 		var share := float(wear.get(field, 0.0))
 		_add_bar(field.replace("_", " ").capitalize(), share, "%.3f %%" % (share * 100.0), COLOR_WEAR)
 	var world_path := WorldStore.active_path()
+	var runner := MissionRunner.of(get_tree())
+	if runner and runner.campaign.owns_car("fd_1073"):
+		_add_text("OWNED  " + CampaignStore.REWARDS.test_driver + " (fd_1073): granted at promotion.", COLOR_TITLE)
+		_add_row("TAKE — " + CampaignStore.REWARDS.test_driver, "Select your reward car. Live vehicle swapping is pending; driving still uses the Boxster.", "take_reward", _take_reward_car.bind("fd_1073"), world_path != "", "fd_1073")
 	if world_path != "":
 		var owned := String(WorldStore.load_driver(world_path).active_car)
-		if owned != "":
+		if owned == "fd_1073":
+			_add_text("SELECTED  " + CampaignStore.REWARDS.test_driver, COLOR_TITLE)
+		elif owned != "":
 			_add_text("OWNED  %s (%s): taken at the dealership on the voucher; its entry rides cars.json. It becomes the car in the scene when the car swap lands (deferred: scripts/first_car.gd)." % [FirstCar.car_name() if owned == FirstCar.CAR_ID else owned, owned], COLOR_TITLE)
 	var kept := "kept in %s" % DataDir.root_on_disk().path_join(OdometerStore.PATH.trim_prefix("user://")) if OdometerStore.enabled() else "not kept in this run (no window: the store is off)"
 	_add_text("The car's file: %s. Saved every %.0f s of driving and when the game closes." % [kept, ArcadeCar.ODOMETER_SAVE_INTERVAL], COLOR_DIM_TEXT)
@@ -922,8 +928,8 @@ func _add_bar(label: String, fraction: float, reading: String, color: Color) -> 
 # --- MISSIONS --------------------------------------------------------------------
 
 func _campaign_changed() -> void:
-	if is_open and page == Page.MISSIONS:
-		show_page(Page.MISSIONS)
+	if is_open and page in [Page.MISSIONS, Page.CAR]:
+		show_page(page)
 
 func _build_missions_page() -> void:
 	var runner := MissionRunner.of(get_tree())
@@ -954,7 +960,16 @@ func _build_missions_page() -> void:
 		_add_row(id + " — " + mission.title, hint, "mission", _start_episode.bind(id), reason == "", id)
 	_add_heading("REWARD ENTITLEMENTS")
 	for rank: String in CampaignStore.REWARDS:
-		_add_row(CampaignStore.REWARDS[rank], ("Earned" if record.rewards[rank] else "Requires " + rank.replace("_", " ")) + " — car configuration coming later", "reward", Callable(), false, rank)
+		if CampaignStore.REWARD_CARS.has(rank):
+			var owned := runner.campaign.owns_car(CampaignStore.REWARD_CARS[rank])
+			_add_row(("OWNED — TAKE — " if owned else "") + CampaignStore.REWARDS[rank], "Select your promotion reward. Live vehicle swapping is pending; driving still uses the Boxster." if owned else "Requires " + rank.replace("_", " "), "reward", _take_reward_car.bind(CampaignStore.REWARD_CARS[rank]), owned and WorldStore.active_path() != "", rank)
+		else:
+			_add_row(CampaignStore.REWARDS[rank], ("Earned" if record.rewards[rank] else "Requires " + rank.replace("_", " ")) + " — car configuration coming later", "reward", Callable(), false, rank)
+
+func _take_reward_car(car_id: String) -> void:
+	var runner := MissionRunner.of(get_tree())
+	if runner and runner.campaign.take_car(car_id, WorldStore.active_path(), OdometerStore.PATH, OdometerStore.enabled(), car):
+		show_page(Page.CAR)
 
 func _start_episode(id: String) -> void:
 	var runner := MissionRunner.of(get_tree())

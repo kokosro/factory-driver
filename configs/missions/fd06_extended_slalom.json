@@ -1,5 +1,5 @@
 {
-  "briefing": "Rolf: Time to see if you are ready to be a full Test Driver.\nClear our standard grading course in fifty-nine seconds for your licence and RS 2.7 entitlement.\nThe pad stands in for the Autobahn; weather hazards are not simulated.",
+  "briefing": "Stephanie: Take the extended slalom from the town end to the forest end in under fifty seconds. Keep every cone standing.\nThe pad's fourteen cones stand in for Normandie; cone contact fails the run.",
   "environment": "pad",
   "episode": [
     {
@@ -229,14 +229,14 @@
       "position": [
         20.0,
         0.7,
-        -330.0
+        -348
       ],
       "radius": 4.0,
       "sequence": 15.0,
       "type": "timed_finish"
     }
   ],
-  "id": "FD-12",
+  "id": "FD-06",
   "rank": "junior",
   "scoring": {
     "failure_conditions": [
@@ -245,15 +245,15 @@
     ],
     "medal_times": {
       "gold": 31,
-      "silver": 40,
-      "bronze": 50
+      "silver": 37,
+      "bronze": 44
     },
-    "time_limit_s": 59.0
+    "time_limit_s": 50
   },
-  "title": "1st Promotion Test",
+  "title": "Extended Slalom",
   "unlock": {
     "required_missions": [
-      "FD-07"
+      "FD-05"
     ],
     "required_rank": "junior"
   },
@@ -538,7 +538,16 @@
       {"steer_deg": -13.0, "when": {"after": 0.099999}},
       {"steer_deg": -8.0, "when": {"after": 0.099999}},
       {"steer_deg": -4.0, "when": {"after": 0.099999}},
-      {"steer_free": true, "when": {"after": 60}}
+      {"steer_free": true, "when": {"after": 5.0}}
     ]
+  },
+  "provenance": {
+    "source": "docs/mission-ladder-source.md: FD-06 (Junior Test Driver)",
+    "medals": {
+      "scripted_time_s": 29.133333,
+      "method": "ceil(measured scripted seconds * 1.05 / 1.25 / 1.50) for gold / silver / bronze; source time remains the limit",
+      "run": "Godot 4.7.2, headless fixed 60 Hz, tests/mission_ladder_test.gd, fresh pad Boxster, shipped input_script, 2026-09-28"
+    },
+    "adaptation": "Existing fourteen surveyed pad cones; swept cone contact fails as in ML-2. Finish extended 18 m beyond FD-04."
   }
 }

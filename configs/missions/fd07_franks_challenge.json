@@ -1,5 +1,5 @@
 {
-  "briefing": "Rolf: Time to see if you are ready to be a full Test Driver.\nClear our standard grading course in fifty-nine seconds for your licence and RS 2.7 entitlement.\nThe pad stands in for the Autobahn; weather hazards are not simulated.",
+  "briefing": "Frank: Klaus and I have set a tighter line through the pad slalom. I did it in fifty-eight seconds. Beat that, and keep the cones standing.\nPass every gate in order; cone contact fails the run.",
   "environment": "pad",
   "episode": [
     {
@@ -91,7 +91,7 @@
         0.7,
         -60.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 1.0,
       "type": "waypoint_gate"
     },
@@ -101,7 +101,7 @@
         0.7,
         -78.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 2.0,
       "type": "waypoint_gate"
     },
@@ -111,7 +111,7 @@
         0.7,
         -96.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 3.0,
       "type": "waypoint_gate"
     },
@@ -121,7 +121,7 @@
         0.7,
         -114.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 4.0,
       "type": "waypoint_gate"
     },
@@ -131,7 +131,7 @@
         0.7,
         -132.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 5.0,
       "type": "waypoint_gate"
     },
@@ -141,7 +141,7 @@
         0.7,
         -150.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 6.0,
       "type": "waypoint_gate"
     },
@@ -151,7 +151,7 @@
         0.7,
         -168.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 7.0,
       "type": "waypoint_gate"
     },
@@ -161,7 +161,7 @@
         0.7,
         -186.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 8.0,
       "type": "waypoint_gate"
     },
@@ -171,7 +171,7 @@
         0.7,
         -204.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 9.0,
       "type": "waypoint_gate"
     },
@@ -181,7 +181,7 @@
         0.7,
         -222.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 10.0,
       "type": "waypoint_gate"
     },
@@ -191,7 +191,7 @@
         0.7,
         -240.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 11.0,
       "type": "waypoint_gate"
     },
@@ -201,7 +201,7 @@
         0.7,
         -258.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 12.0,
       "type": "waypoint_gate"
     },
@@ -211,7 +211,7 @@
         0.7,
         -276.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 13.0,
       "type": "waypoint_gate"
     },
@@ -221,7 +221,7 @@
         0.7,
         -294.0
       ],
-      "radius": 1.8,
+      "radius": 1.5,
       "sequence": 14.0,
       "type": "waypoint_gate"
     },
@@ -229,14 +229,14 @@
       "position": [
         20.0,
         0.7,
-        -330.0
+        -330
       ],
-      "radius": 4.0,
+      "radius": 3.0,
       "sequence": 15.0,
       "type": "timed_finish"
     }
   ],
-  "id": "FD-12",
+  "id": "FD-07",
   "rank": "junior",
   "scoring": {
     "failure_conditions": [
@@ -244,16 +244,16 @@
       "cone_hit"
     ],
     "medal_times": {
-      "gold": 31,
-      "silver": 40,
-      "bronze": 50
+      "gold": 30,
+      "silver": 35,
+      "bronze": 42
     },
-    "time_limit_s": 59.0
+    "time_limit_s": 58
   },
-  "title": "1st Promotion Test",
+  "title": "Frank's Challenge",
   "unlock": {
     "required_missions": [
-      "FD-07"
+      "FD-06"
     ],
     "required_rank": "junior"
   },
@@ -538,7 +538,16 @@
       {"steer_deg": -13.0, "when": {"after": 0.099999}},
       {"steer_deg": -8.0, "when": {"after": 0.099999}},
       {"steer_deg": -4.0, "when": {"after": 0.099999}},
-      {"steer_free": true, "when": {"after": 60}}
+      {"steer_free": true, "when": {"after": 5.0}}
     ]
+  },
+  "provenance": {
+    "source": "docs/mission-ladder-source.md: FD-07 (Junior Test Driver)",
+    "medals": {
+      "scripted_time_s": 27.816667,
+      "method": "ceil(measured scripted seconds * 1.05 / 1.25 / 1.50) for gold / silver / bronze; source time remains the limit",
+      "run": "Godot 4.7.2, headless fixed 60 Hz, tests/mission_ladder_test.gd, fresh pad Boxster, shipped input_script, 2026-09-28"
+    },
+    "adaptation": "Existing fourteen surveyed pad cones; swept cone contact fails as in ML-2. FD-04 line with gate radii tightened from 1.8 to 1.5 m and finish from 4 to 3 m."
   }
 }
