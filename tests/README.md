@@ -93,10 +93,17 @@ Conductor's visual probe, `godot --path . --script res://tests/visual_probe.gd
 
 ## Mission ladder (ML-1)
 
-After road edge, `mission_ladder_test.gd` runs 100 checks: schema types, medals,
+After road edge, `mission_ladder_test.gd` runs 212 checks: schema types, medals,
 references and cycles; store round-trip, version-zero migration, corruption, gating,
 overrides and atomic failure; L1 enrollment, driver-wide rank, prerequisites and
 FD-12/22/33 transactions; retry scoring, Ace terminal, ordered gates, cone failure,
 abort without writes, idle runner, garage briefing/results and six-page order.
 The test-only `ml1_proof.json` also drives the actual pad car using HandlingTests'
-input mechanics. Production has no missions. Result lines use `episode result:`.
+input mechanics. The ML-2 section loads the five production configs, checks their
+schemas and dependencies, the real slalom-cone coordinates, fresh-Junior garage
+rows (FD-01 enabled, the rest locked with their prerequisite reasons), each chain
+link unlocking through FD-12, injected cone/skip/timeout failures and all four
+medal bands per mission, the garage's unscripted launch, then drives every shipped
+script on a fresh pad car to completion (never asserting a fixed time or medal) and
+proves each result plus the FD-12 promotion survive a store reload. Result lines
+use `episode result:`.

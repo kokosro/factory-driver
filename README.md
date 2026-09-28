@@ -2714,9 +2714,20 @@ ENTRY enrolls Junior; FD-12, FD-22 and FD-33 promotion hooks grant Test Driver, 
 and terminal Ace credentials with their reward-car entitlements. Rewards remain
 disabled rows until their car configurations arrive. Promotion retries are unlimited.
 
-ML-1 ships no playable campaign missions. The ordered gate/cone/timed-finish proof
-lives only in `tests/ml1_proof.json`. Future JSON episodes load from
-`configs/missions/`; invalid definitions and their dependents are excluded.
+ML-1 ships the ladder machinery. ML-2 populates it: the first five production
+episodes load from `configs/missions/` — FD-01 Simple Slalom (first six pad cones,
+26 s), FD-02 S-turn (five broad gates, 32 s), FD-03 360 Spin (compass circuit on
+the skid pad's edge, 15 s), FD-04 Open Road Slalom (all fourteen cones, 28 s) and
+FD-12 1st Promotion Test (the full grading line, 59 s). The pad stands in for
+Weissach, Corsica and the Autobahn; FD-02's damage disqualification becomes
+skipped-gate failure and FD-03's yaw/handbrake requirements become a positional
+circuit, each noted in its briefing. Unlock chain FD-01→FD-02→FD-03→FD-04→FD-12
+on the Junior rank; finishing FD-12 in time promotes to Test Driver with the RS
+2.7 entitlement (an entitlement row, still without a car configuration). Each
+config carries a shipped `input_script` — the mission's built-in scripted test
+drive the headless suite replays; garage entries start unscripted for the driver.
+Invalid definitions and their dependents are still excluded; medal bands were
+estimated from the certified SLALOM pace and tuned from the scripted runs.
 `campaign.json` in the chosen data directory keeps version, rank, results
 (best time, medal, attempts), credentials and reward entitlements separately from
 the numeric licence and car records. Writes use a temporary file and atomic rename;

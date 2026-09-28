@@ -1,5 +1,5 @@
 extends SceneTree
-## ML-1: independent campaign persistence, validation, transactions and pad proof.
+## ML-1 persistence and runner proof; ML-2 production ladder and scripted drives.
 var failures := 0
 var checks := 0
 var changes := 0
@@ -34,6 +34,7 @@ func _run() -> void:
 	_schema()
 	_store()
 	await _episode()
+	await _production()
 	CampaignStore.path_override = ""
 	DirAccess.remove_absolute(test_path)
 	DirAccess.remove_absolute(test_path.get_base_dir())
@@ -182,7 +183,7 @@ func _store() -> void:
 
 func _episode() -> void:
 	var runner := MissionRunner.of(self)
-	ok(runner != null and runner.catalog.is_empty(), "autoload has zero production missions")
+	ok(runner != null and runner.catalog.size() == 5, "autoload discovers five production missions")
 	ok(runner.get_child_count() == 0 and not runner.is_physics_processing() and not runner.is_processing_input(), "idle runner inert")
 	var scene: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
@@ -236,8 +237,137 @@ func _episode() -> void:
 	ok(not Input.is_action_pressed("accelerate"), "script inputs released after finish")
 	garage.show_page(Garage.Page.MISSIONS)
 	ok(garage.page_text().contains("episode result:"), "results visible in garage")
+	# Empty paths trigger a production scan; clear the in-memory catalog to
+	# exercise the actual empty-page branch without changing production files.
+	runner.catalog.clear()
+	garage.show_page(Garage.Page.MISSIONS)
+	ok(garage.page_text().contains("No playable campaign missions yet"), "empty catalog page remains honest")
 	runner.load_catalog()
 	garage.show_page(Garage.Page.MISSIONS)
-	ok(garage.page_text().contains("No playable campaign missions yet"), "production empty state honest")
+	ok(not garage.page_text().contains("No playable campaign missions yet") and garage.page_rows()[0].label == "FD-01 — Simple Slalom", "production scan replaces empty state with live rows")
 	scene.queue_free()
 	await process_frame
+
+const PRODUCTION_IDS := ["FD-01", "FD-02", "FD-03", "FD-04", "FD-12"]
+
+func _mission_rows(garage: Garage) -> Dictionary:
+	garage.show_page(Garage.Page.MISSIONS)
+	var rows := {}
+	for row: Dictionary in garage.page_rows():
+		if row.kind == "mission":
+			rows[row.id] = row
+	return rows
+
+func _fresh_campaign(runner: MissionRunner) -> void:
+	runner.campaign.state = CampaignStore.defaults()
+	runner.campaign.reconcile(LicenceExams.LICENCE_L1)
+
+func _point(position: Array) -> Vector3:
+	return Vector3(position[0], position[1], position[2])
+
+func _production() -> void:
+	var runner := MissionRunner.of(self)
+	runner.load_catalog()
+	ok(runner.catalog.size() == 5, "production scan finds exactly five missions")
+	ok(MissionSchema.catalog_errors(runner.catalog.values()).is_empty(), "production catalog has no reference or schema errors")
+	for id: String in PRODUCTION_IDS:
+		ok(runner.catalog.has(id), id + " discovered")
+		if not runner.catalog.has(id):
+			return
+		ok(MissionSchema.validate(runner.catalog[id]).is_empty(), id + " validates without errors")
+	# Production constraints use the existing landmark coordinates, not an
+	# invented alternating cone layout. Gates weave around that straight line.
+	var real_cones := TestPad.slalom_cone_positions()
+	for id: String in ["FD-01", "FD-04", "FD-12"]:
+		var cones: Array = runner.catalog[id].episode[0].cones
+		var count := 6 if id == "FD-01" else 14
+		var matches := cones.size() == count
+		for k in mini(cones.size(), count):
+			matches = matches and _point(cones[k]).is_equal_approx(real_cones[k] + Vector3(0, 0.7, 0))
+		ok(matches, id + " uses the real pad slalom cones at gate height")
+	var scene: Node = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	await process_frame
+	var car: ArcadeCar = scene.get_node("Car")
+	var garage: Garage = scene.get_node("Garage")
+	runner.configure(car, scene.get_node("HUD"))
+	_fresh_campaign(runner)
+	var rows := _mission_rows(garage)
+	ok(rows.size() == 5 and rows["FD-01"].enabled and rows["FD-01"].label == "FD-01 — Simple Slalom", "fresh Junior sees playable FD-01")
+	for i in range(1, PRODUCTION_IDS.size()):
+		var id: String = PRODUCTION_IDS[i]
+		var reason: String = "Complete " + PRODUCTION_IDS[i - 1]
+		ok(not rows[id].enabled and rows[id].hint.contains("Locked: " + reason) and runner.campaign.unlock_reason(runner.catalog[id]) == reason, id + " row shows exact prerequisite lock")
+	garage._start_episode("FD-01")
+	ok(runner.active.get("id") == "FD-01" and runner._driver == null, "garage starts the unlocked human mission without a scripted driver")
+	runner.abort()
+	for i in range(PRODUCTION_IDS.size() - 1):
+		var id: String = PRODUCTION_IDS[i]
+		var mission: Dictionary = runner.catalog[id]
+		ok(runner.campaign.record_result(mission, mission.scoring.medal_times.silver, true), id + " prerequisite result saved")
+		rows = _mission_rows(garage)
+		var next_id: String = PRODUCTION_IDS[i + 1]
+		ok(rows[next_id].enabled and runner.campaign.unlock_reason(runner.catalog[next_id]) == "", next_id + " row unlocks after predecessor")
+	# Real production geometry; position injection isolates failure/scoring from
+	# vehicle pace. Band midpoints come from the config so later tuning is safe.
+	for id: String in PRODUCTION_IDS:
+		var mission: Dictionary = runner.catalog[id]
+		ok(runner.start(id), id + " starts for failure injection")
+		runner.set_physics_process(false)
+		if id == "FD-02":
+			var gate := _point(mission.episode[2].position)
+			runner._previous = gate + Vector3(10, 0, 0)
+			runner.tick(0.1, gate)
+			ok(runner.last_result.get("reason") == "skipped gate" and not runner.last_result.get("passed", true), id + " later gate fails out of order")
+		else:
+			var cone := _point(mission.episode[0].cones[0])
+			runner._previous = cone + Vector3(2, 0, 0)
+			runner.tick(0.1, cone - Vector3(2, 0, 0))
+			ok(runner.last_result.get("reason") == "cone hit" and not runner.last_result.get("passed", true), id + " swept cone contact fails")
+		ok(runner.start(id), id + " starts for timeout")
+		runner.set_physics_process(false)
+		runner.tick(mission.scoring.time_limit_s + 1.0, car.global_position)
+		ok(runner.last_result.get("reason") == "time limit" and not runner.last_result.get("passed", true), id + " time limit fails")
+		var bands: Dictionary = mission.scoring.medal_times
+		var samples := {"gold": bands.gold / 2.0, "silver": (bands.gold + bands.silver) / 2.0, "bronze": (bands.silver + bands.bronze) / 2.0, "complete": (bands.bronze + mission.scoring.time_limit_s) / 2.0}
+		for medal: String in samples:
+			ok(runner.start(id), id + " starts for " + medal + " scoring")
+			runner.set_physics_process(false)
+			for step: Dictionary in mission.episode:
+				var point := _point(step.position)
+				# Each gate is crossed independently: these are timing tests,
+				# not synthetic straight segments through the slalom cones.
+				runner._previous = point + Vector3(0, step.radius + 1.0, 0)
+				runner.tick(float(samples[medal]) / mission.episode.size(), point)
+			ok(runner.last_result.get("passed", false) and runner.last_result.get("medal") == medal and is_equal_approx(runner.last_result.get("time_s", -1.0), samples[medal]), id + " injected elapsed awards " + medal)
+		if id == "FD-12":
+			ok(runner.campaign.state.rank == "test_driver" and runner.campaign.state.credentials.test_driver_licence and runner.campaign.state.rewards.test_driver, "production FD-12 grants Test Driver and RS 2.7 entitlement")
+	scene.queue_free()
+	await process_frame
+	# Every shipped script runs on a newly loaded, otherwise untouched pad car.
+	# Never assert a medal or fixed completion time for the measured drives.
+	_fresh_campaign(runner)
+	for id: String in PRODUCTION_IDS:
+		scene = load("res://scenes/main.tscn").instantiate()
+		root.add_child(scene)
+		await process_frame
+		car = scene.get_node("Car")
+		runner.configure(car, scene.get_node("HUD"))
+		ok(runner.start(id, true), id + " shipped scripted drive starts")
+		for frame in 3600:
+			await physics_frame
+			if runner.active.is_empty():
+				break
+		ok(runner.active.is_empty() and runner.last_result.get("passed", false), id + " shipped script passes with the actual pad car")
+		print("  " + runner.result_text())
+		var loaded := CampaignStore.new()
+		loaded.load_state()
+		var result: Dictionary = loaded.state.results.get(id, {})
+		ok(runner.last_result.get("saved", false) and result.get("medal", "") != "" and is_equal_approx(result.get("best_time_s", -1.0), runner.last_result.get("time_s", -2.0)), id + " scripted pass survives store reload")
+		ok(not Input.is_action_pressed("accelerate") and not Input.is_action_pressed("steer_left") and not Input.is_action_pressed("steer_right"), id + " script releases its inputs")
+		runner.abort()
+		scene.queue_free()
+		await process_frame
+	var persisted := CampaignStore.new()
+	persisted.load_state()
+	ok(persisted.state.rank == "test_driver" and persisted.state.credentials.test_driver_licence and persisted.state.rewards.test_driver, "scripted promotion persists rank, licence and RS entitlement together")
