@@ -4,7 +4,8 @@ var failures := 0
 var checks := 0
 var changes := 0
 var fixture: Dictionary
-var test_path := ProjectSettings.globalize_path("res://build/ml6-test-%d/campaign.json" % OS.get_process_id())
+var snow_surface: Dictionary
+var test_path := (OS.get_environment("TMPDIR") if not OS.get_environment("TMPDIR").is_empty() else "/tmp").path_join("factory-driver-ladder-%d/campaign.json" % OS.get_process_id())
 
 func _initialize() -> void:
 	_run.call_deferred()
@@ -31,12 +32,14 @@ func promoted(id: String, rank: String) -> Dictionary:
 func _run() -> void:
 	OS.set_environment("FD_TELEMETRY", "0")
 	fixture = JSON.parse_string(FileAccess.get_file_as_string("res://tests/ml1_proof.json"))
+	snow_surface = JSON.parse_string(FileAccess.get_file_as_string("res://configs/missions/fd14_snow_testing.json")).surface_override
 	_schema()
 	var rs: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://configs/cars/fd_1073.json"))
 	ok(CarConfigValidation.validate(rs, "fd_1073").is_empty(), "RS config validates every field and exact mass ledger")
 	_store()
 	await _episode()
 	await _production()
+	await _snow_braking()
 	WorldStore.path_override = ""
 	CampaignStore.path_override = ""
 	for file in DirAccess.get_files_at(test_path.get_base_dir()):
@@ -48,6 +51,33 @@ func _run() -> void:
 
 func _schema() -> void:
 	ok(MissionSchema.validate(fixture).is_empty(), "proof schema accepted")
+	ok(not fixture.has("surface_override") and MissionSchema.validate(fixture).is_empty(), "surface override absent is valid")
+	var incomplete := snow_surface.duplicate()
+	incomplete.erase("bump")
+	var unknown := snow_surface.duplicate()
+	unknown.snow = true
+	for value in [null, [], 0, "snow", true, {}, incomplete, unknown]:
+		var bad := fixture.duplicate(true)
+		bad.surface_override = value
+		ok(not MissionSchema.validate(bad).is_empty(), "surface override refuses bad shape " + str(value))
+	for key in ["grip", "rolling_drag", "bump"]:
+		for value in [null, false, "0.42", [], {}, INF, -INF, NAN, -0.01]:
+			var bad := fixture.duplicate(true)
+			bad.surface_override = snow_surface.duplicate()
+			bad.surface_override[key] = value
+			ok(not MissionSchema.validate(bad).is_empty(), "surface override refuses " + key + " = " + str(value))
+		var missing := fixture.duplicate(true)
+		missing.surface_override = snow_surface.duplicate()
+		missing.surface_override.erase(key)
+		ok(not MissionSchema.validate(missing).is_empty(), "surface override requires " + key)
+	for grip in [Surfaces.GRIP_MIN - 0.001, Surfaces.GRIP_MAX + 0.001]:
+		var bad := fixture.duplicate(true)
+		bad.surface_override = {"grip": grip, "rolling_drag": 0, "bump": 0}
+		ok(not MissionSchema.validate(bad).is_empty(), "surface override refuses out-of-range grip " + str(grip))
+	for grip in [Surfaces.GRIP_MIN, Surfaces.GRIP_MAX]:
+		var valid := fixture.duplicate(true)
+		valid.surface_override = {"grip": grip, "rolling_drag": 0, "bump": 0}
+		ok(MissionSchema.validate(valid).is_empty(), "surface override accepts inclusive bounds and zero drag/bump")
 	for value in [null, [], 3, "bad"]:
 		ok(not MissionSchema.validate(value).is_empty(), "non-object refused: " + str(value))
 	for field in ["id", "rank", "title", "briefing", "environment", "episode", "scoring", "unlock"]:
@@ -400,6 +430,8 @@ func _production() -> void:
 			runner._previous = cone + Vector3(2, 0, 0)
 			runner.tick(0.1, cone - Vector3(2, 0, 0))
 			ok(runner.last_result.get("reason") == "cone hit" and not runner.last_result.get("passed", true), id + " swept cone contact fails")
+			if id == "FD-14":
+				ok(_surface_values(car) == [1.0, 1.0, 0.0], "cone failure restores snow inputs")
 		ok(runner.start(id), id + " starts for timeout")
 		runner.set_physics_process(false)
 		runner.tick(mission.scoring.time_limit_s + 1.0, car.global_position)
@@ -426,6 +458,8 @@ func _production() -> void:
 					runner._previous = point + Vector3(0, radius + 1.0, 0)
 					runner.tick(float(samples[medal]) / mission.episode.size() / points.size(), point)
 			ok(runner.last_result.get("passed", false) and runner.last_result.get("medal") == medal and is_equal_approx(runner.last_result.get("time_s", -1.0), samples[medal]), id + " injected elapsed awards " + medal)
+			if id == "FD-14":
+				ok(runner.last_result.get("passed", false) and _surface_values(car) == [1.0, 1.0, 0.0], "PASSED scoring path restores snow inputs: " + medal)
 		if id == "FD-12":
 			_reward_roundtrip(runner, garage)
 			ok(runner.campaign.state.rank == "test_driver" and runner.campaign.state.credentials.test_driver_licence and runner.campaign.state.rewards.test_driver, "production FD-12 grants Test Driver and RS 2.7 entitlement")
@@ -437,7 +471,7 @@ func _production() -> void:
 	await process_frame
 	WorldStore.path_override = ""
 	# Every shipped script runs on a newly loaded, otherwise untouched pad car.
-	# Never assert a medal or fixed completion time for the measured drives.
+	# FD-14 also verifies its measured snow provenance and derived medal bands.
 	_fresh_campaign(runner)
 	for id: String in PRODUCTION_IDS:
 		scene = load("res://scenes/main.tscn").instantiate()
@@ -448,6 +482,8 @@ func _production() -> void:
 		var reverse_crossings: Array = []
 		var last_step := 0
 		ok(runner.start(id, true), id + " shipped scripted drive starts")
+		if id == "FD-14":
+			ok(car.front_tyre_temp == 0 and car.rear_tyre_temp == 0 and _surface_values(car) == [snow_surface.grip, snow_surface.grip, snow_surface.rolling_drag], "FD-14 measured drive starts with cold tyres AND snow")
 		for frame in range(int(runner.catalog[id].scoring.time_limit_s * 60) + 120):
 			await physics_frame
 			if id == "FD-29" and runner.step_index != last_step:
@@ -456,6 +492,12 @@ func _production() -> void:
 			if runner.active.is_empty():
 				break
 		ok(runner.active.is_empty() and runner.last_result.get("passed", false), id + " shipped script passes with the actual pad car")
+		if id == "FD-14":
+			ok(runner.last_result.get("passed", false) and _surface_values(car) == [1.0, 1.0, 0.0], "snow restored after real PASSED drive")
+			var measured: float = runner.last_result.get("time_s", -1.0)
+			var bands: Dictionary = runner.catalog[id].scoring.medal_times
+			ok(measured > 0 and measured <= runner.catalog[id].scoring.time_limit_s and bands.gold == ceil(measured * 1.05) and bands.silver == ceil(measured * 1.25) and bands.bronze == ceil(measured * 1.50), "FD-14 medal bands derive from this real snow pass inside source limit")
+			ok(absf(measured - runner.catalog[id].provenance.medals.scripted_time_s) < 0.000001, "FD-14 snow measurement matches recorded provenance")
 		if id == "FD-29":
 			var reversed := 0
 			for crossing: Array in reverse_crossings:
@@ -487,6 +529,8 @@ func _production() -> void:
 				if runner.active.is_empty():
 					break
 			ok(runner.active.is_empty() and not runner.last_result.get("passed", true), id + " bad scripted drive fails on the actual pad car")
+			if id == "FD-14":
+				ok(runner.last_result.get("reason") == "time limit" and _surface_values(car) == [1.0, 1.0, 0.0], "snow restored after real FAILED drive")
 			if int(id.substr(3)) >= 23:
 				ok(runner.last_result.get("reason") == "time limit" and runner.step_index > 0 and car.global_position.distance_to(car.get_spawn_transform().origin) > 1.0, id + " shipped controls drive gates before the forced deadline fails")
 			runner.catalog[id].input_script = shipped
@@ -501,6 +545,48 @@ func _production() -> void:
 	var persisted := CampaignStore.new()
 	persisted.load_state()
 	ok(persisted.state.rank == "ace" and persisted.state.credentials.ace_licence and persisted.state.rewards.ace and persisted.owns_car("fd_1073") and persisted.owns_car("boxster_986") and persisted.owns_car("fd_2000"), "scripted promotion persists Ace rank, licence and all three entitlements together")
+
+func _surface_values(car: ArcadeCar) -> Array:
+	return [car.front_surface_grip, car.rear_surface_grip, car.surface_rolling_decel]
+
+func _snow_braking() -> void:
+	var runner := MissionRunner.of(self)
+	var distances: Array[float] = []
+	for snow in [false, true]:
+		var scene: Node = load("res://scenes/main.tscn").instantiate()
+		root.add_child(scene)
+		await process_frame
+		var car: ArcadeCar = scene.get_node("Car")
+		runner.configure(car, scene.get_node("HUD"))
+		var mission := fixture.duplicate(true)
+		mission.id = "SNOW-BRAKING"
+		mission.cold_tyres = true
+		mission.episode = [{"type": "timed_finish", "sequence": 0, "position": [0, 0.7, -1000], "radius": 2}]
+		mission.input_script = {"steps": [{"press": ["brake"]}]}
+		if snow:
+			mission.surface_override = runner.catalog["FD-14"].surface_override.duplicate()
+		runner.catalog[mission.id] = mission
+		ok(runner.start(mission.id, true), "identical cold braking script starts: snow=" + str(snow))
+		car.velocity = -car.global_basis.z * 20.0
+		car.forward_speed = 20.0
+		var previous := car.global_position
+		var distance := 0.0
+		var stopped := false
+		for frame in 600:
+			await physics_frame
+			distance += car.global_position.distance_to(previous)
+			previous = car.global_position
+			if absf(car.forward_speed) < 0.1:
+				stopped = true
+				break
+		ok(stopped and not runner.active.is_empty(), "physical braking stops from 20 m/s before timeout: snow=" + str(snow))
+		distances.append(distance)
+		runner.abort()
+		scene.queue_free()
+		await process_frame
+	runner.catalog.erase("SNOW-BRAKING")
+	print("  braking distance from 20 m/s: road %.6f m, snow %.6f m" % [distances[0], distances[1]])
+	ok(distances[1] > distances[0] * 1.05, "snow grip loss measurably lengthens identical cold braking despite ploughing drag")
 
 func _reward_roundtrip(runner: MissionRunner, garage: Garage) -> void:
 	var loaded := CampaignStore.new()
@@ -650,7 +736,7 @@ func _ml5_configs(runner: MissionRunner, car: ArcadeCar, garage: Garage) -> void
 		if row.kind == "reward" and row.id == "chief":
 			ok(not row.enabled and not row.label.contains("OWNED"), "Chief TAKE locked before promotion")
 	var cold: Dictionary = runner.catalog["FD-14"]
-	ok(cold.cold_tyres and cold.briefing.contains("COLD-TARMAC"), "snow stand-in disclosed and cold setup opted in")
+	ok(cold.cold_tyres and cold.briefing.contains("packed snow") and cold.surface_override == snow_surface.duplicate(), "packed snow and cold setup opted in")
 	for value in [null, 0, "true", [], {}]:
 		var bad := cold.duplicate(true)
 		bad.cold_tyres = value
@@ -658,11 +744,40 @@ func _ml5_configs(runner: MissionRunner, car: ArcadeCar, garage: Garage) -> void
 	car.front_tyre_temp = 1.0
 	car.rear_tyre_temp = 0.5
 	ok(runner.start("FD-14") and car.front_tyre_temp == 0 and car.rear_tyre_temp == 0, "human cold mission resets both axles to ambient")
+	ok(_surface_values(car) == [snow_surface.grip, snow_surface.grip, snow_surface.rolling_drag], "human snow start applies both axle grips and drag")
 	runner.abort()
+	ok(_surface_values(car) == [1.0, 1.0, 0.0], "snow abort restores original road inputs")
+	car.front_surface_grip = 0.73
+	car.rear_surface_grip = 0.64
+	car.surface_rolling_decel = 0.8
 	car.front_tyre_temp = 0.8
 	car.rear_tyre_temp = 0.6
 	ok(runner.start("FD-14", true) and car.front_tyre_temp == 0 and car.rear_tyre_temp == 0, "scripted cold retry also resets both axles")
+	ok(_surface_values(car) == [snow_surface.grip, snow_surface.grip, snow_surface.rolling_drag], "scripted snow retry applies override")
+	# Simulate a competing writer; the next runner tick must reclaim the inputs.
+	car.front_surface_grip = 1.0
+	car.rear_surface_grip = 1.0
+	car.surface_rolling_decel = 0.0
+	runner._physics_process(1.0 / 60.0)
+	ok(_surface_values(car) == [snow_surface.grip, snow_surface.grip, snow_surface.rolling_drag], "snow reasserted before car physics after competing writer")
 	runner.abort()
+	ok(_surface_values(car) == [0.73, 0.64, 0.8], "snow retry restores captured non-default axle inputs")
+	runner._cleanup()
+	ok(_surface_values(car) == [0.73, 0.64, 0.8], "repeated cleanup without override leaves car untouched")
+	car.front_surface_grip = 1.0
+	car.rear_surface_grip = 1.0
+	car.surface_rolling_decel = 0.0
+	ok(runner.start("FD-05") and _surface_values(car) == [1.0, 1.0, 0.0], "mission without override leaves default surface inputs unchanged")
+	car.front_surface_grip = 0.81
+	car.rear_surface_grip = 0.72
+	car.surface_rolling_decel = 0.9
+	runner._physics_process(1.0 / 60.0)
+	runner.abort()
+	ok(_surface_values(car) == [0.81, 0.72, 0.9], "no-override tick and cleanup preserve external surface inputs")
+	car.front_surface_grip = 1.0
+	car.rear_surface_grip = 1.0
+	car.surface_rolling_decel = 0.0
+	ok(cold.provenance.medals.run == "Godot 4.7.2, headless fixed 60 Hz, tests/mission_ladder_test.gd, fresh pad Boxster, cold tyres on packed snow (grip 0.42, rolling_drag 1.5, bump 0.03 validated only), shipped input_script, 2026-09-29", "FD-14 snow measurement run provenance pinned")
 	car.front_tyre_temp = 0.8
 	car.rear_tyre_temp = 0.6
 	runner.start("FD-16")

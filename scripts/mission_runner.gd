@@ -19,6 +19,8 @@ var _suspended: Dictionary = {}
 var _lap_outside := false
 var _flag_index := 0
 var _flag_props: Array[Dictionary] = []
+var _surface_original: Array[float] = []
+var _surface_car: ArcadeCar
 
 static func of(tree: SceneTree) -> MissionRunner:
 	return tree.root.get_node_or_null("MissionRunner") as MissionRunner
@@ -96,6 +98,10 @@ func start(mission_id: String, scripted := false) -> bool:
 	if active.get("cold_tyres", false):
 		car.front_tyre_temp = 0.0
 		car.rear_tyre_temp = 0.0
+	if active.has("surface_override"):
+		_surface_car = car
+		_surface_original.assign([car.front_surface_grip, car.rear_surface_grip, car.surface_rolling_decel])
+		_apply_surface_override()
 	_previous = car.global_position
 	# HandlingTests owns the scripted driver's press/release, hold_speed and
 	# steering servo. Use that mechanism alone; episode scoring is ours.
@@ -117,7 +123,20 @@ func _physics_process(delta: float) -> void:
 	if not is_instance_valid(car) or Input.is_action_just_pressed("abort_mission") or Input.is_action_just_pressed("reset_car"):
 		abort()
 		return
+	# Surfaces runs at -1; this autoload runs at 0 before the scene's car.
+	# Reassert after classification and before the car consumes its inputs.
+	_apply_surface_override()
 	tick(delta, car.global_position)
+
+func _apply_surface_override() -> void:
+	if _surface_original.is_empty():
+		return
+	var surface: Dictionary = active.surface_override
+	car.front_surface_grip = surface.grip
+	car.rear_surface_grip = surface.grip
+	car.surface_rolling_decel = surface.rolling_drag
+	# Bump needs the ring's Surfaces + RingProfile micro-profile machinery.
+	# The pad has neither; this override delivers grip and drag, not bumps.
 
 ## Swept segment gates prevent tunnelling. Later gates hit before the current
 ## one fail when requested. Lap requires leaving its radius before returning;
@@ -231,6 +250,13 @@ func abort() -> void:
 		hud.hide_mission_banner()
 
 func _cleanup() -> void:
+	if not _surface_original.is_empty():
+		if is_instance_valid(_surface_car):
+			_surface_car.front_surface_grip = _surface_original[0]
+			_surface_car.rear_surface_grip = _surface_original[1]
+			_surface_car.surface_rolling_decel = _surface_original[2]
+		_surface_original.clear()
+		_surface_car = null
 	for prop: Dictionary in _flag_props:
 		prop.node.free()
 	_flag_props.clear()

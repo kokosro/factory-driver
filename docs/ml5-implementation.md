@@ -19,16 +19,14 @@ AI competition, cargo attachment or crash/restart-direction penalty is invented.
   west-side pad dispatch/handover course. FD-08's route is shortened to a
   finish at (0, -380). `delivery_return` denotes destination handover, not
   coming back to dispatch. Crossings do not require a stop. Limit: 153 s.
-- **FD-14 Snow Testing:** explicit **COLD-TARMAC** variant of the Alps test in
-  the 1999 996 Carrera 4 Cabriolet. Six surveyed cones, gates at x=14/26,
-  and a slower cold-tyre steering trace. A validated optional boolean
-  `cold_tyres` sets both existing axle temperature fields to 0 at mission
-  start, for human driving and scripted retries alike. Tyres then warm under
-  the existing model; ordinary starts preserve heat, as `reset_to` already
-  does. This does not simulate freezing ambient weather, snow or AWD. The
-  frozen Surfaces implementation has a fixed surface-name list and reads
-  `data/regions/eifel_ring/surfaces.json`; the table is also frozen for this
-  task. A proper snow surface remains a separate follow-up. Limit: 69 s.
+- **FD-14 Snow Testing (SNOW-1):** cold tyres on packed snow replace the
+  former cold-tarmac stand-in. The pad still stands in for Alps and its
+  Boxster for the 1999 996 Carrera 4 Cabriolet; AWD and freezing ambient
+  weather are not simulated. Six surveyed cones and gates at x=14/26 remain
+  unchanged. `cold_tyres: true` resets both existing axle temperatures to 0
+  for human starts and scripted retries, then the existing thermal model
+  warms them. The surface applies grip 0.42 and rolling drag 1.5 m/s².
+  Bump 0.03 m is validated but undelivered on the pad. Limit: 69 s.
 - **FD-15 Klaus' Delivery:** pad stands in for Zone Industrielle and the 1994
   993 Cabriolet. Pickup at dispatch (0, -5), warehouse `zone` drop at
   (20, -250), return through the eastern side to `delivery_return` (0, 18),
@@ -72,6 +70,110 @@ AI competition, cargo attachment or crash/restart-direction penalty is invented.
   clock slalom substituting for his head-to-head race. Selecting `fd_1073`
   does not swap the live physics. Limit: 120 s.
 
+## SNOW-1 surface mechanism and freeze decision
+
+`surface_override` is optional and flat: `{ "grip": 0.42,
+"rolling_drag": 1.5, "bump": 0.03 }`. This deliberately deviates from the
+planning brief's name-keyed map. FD-14 runs on `main.tscn`, which has no
+Surfaces node; modifying a Surfaces dictionary there would do nothing. The
+frozen Surfaces name list also refuses `snow`. Neither `scripts/surfaces.gd`
+nor the region surface table, car, profiles, scenes or other certified files
+are changed. The flat object is a hook for future weather missions; a
+name-specific ring extension is deferred until a mission needs it.
+
+MissionSchema requires exactly those three keys and finite numeric values,
+uses `Surfaces.GRIP_MIN/MAX` for the inclusive grip bounds 0.2–1.0, and
+requires non-negative drag and bump. MissionRunner captures the car's original
+front/rear surface grip and rolling deceleration after `reset_to`, beside
+cold-tyre setup, then writes the override directly to these three existing
+physics inputs. It reasserts them every physics tick: the ring's Surfaces
+writer has priority -1, then the runner autoload at 0 precedes the scene's
+car at 0. On the pad the runner is the only surface writer.
+
+The packed-snow basis supplied for SNOW-1 is road mu approximately 0.30 versus
+summer tarmac approximately 0.85–0.95 (an approximate ratio 0.35–0.40).
+Grip 0.42 lies in the specified driven packed-snow band 0.35–0.45, below the
+existing lowest named surface, forest_floor at 0.48. The Conductor’s final
+ruling sets packed-snow rolling drag to 1.5 m/s²: packed snow has lower
+rolling resistance than the 2.0–3.0 loose/deep, unpacked snow band, and 1.5
+sits just below gravel’s 1.6. Bump 0.03 m remains a validated parameter:
+bump delivery requires the existing ring-only Surfaces + RingProfile
+micro-profile machinery, built by `Surfaces.swap_profile`. This flat car-input
+override does not extend that machinery; no pad bump is simulated or claimed.
+
+`_cleanup()` restores the captured car's three exact original values and
+clears the capture. Both passed and failed `finish()` calls route through it,
+including timeout, cone contact and skipped gates. `abort()` also routes
+through it, including reset/abort input and invalid-car detection in the
+physics tick. `_exit_tree()` uses the same teardown. A freed captured car is
+safely skipped; the capture still clears. With no override capture, cleanup
+performs no surface write, preserving the previous behavior and any external
+writer's values. Capturing the car reference also ensures teardown targets
+the original car if `configure()` has since been called.
+
+SNOW-1 test fixtures use a per-process directory under `TMPDIR` (or `/tmp`),
+removed at completion. The single existing ladder marker now checks strict
+schema validation, start/retry and sticky surface inputs, restoration on
+pass/failure/abort, inert no-override cleanup, and identical cold-tyre braking
+runs from 20 m/s. It also requires FD-14's shipped snow drive to pass and its
+actual measured time to agree with the recorded provenance and medal formula.
+No suite marker or frozen test runner is changed; the suite stays at 34.
+
+### SNOW-1 final ruling and measurement (2026-09-29)
+
+The final override is grip **0.42**, rolling drag **1.5 m/s²**, bump
+**0.03 m**, with `cold_tyres: true`. Cold rear-axle full-throttle traction
+is approximately **2.143 m/s²**, above total resistance
+**COAST_DECEL 0.15 + 1.5 = 1.65 m/s²**, so the car launches.
+
+History: drag 2.5 m/s² was refused as undrivable (2.143 < 0.15 + 2.5 =
+2.65 m/s²); the script and medals are re-measured at the final ruling.
+
+The shipped control trace passes on a fresh pad Boxster in **44.983333 s**
+at fixed 60 Hz with cold tyres and the final snow override. Exact ceiling
+multipliers produce **gold 48 s / silver 57 s / bronze 68 s**; the source
+limit remains **69 s**, retaining the unmedalled completion interval.
+
+The external recorder tuned steering and accelerator press/release timing
+through the existing HandlingTests controls. Short accelerator releases limit
+wheelspin on snow; the tighter line stays within the unchanged gates and
+cones. Its recorded samples were compacted by removing repeated identical
+commands and retaining their elapsed frame delays: 718 shipped samples use
+only `steer_deg`, accelerator `press`/`release`, `when.after`, and final
+`steer_free`. The shipped replay has no live waypoint or traction controller,
+no injected starting velocity, and no car or scoring changes. A fresh replay
+of the final JSON reproduced the pilot time before the full ladder run.
+
+The identical cold 20 m/s braking runs measure **25.332740 m** on road
+and **41.237179 m** on final snow. The unchanged assertion requires snow
+greater than road × 1.05; the measured increase is approximately **62.8%**.
+
+The final headless ladder process exits **0**, with all 33 shipped drives
+passing and all **1487 checks** passing (the original 1420 plus all 67
+SNOW-1 checks). Verbatim verdict:
+
+```text
+MISSION LADDER TEST PASSED: 1487 checks
+```
+
+`git diff --check` is clean. Round 2 changes only the FD-14 mission JSON,
+`tests/mission_ladder_test.gd`, and this document; the round-1 runner and
+schema mechanism remains unchanged.
+
+Invocation matches the ladder step in `tests/run_tests.sh`, with engine
+logs and per-process persistence redirected outside the repository:
+
+```sh
+FD_TELEMETRY=0 TMPDIR="$SNOW_TMP" /opt/homebrew/bin/godot --headless --fixed-fps 60 --path /Users/kokos/games/factory-driver --log-file "$SNOW_TMP/ladder-engine.log" --script res://tests/mission_ladder_test.gd
+```
+
+The macOS sandbox emits its existing `get_system_ca_certificates`
+diagnostic; physics and assertions continue with no script/parse errors.
+That engine `ERROR:` still matches the frozen wrapper’s error filter, so this
+assertion pass is not a claim of a clean full-suite gate. The host orchestrator
+retains full suite gates, commit and push. Temporary recording tools and logs are
+removed after inspection.
+
 ## Chief reward
 
 `CampaignStore.REWARD_CARS` adds `"chief": "boxster_986"`. Existing
@@ -93,7 +195,8 @@ is claimed. Live vehicle swapping remains deferred under the `car.gd` freeze.
 
 ## Medal measurement and verification
 
-Measured 2026-09-29 on Godot 4.7.2, headless fixed 60 Hz, through
+ML-5 measurements (FD-14 updated for final SNOW-1), 2026-09-29 on
+Godot 4.7.2, headless fixed 60 Hz, through
 MissionRunner/HandlingTests in `tests/mission_ladder_test.gd`. Each pass uses a
 freshly instantiated pad car and the JSON's shipped `input_script`. Bands are
 `ceil(measured × 1.05 / 1.25 / 1.50)` for gold/silver/bronze. Every JSON records
@@ -104,7 +207,7 @@ FD-17/19 disclose their authored limits and record a null source limit.
 |---|---:|---:|---:|---:|---:|
 
 | FD-13 | 33.450000 | 36 | 42 | 51 | 153 |
-| FD-14 | 37.516667 | 40 | 47 | 57 | 69 |
+| FD-14 (cold tyres, final packed snow) | 44.983333 | 48 | 57 | 68 | 69 |
 | FD-15 | 53.300000 | 56 | 67 | 80 | 187 |
 | FD-16 | 21.166667 | 23 | 27 | 32 | 39 |
 | FD-17 | 35.116667 | 37 | 44 | 53 | 90 |
@@ -121,11 +224,12 @@ The suite otherwise retains all four success-band checks.
 
 FD-13/15/17 reuse the recorded FD-08/11 traces for their adapted delivery/race
 routes; FD-16 reuses FD-01, FD-18 the shortened FD-04 trace, FD-19/20 FD-11,
-and FD-22 FD-07. FD-14/21 steering traces were recorded with a temporary
+and FD-22 FD-07. The original cold-tarmac FD-14 and FD-21 steering traces were recorded with a temporary
 waypoint pilot under `build/ml5/`, then replayed through unchanged HandlingTests
 commands (`hold_speed`, `steer_deg`, `when.after`, final `steer_free`). Their
-pilot times were 37.500000/28.483333 s; the table correctly records the shipped
-replays, 37.516667/28.500000 s. Cruise speeds are 6 and 7 m/s respectively.
+pilot times were 37.500000/28.483333 s and their historical shipped replays
+were 37.516667/28.500000 s, at cruise speeds 6 and 7 m/s respectively. The
+SNOW-1 trace and measurement above supersede that cold-tarmac FD-14 record.
 FD-20's twelve target positions were sampled at 3, 8, ... 58 s on the FD-11
 trace and rounded to centimetres, then verified with its own shipped replay.
 The recorder is not part of runtime or the committed change.
@@ -142,7 +246,8 @@ retains the previous checks and applies the full production scoring matrix
 and flag-mechanics proof to the added missions. No new suite marker is added;
 `tests/run_tests.sh` remains unchanged at 34 markers.
 
-All local tooling, fixtures and logs live under ignored `build/ml5/`. A
+The original ML-5 implementation used tooling, fixtures and logs under ignored
+`build/ml5/` (historical evidence only; SNOW-1 uses external temporary storage). A
 project wrapper symlinks the real project directories and adds the system TLS
 bundle `/etc/ssl/cert.pem`. Runs use `FD_TELEMETRY=0` and explicit repo-local
 `--log-file` paths. Initial attempts to change Godot's custom user-directory
@@ -151,14 +256,14 @@ were not created. The final wrapper uses the existing user directory but
 writes no driver data; all enabled test persistence uses repo-local overrides.
 The full host gate, final commit and push are left to the orchestrator.
 
-Final selected checks (both exit 0, no engine/script errors in final logs):
+Original ML-5 selected checks (historical, before SNOW-1):
 
 - `CONFIG TEST PASSED`: all **3** car configs.
 - `MISSION LADDER TEST PASSED: 873 checks`: **380** more than the 493-check
   baseline, including **22** real-car passes and **10** new real-car failures.
 - `git diff --check`: clean.
 
-Evidence: `build/ml5/config-final.log` and `build/ml5/ladder-final.log`.
+Historical ML-5 evidence: `build/ml5/config-final.log` and `build/ml5/ladder-final.log`.
 Commands, run from the repository root:
 
 ```sh

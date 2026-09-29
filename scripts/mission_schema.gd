@@ -26,6 +26,22 @@ static func validate(data: Variant) -> PackedStringArray:
 		errors.append("unknown environment")
 	if data.has("cold_tyres") and not data.cold_tyres is bool:
 		errors.append("cold_tyres must be boolean")
+	if data.has("surface_override"):
+		var surface: Variant = data.surface_override
+		if not surface is Dictionary:
+			errors.append("surface_override must be an object")
+		else:
+			for key in surface:
+				if key not in ["grip", "rolling_drag", "bump"]:
+					errors.append("unknown surface_override field: " + str(key))
+			for key in ["grip", "rolling_drag", "bump"]:
+				if not number(surface.get(key)):
+					errors.append("surface_override.%s must be a finite number" % key)
+				elif key == "grip":
+					if surface[key] < Surfaces.GRIP_MIN or surface[key] > Surfaces.GRIP_MAX:
+						errors.append("surface_override.grip outside surface bounds")
+				elif surface[key] < 0:
+					errors.append("surface_override.%s must be non-negative" % key)
 	var steps: Variant = data.get("episode")
 	if not steps is Array or steps.is_empty():
 		errors.append("episode must contain steps")

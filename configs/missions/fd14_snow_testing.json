@@ -1,5 +1,5 @@
 {
-  "briefing": "Klaus: Test your line on cold tyres within 69 seconds.\nCOLD-TARMAC variant: both tyre axles start at ambient and warm through the existing thermal model. Snow and AWD physics are not simulated; a snow surface is a follow-up.\nThe pad stands in for Alps; its Boxster stands in for the 1999 996 Carrera 4 Cabriolet. Police, traffic, vehicle damage and opponents are not simulated.",
+  "briefing": "Klaus: Test your line on cold tyres and packed snow within 69 seconds.\nCold tyres on packed snow: grip 0.42 and rolling drag 1.5 m/s^2 are applied to both axles through the existing physics. Tyres start at ambient and warm through the existing thermal model. AWD is not simulated. The pad stands in for Alps; its Boxster stands in for the 1999 996 Carrera 4 Cabriolet. Police, traffic, vehicle damage and opponents are not simulated.",
   "environment": "pad",
   "episode": [
     {
@@ -124,9 +124,9 @@
       "cone_hit"
     ],
     "medal_times": {
-      "gold": 40,
-      "silver": 47,
-      "bronze": 57
+      "gold": 48,
+      "silver": 57,
+      "bronze": 68
     },
     "time_limit_s": 69
   },
@@ -138,2267 +138,725 @@
     ]
   },
   "input_script": {
-    "hold_speed": 6.0,
     "steps": [
-      {
-        "steer_deg": -358.0
-      },
-      {
-        "steer_deg": -358.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -358.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -355.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -351.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -344.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -336.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -326.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -314.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -301.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -285.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -268.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -250.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -231.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -211.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -191.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -171.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -151.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -133.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -117.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -103.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -91.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -80.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -70.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -62.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -54.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -47.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -41.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -35.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -30.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -26.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -22.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -18.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -15.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -13.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -10.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -8.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -7.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -5.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -3.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 419.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 385.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 346.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 303.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 266.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 234.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 207.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 182.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 161.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 142.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 125.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 111.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 97.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 85.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 74.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 65.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 57.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 49.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 42.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 36.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 31.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 26.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 22.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 18.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 16.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 12.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 10.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 8.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 7.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 4.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 2.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -380.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -383.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -373.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -350.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -317.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -281.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -249.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -221.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -197.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -175.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -156.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -140.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -125.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -111.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -100.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -89.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -80.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -71.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -63.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -57.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -51.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -45.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -40.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -35.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -31.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -26.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -24.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -20.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -18.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -16.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -14.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -12.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -10.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -8.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -7.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -7.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 407.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 363.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 322.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 286.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 255.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 228.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 204.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 183.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 164.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 148.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 133.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 119.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 107.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 96.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 87.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 79.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 71.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 64.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 58.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 53.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 48.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 44.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 39.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 36.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 33.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 30.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 28.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 26.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 25.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 26.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -398.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -354.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -315.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -281.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -251.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -225.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -202.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -181.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -163.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -147.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -132.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -119.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -107.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -97.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -88.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -80.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -72.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -65.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -59.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -54.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -50.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -46.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -42.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -39.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -36.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -35.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -34.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -33.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 404.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 359.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 319.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 285.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 255.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 229.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 205.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 185.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 167.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 151.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 136.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 123.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 111.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 101.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 92.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 83.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 75.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 68.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 62.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 56.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 52.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 47.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 43.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 40.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 38.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 36.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 35.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 35.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -417.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -372.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -331.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -294.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -263.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -236.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -212.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -190.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -172.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -154.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -139.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -125.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -113.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -102.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -93.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -84.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -76.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -69.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -63.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -58.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -53.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -48.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -45.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -41.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -39.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -36.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -35.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -35.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 440.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 423.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 375.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 329.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 288.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 253.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 224.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 198.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 174.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 154.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 136.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 120.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 106.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 94.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 82.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 72.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 63.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 55.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 48.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 41.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 35.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 30.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 26.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 22.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 18.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 15.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 13.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 10.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 8.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 7.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 5.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 3.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 2.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 2.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": 0.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_deg": -1.0,
-        "when": {
-          "after": 0.099999
-        }
-      },
-      {
-        "steer_free": true,
-        "when": {
-          "after": 1000
-        }
-      }
+      {"press": ["accelerate"], "steer_deg": -400.0},
+      {"when": {"after": 3.399999}, "steer_deg": -389.0},
+      {"when": {"after": 0.099999}, "steer_deg": -376.0},
+      {"when": {"after": 0.099999}, "steer_deg": -362.0},
+      {"when": {"after": 0.099999}, "steer_deg": -348.0},
+      {"when": {"after": 0.099999}, "steer_deg": -334.0},
+      {"when": {"after": 0.099999}, "steer_deg": -319.0},
+      {"when": {"after": 0.099999}, "steer_deg": -305.0},
+      {"when": {"after": 0.099999}, "steer_deg": -290.0},
+      {"when": {"after": 0.099999}, "steer_deg": -275.0},
+      {"when": {"after": 0.099999}, "steer_deg": -260.0},
+      {"when": {"after": 0.099999}, "steer_deg": -245.0},
+      {"when": {"after": 0.099999}, "steer_deg": -231.0},
+      {"when": {"after": 0.099999}, "steer_deg": -215.0},
+      {"when": {"after": 0.099999}, "steer_deg": -201.0},
+      {"when": {"after": 0.099999}, "steer_deg": -186.0},
+      {"when": {"after": 0.099999}, "steer_deg": -173.0},
+      {"when": {"after": 0.099999}, "steer_deg": -159.0},
+      {"when": {"after": 0.099999}, "steer_deg": -145.0},
+      {"when": {"after": 0.099999}, "steer_deg": -133.0},
+      {"when": {"after": 0.099999}, "steer_deg": -120.0},
+      {"when": {"after": 0.099999}, "steer_deg": -108.0},
+      {"when": {"after": 0.099999}, "steer_deg": -96.0},
+      {"when": {"after": 0.099999}, "steer_deg": -85.0},
+      {"when": {"after": 0.099999}, "steer_deg": -75.0},
+      {"when": {"after": 0.099999}, "steer_deg": -66.0},
+      {"when": {"after": 0.099999}, "steer_deg": -56.0},
+      {"when": {"after": 0.099999}, "steer_deg": -47.0},
+      {"when": {"after": 0.099999}, "steer_deg": -38.0},
+      {"when": {"after": 0.099999}, "steer_deg": -30.0},
+      {"when": {"after": 0.099999}, "steer_deg": -24.0},
+      {"when": {"after": 0.099999}, "steer_deg": -17.0},
+      {"when": {"after": 0.099999}, "steer_deg": -11.0},
+      {"when": {"after": 0.099999}, "steer_deg": -4.0},
+      {"when": {"after": 0.099999}, "steer_deg": 2.0},
+      {"when": {"after": 0.099999}, "steer_deg": 5.0},
+      {"when": {"after": 0.099999}, "steer_deg": 6.0},
+      {"when": {"after": 0.099999}, "steer_deg": 8.0},
+      {"when": {"after": 0.099999}, "steer_deg": 9.0},
+      {"when": {"after": 0.099999}, "steer_deg": 11.0},
+      {"when": {"after": 0.099999}, "steer_deg": 13.0},
+      {"when": {"after": 0.199999}, "steer_deg": 12.0},
+      {"when": {"after": 0.299999}, "steer_deg": 13.0},
+      {"when": {"after": 0.099999}, "steer_deg": 14.0},
+      {"when": {"after": 0.099999}, "steer_deg": 13.0},
+      {"when": {"after": 0.099999}, "steer_deg": 11.0},
+      {"when": {"after": 0.099999}, "steer_deg": 10.0},
+      {"when": {"after": 0.099999}, "steer_deg": 9.0},
+      {"when": {"after": 0.199999}, "steer_deg": 8.0},
+      {"when": {"after": 0.299999}, "steer_deg": 9.0},
+      {"when": {"after": 0.099999}, "steer_deg": 7.0},
+      {"when": {"after": 0.099999}, "steer_deg": 5.0},
+      {"when": {"after": 0.099999}, "steer_deg": 3.0},
+      {"when": {"after": 0.099999}, "steer_deg": 1.0},
+      {"when": {"after": 0.099999}, "steer_deg": 0.0},
+      {"when": {"after": 0.099999}, "steer_deg": -1.0},
+      {"when": {"after": 0.099999}, "steer_deg": 1.0},
+      {"when": {"after": 0.299999}, "steer_deg": 0.0},
+      {"when": {"after": 0.299999}, "steer_deg": -1.0},
+      {"when": {"after": 0.099999}, "steer_deg": 2.0},
+      {"when": {"after": 0.099999}, "steer_deg": 3.0},
+      {"when": {"after": 0.299999}, "steer_deg": 2.0},
+      {"when": {"after": 0.099999}, "steer_deg": 0.0},
+      {"when": {"after": 0.099999}, "steer_deg": -3.0},
+      {"when": {"after": 0.099999}, "steer_deg": -4.0},
+      {"when": {"after": 0.099999}, "steer_deg": -3.0},
+      {"when": {"after": 0.099999}, "steer_deg": -2.0},
+      {"when": {"after": 0.099999}, "steer_deg": -1.0},
+      {"when": {"after": 0.099999}, "steer_deg": 0.0},
+      {"when": {"after": 0.199999}, "steer_deg": 1.0},
+      {"when": {"after": 0.099999}, "steer_deg": -1.0},
+      {"when": {"after": 0.199999}, "steer_deg": 0.0},
+      {"when": {"after": 0.099999}, "steer_deg": 20.0},
+      {"when": {"after": 0.099999}, "steer_deg": 86.0},
+      {"when": {"after": 0.099999}, "steer_deg": 149.0},
+      {"when": {"after": 0.099999}, "steer_deg": 205.0},
+      {"when": {"after": 0.099999}, "steer_deg": 247.0},
+      {"when": {"after": 0.099999}, "steer_deg": 278.0},
+      {"when": {"after": 0.099999}, "steer_deg": 299.0},
+      {"when": {"after": 0.099999}, "steer_deg": 293.0},
+      {"when": {"after": 0.099999}, "steer_deg": 300.0},
+      {"when": {"after": 0.099999}, "steer_deg": 308.0},
+      {"when": {"after": 0.099999}, "steer_deg": 305.0},
+      {"when": {"after": 0.099999}, "steer_deg": 298.0},
+      {"when": {"after": 0.099999}, "steer_deg": 288.0},
+      {"when": {"after": 0.099999}, "steer_deg": 272.0},
+      {"when": {"after": 0.099999}, "steer_deg": 251.0},
+      {"when": {"after": 0.099999}, "steer_deg": 226.0},
+      {"when": {"after": 0.099999}, "steer_deg": 194.0},
+      {"when": {"after": 0.099999}, "steer_deg": 158.0},
+      {"when": {"after": 0.099999}, "steer_deg": 121.0},
+      {"when": {"after": 0.099999}, "steer_deg": 85.0},
+      {"when": {"after": 0.099999}, "steer_deg": 52.0},
+      {"when": {"after": 0.099999}, "steer_deg": 22.0},
+      {"when": {"after": 0.099999}, "steer_deg": -5.0},
+      {"when": {"after": 0.099999}, "steer_deg": -24.0},
+      {"when": {"after": 0.099999}, "steer_deg": -39.0},
+      {"when": {"after": 0.099999}, "steer_deg": -50.0},
+      {"when": {"after": 0.099999}, "steer_deg": -58.0},
+      {"when": {"after": 0.099999}, "steer_deg": -63.0},
+      {"when": {"after": 0.099999}, "steer_deg": -64.0},
+      {"when": {"after": 0.099999}, "steer_deg": -62.0},
+      {"when": {"after": 0.099999}, "steer_deg": -58.0},
+      {"when": {"after": 0.099999}, "steer_deg": -53.0},
+      {"when": {"after": 0.099999}, "steer_deg": -47.0},
+      {"when": {"after": 0.099999}, "steer_deg": -40.0},
+      {"when": {"after": 0.099999}, "steer_deg": -34.0},
+      {"when": {"after": 0.099999}, "steer_deg": -28.0},
+      {"when": {"after": 0.099999}, "steer_deg": -22.0},
+      {"when": {"after": 0.099999}, "steer_deg": -17.0},
+      {"when": {"after": 0.099999}, "steer_deg": -13.0},
+      {"when": {"after": 0.099999}, "steer_deg": -8.0},
+      {"when": {"after": 0.099999}, "steer_deg": -2.0},
+      {"when": {"after": 0.099999}, "steer_deg": 3.0},
+      {"when": {"after": 0.099999}, "steer_deg": 5.0},
+      {"when": {"after": 0.199999}, "steer_deg": 3.0},
+      {"when": {"after": 0.099999}, "steer_deg": 0.0},
+      {"when": {"after": 0.099999}, "steer_deg": -3.0},
+      {"when": {"after": 0.199999}, "steer_deg": -1.0},
+      {"when": {"after": 0.099999}, "steer_deg": 0.0},
+      {"when": {"after": 0.099999}, "steer_deg": 2.0},
+      {"when": {"after": 0.099999}, "steer_deg": 1.0},
+      {"when": {"after": 0.099999}, "steer_deg": -2.0},
+      {"when": {"after": 0.199999}, "steer_deg": 0.0},
+      {"when": {"after": 0.099999}, "steer_deg": 1.0},
+      {"when": {"after": 0.099999}, "steer_deg": 0.0},
+      {"when": {"after": 0.099999}, "steer_deg": -2.0},
+      {"when": {"after": 0.199999}, "steer_deg": 0.0},
+      {"when": {"after": 0.099999}, "steer_deg": 1.0},
+      {"when": {"after": 0.099999}, "steer_deg": 0.0},
+      {"when": {"after": 0.099999}, "steer_deg": -2.0},
+      {"when": {"after": 0.199999}, "steer_deg": 0.0},
+      {"when": {"after": 0.099999}, "steer_deg": 1.0},
+      {"when": {"after": 0.099999}, "steer_deg": 0.0},
+      {"when": {"after": 0.099999}, "steer_deg": -2.0},
+      {"when": {"after": 0.199999}, "steer_deg": -29.0},
+      {"when": {"after": 0.099999}, "steer_deg": -97.0},
+      {"when": {"after": 0.099999}, "steer_deg": -160.0},
+      {"when": {"after": 0.099999}, "steer_deg": -210.0},
+      {"when": {"after": 0.099999}, "steer_deg": -249.0},
+      {"when": {"after": 0.116666}, "release": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": -277.0},
+      {"when": {"after": 0.099999}, "steer_deg": -305.0},
+      {"when": {"after": 0.099999}, "steer_deg": -308.0},
+      {"when": {"after": 0.099999}, "steer_deg": -302.0},
+      {"when": {"after": 0.099999}, "steer_deg": -288.0},
+      {"when": {"after": 0.099999}, "steer_deg": -266.0},
+      {"when": {"after": 0.099999}, "steer_deg": -236.0},
+      {"when": {"after": 0.099999}, "steer_deg": -197.0},
+      {"when": {"after": 0.099999}, "steer_deg": -155.0},
+      {"when": {"after": 0.083332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -117.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -87.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -62.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -41.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -23.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -9.0},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 4.0, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 11.0, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 15.0, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 16.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": 17.0, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 16.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 15.0},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 14.0},
+      {"when": {"after": 0.099999}, "steer_deg": 13.0},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 10.0},
+      {"when": {"after": 0.099999}, "steer_deg": 9.0, "release": ["accelerate"]},
+      {"when": {"after": 0.099999}, "steer_deg": 7.0},
+      {"when": {"after": 0.099999}, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "steer_deg": 6.0},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 3.0},
+      {"when": {"after": 0.099999}, "steer_deg": 0.0},
+      {"when": {"after": 0.099999}, "steer_deg": 66.0, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "steer_deg": 147.0},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 221.0},
+      {"when": {"after": 0.099999}, "steer_deg": 284.0},
+      {"when": {"after": 0.083332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 333.0},
+      {"when": {"after": 0.099999}, "steer_deg": 368.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 361.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 382.0, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 400.0, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 399.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 385.0, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 367.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 347.0, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 322.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 293.0, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 259.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 219.0, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 172.0},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 119.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 66.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 16.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -26.0, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -62.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": -89.0, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": -110.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -123.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -132.0, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "steer_deg": -135.0, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": -133.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -128.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -120.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -112.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -102.0},
+      {"when": {"after": 0.099999}, "steer_deg": -91.0},
+      {"when": {"after": 0.083332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -78.0},
+      {"when": {"after": 0.099999}, "steer_deg": -102.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -173.0},
+      {"when": {"after": 0.099999}, "steer_deg": -242.0},
+      {"when": {"after": 0.066666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -300.0},
+      {"when": {"after": 0.099999}, "steer_deg": -345.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -382.0, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -370.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": -392.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -400.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -392.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -371.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -346.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -316.0, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -281.0, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -241.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -195.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": -141.0, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": -84.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -29.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 18.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 59.0, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 89.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": 112.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 130.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 141.0, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 145.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 146.0},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 141.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": 135.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 127.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 117.0, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 106.0},
+      {"when": {"after": 0.099999}, "steer_deg": 93.0},
+      {"when": {"after": 0.049999}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": 119.0},
+      {"when": {"after": 0.099999}, "steer_deg": 188.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 254.0},
+      {"when": {"after": 0.099999}, "steer_deg": 312.0},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 356.0},
+      {"when": {"after": 0.099999}, "steer_deg": 392.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 377.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 398.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": 400.0, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": 396.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 375.0, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 350.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 321.0, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 288.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 248.0, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 202.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 149.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": 91.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 35.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -14.0, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -56.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": -90.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -114.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -132.0, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -143.0, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "steer_deg": -149.0, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": -148.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -144.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -137.0},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -129.0},
+      {"when": {"after": 0.099999}, "steer_deg": -118.0},
+      {"when": {"after": 0.099999}, "steer_deg": -105.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": -90.0},
+      {"when": {"after": 0.099999}, "steer_deg": -145.0, "release": ["accelerate"]},
+      {"when": {"after": 0.099999}, "steer_deg": -219.0},
+      {"when": {"after": 0.099999}, "steer_deg": -284.0, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "steer_deg": -336.0},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -378.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": -400.0, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -392.0},
+      {"when": {"after": 0.049999}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -400.0},
+      {"when": {"after": 0.116666}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": -398.0, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": -376.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -351.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -322.0, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -288.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -248.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -203.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -150.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -91.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -34.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 16.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 59.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": 93.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 118.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 136.0, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 148.0, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": 153.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 148.0},
+      {"when": {"after": 0.099999}, "steer_deg": 139.0},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 126.0},
+      {"when": {"after": 0.099999}, "steer_deg": 114.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 104.0},
+      {"when": {"after": 0.099999}, "steer_deg": 122.0},
+      {"when": {"after": 0.066666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 161.0},
+      {"when": {"after": 0.099999}, "steer_deg": 194.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": 219.0},
+      {"when": {"after": 0.099999}, "steer_deg": 235.0},
+      {"when": {"after": 0.049999}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": 241.0},
+      {"when": {"after": 0.099999}, "steer_deg": 221.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 220.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": 219.0, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "steer_deg": 215.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": 200.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": 182.0, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "steer_deg": 161.0, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": 139.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 115.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 91.0, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "steer_deg": 68.0, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": 46.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 26.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 8.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": -7.0, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": -18.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -24.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -27.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": -26.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -24.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -21.0},
+      {"when": {"after": 0.083332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -17.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": -13.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -9.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -7.0, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -2.0, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "steer_deg": 3.0, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 5.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 3.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": 0.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -3.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": -1.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": 0.0, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 1.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 0.0, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -2.0, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 0.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 1.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 0.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.049999}, "steer_deg": -2.0},
+      {"when": {"after": 0.049999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "release": ["accelerate"]},
+      {"when": {"after": 0.016666}, "steer_deg": 0.0},
+      {"when": {"after": 0.016666}, "press": ["accelerate"]},
+      {"when": {"after": 0.083332}, "steer_deg": 1.0},
+      {"when": {"after": 0.016666}, "release": ["accelerate"]},
+      {"when": {"after": 0.049999}, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -2.0, "press": ["accelerate"]},
+      {"when": {"after": 0.099999}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.066666}, "steer_deg": 0.0},
+      {"when": {"after": 0.033332}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "press": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": 1.0},
+      {"when": {"after": 0.066666}, "release": ["accelerate"]},
+      {"when": {"after": 0.033332}, "steer_deg": -9.0, "press": ["accelerate"]},
+      {"when": {"after": 1000}, "steer_free": true}
     ]
   },
   "provenance": {
@@ -2406,12 +864,19 @@
     "source_course": "Alps",
     "source_car": "1999 996 Carrera 4 Cabriolet",
     "source_time_limit_s": 69,
-    "adaptation": "COLD-TARMAC variant: both tyre axles start at ambient and warm through the existing thermal model. Snow and AWD physics are not simulated; a snow surface is a follow-up. The pad stands in for Alps; its Boxster stands in for the 1999 996 Carrera 4 Cabriolet. Police, traffic, vehicle damage and opponents are not simulated.",
+    "adaptation": "Cold tyres on packed snow: grip 0.42 and rolling drag 1.5 m/s^2 are applied to both axles through the existing physics. Tyres start at ambient and warm through the existing thermal model. AWD is not simulated. The pad stands in for Alps; its Boxster stands in for the 1999 996 Carrera 4 Cabriolet. Police, traffic, vehicle damage and opponents are not simulated. Bump 0.03 m is validated but undelivered on the pad, which lacks Surfaces + RingProfile micro-profile machinery. The Conductor ruling uses packed-snow drag 1.5 m/s^2, below gravel 1.6 and the loose/deep snow band 2.0-3.0; cold rear traction ~2.143 m/s^2 exceeds COAST_DECEL 0.15 + 1.5 = 1.65 m/s^2 resistance, so the car launches.",
     "medals": {
-      "scripted_time_s": 37.516667,
+      "scripted_time_s": 44.983333,
       "method": "ceil(measured scripted seconds * 1.05 / 1.25 / 1.50) for gold / silver / bronze; source time remains the limit where supplied",
-      "run": "Godot 4.7.2, headless fixed 60 Hz, tests/mission_ladder_test.gd, fresh pad Boxster, shipped input_script, 2026-09-29"
-    }
+      "run": "Godot 4.7.2, headless fixed 60 Hz, tests/mission_ladder_test.gd, fresh pad Boxster, cold tyres on packed snow (grip 0.42, rolling_drag 1.5, bump 0.03 validated only), shipped input_script, 2026-09-29",
+      "note": "The initial rolling_drag 2.5 m/s^2 was refused as undrivable (cold rear traction 2.143 < total resistance 0.15 + 2.5 = 2.65 m/s^2); re-measured on cold tyres at the Conductor ruling: grip 0.42, rolling_drag 1.5 m/s^2, bump 0.03 m validated but pad-undelivered."
+    },
+    "surface_note": "SNOW-1 final Conductor ruling: grip 0.42, rolling_drag 1.5 m/s^2, bump 0.03 m. Packed-snow road mu ~0.30 versus summer tarmac ~0.85-0.95 gives a ratio ~0.35-0.40; grip 0.42 is in the driven packed-snow band 0.35-0.45 and remains the lowest grip, below forest_floor 0.48. Packed-snow rolling resistance is lower than the loose/deep, unpacked snow band 2.0-3.0; 1.5 sits just below gravel 1.6. Cold rear-axle full-throttle traction ~2.143 m/s^2 exceeds COAST_DECEL 0.15 + 1.5 = 1.65 m/s^2 resistance, allowing launch. Bump 0.03 m is validated but undelivered on the pad, which has no Surfaces + RingProfile micro-profile machinery."
   },
-  "cold_tyres": true
+  "cold_tyres": true,
+  "surface_override": {
+    "grip": 0.42,
+    "rolling_drag": 1.5,
+    "bump": 0.03
+  }
 }
