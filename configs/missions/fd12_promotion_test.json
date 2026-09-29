@@ -253,7 +253,7 @@
   "title": "1st Promotion Test",
   "unlock": {
     "required_missions": [
-      "FD-07"
+      "FD-11"
     ],
     "required_rank": "junior"
   },

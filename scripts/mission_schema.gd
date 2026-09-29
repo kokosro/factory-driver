@@ -44,9 +44,9 @@ static func validate(data: Variant) -> PackedStringArray:
 				picked = true
 			if s.get("type") == "delivery_return" and not picked:
 				errors.append("return needs an earlier pickup")
-			if s.get("type") == "cone_slalom":
+			if s.get("type") in ["cone_slalom", "flag"]:
 				if not s.get("cones") is Array or s.cones.is_empty():
-					errors.append("slalom needs cones")
+					errors.append(s.type + " needs cones")
 				else:
 					for cone in s.cones:
 						if not position(cone):

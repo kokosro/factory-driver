@@ -1,10 +1,10 @@
 extends SceneTree
-## ML-1/2 ladder proof; ML-3 delivery, extended slaloms and promotion car.
+## ML-1/2/3 ladder proof; ML-4 completes Junior and adds sequential flags.
 var failures := 0
 var checks := 0
 var changes := 0
 var fixture: Dictionary
-var test_path := ProjectSettings.globalize_path("res://build/ml3-test-%d/campaign.json" % OS.get_process_id())
+var test_path := ProjectSettings.globalize_path("res://build/ml4-test-%d/campaign.json" % OS.get_process_id())
 
 func _initialize() -> void:
 	_run.call_deferred()
@@ -71,6 +71,19 @@ func _schema() -> void:
 	invalid = fixture.duplicate(true)
 	invalid.episode[0].type = "delivery_return"
 	ok(not MissionSchema.validate(invalid).is_empty(), "return before pickup refused")
+	var flag := fixture.duplicate(true)
+	flag.episode[0].type = "flag"
+	flag.episode[0].cones = [[0, 0.7, -10]]
+	flag.episode[0].cone_radius = 1.2
+	ok(MissionSchema.validate(flag).is_empty(), "reserved flag type now validates sequential targets")
+	for pair in [["cones", []], ["cones", false], ["cones", [[0, 0]]], ["cones", [[0, "bad", 0]]], ["cones", [[0, INF, 0]]], ["cone_radius", 0], ["cone_radius", -1], ["cone_radius", "2"], ["cone_radius", INF]]:
+		var bad := flag.duplicate(true)
+		bad.episode[0][pair[0]] = pair[1]
+		ok(not MissionSchema.validate(bad).is_empty(), "bad flag refused: " + str(pair))
+	for key in ["cones", "cone_radius"]:
+		var bad := flag.duplicate(true)
+		bad.episode[0].erase(key)
+		ok(not MissionSchema.validate(bad).is_empty(), "flag requires " + key)
 	var a := fixture.duplicate(true)
 	a.unlock.required_missions = ["MISSING"]
 	ok(MissionSchema.catalog_errors([a]).has(a.id), "unknown reference refused")
@@ -188,7 +201,7 @@ func _store() -> void:
 
 func _episode() -> void:
 	var runner := MissionRunner.of(self)
-	ok(runner != null and runner.catalog.size() == 8, "autoload discovers eight production missions")
+	ok(runner != null and runner.catalog.size() == 12, "autoload discovers twelve production missions")
 	ok(runner.get_child_count() == 0 and not runner.is_physics_processing() and not runner.is_processing_input(), "idle runner inert")
 	var scene: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
@@ -253,7 +266,7 @@ func _episode() -> void:
 	scene.queue_free()
 	await process_frame
 
-const PRODUCTION_IDS := ["FD-01", "FD-02", "FD-03", "FD-04", "FD-05", "FD-06", "FD-07", "FD-12"]
+const PRODUCTION_IDS := ["FD-01", "FD-02", "FD-03", "FD-04", "FD-05", "FD-06", "FD-07", "FD-08", "FD-09", "FD-10", "FD-11", "FD-12"]
 
 func _mission_rows(garage: Garage) -> Dictionary:
 	garage.show_page(Garage.Page.MISSIONS)
@@ -273,19 +286,39 @@ func _point(position: Array) -> Vector3:
 func _production() -> void:
 	var runner := MissionRunner.of(self)
 	runner.load_catalog()
-	ok(runner.catalog.size() == 8, "production scan finds exactly eight missions")
+	ok(runner.catalog.size() == 12, "production scan finds exactly twelve missions")
 	ok(MissionSchema.catalog_errors(runner.catalog.values()).is_empty(), "production catalog has no reference or schema errors")
 	for id: String in PRODUCTION_IDS:
 		ok(runner.catalog.has(id), id + " discovered")
 		if not runner.catalog.has(id):
 			return
 		ok(MissionSchema.validate(runner.catalog[id]).is_empty(), id + " validates without errors")
-	for id: String in ["FD-05", "FD-06", "FD-07"]:
+	for id: String in ["FD-05", "FD-06", "FD-07", "FD-08", "FD-09", "FD-10", "FD-11"]:
 		var m: Dictionary = runner.catalog[id]
 		var bands: Dictionary = m.scoring.medal_times
-		var source_limit: int = {"FD-05": 110, "FD-06": 50, "FD-07": 58}[id]
-		ok(m.rank == "junior" and m.scoring.time_limit_s == source_limit, id + " preserves source rank and limit")
+		var source_limit: int = {"FD-05": 110, "FD-06": 50, "FD-07": 58, "FD-08": 180, "FD-09": 240, "FD-10": 36, "FD-11": 240}[id]
+		ok(m.rank == "junior" and m.unlock.required_rank == "junior" and m.environment == "pad" and m.scoring.time_limit_s == source_limit, id + " preserves source rank and limit")
 		ok(bands.gold < bands.silver and bands.silver < bands.bronze and bands.bronze < source_limit, id + " medal bands strictly precede source limit")
+	for id: String in ["FD-08", "FD-09", "FD-10", "FD-11"]:
+		var m: Dictionary = runner.catalog[id]
+		var measured: float = m.provenance.medals.scripted_time_s
+		var bands: Dictionary = m.scoring.medal_times
+		ok(measured > 0 and bands.gold == ceil(measured * 1.05) and bands.silver == ceil(measured * 1.25) and bands.bronze == ceil(measured * 1.50), id + " bands derive from recorded scripted measurement")
+		var on_pad := true
+		for step: Dictionary in m.episode:
+			var points: Array = [step.position] + step.get("cones", [])
+			for point: Array in points:
+				on_pad = on_pad and point[1] == 0.7 and point[0] >= TestPad.GROUND_CORE_MIN.x and point[0] <= TestPad.GROUND_CORE_MAX.x and point[2] >= TestPad.GROUND_CORE_MIN.y and point[2] <= TestPad.GROUND_CORE_MAX.y
+		ok(on_pad, id + " route and cones stay on pad at gate height")
+	var delivery2: Array = runner.catalog["FD-08"].episode
+	ok(delivery2[0].type == "delivery_pickup" and delivery2[-2].type == "delivery_return" and delivery2[-1].type == "timed_finish" and delivery2 != runner.catalog["FD-05"].episode, "FD-08 preserves delivery mechanics on a different route")
+	var circuit: Array = runner.catalog["FD-03"].episode
+	var double_circuit: Array = runner.catalog["FD-10"].episode
+	var same_ring: bool = double_circuit.size() == 9 and double_circuit[0].cones == circuit[0].cones and double_circuit[0].cone_radius == circuit[0].cone_radius
+	for lap in 2:
+		for gate in range(1, 5):
+			same_ring = same_ring and double_circuit[lap * 4 + gate].position == circuit[gate].position and double_circuit[lap * 4 + gate].radius == circuit[gate].radius
+	ok(same_ring, "FD-10 repeats the exact FD-03 gate ring twice with its cone constraints")
 	var delivery: Array = runner.catalog["FD-05"].episode
 	ok(delivery[0].type == "delivery_pickup" and delivery[-2].type == "delivery_return" and delivery[-1].type == "timed_finish", "delivery uses existing pickup/handover/finish steps")
 	# Production constraints use the existing landmark coordinates, not an
@@ -312,7 +345,7 @@ func _production() -> void:
 	for row: Dictionary in garage.page_rows():
 		if row.kind == "reward" and row.id == "test_driver":
 			ok(not row.enabled and not row.label.contains("OWNED"), "fresh garage reward is locked")
-	ok(rows.size() == 8 and rows["FD-01"].enabled and rows["FD-01"].label == "FD-01 — Simple Slalom", "fresh Junior sees playable FD-01")
+	ok(rows.size() == 12 and rows["FD-01"].enabled and rows["FD-01"].label == "FD-01 — Simple Slalom", "fresh Junior sees playable FD-01")
 	for i in range(1, PRODUCTION_IDS.size()):
 		var id: String = PRODUCTION_IDS[i]
 		var reason: String = "Complete " + PRODUCTION_IDS[i - 1]
@@ -329,17 +362,25 @@ func _production() -> void:
 		rows = _mission_rows(garage)
 		var next_id: String = PRODUCTION_IDS[i + 1]
 		ok(rows[next_id].enabled and runner.campaign.unlock_reason(runner.catalog[next_id]) == "", next_id + " row unlocks after predecessor")
+	_flag_mechanics(runner)
+	_double_circuit(runner)
 	# Real production geometry; position injection isolates failure/scoring from
 	# vehicle pace. Band midpoints come from the config so later tuning is safe.
 	for id: String in PRODUCTION_IDS:
 		var mission: Dictionary = runner.catalog[id]
 		ok(runner.start(id), id + " starts for failure injection")
 		runner.set_physics_process(false)
-		if id in ["FD-02", "FD-05"]:
+		if id in ["FD-02", "FD-05", "FD-08", "FD-11"]:
 			var gate := _point(mission.episode[2].position)
 			runner._previous = gate + Vector3(10, 0, 0)
 			runner.tick(0.1, gate)
 			ok(runner.last_result.get("reason") == "skipped gate" and not runner.last_result.get("passed", true), id + " later gate fails out of order")
+		elif id == "FD-09":
+			var cone := _point(mission.episode[0].cones[2])
+			runner._previous = cone + Vector3(0, 5, 0)
+			runner.tick(0.1, cone)
+			ok(runner.step_index == 0 and runner.flag_progress().current == 1 and runner.last_result.is_empty(), "out-of-order flag 3 neither advances nor fails")
+			runner.abort()
 		else:
 			var cone := _point(mission.episode[0].cones[0])
 			runner._previous = cone + Vector3(2, 0, 0)
@@ -355,11 +396,13 @@ func _production() -> void:
 			ok(runner.start(id), id + " starts for " + medal + " scoring")
 			runner.set_physics_process(false)
 			for step: Dictionary in mission.episode:
-				var point := _point(step.position)
-				# Each gate is crossed independently: these are timing tests,
-				# not synthetic straight segments through the slalom cones.
-				runner._previous = point + Vector3(0, step.radius + 1.0, 0)
-				runner.tick(float(samples[medal]) / mission.episode.size(), point)
+				var points: Array = step.cones if step.type == "flag" else [step.position]
+				var radius: float = step.cone_radius if step.type == "flag" else step.radius
+				for target: Array in points:
+					var point := _point(target)
+					# Independent crossings isolate scoring from route geometry.
+					runner._previous = point + Vector3(0, radius + 1.0, 0)
+					runner.tick(float(samples[medal]) / mission.episode.size() / points.size(), point)
 			ok(runner.last_result.get("passed", false) and runner.last_result.get("medal") == medal and is_equal_approx(runner.last_result.get("time_s", -1.0), samples[medal]), id + " injected elapsed awards " + medal)
 		if id == "FD-12":
 			_reward_roundtrip(runner, garage)
@@ -377,22 +420,24 @@ func _production() -> void:
 		car = scene.get_node("Car")
 		runner.configure(car, scene.get_node("HUD"))
 		ok(runner.start(id, true), id + " shipped scripted drive starts")
-		for frame in 3600:
+		for frame in range(int(runner.catalog[id].scoring.time_limit_s * 60) + 120):
 			await physics_frame
 			if runner.active.is_empty():
 				break
 		ok(runner.active.is_empty() and runner.last_result.get("passed", false), id + " shipped script passes with the actual pad car")
 		print("  " + runner.result_text())
+		print("  scripted time: %s %.6f s" % [id, runner.last_result.get("time_s", -1.0)])
+		ok(runner.get_child_count() == 0 and not runner.is_physics_processing(), id + " scripted finish leaves runner inert")
 		var loaded := CampaignStore.new()
 		loaded.load_state()
 		var result: Dictionary = loaded.state.results.get(id, {})
 		ok(runner.last_result.get("saved", false) and result.get("medal", "") != "" and is_equal_approx(result.get("best_time_s", -1.0), runner.last_result.get("time_s", -2.0)), id + " scripted pass survives store reload")
 		ok(not Input.is_action_pressed("accelerate") and not Input.is_action_pressed("steer_left") and not Input.is_action_pressed("steer_right"), id + " script releases its inputs")
-		if id in ["FD-05", "FD-06", "FD-07"]:
+		if id in ["FD-05", "FD-06", "FD-07", "FD-08", "FD-09", "FD-10", "FD-11"]:
 			var shipped: Dictionary = runner.catalog[id].input_script
-			runner.catalog[id].input_script = {"steps": [{"press": ["brake" if id == "FD-05" else "accelerate"]}]}
+			runner.catalog[id].input_script = {"steps": [{"press": ["accelerate" if id in ["FD-06", "FD-07"] else "brake"]}]}
 			ok(runner.start(id, true), id + " bad scripted drive starts")
-			for frame in 7200:
+			for frame in range(int(runner.catalog[id].scoring.time_limit_s * 60) + 120):
 				await physics_frame
 				if runner.active.is_empty():
 					break
@@ -434,3 +479,91 @@ func _reward_roundtrip(runner: MissionRunner, garage: Garage) -> void:
 	loaded.load_state()
 	ok(loaded.owns_car("fd_1073") and FileAccess.get_file_as_string(test_path) == campaign_bytes, "reward ownership reload never rewrites campaign")
 	ok(not loaded.owns_car("fd_1001"), "reward grant does not manufacture other ownership")
+
+func _visible_flag(runner: MissionRunner, target: int) -> bool:
+	var visible: Array[String] = []
+	for prop: Node3D in runner.get_children():
+		if prop.visible:
+			visible.append(prop.name)
+	return visible == ["Flag_0_%d" % target] if target > 0 else visible.is_empty()
+
+func _flag_mechanics(runner: MissionRunner) -> void:
+	ok(runner.start("FD-09"), "flag rally starts for reveal checks")
+	runner.set_physics_process(false)
+	var mission: Dictionary = runner.active.duplicate(true)
+	var cones: Array = mission.episode[0].cones
+	ok(cones.size() == 12 and runner.get_child_count() == 12, "one mission-owned prop per flag cone")
+	var visual_only := true
+	for prop: Node3D in runner.get_children():
+		visual_only = visual_only and prop.get_child_count() == 3
+		for child: Node in prop.get_children():
+			visual_only = visual_only and child is MeshInstance3D
+	ok(visual_only, "flag cone, pole and cloth meshes have no collision nodes")
+	ok(_visible_flag(runner, 1) and runner.hud._mission_banner_detail.text.contains("Flag 1/12"), "first prop and HUD target revealed at start")
+	var third := _point(cones[2])
+	runner._previous = third + Vector3(0, 5, 0)
+	runner.tick(0.1, third)
+	ok(runner.step_index == 0 and runner.last_result.is_empty() and runner.flag_progress().current == 1 and _visible_flag(runner, 1), "touching cone 3 before cone 1 leaves reveal and result unchanged")
+	for i in cones.size():
+		var point := _point(cones[i])
+		runner._previous = point + Vector3(0, 5, 0)
+		runner.tick(0.1, point - Vector3(0, 5, 0))
+		if i == 0:
+			runner._previous = point + Vector3(0, 5, 0)
+			runner.tick(0.1, point)
+			ok(runner.flag_progress().current == 2 and runner.step_index == 0, "a knocked target cannot score again")
+		if i < cones.size() - 1:
+			ok(runner.step_index == 0 and runner.flag_progress().current == i + 2 and runner.flag_progress().position == cones[i + 1] and _visible_flag(runner, i + 2) and runner.hud._mission_banner_detail.text.contains("Flag %d/12" % (i + 2)), "swept knock %d reveals only its successor in props and HUD" % (i + 1))
+	ok(runner.step_index == 1 and runner.last_result.is_empty() and runner.flag_progress().is_empty() and _visible_flag(runner, 0), "twelfth knock advances to finish and hides all props")
+	var finish := _point(mission.episode[-1].position)
+	runner._previous = finish + Vector3(0, 10, 0)
+	runner.tick(0.1, finish)
+	ok(runner.last_result.get("passed", false) and runner.get_child_count() == 0 and not runner.is_physics_processing(), "flag finish frees all props synchronously")
+	runner.start("FD-09")
+	var before := FileAccess.get_file_as_string(test_path)
+	runner.abort()
+	ok(runner.get_child_count() == 0 and not runner.is_physics_processing() and runner.flag_progress().is_empty() and runner.progress_text().is_empty() and FileAccess.get_file_as_string(test_path) == before, "flag abort frees props, clears progress and writes nothing")
+	runner.start("FD-09")
+	runner.set_physics_process(false)
+	runner.tick(mission.scoring.time_limit_s + 1, Vector3(200, 0.7, 100))
+	ok(runner.last_result.get("reason") == "time limit" and not runner.last_result.get("passed", true) and runner.get_child_count() == 0, "missing flags times out and frees props")
+	# Reverse spatial order within one sweep must not retroactively count flag 2.
+	var original: Dictionary = runner.catalog["FD-09"]
+	var small := original.duplicate(true)
+	small.scoring.failure_conditions = ["skipped_gate"]
+	small.episode[0].cones = [[0, 0.7, -20], [0, 0.7, -10], [0, 0.7, -30]]
+	runner.catalog["FD-09"] = small
+	runner.start("FD-09")
+	runner.set_physics_process(false)
+	runner._previous = Vector3(0, 0.7, 0)
+	runner.tick(0.1, Vector3(0, 0.7, -40))
+	ok(runner.step_index == 0 and runner.flag_progress().current == 2 and runner.last_result.is_empty(), "sweep ignores target passed before it was revealed")
+	runner.abort()
+	small.episode[0].cones = [[0, 0.7, -10], [0, 0.7, -20], [0, 0.7, -30]]
+	runner.start("FD-09")
+	runner.set_physics_process(false)
+	runner._previous = Vector3(0, 0.7, 0)
+	runner.tick(0.1, Vector3(0, 0.7, -40))
+	ok(runner.step_index == 1 and runner.last_result.is_empty(), "several sequential flag contacts in one sweep advance in spatial order")
+	runner.abort()
+	runner.catalog["FD-09"] = original
+
+func _double_circuit(runner: MissionRunner) -> void:
+	runner.start("FD-10")
+	runner.set_physics_process(false)
+	var steps: Array = runner.active.episode
+	for i in 5:
+		var point := _point(steps[i].position)
+		runner._previous = point + Vector3(0, 5, 0)
+		runner.tick(0.1, point)
+	ok(runner.step_index == 5 and runner.last_result.is_empty(), "FD-10 requires another circuit after the first west crossing")
+	var cone := _point(steps[0].cones[0])
+	runner._previous = cone + Vector3(0, 5, 0)
+	runner.tick(0.1, cone)
+	ok(runner.last_result.get("reason") == "cone hit", "FD-10 circle cones still fail on the second circuit")
+	runner.start("FD-10")
+	runner.set_physics_process(false)
+	runner.step_index = steps.size() - 1
+	runner._previous = cone
+	runner.tick(0.1, _point(steps[-1].position))
+	ok(not runner.last_result.get("passed", true) and runner.last_result.get("reason") == "cone hit", "FD-10 cone contact takes precedence on the finish tick")

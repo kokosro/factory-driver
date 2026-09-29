@@ -17,6 +17,8 @@ var _driver: HandlingTests
 var _previous := Vector3.ZERO
 var _suspended: Dictionary = {}
 var _lap_outside := false
+var _flag_index := 0
+var _flag_props: Array[Dictionary] = []
 
 static func of(tree: SceneTree) -> MissionRunner:
 	return tree.root.get_node_or_null("MissionRunner") as MissionRunner
@@ -83,6 +85,8 @@ func start(mission_id: String, scripted := false) -> bool:
 	elapsed = 0.0
 	step_index = 0
 	_lap_outside = false
+	_flag_index = 0
+	_build_flag_props()
 	for node in scene.get_children():
 		if node is MissionManager or node is LicenceManager or node is Study:
 			_suspended[node] = node.process_mode
@@ -136,6 +140,12 @@ func tick(delta: float, position: Vector3) -> void:
 	var crossings: Array = []
 	for i in range(step_index, steps.size()):
 		var step: Dictionary = steps[i]
+		if step.type == "flag":
+			for target in step.cones.size():
+				var contact := _entry_fraction(step.cones[target], step.cone_radius, _previous, position)
+				if contact >= 0:
+					crossings.append({"index": i, "fraction": contact, "flag": target})
+			continue
 		var fraction := _entry_fraction(step.position, step.radius, _previous, position)
 		if i == step_index and step.type == "lap":
 			var p := Vector3(step.position[0], step.position[1], step.position[2])
@@ -146,8 +156,20 @@ func tick(delta: float, position: Vector3) -> void:
 				fraction = -1.0
 		if fraction >= 0:
 			crossings.append({"index": i, "fraction": fraction})
-	crossings.sort_custom(func(a: Dictionary, b: Dictionary): return a.fraction < b.fraction or (a.fraction == b.fraction and a.index < b.index))
+	crossings.sort_custom(func(a: Dictionary, b: Dictionary):
+		if a.fraction != b.fraction:
+			return a.fraction < b.fraction
+		return a.index < b.index or (a.index == b.index and a.get("flag", -1) < b.get("flag", -1)))
 	for crossing: Dictionary in crossings:
+		# A later cone is neither a knock nor a fault. Sorting also prevents
+		# crediting a newly revealed target already passed earlier this tick.
+		if crossing.has("flag"):
+			if crossing.index == step_index and crossing.flag == _flag_index:
+				_flag_index += 1
+				if _flag_index == steps[step_index].cones.size():
+					step_index += 1
+					_flag_index = 0
+			continue
 		if crossing.index == step_index:
 			step_index += 1
 			_lap_outside = false
@@ -205,6 +227,10 @@ func abort() -> void:
 		hud.hide_mission_banner()
 
 func _cleanup() -> void:
+	for prop: Dictionary in _flag_props:
+		prop.node.free()
+	_flag_props.clear()
+	_flag_index = 0
 	if _driver:
 		_driver._release_all()
 		_driver = null
@@ -224,6 +250,58 @@ func result_text() -> String:
 		return "No episode result yet."
 	return "episode result: %s — %.3f s — %s — %s%s" % [last_result.id, last_result.time_s, last_result.medal, last_result.reason, " (save failed)" if not last_result.saved else ""]
 
+## Only the current target is revealed; props have no physics bodies or areas.
+func _build_flag_props() -> void:
+	for step: Dictionary in active.episode:
+		if step.type != "flag":
+			continue
+		for target in step.cones.size():
+			var point: Array = step.cones[target]
+			var prop := Node3D.new()
+			prop.name = "Flag_%d_%d" % [step.sequence, target + 1]
+			add_child(prop)
+			prop.position = Vector3(point[0], point[1] - 0.7, point[2])
+			var cone := CylinderMesh.new()
+			cone.top_radius = 0.06
+			cone.bottom_radius = 0.35
+			cone.height = 0.7
+			_flag_mesh(prop, cone, Vector3(0, 0.35, 0), Color.ORANGE)
+			var pole := CylinderMesh.new()
+			pole.top_radius = 0.035
+			pole.bottom_radius = 0.035
+			pole.height = 2.8
+			_flag_mesh(prop, pole, Vector3(0, 1.4, 0), Color.LIGHT_GRAY)
+			var flag := BoxMesh.new()
+			flag.size = Vector3(1.1, 0.65, 0.04)
+			_flag_mesh(prop, flag, Vector3(0.55, 2.4, 0), Color.GOLD)
+			_flag_props.append({"step": int(step.sequence), "target": target, "node": prop})
+
+func _flag_mesh(parent: Node3D, mesh: Mesh, offset: Vector3, color: Color) -> void:
+	var instance := MeshInstance3D.new()
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	instance.mesh = mesh
+	instance.material_override = material
+	instance.position = offset
+	parent.add_child(instance)
+
+func flag_progress() -> Dictionary:
+	if active.is_empty() or active.episode[step_index].type != "flag":
+		return {}
+	var step: Dictionary = active.episode[step_index]
+	return {"current": _flag_index + 1, "total": step.cones.size(), "position": step.cones[_flag_index].duplicate()}
+
+func progress_text() -> String:
+	if active.is_empty():
+		return ""
+	var line := "Step %d/%d — %.2f s / %.2f s — Esc / R abort" % [step_index + 1, active.episode.size(), elapsed, active.scoring.time_limit_s]
+	var flag := flag_progress()
+	if not flag.is_empty():
+		line += "\nFlag %d/%d — knock the revealed cone at (%.1f, %.1f)" % [flag.current, flag.total, flag.position[0], flag.position[2]]
+	return line
+
 func _show_progress() -> void:
+	for prop: Dictionary in _flag_props:
+		prop.node.visible = prop.step == step_index and prop.target == _flag_index
 	if is_instance_valid(hud):
-		hud.show_mission_banner(active.title, "Step %d/%d — %.2f s / %.2f s — Esc / R abort" % [step_index + 1, active.episode.size(), elapsed, active.scoring.time_limit_s], Color.GOLD)
+		hud.show_mission_banner(active.title, progress_text(), Color.GOLD)
