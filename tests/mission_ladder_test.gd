@@ -1,5 +1,7 @@
 extends SceneTree
 ## ML-1..6 ladder proof: thirty-three missions through the terminal Ace promotion.
+## ECON-1: the production scan also finds the job board (configs/jobs); the
+## ladder itself pays nothing - no ladder mission carries reward_credits.
 var failures := 0
 var checks := 0
 var changes := 0
@@ -231,7 +233,8 @@ func _store() -> void:
 
 func _episode() -> void:
 	var runner := MissionRunner.of(self)
-	ok(runner != null and runner.catalog.size() == 33, "autoload discovers thirty-three production missions")
+	# was 33 -> 33 + the four ECON-1 jobs: one catalog, the ladder first.
+	ok(runner != null and runner.catalog.size() == 33 + JOB_IDS.size(), "autoload discovers thirty-three production missions and the four jobs")
 	ok(runner.get_child_count() == 0 and not runner.is_physics_processing() and not runner.is_processing_input(), "idle runner inert")
 	var scene: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
@@ -246,7 +249,8 @@ func _episode() -> void:
 	runner.load_catalog(PackedStringArray(["res://tests/ml1_proof.json"]))
 	ok(runner.catalog.size() == 1, "test-only catalog loads proof")
 	garage.show_page(Garage.Page.MISSIONS)
-	ok(Garage.PAGE_TITLES.size() == 6 and Garage.PAGE_TITLES[5] == "MISSIONS", "six-page pin")
+	# was six pages -> seven: ECON-1 adds JOBS after MISSIONS.
+	ok(Garage.PAGE_TITLES.size() == 7 and Garage.PAGE_TITLES[5] == "MISSIONS" and Garage.PAGE_TITLES[6] == "JOBS", "seven-page pin")
 	ok(garage.page_text().contains("JUNIOR"), "campaign rank displayed")
 	ok(garage.page_rows()[0].hint.contains(fixture.briefing), "briefing displayed")
 	ok(not garage.page_rows()[-1].enabled, "reward row disabled")
@@ -296,6 +300,8 @@ func _episode() -> void:
 	scene.queue_free()
 	await process_frame
 
+## ECON-1's job board: in the catalog, never on the ladder.
+const JOB_IDS := ["JOB-01", "JOB-02", "JOB-03", "JOB-04"]
 const PRODUCTION_IDS := ["FD-01", "FD-02", "FD-03", "FD-04", "FD-05", "FD-06", "FD-07", "FD-08", "FD-09", "FD-10", "FD-11", "FD-12", "FD-13", "FD-14", "FD-15", "FD-16", "FD-17", "FD-18", "FD-19", "FD-20", "FD-21", "FD-22", "FD-23", "FD-24", "FD-25", "FD-26", "FD-27", "FD-28", "FD-29", "FD-30", "FD-31", "FD-32", "FD-33"]
 
 func _mission_rows(garage: Garage) -> Dictionary:
@@ -316,13 +322,18 @@ func _point(position: Array) -> Vector3:
 func _production() -> void:
 	var runner := MissionRunner.of(self)
 	runner.load_catalog()
-	ok(runner.catalog.size() == 33, "production scan finds exactly thirty-three missions")
+	# was 33 -> 33 + the four ECON-1 jobs.
+	ok(runner.catalog.size() == 33 + JOB_IDS.size(), "production scan finds exactly thirty-three missions and four jobs")
 	ok(MissionSchema.catalog_errors(runner.catalog.values()).is_empty(), "production catalog has no reference or schema errors")
 	for id: String in PRODUCTION_IDS:
 		ok(runner.catalog.has(id), id + " discovered")
 		if not runner.catalog.has(id):
 			return
 		ok(MissionSchema.validate(runner.catalog[id]).is_empty(), id + " validates without errors")
+		# The ladder and the economy are separate loops: promotion pays nothing.
+		ok(not runner.catalog[id].has("reward_credits") and not runner.catalog[id].has("job_kind"), id + " carries no reward_credits and no job_kind")
+	for id: String in JOB_IDS:
+		ok(runner.catalog.has(id) and runner.catalog[id].has("reward_credits") and runner.catalog[id].environment == "ring" and not PRODUCTION_IDS.has(id), id + " is a paid ring job beside the ladder, not on it")
 	for id: String in ["FD-05", "FD-06", "FD-07", "FD-08", "FD-09", "FD-10", "FD-11"]:
 		var m: Dictionary = runner.catalog[id]
 		var bands: Dictionary = m.scoring.medal_times
@@ -376,6 +387,18 @@ func _production() -> void:
 		if row.kind == "reward" and row.id == "test_driver":
 			ok(not row.enabled and not row.label.contains("OWNED"), "fresh garage reward is locked")
 	ok(rows.size() == 33 and rows["FD-01"].enabled and rows["FD-01"].label == "FD-01 — Simple Slalom", "fresh Junior sees playable FD-01")
+	# ECON-1: the jobs have a page of their own; on the pad they are listed
+	# and cannot start (ring jobs), and the ladder's page does not show them.
+	var on_ladder_page := false
+	for id: String in JOB_IDS:
+		on_ladder_page = on_ladder_page or rows.has(id)
+	garage.show_page(Garage.Page.JOBS)
+	var job_rows := garage.page_rows()
+	var jobs_listed := job_rows.size() == JOB_IDS.size()
+	for i in mini(job_rows.size(), JOB_IDS.size()):
+		jobs_listed = jobs_listed and job_rows[i].kind == "job" and job_rows[i].id == JOB_IDS[i] and not job_rows[i].enabled and job_rows[i].hint.contains("Locked: Open the ring from DRIVE first")
+	ok(not on_ladder_page and jobs_listed and not runner.start("JOB-01") and runner.active.is_empty(), "jobs stay off the ladder page; the JOBS page lists the four, greyed on the pad, and the runner refuses a ring job here")
+	garage.show_page(Garage.Page.MISSIONS)
 	for i in range(1, PRODUCTION_IDS.size()):
 		var id: String = PRODUCTION_IDS[i]
 		var reason: String = "Complete " + PRODUCTION_IDS[i - 1] if i < 12 else ("Requires test driver" if i < 22 else "Requires chief")
@@ -905,7 +928,12 @@ func _ml6_configs(runner: MissionRunner, garage: Garage) -> void:
 	ok(runner.last_result.get("passed", false), "FD-30 finishes only after three circuits and finish gate")
 	ok(runner.catalog["FD-31"].episode.size() == 6 and runner.catalog["FD-33"].episode.size() == 10, "race and Ace stand-ins require one and two circuits respectively")
 	ok(runner.catalog["FD-32"].briefing.contains("fd_2000") and runner.catalog["FD-33"].provenance.unlock.contains("all ten"), "joy ride reward and terminal all-ten unlock disclosed")
-	var ids: Array = runner.catalog.keys()
+	# was every catalog id -> the ladder's: the jobs (ECON-1) are in the
+	# catalog and unlock nothing, FD-33 stays the ladder's last.
+	var ids: Array = []
+	for id: String in runner.catalog:
+		if not runner.catalog[id].has("reward_credits"):
+			ids.append(id)
 	ids.sort()
 	ok(ids == PRODUCTION_IDS and ids[-1] == "FD-33", "FD-33 is terminal with no later catalog mission")
 

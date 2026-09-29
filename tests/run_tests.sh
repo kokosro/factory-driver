@@ -11,13 +11,14 @@
 # the smoke test, then the handling,
 # camera, mission, battery, thermal, tyre/brake thermal, steering-feel,
 # wear, licence, menu, issue flag, minimap, airborne, reset, refuel,
-# telemetry watch, marks, side road, road edge, mission ladder and first run tests (34 markers including
-# import and the final verdict). Fails on a non-zero exit code
+# telemetry watch, marks, side road, road edge, mission ladder, credits and first run tests (35 markers
+# including import and the final verdict; was 34 -> the credits test, ECON-1). Fails on a non-zero exit code
 # or on any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the thirty-two tests side by side
-#                                   (was thirty-one -> the mission ladder test, ML-1)
+#   tests/run_tests.sh --parallel   the import first, then the thirty-three tests side by side
+#                                   (was thirty-one -> the mission ladder test, ML-1;
+#                                   was thirty-two -> the credits test, ECON-1)
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -183,6 +184,10 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 "$STEP" "road edge test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/road_edge_test.gd
 # ML-1: separate campaign store, schema, promotions and a test-only pad episode.
 "$STEP" "mission ladder test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/mission_ladder_test.gd
+# ECON-1: the credits ledger (a file of the test's own), jobs as paid missions,
+# the payment pins on the pad, the job board on the Ring: one job driven to a
+# real pass through its shipped controls, one to a real failure.
+"$STEP" "credits test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/credits_test.gd
 # 4B-6, the first run: the world map, the pin, the test centre's yard, the L0
 # voucher, the rental lock and the first car; the store pinned off, a world
 # file of the test's own.

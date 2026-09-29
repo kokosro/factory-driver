@@ -12,7 +12,7 @@ extends CanvasLayer
 ## the bit, whether the garage was open in between or not
 ## (tests/menu_test.gd holds it there). No time scale, no delta of its own.
 ##
-## Six pages, tabs across the top, the arrow keys and Enter or the mouse:
+## Seven pages, tabs across the top, the arrow keys and Enter or the mouse:
 ##   DRIVE      free driving on a map (MAPS: exactly the maps there are), the
 ##              world map (the first run's layer, scripts/world_map.gd,
 ##              opened again from here; 4B-6), the dealership's rows where
@@ -34,6 +34,11 @@ extends CanvasLayer
 ##              to the default - a native folder dialog, opened only from
 ##              here), the HUD bar legend (HUD.bar_legend) and the keys.
 ##   MISSIONS   campaign rank, episodes, promotion credentials and entitlements.
+##   JOBS       the job board (ECON-1): the credits held, and every paid job
+##              in the runner's catalog - its kind, its pay, whether it has
+##              been done - started through the mission runner like an
+##              episode. A page of its own: the ladder pays nothing and the
+##              board unlocks nothing, two loops that share a runner.
 ## Built from Controls alone, in _build: no scene, no assets. Inert until
 ## opened: closed it costs a key check a tick.
 
@@ -47,8 +52,9 @@ const ACTION_CLOSE := &"abort_mission"
 ## Above the HUD (its layer is 1).
 const LAYER := 10
 
-enum Page { DRIVE, STUDY, CAR, LICENCE, SETTINGS, MISSIONS }
-const PAGE_TITLES: Array[String] = ["DRIVE", "THE STUDY", "CAR", "LICENCE", "SETTINGS", "MISSIONS"]
+# was six pages -> seven: ECON-1 adds JOBS after MISSIONS.
+enum Page { DRIVE, STUDY, CAR, LICENCE, SETTINGS, MISSIONS, JOBS }
+const PAGE_TITLES: Array[String] = ["DRIVE", "THE STUDY", "CAR", "LICENCE", "SETTINGS", "MISSIONS", "JOBS"]
 
 ## The maps free driving can be had on: exactly the ones there are, the
 ## scene each is, and the row's hint (what is true of that map). Two: the
@@ -307,6 +313,8 @@ func show_page(wanted: Page) -> void:
 			_build_settings_page()
 		Page.MISSIONS:
 			_build_missions_page()
+		Page.JOBS:
+			_build_jobs_page()
 	cursor = 0 if not _rows.is_empty() else -1
 	_scroll.scroll_vertical = 0
 	_highlight_cursor()
@@ -314,7 +322,8 @@ func show_page(wanted: Page) -> void:
 
 ## The current page's rows: {label, hint, kind, enabled}, in order. `kind`
 ## is what the row starts: "map", "world_map", "take_car", "loaner",
-## "test", "l0", "skid_pad", "lesson", "choose_folder", "default_folder".
+## "test", "l0", "skid_pad", "lesson", "choose_folder", "default_folder",
+## "mission", "reward", "job".
 func page_rows() -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []
 	for row in _rows:
@@ -938,7 +947,7 @@ func _add_bar(label: String, fraction: float, reading: String, color: Color) -> 
 # --- MISSIONS --------------------------------------------------------------------
 
 func _campaign_changed() -> void:
-	if is_open and page in [Page.MISSIONS, Page.CAR]:
+	if is_open and page in [Page.MISSIONS, Page.CAR, Page.JOBS]:
 		show_page(page)
 
 func _build_missions_page() -> void:
@@ -960,6 +969,9 @@ func _build_missions_page() -> void:
 		_add_text("No playable campaign missions yet. The mission ladder is under construction.", COLOR_DIM_TEXT)
 	for id: String in runner.catalog:
 		var mission: Dictionary = runner.catalog[id]
+		# Paid jobs have the JOBS page; the ladder's page lists the ladder.
+		if mission.has("reward_credits"):
+			continue
 		var reason := runner.campaign.unlock_reason(mission)
 		if reason == "" and not runner.environment_matches(mission.environment):
 			reason = "Open the " + mission.environment + " from DRIVE first"
@@ -975,6 +987,41 @@ func _build_missions_page() -> void:
 			_add_row(("OWNED — TAKE — " if owned else "") + CampaignStore.REWARDS[rank], "Select your promotion reward. Live vehicle swapping is pending; driving still uses the Boxster." if owned else "Requires " + rank.replace("_", " "), "reward", _take_reward_car.bind(CampaignStore.REWARD_CARS[rank]), owned and WorldStore.active_path() != "", rank)
 		else:
 			_add_row(CampaignStore.REWARDS[rank], ("Earned" if record.rewards[rank] else "Requires " + rank.replace("_", " ")) + " — car configuration coming later", "reward", Callable(), false, rank)
+
+## The job board: what the driver holds, then one row per paid job. The
+## ledger is read here and nowhere at idle; gated (headless, no override)
+## it reads nothing and the balance is 0.
+func _build_jobs_page() -> void:
+	var runner := MissionRunner.of(get_tree())
+	if runner == null:
+		_add_text("Job board unavailable.", COLOR_DIM_TEXT)
+		return
+	runner.configure(car, hud)
+	runner.credits.load_state()
+	var record := runner.campaign.state
+	_add_heading("JOB BOARD  —  CREDITS: %d" % runner.credits.balance())
+	_add_text("Paid work on the Ring's roads: a job done pays its credits on delivery, every time it is done. The promotion ladder pays nothing; credits cannot be spent yet.", COLOR_TEXT)
+	var payments: Array = runner.credits.transactions()
+	_add_text("Payments received: %d%s" % [payments.size(), "  —  last: +%d %s" % [payments[-1].amount, payments[-1].reason] if not payments.is_empty() else ""], COLOR_TEXT)
+	for problem: String in runner.credits.problems:
+		_add_text("Ledger: " + problem, COLOR_DIM_TEXT)
+	var listed := 0
+	for id: String in runner.catalog:
+		var job: Dictionary = runner.catalog[id]
+		if not job.has("reward_credits"):
+			continue
+		listed += 1
+		var reason := runner.campaign.unlock_reason(job)
+		if reason == "" and not runner.environment_matches(job.environment):
+			reason = "Open the " + job.environment + " from DRIVE first"
+		var best: Dictionary = record.results.get(id, {})
+		var done: bool = best.get("medal", "") != ""
+		var hint: String = job.briefing + ("\nLocked: " + reason if reason != "" else "\nEnter to start — " + job.environment)
+		if not best.is_empty():
+			hint += "\nBest %.3f s — %s — %d attempts" % [best.best_time_s, best.medal if done else "not yet delivered", best.attempts]
+		_add_row("%s%s — %s  —  %s  —  %d credits" % ["DONE — " if done else "", id, job.title, str(job.get("job_kind", "job")), int(job.reward_credits)], hint, "job", _start_episode.bind(id), reason == "", id)
+	if listed == 0:
+		_add_text("No jobs posted.", COLOR_DIM_TEXT)
 
 func _take_reward_car(car_id: String) -> void:
 	var runner := MissionRunner.of(get_tree())

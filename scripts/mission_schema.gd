@@ -3,6 +3,8 @@ extends RefCounted
 ## JSON episodes, in world metres. Sequence is contiguous and zero based.
 ## Catalog validation is a second pass: missing, invalid and cyclic prerequisites
 ## exclude their dependents too. No production episodes are supplied by ML-1.
+## ECON-1: reward_credits (a whole number above zero) marks a paid job and
+## job_kind names what kind; absent from every ladder mission.
 const RANKS := ["junior", "test_driver", "chief", "ace"]
 const TYPES := ["waypoint_gate", "zone", "cone_slalom", "flag", "delivery_pickup", "delivery_return", "timed_finish", "lap"]
 const FAILURES := ["skipped_gate", "cone_hit"]
@@ -26,6 +28,18 @@ static func validate(data: Variant) -> PackedStringArray:
 		errors.append("unknown environment")
 	if data.has("cold_tyres") and not data.cold_tyres is bool:
 		errors.append("cold_tyres must be boolean")
+	# ECON-1: a paid mission is a job. Both fields are optional; the ladder
+	# carries neither. The kind is free vocabulary (courier, testdrive,
+	# scouting ...) and describes nothing without a reward.
+	if data.has("reward_credits"):
+		var reward: Variant = data.reward_credits
+		if not number(reward) or reward <= 0 or reward != floor(reward):
+			errors.append("reward_credits must be a whole number above zero")
+	if data.has("job_kind"):
+		if not data.job_kind is String or data.job_kind.strip_edges().is_empty():
+			errors.append("job_kind must be nonempty text")
+		if not data.has("reward_credits"):
+			errors.append("job_kind needs reward_credits")
 	if data.has("surface_override"):
 		var surface: Variant = data.surface_override
 		if not surface is Dictionary:

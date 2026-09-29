@@ -3,9 +3,15 @@ extends Node
 ## Non-singleton autoload named MissionRunner: the class remains available to
 ## early-compiled scripts, of(tree) reaches the node. Idle has no children,
 ## physics processing, input processing, car changes or periodic store writes.
+## ECON-1: jobs are missions that carry reward_credits. They live in
+## JOBS_DIR, join the one catalog and start through the same start(); a
+## PASSED job pays the credits ledger once (pay_last_result). A mission
+## without reward_credits never reaches the ledger.
 signal episode_finished(result: Dictionary)
 const CATALOG_DIR := "res://configs/missions"
+const JOBS_DIR := "res://configs/jobs"
 var campaign := CampaignStore.new()
+var credits := CreditsLedger.new()
 var catalog: Dictionary = {}
 var active: Dictionary = {}
 var last_result: Dictionary = {}
@@ -21,6 +27,10 @@ var _flag_index := 0
 var _flag_props: Array[Dictionary] = []
 var _surface_original: Array[float] = []
 var _surface_car: ArcadeCar
+## start() counts the episodes; the payment remembers the one it paid.
+var _episode := 0
+var _paid_episode := 0
+var _payable: Dictionary = {}
 
 static func of(tree: SceneTree) -> MissionRunner:
 	return tree.root.get_node_or_null("MissionRunner") as MissionRunner
@@ -41,14 +51,18 @@ func _attach_licence(id: int) -> void:
 	if is_instance_valid(manager) and manager.is_inside_tree() and not manager.is_queued_for_deletion():
 		campaign.attach(manager)
 
-## Explicit paths permit tests to load their fixture; production scans only
-## configs/missions, which intentionally does not exist in ML-1.
+## Explicit paths permit tests to load their fixture; production scans
+## configs/missions (the ladder) and then configs/jobs (the job board) into
+## one catalog, the ladder first.
 func load_catalog(paths: PackedStringArray = PackedStringArray()) -> void:
 	var entries: Array = []
-	if paths.is_empty() and DirAccess.dir_exists_absolute(CATALOG_DIR):
-		for file in DirAccess.get_files_at(CATALOG_DIR):
-			if file.ends_with(".json"):
-				paths.append(CATALOG_DIR.path_join(file))
+	if paths.is_empty():
+		for dir: String in [CATALOG_DIR, JOBS_DIR]:
+			if not DirAccess.dir_exists_absolute(dir):
+				continue
+			for file in DirAccess.get_files_at(dir):
+				if file.ends_with(".json"):
+					paths.append(dir.path_join(file))
 	for path in paths:
 		var parser := JSON.new()
 		entries.append(parser.data if parser.parse(FileAccess.get_file_as_string(path)) == OK else null)
@@ -84,6 +98,8 @@ func start(mission_id: String, scripted := false) -> bool:
 				return false
 	active = mission.duplicate(true)
 	last_result = {}
+	_payable = {}
+	_episode += 1
 	elapsed = 0.0
 	step_index = 0
 	_lap_outside = false
@@ -236,15 +252,39 @@ func finish(passed: bool, reason: String) -> void:
 	var medal := MissionSchema.medal(mission.scoring, elapsed) if passed else ""
 	last_result = {"id": mission.id, "passed": passed and medal != "", "time_s": elapsed, "medal": medal, "reason": reason}
 	last_result["saved"] = campaign.record_result(mission, elapsed, last_result.passed)
+	# The pay does not wait on the campaign record: a job done is a job paid,
+	# whether or not the result could be saved.
+	if mission.has("reward_credits"):
+		_payable = mission
+		last_result["credits"] = pay_last_result()
 	_cleanup()
 	if is_instance_valid(hud):
 		hud.show_mission_banner("PASSED" if last_result.passed else "FAILED", result_text(), Color.GOLD)
 	episode_finished.emit(last_result.duplicate(true))
 
+## Pays the job finish() last closed, once: the credits written, 0 when
+## nothing was. Single-shot per episode: start() numbers the episodes and a
+## committed payment remembers its number, so calling this again for the
+## same result - a retry, a listener, a second finish() - pays nothing. A
+## failed or aborted episode has nothing payable; passing the job again is
+## a new episode and new pay. A payment the ledger refused (gated, a write
+## that failed) is not remembered: the retry may still commit it, once.
+func pay_last_result() -> int:
+	if _payable.is_empty() or _paid_episode == _episode:
+		return 0
+	if last_result.get("id") != _payable.get("id") or not last_result.get("passed", false):
+		return 0
+	var written := credits.earn(int(_payable.reward_credits), "job:" + str(_payable.id))
+	if written.is_empty():
+		return 0
+	_paid_episode = _episode
+	return written.amount
+
 func abort() -> void:
 	if active.is_empty():
 		return
 	last_result = {}
+	_payable = {}
 	_cleanup()
 	if is_instance_valid(hud):
 		hud.hide_mission_banner()
@@ -278,7 +318,10 @@ func _exit_tree() -> void:
 func result_text() -> String:
 	if last_result.is_empty():
 		return "No episode result yet."
-	return "episode result: %s — %.3f s — %s — %s%s" % [last_result.id, last_result.time_s, last_result.medal, last_result.reason, " (save failed)" if not last_result.saved else ""]
+	var line := "episode result: %s — %.3f s — %s — %s%s" % [last_result.id, last_result.time_s, last_result.medal, last_result.reason, " (save failed)" if not last_result.saved else ""]
+	if last_result.get("credits", 0) > 0:
+		line += " — paid %d credits" % last_result.credits
+	return line
 
 ## Only the current target is revealed; props have no physics bodies or areas.
 func _build_flag_props() -> void:
