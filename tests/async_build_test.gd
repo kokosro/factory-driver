@@ -107,6 +107,21 @@ extends SceneTree
 ## changes Buildings to c91220c9e775c1da; counts remain the same. Road af1cd69f426516cc,
 ## Terrain 5c5ee1f6ba4d1b4a, Forest 3241b4b76c9e000a unchanged.
 
+## ROAD-7 / F1-COLLISION-1 (all covered non-loop roads >=5 m;
+## rails 1.5 m outside pavement, 44 exit gaps and bubbled F1 solids):
+## Road af1cd69f426516cc -> e84b7f4c3a8ef510;
+## Terrain 5c5ee1f6ba4d1b4a -> 787f0642584fd0bb;
+## Forest 3241b4b76c9e000a -> 9082e0a1bdf6f057;
+## Buildings c91220c9e775c1da -> 1ef2afe47edc751e.
+## Road sections 369357 -> 441723, vertices 1109537 -> 1326635,
+## triangles 1467142 -> 1756606; 3304 roads and the rumble census unchanged.
+## Terrain now 2766897 vertices / 4456307 triangles, 388003 capped vertices;
+## Forest now 2598435 vertices / 2183322 triangles, 19379 trunks / 42 bodies.
+## Buildings 227 meshes unchanged, shapes 12 -> 33, children 240 -> 261,
+## jobs per chunk stage 239 -> 260, vertices 586254 -> 567138,
+## triangles 195418 -> 189046. Full digests still compare independent
+## sync/async arrays and faces, with all thirteen stages and the 250 ms gate.
+
 const RING_SCENE := "res://scenes/eifel_ring.tscn"
 const PAD_SCENE := "res://scenes/main.tscn"
 const CAR_SCENE := "res://scenes/car.tscn"

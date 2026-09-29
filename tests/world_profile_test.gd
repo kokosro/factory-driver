@@ -111,8 +111,9 @@ const HEIGHT_ROUNDING_M := 0.005
 ## changed only inside the Karussell's two 30 m ramps, where the plane is
 ## blended into the bowl).
 ## ROAD-6: 647200ff... -> aabf29b2... from the widened side-road fields;
+## ROAD-7: aabf29b2... -> 9cdcc4c5... from all covered side-road widths;
 ## the regenerated drape geometry arrays remain byte-equal.
-const SAMPLES_DIGEST := "aabf29b2a3f05f2d12af64d0efd57e2be348e26cb551db6dacadc7674954231a"
+const SAMPLES_DIGEST := "9cdcc4c57f7fa054ff027751971b62fc55964bc82c193a628215d6f6a6de70da"
 
 ## The codex review's precision repro: the segment and the pipeline's value.
 const MIRROR_SEGMENT := "1017207289-0"
@@ -208,7 +209,7 @@ func _check_files(skeleton: Variant, drape: Variant) -> void:
 func _check_snapshot(skeleton: Dictionary, drape: Dictionary) -> void:
 	var snapshot: Dictionary = drape.snapshot
 	_ok(snapshot.osm_base == PINNED_OSM_BASE and snapshot.query_sha == skeleton.snapshot.query_sha, "snapshot.osm_base is the pinned %s and query_sha the skeleton's" % PINNED_OSM_BASE, "snapshot is %s" % [snapshot])
-	_ok(snapshot.pipeline_version == 1 and snapshot.skeleton_pipeline_version == 2, "drape pipeline_version 1 on skeleton pipeline_version 2", "versions %s / %s" % [snapshot.get("pipeline_version"), snapshot.get("skeleton_pipeline_version")])
+	_ok(snapshot.pipeline_version == 1 and snapshot.skeleton_pipeline_version == 3, "drape pipeline_version 1 on skeleton pipeline_version 3", "versions %s / %s" % [snapshot.get("pipeline_version"), snapshot.get("skeleton_pipeline_version")])
 	var skeleton_sha := FileAccess.get_sha256(SkeletonLoader.PATH)
 	_ok(snapshot.skeleton_sha256 == skeleton_sha, "snapshot.skeleton_sha256 is the checked-in skeleton's %s" % skeleton_sha, "snapshot.skeleton_sha256 is %s, the checked-in skeleton is %s (draped on another skeleton)" % [snapshot.skeleton_sha256, skeleton_sha])
 	var origin: Dictionary = drape.origin
@@ -481,7 +482,7 @@ func _check_slopes(skeleton: Dictionary, drape: Dictionary, raw_points: Dictiona
 	for h: float in samples:
 		context.update(("%.6f\n" % h).to_utf8_buffer())
 	var digest := context.finish().hex_encode()
-	_ok(digest == SAMPLES_DIGEST, "the 200 samples read the same as at the ROAD-6 landing: sha256 %s (was 647200ff...: selected side tracks widened from 3 to 5 m; the drape geometry arrays are unchanged)" % digest, "the 200 samples' digest is %s, pinned %s" % [digest, SAMPLES_DIGEST])
+	_ok(digest == SAMPLES_DIGEST, "the 200 samples read the same as at the ROAD-7 landing: sha256 %s (was aabf29b2...: all covered non-loop roads widened to at least 5 m; the drape geometry arrays are unchanged)" % digest, "the 200 samples' digest is %s, pinned %s" % [digest, SAMPLES_DIGEST])
 	_check_mirror_precision(skeleton)
 
 
@@ -1311,7 +1312,7 @@ func _right_of_way_skeleton(with_loop: bool) -> Dictionary:
 	var segment := func(id: String, way: int, road_class: String, width: float, points: Array) -> Dictionary:
 		return {"id": id, "osm_way": way, "class": road_class, "width_m": width, "width_source": "class", "points": points}
 	return {
-		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 2},
+		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 3},
 		"origin": {"epsg": SkeletonLoader.EPSG, "e0": SkeletonLoader.E0, "n0": SkeletonLoader.N0},
 		"segments": [
 			segment.call("10-0", 10, "raceway", 8.5, [[2200.0, -1000.0], [2450.0, -1000.0]]),
@@ -1369,7 +1370,7 @@ func _fixture_sample(x: float, z: float) -> Variant:
 ## admits) along x across cell boundaries: its reach is 7 + 6 = 13 m.
 func _fixture_skeleton() -> Dictionary:
 	return {
-		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 2},
+		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 3},
 		"origin": {"epsg": SkeletonLoader.EPSG, "e0": SkeletonLoader.E0, "n0": SkeletonLoader.N0},
 		"segments": [
 			{"id": "1-0", "osm_way": 1, "class": "primary", "width_m": 7.0, "width_source": "class", "points": [[800.0, -600.0], [800.0, -1000.0]]},
@@ -1401,7 +1402,7 @@ func _fixture_drape(skeleton: Dictionary) -> Dictionary:
 		if record != null:
 			segments.append(record)
 	return {
-		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "skeleton_pipeline_version": 2, "skeleton_sha256": "0".repeat(64), "pipeline_version": 1},
+		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "skeleton_pipeline_version": 3, "skeleton_sha256": "0".repeat(64), "pipeline_version": 1},
 		"origin": {"epsg": SkeletonLoader.EPSG, "e0": SkeletonLoader.E0, "n0": SkeletonLoader.N0},
 		"dem": {"source": "synthetic plane + bowl + crests", "epsg": 25832, "vertical_datum": "DHHN2016", "grid_m": 1.0, "tiles": [{"name": "dgm1_32_352_5577_1_rp_2025.tif", "sha256": "0".repeat(64), "verified": true}]},
 		"coverage": {"x_min": 0.0, "x_max": FIXTURE_SIZE_M, "z_min": -FIXTURE_SIZE_M, "z_max": 0.0},

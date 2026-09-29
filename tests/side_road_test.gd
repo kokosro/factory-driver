@@ -1,11 +1,11 @@
 extends SceneTree
-## ROAD-6 / issue-0069: the exact stopped sideways pose, using the real
+## ROAD-7 / issue-0069: the exact stopped sideways pose, using the real
 ## Ring scene, wheel contacts and Surfaces classifier. No physics changes.
 const ISSUE_SEGMENT := "314755146-2"
 const CONTROL_SEGMENT := "1017207294-0"
 const ISSUE_POSE := Vector3(969.409, 576.206, -1573.217)
 const ISSUE_YAW := -55.9
-const SKELETON_SHA256 := "3c05fc5633b2b1bf34ee7572e44877b78eab840e7657bcbeee97e6f39050c11e"
+const SKELETON_SHA256 := "bcdd9456b5376b2bc21ec69187c2f0daa7e906f506d53818394ea3b3ce733de3"
 var _failures := 0
 
 func _initialize() -> void:
@@ -23,12 +23,25 @@ func _run() -> void:
 	var skeleton: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(SkeletonLoader.PATH))
 	var drape: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(WorldRoadProfile.PATH))
 	var segments := SkeletonLoader.segments_of(skeleton)
-	_ok(FileAccess.get_sha256(SkeletonLoader.PATH) == SKELETON_SHA256, "ROAD-6 skeleton bytes pinned: " + SKELETON_SHA256)
-	_ok(segments[ISSUE_SEGMENT].width_m == 5.0 and segments[ISSUE_SEGMENT].width_source == "road6", "314755146-2 is 5.0 m paved by the ROAD-6 ruling")
+	_ok(FileAccess.get_sha256(SkeletonLoader.PATH) == SKELETON_SHA256, "ROAD-7 skeleton bytes pinned: " + SKELETON_SHA256)
+	_ok(segments[ISSUE_SEGMENT].width_m == 5.0 and segments[ISSUE_SEGMENT].width_source == "road7", "314755146-2 is 5.0 m paved by the ROAD-7 ruling")
 	var covered := {}
 	for record: Dictionary in drape.segments:
 		covered[record.id] = record.covered
-	_ok(covered[ISSUE_SEGMENT] and covered[CONTROL_SEGMENT] and segments[CONTROL_SEGMENT].road_class == "track" and segments[CONTROL_SEGMENT].width_m == 3.0, "covered control 1017207294-0 remains a 3.0 m track outside the selection")
+	var loop: Array = skeleton.loops[0].segments
+	var covered_sides := 0
+	var overrides := 0
+	var widths_ok := true
+	for id: String in segments:
+		if segments[id].width_source == "road7":
+			widths_ok = widths_ok and not id in loop and covered.get(id, false) and segments[id].width_m == 5.0
+		if id in loop or not covered.get(id, false):
+			continue
+		covered_sides += 1
+		widths_ok = widths_ok and segments[id].width_m >= 5.0
+		overrides += int(segments[id].width_source == "road7")
+	_ok(widths_ok and covered_sides == 3222 and overrides == 2379, "ROAD-7: all 3222 covered non-loop roads >=5 m, 2379 explicit overrides (217 ROAD-6 + 2162 newly widened)")
+	_ok(segments[CONTROL_SEGMENT].width_m == 5.0, "former ROAD-6 control 1017207294-0 now also 5 m")
 	var scene: Node3D = load("res://scenes/eifel_ring.tscn").instantiate()
 	root.add_child(scene)
 	for i: int in 3:

@@ -24,12 +24,10 @@ extends Node3D
 ## budget lose least-area corners, measured in shell metadata, never in the
 ## source file. Roof halves are clipped at the ridge and triangulated.
 ##
-## F1 is rule-placed on the 92 loop segments, BOTH sides, visual only.
-## Collision is deferred to the driver's ruling: the frozen bubble drive
-## crosses the paved edge towards a tree 11 m out. We retain continuous
-## visual rails (no collision cannot stop that drive); the report measures
-## their crossing. R15 strips are visual concrete edges, 0.12 m from R15;
-## the cross-section itself remains the road builder's responsibility.
+## F1 stands 1.5 m beyond pavement, with >=12 m exit gaps from skeleton
+## junctions. Collision uses the economic shells' bubbled chunk path.
+## The measured tree-drive crossing stays visual only; see 4b8-report.md.
+## R15 keeps its own catalogue dimensions.
 ## F14 has no recorded run-off data; F10's board reuse is unresolved;
 ## F2/F3/F5/F6 are not placed. OSM barriers are reported counts only.
 
@@ -41,6 +39,12 @@ const VILLAGE_M := 800.0
 const STAGGER_M := 10.0
 const PARK_SPAN_M := 100.0
 const PARK_MAX := 2 # ring-region-decisions §5
+const RAIL_OFFSET_M := 1.5
+const EXIT_HALF_GAP_M := 6.1 # 12 m clear plus post/beam thickness allowance
+# F1-COLLISION-1 measured exception: five negative-side bays only.
+const RAIL_VISUAL_FROM_M := 9904.0
+const RAIL_VISUAL_TO_M := 9924.0
+
 const BOOTH_OFFSET_MIN := 8.0
 const BOOTH_OFFSET_MAX := 12.0
 
@@ -54,6 +58,9 @@ var counts := {}
 var elements := {}
 var shells: Array[Dictionary] = []
 var props: Array[Dictionary] = []
+var rail_exits: Array[Dictionary] = []
+var rail_gaps: Array[Vector2] = []
+var loop_length := 0.0
 var rail_posts: Array[Dictionary] = []
 var kerb_segments: Array[String] = []
 var bodies: Array[StaticBody3D] = []
@@ -214,6 +221,7 @@ func warm_catalogue() -> void:
 	Buildings.records()
 	TerrainBuilder.region_seed()
 	SkeletonLoader.segments()
+	SkeletonLoader.junctions()
 	SkeletonLoader.loop(SkeletonLoader.NORDSCHLEIFE_LOOP)
 
 func prepare(built_profile: WorldRoadProfile) -> void:
@@ -369,38 +377,142 @@ func road_frame(id: String, s: float, offset: float) -> Vector2:
 	var stretch := 1.0 / maxf(bisector.dot(normal), 1.0 / RoadBuilder.MAX_MITRE)
 	return point + bisector * stretch * offset
 
-func _place_furniture() -> void:
-	var spacing := stone("F1", "post_spacing_m")
-	var accumulated := 0.0
+## Gaps use covered data records, including roads omitted by the sweep's
+## layer-crossing rule. Each junction appears once, with all side approaches.
+func _place_rails() -> void:
+	var starts := {}
 	for id: String in _loop:
-		if not _roads.has(id):
-			continue
-		var r: WorldRoadProfile.Road = _roads[id]
-		# Carry the post phase across segment boundaries. Beams below
-		# join consecutive posts, including those on different segments.
-		for side: float in [-1.0, 1.0]:
-			var offset := side * (r.half_width + stone("R17", "kerb_width_m"))
-			var s := ceilf(accumulated / spacing) * spacing - accumulated
-			while s < r.length:
-				var p := road_frame(id, s, offset)
-				rail_posts.append({"road": id, "s": s, "loop_s": accumulated + s, "side": side, "position": p})
-				props.append({"element": "F1", "kind": "post", "position": p, "road": id, "s": s})
-				counts.guardrail_posts += 1
-				s += spacing
-		accumulated += r.length
-	# One six-triangle folded beam per post bay, INCLUDING across OSM
-	# segment boundaries. Two post triangles make exactly eight per bay.
+		starts[id] = loop_length
+		loop_length += _roads[id].length
+	# Survey the ungapped 4 m bays. A shallow approach crosses a rail
+	# before its shared centreline node; a fixed 12 m opening can still
+	# block it. Enclose every bay touching the approach's paved strip,
+	# plus 0.1 m for the physical folds/posts, in a centred opening.
+	var survey: Array[Dictionary] = []
 	for side: float in [-1.0, 1.0]:
-		var run: Array[Vector2] = []
-		for post: Dictionary in rail_posts:
-			if post.side == side:
-				run.append(post.position)
+		var at := 0.0
+		while at < loop_length:
+			var end := minf(at + stone("F1", "post_spacing_m"), loop_length)
+			survey.append({"lo": at, "hi": end, "a": _rail_point(at, side, starts), "b": _rail_point(fposmod(end, loop_length), side, starts)})
+			at = end
+	var drape: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(WorldRoadProfile.PATH))
+	var covered := {}
+	for record: Dictionary in drape.segments:
+		if record.covered:
+			covered[record.id] = true
+	for junction: SkeletonLoader.Junction in SkeletonLoader.junctions():
+		var side_roads: Array[String] = []
+		var approach := -1.0
+		for id: String in junction.segments:
+			if id in _loop:
+				var r: WorldRoadProfile.Road = _roads[id]
+				var at_start := junction.position.distance_to(Vector2(r.xs[0], r.zs[0])) < 0.01
+				approach = fposmod(starts[id] + (0.0 if at_start else r.length), loop_length)
+			elif covered.has(id) and _segments[id].width_m >= 5.0:
+				side_roads.append(id)
+		if approach < 0.0 or side_roads.is_empty():
+			continue
+		var half_gap := _exit_half_gap(approach, side_roads, survey)
+		rail_exits.append({"junction": junction.id, "loop_s": approach, "side_roads": side_roads, "half_gap_m": half_gap})
+		var lo := approach - half_gap
+		var hi := approach + half_gap
+		# Split a gap crossing the loop seam, then union overlapping gaps.
+		rail_gaps.append(Vector2(maxf(0.0, lo), minf(loop_length, hi)))
+		if lo < 0.0:
+			rail_gaps.append(Vector2(loop_length + lo, loop_length))
+		if hi > loop_length:
+			rail_gaps.append(Vector2(0.0, hi - loop_length))
+	rail_gaps.sort_custom(func(a: Vector2, b: Vector2) -> bool: return a.x < b.x)
+	var merged: Array[Vector2] = []
+	for gap: Vector2 in rail_gaps:
+		if not merged.is_empty() and gap.x <= merged[-1].y:
+			merged[-1].y = maxf(merged[-1].y, gap.y)
+		else:
+			merged.append(gap)
+	rail_gaps = merged
+	var stations: Array[float] = []
+	var station := 0.0
+	while station < loop_length:
+		if not rail_gap_contains(station):
+			stations.append(station)
+		station += stone("F1", "post_spacing_m")
+	for gap: Vector2 in rail_gaps:
+		for edge: float in [gap.x, gap.y]:
+			if edge > 0.0 and edge < loop_length and not stations.has(edge):
+				stations.append(edge)
+	stations.sort()
+	for side: float in [-1.0, 1.0]:
+		var run: Array[Dictionary] = []
+		var index := 0
+		for at: float in stations:
+			while index + 1 < _loop.size() and starts[_loop[index + 1]] <= at:
+				index += 1
+			var id := _loop[index]
+			var r: WorldRoadProfile.Road = _roads[id]
+			var local_s: float = at - starts[id]
+			var p := road_frame(id, local_s, side * (r.half_width + RAIL_OFFSET_M))
+			var post := {"road": id, "s": local_s, "loop_s": at, "side": side, "position": p}
+			rail_posts.append(post)
+			run.append(post)
+			props.append({"element": "F1", "kind": "post", "position": p, "road": id, "s": local_s, "loop_s": at, "side": side})
+			counts.guardrail_posts += 1
 		for i: int in run.size():
-			var a := run[i]
-			var b := run[(i+1)%run.size()]
-			props.append({"element": "F1", "kind": "beam", "position": (a+b)/2.0, "a": a, "b": b})
+			var a: Dictionary = run[i]
+			var b: Dictionary = run[(i + 1) % run.size()]
+			var end: float = b.loop_s if i + 1 < run.size() else b.loop_s + loop_length
+			if rail_gap_contains(fposmod((a.loop_s + end) / 2.0, loop_length)):
+				continue
+			props.append({"element": "F1", "kind": "beam", "position": (a.position + b.position) / 2.0, "a": a.position, "b": b.position, "loop_a": a.loop_s, "loop_b": end, "side": side})
 			counts.guardrail_spans += 1
+	for prop: Dictionary in props:
+		if prop.element != "F1":
+			continue
+		var lo: float = prop.get("loop_a", prop.get("loop_s", 0.0))
+		var hi: float = prop.get("loop_b", lo)
+		prop["solid"] = not (prop.side == -1.0 and hi > RAIL_VISUAL_FROM_M and lo < RAIL_VISUAL_TO_M)
 	elements.F1 = counts.guardrail_posts
+
+func _rail_point(at: float, side: float, starts: Dictionary) -> Vector2:
+	for id: String in _loop:
+		var r: WorldRoadProfile.Road = _roads[id]
+		if at < starts[id] + r.length:
+			return road_frame(id, at - starts[id], side * (r.half_width + RAIL_OFFSET_M))
+	return Vector2.ZERO
+
+func _exit_half_gap(approach: float, side_roads: Array[String], survey: Array[Dictionary]) -> float:
+	var half_gap := EXIT_HALF_GAP_M
+	for id: String in side_roads:
+		var segment: SkeletonLoader.Segment = _segments[id]
+		var reach := segment.width_m / 2.0 + 0.1
+		# Only the connected approach's local loop neighbourhood. The
+		# bound follows its own length, not a hand-authored radius table.
+		var neighbourhood := segment.length() + reach + 8.5 / 2.0 + RAIL_OFFSET_M
+		for bay: Dictionary in survey:
+			var lo := fposmod(bay.lo - approach + loop_length / 2.0, loop_length) - loop_length / 2.0
+			var hi: float = lo + bay.hi - bay.lo
+			if minf(absf(lo), absf(hi)) > neighbourhood:
+				continue
+			for k: int in segment.points.size() - 1:
+				if _rail_line_distance(bay.a, bay.b, segment.points[k], segment.points[k+1]) <= reach:
+					half_gap = maxf(half_gap, maxf(absf(lo), absf(hi)) + 0.1)
+					break
+	return half_gap
+
+static func _rail_line_distance(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> float:
+	if Geometry2D.segment_intersects_segment(a, b, c, d) != null:
+		return 0.0
+	return minf(minf(a.distance_to(Geometry2D.get_closest_point_to_segment(a, c, d)), b.distance_to(Geometry2D.get_closest_point_to_segment(b, c, d))), minf(c.distance_to(Geometry2D.get_closest_point_to_segment(c, a, b)), d.distance_to(Geometry2D.get_closest_point_to_segment(d, a, b))))
+
+func rail_gap_contains(at: float) -> bool:
+	if is_zero_approx(at) and not rail_gaps.is_empty() and is_zero_approx(rail_gaps[0].x) and absf(rail_gaps[-1].y - loop_length) < 0.002:
+		return true
+	for gap: Vector2 in rail_gaps:
+		if at > gap.x + 0.00001 and at < gap.y - 0.00001:
+			return true
+	return false
+
+func _place_furniture() -> void:
+	_place_rails()
 	for pole: Dictionary in data.poles:
 		props.append({"element": "F4", "kind": "pole", "position": Vector2(pole.position[0], pole.position[1])})
 		counts.poles += 1
@@ -470,11 +582,11 @@ func _group_jobs() -> void:
 			_jobs.append(job)
 		groups[key].members.append(record)
 	groups = {}
-	for record: Dictionary in shells:
-		if not record.solid:
+	for record: Dictionary in shells + props:
+		if not record.get("solid", false):
 			continue
 		var p: Vector2 = record.position
-		var key := "Solids_%d_%d" % [floori(p.x / CHUNK_M), floori(p.y / CHUNK_M)]
+		var key := "%s_%d_%d" % ["Rails" if record.element == "F1" else "Solids", floori(p.x / CHUNK_M), floori(p.y / CHUNK_M)]
 		if not groups.has(key):
 			var job := MeshJob.new()
 			job.name = key

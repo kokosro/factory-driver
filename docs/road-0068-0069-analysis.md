@@ -242,3 +242,170 @@ workaround or physics change was made. All 16 frozen files, including
 was additionally compared against the untouched HEAD blob).
 
 README.md has no documented side-track width policy, so it is unchanged.
+
+
+## §8 ROAD-7 / F1-COLLISION-1 (2026-09-29)
+
+The five-point ruling supersedes ROAD-6's proximity/class selection: **every
+DEM-covered non-loop segment below 5 m becomes 5 m**, regardless of class or
+original tag. `widen_side_tracks` retains its pipeline entry point, with
+`width_source: road7` and skeleton pipeline **2 → 3**. The loader accepts the
+new provenance and verifies its 5 m value. The mandatory `314755146-2` remains
+5 m. All 92 loop records, coordinates, topology and uncovered widths are
+unchanged; loop widths remain 91 × 8.5 m and one × 7.5 m.
+
+Of 3,222 covered side segments, 1,060 → **3,222** are at least 5 m. ROAD-7
+carries **2,379 overrides**, including the 217 already widened by ROAD-6
+(provenance-only change) and **2,162 newly widened records**:
+
+| Class | Old → new pavement | Newly widened segments |
+|---|---|---:|
+| service | 3 → 5 m | 1,219 |
+| track | 3 → 5 m | 887 |
+| track | 2 → 5 m | 50 |
+| track | 4 → 5 m | 3 |
+| track | 1.5 → 5 m | 3 |
+
+The complete segment-by-segment old/new width and provenance inventory is
+[road7-width-changes.csv](road7-width-changes.csv), including all 217 prior
+ROAD-6 selections. Total skeleton segment count stays **16,771**; covered
+side count stays **3,222** and runtime swept count stays **3,304**.
+
+### Reproduction evidence
+
+Before any generator edit, both current generators reproduced the checked-in
+files byte-for-byte (`cmp`, exit 0), skeleton `3c05fc56…` and drape `9909c378…`.
+The supplied `fd-port` snapshot directory lacked q1/q2 JSON. The unchanged
+archived `/Users/kokos/Downloads/fd-4B2-osm.zip` supplied those answers; it was
+extracted under this repo's `.road7-work/inputs/`, with the generator checking
+its manifest and six queries. Python was the existing
+`/Users/kokos/.claude/jobs/a61f3c60/venv/bin/python`, with bytecode writes disabled.
+The DEM was read from `/Users/kokos/.claude/jobs/a61f3c60/dgm1`, as in ROAD-6.
+No files were written to either external location.
+
+Commands (outputs and logs inside this repo):
+
+```sh
+PYTHONDONTWRITEBYTECODE=1 <venv>/bin/python tools/world/skeleton.py --snapshot .road7-work/inputs/tmp/fd-4B2-osm --coverage-drape .road7-work/baseline-drape.json --out data/regions/eifel_ring/skeleton.json
+PYTHONDONTWRITEBYTECODE=1 <venv>/bin/python tools/world/drape.py --tiles <dgm1> --skeleton data/regions/eifel_ring/skeleton.json --out data/regions/eifel_ring/drape.json
+```
+
+A second generation used the newly generated drape as coverage and wrote
+separate repeat artifacts; both `cmp` checks again exited 0. Structural
+comparison confirms **all non-snapshot drape data is unchanged**, including
+DEM pins, heights, dense arrays, crossfalls, lattice and coverage. The
+snapshot's skeleton hash and skeleton pipeline version are the only drape
+changes. The generator's self-test also exercises covered tagged residential,
+service, mandatory-track selection, exclusions and idempotence.
+
+### Pin ledger for the host commit
+
+| Pin | Before | After |
+|---|---|---|
+| skeleton SHA-256 | `3c05fc5633b2b1bf34ee7572e44877b78eab840e7657bcbeee97e6f39050c11e` | `bcdd9456b5376b2bc21ec69187c2f0daa7e906f506d53818394ea3b3ce733de3` |
+| drape SHA-256 | `9909c378787636792fc64381d7b6150a5fc0b80da8e5737b5ce2f8f294229e9a` | `d62e1f32ca938b66fcc6b6f6c3c53622889095666c6cc9524e814872851bae54` |
+| world-profile 200 samples | `aabf29b2a3f05f2d12af64d0efd57e2be348e26cb551db6dacadc7674954231a` | `9cdcc4c57f7fa054ff027751971b62fc55964bc82c193a628215d6f6a6de70da` |
+| road-edge 4,965 queries | `fc59167f9f745e5f1eb497afa1d634a2b090ae99b4b0327ad3050fe8dd820d03` | `482b425b054fae5ccd833727a7f67780d7b4499264bc84dc9855e02ec7e5320a` |
+| skeleton version / synthetic fixtures | 2 | 3 |
+
+The road-edge digest samples the combined world field: wider nearby side-road
+fields affect some loop queries even though loop data itself is unchanged.
+The loop-only physical lip and rumble mesh census remain unchanged. No car,
+surface, road-profile, ring-profile, bubble, scene or catalogue edit was used.
+Rail placement, exit table, collision counts and clearance evidence follow in
+[4b8-report.md](design/4b/4b8-report.md#road-7--f1-collision-1).
+
+
+The runtime digests printed by `async_build_test` (16-hex prefixes; full
+sync/async digests still compared) moved as follows:
+
+| Builder | Before | After |
+|---|---|---|
+| Road | `af1cd69f426516cc` | `e84b7f4c3a8ef510` |
+| Terrain | `5c5ee1f6ba4d1b4a` | `787f0642584fd0bb` |
+| Forest | `3241b4b76c9e000a` | `9082e0a1bdf6f057` |
+| Buildings | `c91220c9e775c1da` | `1ef2afe47edc751e` |
+
+Road sections **369,357 → 441,723**, paved vertices **1,109,537 → 1,326,635**,
+paved triangles **1,467,142 → 1,756,606**; road count stays 3,304. Road
+meshes/shapes stay 6,700/3,305; the 92 rumble meshes retain 135,444 vertices
+and 179,856 triangles. Terrain now has **2,766,897 vertices / 4,456,307
+triangles**, with **388,003** capped vertices (was 364,933), 110,867 near
+cells dropped, 3,352 meshes. Forest has **2,598,435 vertices / 2,183,322
+triangles**, 19,379 trunks in 42 bodies and 84 meshes. Buildings visual
+vertices **586,254 → 567,138**, triangles **195,418 → 189,046**. Rail census
+and per-stage job changes are in the companion report. Synthetic snapshot
+version pins also moved in `reset_test.gd`; its logic did not change.
+
+### Standalone validation and unresolved frozen gates
+
+Each invocation used `FD_DATA_DIR="$PWD/.road7-work/data"`,
+`godot --headless --path . --log-file "$PWD/.road7-work/<name>-engine.log"
+-s tests/<name>_test.gd`, with stdout/stderr captured under `.road7-work`.
+No full-suite invocation, git commit or push was made. Final assertion results:
+
+| Test | Result |
+|---|---|
+| skeleton | PASS, 173 checks |
+| world_profile | PASS, 154 checks |
+| side_road | PASS, 10 checks |
+| road_edge | PASS, 18 checks |
+| dressing | PASS, 146 checks |
+| reset | PASS, 34 checks |
+| async_build | PASS, 17 checks; 250 ms ceiling retained |
+| bubble (frozen, extra verification) | PASS, 17 checks |
+| offroad (frozen, extra verification) | **FAIL, 1 of 36 checks** |
+
+The offroad failure is a measured consequence of the wider road field at the
+DEM boundary, not rail contact. At `(2450, -6000.01)`, the test's ±1 cm samples
+differ by **0.010613583 m**, above its 0.010000000 m limit. Re-evaluating the
+saved baseline geometry with the same unchanged profile gives **0.007177782 m**.
+Newly widened track **235829445-2** now contributes its blend band there:
+inside/edge heights are 375.843464647 / 375.854078182 m, versus the baseline
+terrain's 375.902822266 / 375.910000000 m. The road/profile/continuation and
+frozen test are unmodified; no tolerance relaxation was applied. The offroad
+drive and its repeated-scene determinism checks pass. This needs a ruling
+before a clean full-suite certification can be claimed.
+
+There is also an explicit freeze/pin conflict: **`ring_drive_test.gd` remains
+byte-identical**, so its literal `DRAPE_SHA256` still names the old `9909c378…`
+artifact, and its synthetic snapshot still names pipeline version 2. The
+standalone ring-drive test was not run or claimed to pass. The host must resolve
+whether those two data pins may move to `d62e1f32…` / 3; merely changing headers
+in other test files cannot satisfy its SHA assertion. No exception to the
+frozen-file rule was assumed.
+
+All runtime Godot logs contain the native macOS `get_system_ca_certificates`
+error already documented in 4B-8. Thus PASS means assertion/process success,
+not a clean runner error gate. No GDScript errors remain in final test logs.
+The full 34-step suite and its certification metrics remain for the host.
+Frozen files, including all element JSON, mission ladder and the runner, were
+compared byte-for-byte against HEAD; all 22 matched. `git diff --check` passed.
+
+### Independent review rerun
+
+The working tree already contained the implementation when this review began.
+The reviewer recovered the generator and artifacts from HEAD `e805384` into
+`.road7-work/review/`, regenerated the baseline skeleton and DEM drape, and
+obtained `cmp` exit 0 for both. Two fresh ROAD-7 skeleton/DEM drape generations
+also compared equal to the working artifacts (all four `cmp` exits 0), and
+the generator self-test passed. The 44 exit IDs independently derived from
+skeleton membership and drape coverage exactly match the companion report.
+All 22 frozen files still match HEAD; the drape's non-snapshot data and every
+loop segment record are unchanged.
+
+The boundary probe was rerun against baseline and ROAD-7 data using the same
+frozen profile code: **0.007177782 m → 0.010613583 m**, confirming the unresolved
+offroad tolerance conflict above. Review logs, generated comparison files and
+isolated application data are under `.road7-work/review/`. The sandbox also
+denied `ps` process inspection; this did not prevent the standalone runs.
+
+Fresh standalone results: skeleton **173**, world_profile **154**, side_road
+**10**, road_edge **18**, dressing **146**, reset **34**, async_build **17**
+checks passed; all seven processes exited 0. Async retained its 250 ms ceiling
+and every sync/async geometry comparison. Dressing re-measured rail collider
+clearance as **2.368849 m / 1,029.782349 m**. All seven logs contain only the
+known native certificate-store error among ERROR lines, with no script errors.
+The previously recorded full frozen bubble/offroad runs were not repeated in
+this review; the offroad boundary probe was. Full-suite certification remains
+with the host, and no commit or push was performed.

@@ -68,7 +68,7 @@ const RING_SCENE := "res://scenes/eifel_ring.tscn"
 ## ROAD-6: regenerated from the same DEM; only snapshot skeleton SHA/version
 ## changed. Road sections 361393 -> 369357, vertices 1085645 -> 1109537,
 ## triangles 1435286 -> 1467142; covered/swept counts remain 3314/3304.
-const DRAPE_SHA256 := "9909c378787636792fc64381d7b6150a5fc0b80da8e5737b5ce2f8f294229e9a"
+const DRAPE_SHA256 := "d62e1f32ca938b66fcc6b6f6c3c53622889095666c6cc9524e814872851bae54"
 
 ## The drape's covered segments (tests/world_profile_test.gd's count) and
 ## the loop's (tests/skeleton_test.gd's): every one swept but the ten
@@ -897,7 +897,7 @@ func _check_lookahead_fixture() -> void:
 
 static func _lookahead_skeleton(approach_m: float) -> Dictionary:
 	return {
-		"snapshot": {"osm_base": "2026-09-22T08:45:51Z", "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 2},
+		"snapshot": {"osm_base": "2026-09-22T08:45:51Z", "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 3},
 		"origin": {"epsg": SkeletonLoader.EPSG, "e0": SkeletonLoader.E0, "n0": SkeletonLoader.N0},
 		"segments": [
 			{"id": "1-0", "osm_way": 1, "class": "primary", "width_m": 7.0, "width_source": "class", "bridge": "yes", "layer": "1", "points": [[0.0, 0.0], [20.0, 0.0]]},

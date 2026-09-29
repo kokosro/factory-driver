@@ -1533,7 +1533,8 @@ func _is_sha(value: Variant) -> bool:
 
 
 ## 4B-8 additive checks. Was no Buildings sibling; now real catalogue
-## shells, visual village/furniture chunks and 22 solids in bubbled chunks.
+## shells and village/furniture chunks; ROAD-7 adds 21 F1 solid chunks
+## beside the 12 economy chunks, with 44 exits and one visual-only stretch.
 ## No existing terrain/forest assertion or marker removed.
 func _check_building_dressing(scene: Node) -> void:
 	var builder := scene.get_node_or_null("Buildings") as BuildingsShells
@@ -1585,7 +1586,7 @@ func _check_building_dressing(scene: Node) -> void:
 	for body: StaticBody3D in builder.bodies:
 		var shape := body.get_node("Shape") as CollisionShape3D
 		bodies_ok = bodies_ok and shape.shape is ConcavePolygonShape3D and shape.shape.backface_collision and body.get_child_count() == 1
-	_ok(bodies_ok and builder.bubble.car == builder.road.car and builder.bubble.bodies == builder.bodies, "4B-8: chunked concave backface solids fed to PhysicsBubble with the road's car; furniture has no bodies")
+	_ok(bodies_ok and builder.bubble.car == builder.road.car and builder.bubble.bodies == builder.bodies, "4B-8: chunked concave backface solids fed to PhysicsBubble with the road's car; F1 uses the same bubbled bodies")
 	var outside_ground_ok := false
 	for shell: Dictionary in builder.shells:
 		var p: Vector2 = shell.position
@@ -1631,11 +1632,13 @@ func _check_building_dressing(scene: Node) -> void:
 				kerb_height_ok = true
 	_ok(kerb_height_ok, "4B-8: sampled kerb's actual mesh top is 0.12 m over its road edge within 5 mm")
 	_ok(builder.counts.parked_cars <= builder.counts.parking_ceiling, "4B-8: %d parked cars within the 0–2/100 m ceiling %d" % [builder.counts.parked_cars, builder.counts.parking_ceiling])
-	var expected := {"guardrail_posts": 10392, "guardrail_spans": 10392, "delineators": 984, "kerb_segments": 46, "parked_cars": 17, "parking_ceiling": 32}
+	var expected := {"guardrail_posts": 9660, "guardrail_spans": 9574, "delineators": 984, "kerb_segments": 46, "parked_cars": 17, "parking_ceiling": 32}
 	var counts_ok := true
 	for key: String in expected:
-		counts_ok = counts_ok and builder.counts[key] == expected[key] and builder.data.counts.rule_placements[key] == expected[key]
-	_ok(counts_ok, "4B-8: catalogue/stone rule counts pinned from offline reduction: %s" % [expected])
+		counts_ok = counts_ok and builder.counts[key] == expected[key]
+		if not key.begins_with("guardrail_"):
+			counts_ok = counts_ok and builder.data.counts.rule_placements[key] == expected[key]
+	_ok(counts_ok, "4B-8: runtime rule counts pinned after ROAD-7 exit gaps: %s" % [expected])
 	var textures_ok := true
 	var rail_triangles := 0
 	for child: Node in builder.get_children():
@@ -1644,7 +1647,7 @@ func _check_building_dressing(scene: Node) -> void:
 			if mesh.get_meta("element", "") == "F1":
 				rail_triangles += mesh.surface_get_array_len(0) / 3
 			textures_ok = textures_ok and mesh.has_meta("texture_size_px") and int(mesh.get_meta("texture_size_px")) == 0 and mesh.surface_get_material(0).albedo_texture == null
-	_ok(rail_triangles == builder.counts.guardrail_posts * int(ElementCatalogue.entry("F1").stone_parameters.tris_max_per_4_m), "4B-8: W-beam plus posts exactly eight triangles per 4 m bay, continuous over segment joins")
+	_ok(rail_triangles == builder.counts.guardrail_posts * 2 + builder.counts.guardrail_spans * 6, "4B-8: W-beams six triangles and posts two, including terminal posts at exit gaps")
 	_ok(textures_ok, "4B-8: flat shell/furniture materials allocate no textures (metadata 0), within all catalogue texture budgets")
 	var start: Vector2 = SkeletonLoader.segment("683303211-0").points[0]
 	var tree := Vector2(4469.06, -2744.16)
@@ -1665,9 +1668,149 @@ func _check_building_dressing(scene: Node) -> void:
 	for prop: Dictionary in builder.props:
 		if prop.kind == "beam" and Geometry2D.segment_intersects_segment(prop.a,prop.b,start,tree) != null:
 			crossings += 1
-	print("  4B-8 rail/drive crossings: %d; visual rails continuous, collision deferred to driver ruling" % crossings)
+	_ok(crossings == 1, "F1: exactly one visual rail crossing of the frozen tree approach")
+	_check_rail_ruling(builder, scene)
 
 func _shell_line_distance(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> float:
 	if Geometry2D.segment_intersects_segment(a,b,c,d) != null:
 		return 0.0
 	return minf(minf(a.distance_to(Geometry2D.get_closest_point_to_segment(a,c,d)), b.distance_to(Geometry2D.get_closest_point_to_segment(b,c,d))), minf(c.distance_to(Geometry2D.get_closest_point_to_segment(c,a,b)),d.distance_to(Geometry2D.get_closest_point_to_segment(d,a,b))))
+
+## ROAD-7 / F1-COLLISION-1. Reconstruct the eligible junction set from data,
+## then inspect placements, chunk members AND the actual collider faces.
+func _check_rail_ruling(builder: BuildingsShells, scene: Node) -> void:
+	var drape: Dictionary = JSON.parse_string(FileAccess.get_file_as_string(WorldRoadProfile.PATH))
+	var covered := {}
+	for record: Dictionary in drape.segments:
+		covered[record.id] = record.covered
+	var expected := {}
+	for j: SkeletonLoader.Junction in SkeletonLoader.junctions():
+		var meets_loop := false
+		var meets_side := false
+		for id: String in j.segments:
+			meets_loop = meets_loop or id in builder._loop
+			meets_side = meets_side or (not id in builder._loop and covered.get(id, false) and SkeletonLoader.segment(id).width_m >= 5.0)
+		if meets_loop and meets_side:
+			expected[j.id] = true
+	var exits_ok := expected.size() == 44 and builder.rail_exits.size() == expected.size()
+	var fuel := false
+	var pit := false
+	for exit: Dictionary in builder.rail_exits:
+		exits_ok = exits_ok and expected.has(exit.junction)
+		if exit.junction == "312821860":
+			pit = "199642470-0" in exit.side_roads and exit.half_gap_m > 28.0
+		if exit.junction == "65385942":
+			fuel = "26543901-0" in exit.side_roads and absf(exit.loop_s - 12877.100103) < 0.002
+		for delta: float in [-5.999, 0.0, 5.999]:
+			exits_ok = exits_ok and builder.rail_gap_contains(fposmod(exit.loop_s + delta, builder.loop_length))
+	_ok(exits_ok and fuel and pit, "F1: all 44 eligible junctions have >=12 m gaps; fuel junction 65385942 carries 26543901-0 at 12877.100 m; pit merge clears the frozen spawn")
+	var offset_ok := true
+	var gap_ok := true
+	var edges := 0
+	var grass := 0
+	var surfaces := scene.get_node("Surfaces") as Surfaces
+	for post: Dictionary in builder.rail_posts:
+		var r: WorldRoadProfile.Road = builder._roads[post.road]
+		var edge := builder.road_frame(post.road, post.s, post.side * r.half_width)
+		# At a mitre compare the projection on the chord normal, not the
+		# longer bisector. Away from mitres this is Euclidean distance too.
+		var k := clampi(r.chain.bsearch(post.s, false)-1, 0, r.chain.size()-2)
+		var tangent := Vector2(r.xs[k+1]-r.xs[k],r.zs[k+1]-r.zs[k]).normalized()
+		var normal: Vector2 = Vector2(-tangent.y,tangent.x) * post.side
+		offset_ok = offset_ok and absf((post.position-edge).dot(normal)-1.5) < 0.003
+		gap_ok = gap_ok and not builder.rail_gap_contains(post.loop_s)
+		# The certified straight's open strip, 0.5 m kerb then 1 m verge.
+		if post.road == "683303211-0" and post.s > 10.0 and post.s < 30.0:
+			var verge := builder.road_frame(post.road,post.s,post.side*(r.half_width+1.0))
+			var surface := surfaces.classify(verge.x,verge.y)
+			offset_ok = offset_ok and surface in [&"grass", &"gravel"]
+			grass += 1
+	for gap: Vector2 in builder.rail_gaps:
+		for at: float in [gap.x,gap.y]:
+			for side: float in [-1.0,1.0]:
+				var found := false
+				for post: Dictionary in builder.rail_posts:
+					found = found or (post.side == side and absf(post.loop_s-at) < 0.002)
+				edges += int(found)
+	var access_ok := true
+	for exit: Dictionary in builder.rail_exits:
+		for id: String in exit.side_roads:
+			var segment := SkeletonLoader.segment(id)
+			var reach := segment.width_m / 2.0
+			for prop: Dictionary in builder.props:
+				if prop.kind != "beam": continue
+				var delta := fposmod((prop.loop_a+prop.loop_b)/2.0-exit.loop_s+builder.loop_length/2.0,builder.loop_length)-builder.loop_length/2.0
+				if absf(delta) > segment.length()+reach+8.0: continue
+				for k: int in segment.points.size()-1:
+					access_ok = access_ok and _shell_line_distance(prop.a,prop.b,segment.points[k],segment.points[k+1]) >= reach+0.04
+	_ok(access_ok, "F1: every connected approach's paved strip clears the remaining rail bays, including the shallow fuel/pit approaches")
+	var visual_posts := 0
+	var visual_beams := 0
+	var solid_posts := 0
+	var solid_beams := 0
+	for prop: Dictionary in builder.props:
+		if prop.element != "F1": continue
+		if prop.kind == "beam":
+			for gap: Vector2 in builder.rail_gaps:
+				gap_ok = gap_ok and minf(prop.loop_b,gap.y)-maxf(prop.loop_a,gap.x) < 0.002
+		if prop.solid:
+			solid_posts += int(prop.kind == "post")
+			solid_beams += int(prop.kind == "beam")
+		else:
+			visual_posts += int(prop.kind == "post")
+			visual_beams += int(prop.kind == "beam")
+			var lo: float = prop.get("loop_a",prop.get("loop_s",0.0))
+			var hi: float = prop.get("loop_b",lo)
+			gap_ok = gap_ok and prop.side == -1.0 and lo >= 9904.0 and hi <= 9924.0
+	_ok(offset_ok and grass == 10, "F1: every post is 1.5 m beyond pavement (3 mm tolerance); ten verge probes classify grass/gravel")
+	_ok(gap_ok and edges == 172 and builder.rail_gaps.size() == 43 and visual_posts == 4 and visual_beams == 5, "F1: no posts/spans inside gaps, 172 terminal posts at 43 merged openings; only four posts/five bays at negative-side 9904..9924 m remain visual")
+	var chunks := 0
+	var faces := 0
+	var members := 0
+	var collider_ok := true
+	var start := SkeletonLoader.segment("683303211-0").points[0]
+	var tree := Vector2(4469.06,-2744.16)
+	var end := tree+(tree-start).normalized()*10.0
+	var tree_clear := INF
+	var grass_clear := INF
+	for job: BuildingsShells.MeshJob in builder.mesh_jobs():
+		if not job.solid or not job.name.begins_with("Rails_"): continue
+		chunks += 1
+		members += job.members.size()
+		var body := builder.get_node(job.name) as StaticBody3D
+		var shape: ConcavePolygonShape3D = body.get_node("Shape").shape
+		var actual := shape.get_faces()
+		faces += actual.size()
+		var rebuilt := BuildingsShells.MeshJob.new()
+		rebuilt.solid = true
+		rebuilt.members = job.members
+		builder.run_job(rebuilt)
+		collider_ok = collider_ok and actual == rebuilt.faces and shape.backface_collision and body.collision_mask == 0
+		for prop: Dictionary in job.members:
+			collider_ok = collider_ok and prop.element == "F1" and prop.solid
+		# Project every triangle edge: actual folded beam and post width,
+		# rather than centreline-only distance or chunk bounding boxes.
+		for i: int in range(0,actual.size(),3):
+			for k: int in 3:
+				var va := actual[i+k]
+				var vb := actual[i+(k+1)%3]
+				var a := Vector2(va.x,va.z)
+				var b := Vector2(vb.x,vb.z)
+				tree_clear = minf(tree_clear,_shell_line_distance(a,b,start,end))
+				grass_clear = minf(grass_clear,_shell_line_distance(a,b,Vector2(6120,-2640),Vector2(6120,-2940)))
+	print("  F1 measured: chunks %d solid posts %d beams %d face vertices %d; tree %.6f m grass %.6f m" % [chunks,solid_posts,solid_beams,faces,tree_clear,grass_clear])
+	_ok(collider_ok and chunks == 21 and solid_posts == 9656 and solid_beams == 9569 and faces == 230178 and members == solid_posts+solid_beams and faces == solid_posts*6+solid_beams*18, "F1: 21 chunks, 9656 solid posts / 9569 solid bays, 230178 face vertices; no collider members in gap chainage")
+	_ok(tree_clear > 2.0 and grass_clear > 1000.0, "F1: actual solid faces clear both frozen corridors by >2 m")
+	var layers_ok := PhysicsBubble.ACTIVATE_M == 80.0 and PhysicsBubble.DEACTIVATE_M == 110.0
+	builder.bubble.update(Vector3(1e6,0,1e6))
+	for body: StaticBody3D in builder.bodies:
+		layers_ok = layers_ok and body.collision_layer == 0
+	for i: int in builder.bodies.size():
+		if not builder.bodies[i].name.begins_with("Rails_"): continue
+		var box := builder.boxes
+		builder.bubble.update(Vector3(box[i*4]-79.0,0,box[i*4+1]))
+		layers_ok = layers_ok and builder.bodies[i].collision_layer == 1
+		builder.bubble.update(Vector3(box[i*4]-111.0,0,box[i*4+1]))
+		layers_ok = layers_ok and builder.bodies[i].collision_layer == 0
+	builder.bubble.update(builder.road.car.global_position)
+	_ok(layers_ok, "F1: rail bodies activate on car layer 1 within 80 m and deactivate beyond 110 m")

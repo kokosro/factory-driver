@@ -1,10 +1,12 @@
 extends SceneTree
 ## ROAD-5 / issue-0068: loop-only physical lip, unchanged pavement, matching
 ## render geometry and a deterministic suspension drive against the old field.
-## The digest was captured BEFORE editing WorldRoadProfile on ROAD-6 3595494:
+## ROAD-7 repins fc59167f... -> 482b425b...: widened nearby side-road
+## fields affect some queries even though loop widths/heights are unchanged.
+## Sample recipe inherited from ROAD-6 3595494:
 ## every loop chord midpoint at 0, +/-0.5 and +/-0.999 of its own half width,
 ## float64 sample_height, elevation_height, gradient.x/y in that order.
-const PAVED_DIGEST := "fc59167f9f745e5f1eb497afa1d634a2b090ae99b4b0327ad3050fe8dd820d03"
+const PAVED_DIGEST := "482b425b054fae5ccd833727a7f67780d7b4499264bc84dc9855e02ec7e5320a"
 var _failures := 0
 
 # Counterfactual for the drive: precisely the old smooth shoulder, with
@@ -73,7 +75,7 @@ func _check_paved(p: WorldRoadProfile, wrapper: RingProfile) -> void:
 	hash.start(HashingContext.HASH_SHA256)
 	hash.update(samples.to_byte_array())
 	var digest := hash.finish().hex_encode()
-	_ok(n == 4965 and loops == 92 and digest == PAVED_DIGEST, "4965 paved queries on all 92 loops, including Karussell, byte-equal to ROAD-6: " + digest)
+	_ok(n == 4965 and loops == 92 and digest == PAVED_DIGEST, "4965 paved queries on all 92 loops, including Karussell, byte-equal to ROAD-7: " + digest)
 	_ok(matches, "RingProfile sample/elevation/gradient delegate byte-exactly at all 4965 points")
 
 # Straight flat fixture; crown -0.085 m at an 8.5 m road's edge.

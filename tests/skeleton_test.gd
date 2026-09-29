@@ -125,7 +125,7 @@ func _check_snapshot(data: Dictionary) -> void:
 	_ok(snapshot.get("osm_base") == PINNED_OSM_BASE, "snapshot.osm_base is the pinned %s" % PINNED_OSM_BASE, "snapshot.osm_base is %s, the pinned snapshot is %s" % [snapshot.get("osm_base"), PINNED_OSM_BASE])
 	_ok(snapshot.get("bbox") == BBOX, "snapshot.bbox is the Ring's %s" % [BBOX], "snapshot.bbox is %s" % [snapshot.get("bbox")])
 	_ok(snapshot.get("query_sha") is String and snapshot.query_sha.length() == 64, "snapshot.query_sha is a sha256 of the six queries: %s" % snapshot.get("query_sha"))
-	_ok(snapshot.get("pipeline_version") == 2, "snapshot.pipeline_version is the pipeline's %d" % snapshot.get("pipeline_version", -1), "snapshot.pipeline_version is %s" % [snapshot.get("pipeline_version")])
+	_ok(snapshot.get("pipeline_version") == 3, "snapshot.pipeline_version is the pipeline's %d" % snapshot.get("pipeline_version", -1), "snapshot.pipeline_version is %s" % [snapshot.get("pipeline_version")])
 	var origin: Dictionary = data.get("origin", {})
 	_ok(origin.get("epsg") == 25832 and origin.get("e0") == E0 and origin.get("n0") == N0, "origin is EPSG:25832, E0 %d, N0 %d" % [E0, N0], "origin is %s" % [origin])
 
@@ -193,6 +193,9 @@ func _check_widths(segments: Dictionary) -> void:
 		if segment.width_source == "class":
 			by_class[segment.road_class] = by_class.get(segment.road_class, 0) + 1
 			if segment.width_m != expected:
+				wrong[segment.road_class] = wrong.get(segment.road_class, 0) + 1
+		elif segment.width_source == "road7":
+			if segment.width_m != 5.0:
 				wrong[segment.road_class] = wrong.get(segment.road_class, 0) + 1
 		elif segment.width_source == "road6":
 			if segment.road_class != "track" or segment.width_m != 5.0:
@@ -303,7 +306,7 @@ func _check_lookups(segments: Dictionary, junctions: Dictionary) -> void:
 ## the shape is the point.
 func _fixture() -> Dictionary:
 	return {
-		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": BBOX, "query_sha": "0".repeat(64), "pipeline_version": 2},
+		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": BBOX, "query_sha": "0".repeat(64), "pipeline_version": 3},
 		"origin": {"epsg": 25832, "e0": E0, "n0": N0},
 		"segments": [
 			{"id": "1-0", "osm_way": 1, "class": "primary", "width_m": 7.0, "width_source": "class", "ref": "B 999", "points": [[0.0, 0.0], [100.0, 0.0]]},
@@ -354,6 +357,12 @@ func _check_fixture() -> void:
 ## validate() on fixtures broken in code, one per fault kind, names the
 ## thing and the field.
 func _check_broken_fixtures() -> void:
+	var widened := _broken_segment("3-0", "width_source", "road7")
+	for segment: Dictionary in widened.segments:
+		if segment.id == "3-0":
+			segment.width_m = 5.0
+	_ok(SkeletonLoader.validate(widened).is_empty(), "ROAD-7 provenance accepts a 5 m service road, not just tracks")
+	_expect_fault(_broken_segment("3-0", "width_source", "road7"), "ROAD-7 requires width 5.0 m", "ROAD-7 provenance cannot label a 3 m road")
 	_expect_fault(_broken_snapshot("osm_base", "2026-09-23T00:00:00Z"), "snapshot.osm_base is 2026-09-23T00:00:00Z, the pinned snapshot is", "a snapshot that is not the pinned one")
 	_expect_fault(_broken_snapshot("bbox", [50.3, 6.8, 50.45, 7.2]), "snapshot.bbox is", "a bbox that is not the Ring's")
 	_expect_fault(_broken_origin("e0", 0.0), "origin.e0 is 0", "an origin that is not the frame's")

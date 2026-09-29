@@ -56,7 +56,8 @@ BBOX = [50.3, 6.8, 50.45, 7.1]  # [deg] south, west, north, east
 # loop), as first shipped. chosen for the skeleton: the docs' schema gained
 # the field with this commit, the loader and the test hold it.
 # 2 = ROAD-6 selected side-track widths with explicit road6 provenance.
-PIPELINE_VERSION = 2  # ROAD-6: selected covered side tracks, explicit width provenance
+# 3 = ROAD-7 all covered non-loop widths with explicit road7 provenance.
+PIPELINE_VERSION = 3  # ROAD-7: all covered non-loop roads at least 5 m
 
 # The simplification (data-pipeline.md §4 item 2): Douglas-Peucker at 0.3 m
 # removes collinear noise only. chosen for the skeleton: a node whose heading
@@ -395,33 +396,24 @@ def polyline_near_junctions(points, junctions, radius=250.0):
 
 
 def widen_side_tracks(skeleton, coverage):
-    """ROAD-6 / issue-0069. Coverage is the drape's centreline DEM coverage,
-    independent of paved width. Only covered non-loop 3 m tracks qualify.
-    The mandatory issue segment, loop endpoint neighbours, or entire
-    polylines within 250 m of loop junctions become 5 m paved.
+    """ROAD-7: every DEM-covered non-loop road is at least 5 m paved.
+    Coverage is centreline coverage, independent of width and road class.
+    Rebuild from OSM defaults, recording every override as road7 (including
+    ROAD-6's mandatory 314755146-2 and its former selected tracks).
     """
     loop = set(skeleton["loops"][0]["segments"])
-    junctions = [j for j in skeleton["junctions"] if loop.intersection(j["segments"])]
-    neighbours = {sid for j in junctions for sid in j["segments"]}
     covered = {s["id"] for s in coverage["segments"] if s["covered"]}
     selected = {}
     for s in skeleton["segments"]:
         sid = s["id"]
-        if sid in loop or sid not in covered or s["class"] != "track" or s["width_m"] != 3.0:
+        if sid in loop or sid not in covered or s["width_m"] >= 5.0:
             continue
-        reasons = []
-        if sid == "314755146-2":
-            reasons.append("mandatory")
-        if sid in neighbours:
-            reasons.append("endpoint")
-        if polyline_near_junctions(s["points"], junctions):
-            reasons.append("proximity")
-        if reasons:
-            s["width_m"] = 5.0
-            s["width_source"] = "road6"
-            selected[sid] = reasons
-    if "314755146-2" not in selected:
-        raise ValueError("ROAD-6 mandatory covered 3 m side track is missing")
+        s["width_m"] = 5.0
+        s["width_source"] = "road7"
+        selected[sid] = ["covered_non_loop"]
+    mandatory = next((s for s in skeleton["segments"] if s["id"] == "314755146-2"), None)
+    if mandatory is None or mandatory["id"] not in covered or mandatory["width_m"] != 5.0:
+        raise ValueError("ROAD-7 mandatory covered side road is missing or not 5 m")
     return selected
 
 
@@ -611,6 +603,16 @@ def selftest(folder):
     ok(fixture["loops"][0]["segments"] == ["4-0", "5-0"] and summary["loop_segments"] == 2, "fixture: the two raceway ways chain into the loop [4-0, 5-0]")
     ok(dumps(fixture) == dumps(build_skeleton(synthetic_ways(), [4, 5], osm_base, query_sha)[0]), "fixture: built twice, the same bytes")
 
+    # ROAD-7: any covered class below 5 m, no loop/uncovered overrides;
+    # applying the same rule twice is idempotent, including the mandatory.
+    import copy
+    fixture["segments"].append({"id": "314755146-2", "class": "track", "width_m": 3.0, "width_source": "class"})
+    coverage = {"segments": [{"id": s["id"], "covered": s["id"] != "2-1"} for s in fixture["segments"]]}
+    selected = widen_side_tracks(fixture, coverage)
+    ok(set(selected) == {"2-0", "3-0", "314755146-2"}, "ROAD-7 widens covered tagged residential, service and mandatory track only")
+    before = copy.deepcopy(fixture)
+    ok(not widen_side_tracks(fixture, coverage) and before == fixture, "ROAD-7 repeat is idempotent; wider/loop/uncovered records stay unchanged")
+
     # The real snapshot: the sample's ways present, their endpoints where the sample's lat/lon say.
     skeleton, summary = build_skeleton(ways, loop_way_ids, osm_base, query_sha)
     print("  snapshot %s: %s" % (osm_base, summary))
@@ -638,7 +640,7 @@ def selftest(folder):
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--snapshot", help="the snapshot folder extract_osm.py wrote")
-    parser.add_argument("--coverage-drape", help="drape whose covered centreline records select ROAD-6 tracks")
+    parser.add_argument("--coverage-drape", help="drape whose covered centreline records select ROAD-7 roads")
     parser.add_argument("--out", help="where to write skeleton.json")
     parser.add_argument("--selftest", action="store_true", help="prove the pipeline's rules on the sample, a fixture and the snapshot")
     parser.add_argument("--reference", action="store_true", help="print the pinned projection table for tests/skeleton_test.gd")
@@ -655,10 +657,10 @@ def main(argv):
     ways, loop_way_ids, osm_base, query_sha = load_snapshot(args.snapshot)
     skeleton, summary = build_skeleton(ways, loop_way_ids, osm_base, query_sha)
     if not args.coverage_drape:
-        parser.error("--coverage-drape is needed for ROAD-6 (bootstrap with drape.py on a baseline skeleton)")
+        parser.error("--coverage-drape is needed for ROAD-7 (bootstrap with drape.py on a baseline skeleton)")
     with open(args.coverage_drape, encoding="utf-8") as handle:
         selected = widen_side_tracks(skeleton, json.load(handle))
-    print("ROAD-6 widened %d: %s" % (len(selected), json.dumps(selected, sort_keys=True)))
+    print("ROAD-7 widened %d: %s" % (len(selected), json.dumps(selected, sort_keys=True)))
     size, sha = write_skeleton(args.out, skeleton)
     print("wrote %s: %d bytes, sha256 %s" % (args.out, size, sha))
     print("  %s" % summary)

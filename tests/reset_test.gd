@@ -219,7 +219,7 @@ func _check_synthetic_on(car: ArcadeCar, scene: Node) -> void:
 ## The fixture's skeleton: one primary straight along +x.
 func _fixture_skeleton() -> Dictionary:
 	return {
-		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 2},
+		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "pipeline_version": 3},
 		"origin": {"epsg": SkeletonLoader.EPSG, "e0": SkeletonLoader.E0, "n0": SkeletonLoader.N0},
 		"segments": [
 			{"id": "1-0", "osm_way": 1, "class": "primary", "width_m": 7.0, "width_source": "class", "points": [[ROAD_X0, ROAD_Z], [ROAD_X1, ROAD_Z]]},
@@ -251,7 +251,7 @@ func _fixture_drape(skeleton: Dictionary) -> Dictionary:
 		if record != null:
 			segments.append(record)
 	return {
-		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "skeleton_pipeline_version": 2, "skeleton_sha256": "0".repeat(64), "pipeline_version": 1},
+		"snapshot": {"osm_base": PINNED_OSM_BASE, "bbox": SkeletonLoader.BBOX, "query_sha": "0".repeat(64), "skeleton_pipeline_version": 3, "skeleton_sha256": "0".repeat(64), "pipeline_version": 1},
 		"origin": {"epsg": SkeletonLoader.EPSG, "e0": SkeletonLoader.E0, "n0": SkeletonLoader.N0},
 		"dem": {"source": "synthetic level plane", "epsg": 25832, "vertical_datum": "DHHN2016", "grid_m": 1.0, "tiles": [{"name": "dgm1_32_352_5577_1_rp_2025.tif", "sha256": "0".repeat(64), "verified": true}]},
 		"coverage": {"x_min": 0.0, "x_max": FIXTURE_SIZE_M, "z_min": -FIXTURE_SIZE_M, "z_max": 0.0},
