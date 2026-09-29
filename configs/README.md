@@ -254,3 +254,20 @@ The validation is generic and `tests/config_test.gd` checks every file in
 `ArcadeCar.CONFIG_PATH` at the file. If the engine changed, run
 `ArcadeCar.derived_shift_points` on it and bring the shift constants in `car.gd` to its
 figures: the smoke test fails until they agree.
+
+## FD-2000 promotion stand-in
+
+`cars/fd_2000.json` uses the neutral identity **FD-2000**, following FD-1001's
+no-real-model-claim convention. It is the config-only entitlement stand-in for
+ML-6's Customised 2000 Porsche 911 Turbo (996) reward. The period twin-turbo
+flat-six inspiration is approximately 420 PS / 560 Nm ([Porsche's history](https://newsroom.porsche.com/en/press-kits/50-years-porsche-turbo/The-911-Turbo-generations.html));
+the authored curve peaks at 560 Nm and reaches about 309 kW at 6000 rpm.
+The 1540 kg ledger (including a 75 kg driver, excluding separately modelled
+fuel), 60% rear share, 2.35 m wheelbase, six forward ratios, 64 L tank and other
+chassis numbers are honest ballpark estimates, not a certified replica or
+custom tuning. Component masses/positions are estimates; the final 725 kg
+body row's position is calibrated to the exact rear share. Thermal, tyre,
+wear and driver-profile defaults inherit the Boxster precedent; turbo lag
+and AWD are not added. Ownership/TAKE select its record only: all missions
+still drive the pad Boxster, and live physics swapping remains deferred under
+the `car.gd` freeze. See `docs/ml6-implementation.md` for the mission/reward proof.
