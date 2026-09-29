@@ -24,6 +24,8 @@ static func validate(data: Variant) -> PackedStringArray:
 		errors.append("unknown rank")
 	if not data.get("environment") in ["pad", "ring"]:
 		errors.append("unknown environment")
+	if data.has("cold_tyres") and not data.cold_tyres is bool:
+		errors.append("cold_tyres must be boolean")
 	var steps: Variant = data.get("episode")
 	if not steps is Array or steps.is_empty():
 		errors.append("episode must contain steps")

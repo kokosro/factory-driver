@@ -1,10 +1,10 @@
 extends SceneTree
-## ML-1/2/3 ladder proof; ML-4 completes Junior and adds sequential flags.
+## ML-1..5 ladder proof: twenty-two missions through the Chief promotion.
 var failures := 0
 var checks := 0
 var changes := 0
 var fixture: Dictionary
-var test_path := ProjectSettings.globalize_path("res://build/ml4-test-%d/campaign.json" % OS.get_process_id())
+var test_path := ProjectSettings.globalize_path("res://build/ml5-test-%d/campaign.json" % OS.get_process_id())
 
 func _initialize() -> void:
 	_run.call_deferred()
@@ -201,7 +201,7 @@ func _store() -> void:
 
 func _episode() -> void:
 	var runner := MissionRunner.of(self)
-	ok(runner != null and runner.catalog.size() == 12, "autoload discovers twelve production missions")
+	ok(runner != null and runner.catalog.size() == 22, "autoload discovers twenty-two production missions")
 	ok(runner.get_child_count() == 0 and not runner.is_physics_processing() and not runner.is_processing_input(), "idle runner inert")
 	var scene: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
@@ -266,7 +266,7 @@ func _episode() -> void:
 	scene.queue_free()
 	await process_frame
 
-const PRODUCTION_IDS := ["FD-01", "FD-02", "FD-03", "FD-04", "FD-05", "FD-06", "FD-07", "FD-08", "FD-09", "FD-10", "FD-11", "FD-12"]
+const PRODUCTION_IDS := ["FD-01", "FD-02", "FD-03", "FD-04", "FD-05", "FD-06", "FD-07", "FD-08", "FD-09", "FD-10", "FD-11", "FD-12", "FD-13", "FD-14", "FD-15", "FD-16", "FD-17", "FD-18", "FD-19", "FD-20", "FD-21", "FD-22"]
 
 func _mission_rows(garage: Garage) -> Dictionary:
 	garage.show_page(Garage.Page.MISSIONS)
@@ -286,7 +286,7 @@ func _point(position: Array) -> Vector3:
 func _production() -> void:
 	var runner := MissionRunner.of(self)
 	runner.load_catalog()
-	ok(runner.catalog.size() == 12, "production scan finds exactly twelve missions")
+	ok(runner.catalog.size() == 22, "production scan finds exactly twenty-two missions")
 	ok(MissionSchema.catalog_errors(runner.catalog.values()).is_empty(), "production catalog has no reference or schema errors")
 	for id: String in PRODUCTION_IDS:
 		ok(runner.catalog.has(id), id + " discovered")
@@ -345,10 +345,10 @@ func _production() -> void:
 	for row: Dictionary in garage.page_rows():
 		if row.kind == "reward" and row.id == "test_driver":
 			ok(not row.enabled and not row.label.contains("OWNED"), "fresh garage reward is locked")
-	ok(rows.size() == 12 and rows["FD-01"].enabled and rows["FD-01"].label == "FD-01 — Simple Slalom", "fresh Junior sees playable FD-01")
+	ok(rows.size() == 22 and rows["FD-01"].enabled and rows["FD-01"].label == "FD-01 — Simple Slalom", "fresh Junior sees playable FD-01")
 	for i in range(1, PRODUCTION_IDS.size()):
 		var id: String = PRODUCTION_IDS[i]
-		var reason: String = "Complete " + PRODUCTION_IDS[i - 1]
+		var reason: String = "Complete " + PRODUCTION_IDS[i - 1] if i < 12 else "Requires test driver"
 		ok(not rows[id].enabled and rows[id].hint.contains("Locked: " + reason) and runner.campaign.unlock_reason(runner.catalog[id]) == reason, id + " row shows exact prerequisite lock")
 	garage._start_episode("FD-01")
 	ok(runner.active.get("id") == "FD-01" and runner._driver == null, "garage starts the unlocked human mission without a scripted driver")
@@ -356,13 +356,15 @@ func _production() -> void:
 	for i in range(PRODUCTION_IDS.size() - 1):
 		var id: String = PRODUCTION_IDS[i]
 		var mission: Dictionary = runner.catalog[id]
-		ok(runner.campaign.record_result(mission, 1, false) and runner.campaign.unlock_reason(runner.catalog[PRODUCTION_IDS[i + 1]]) == "Complete " + id, id + " failed attempt cannot unlock successor")
+		ok(runner.campaign.record_result(mission, 1, false) and runner.campaign.unlock_reason(runner.catalog[PRODUCTION_IDS[i + 1]]) == ("Requires test driver" if id == "FD-12" else "Complete " + id), id + " failed attempt cannot unlock successor")
 		ok(not runner.start(PRODUCTION_IDS[i + 1]), id + " successor cannot bypass lock via runner")
 		ok(runner.campaign.record_result(mission, mission.scoring.medal_times.silver, true), id + " prerequisite result saved")
 		rows = _mission_rows(garage)
 		var next_id: String = PRODUCTION_IDS[i + 1]
 		ok(rows[next_id].enabled and runner.campaign.unlock_reason(runner.catalog[next_id]) == "", next_id + " row unlocks after predecessor")
+	_ml5_configs(runner, car, garage)
 	_flag_mechanics(runner)
+	_flag_mechanics(runner, "FD-20")
 	_double_circuit(runner)
 	# Real production geometry; position injection isolates failure/scoring from
 	# vehicle pace. Band midpoints come from the config so later tuning is safe.
@@ -370,19 +372,19 @@ func _production() -> void:
 		var mission: Dictionary = runner.catalog[id]
 		ok(runner.start(id), id + " starts for failure injection")
 		runner.set_physics_process(false)
-		if id in ["FD-02", "FD-05", "FD-08", "FD-11"]:
+		if id in ["FD-02", "FD-05", "FD-08", "FD-11", "FD-13", "FD-15", "FD-17", "FD-19"]:
 			var gate := _point(mission.episode[2].position)
 			runner._previous = gate + Vector3(10, 0, 0)
 			runner.tick(0.1, gate)
 			ok(runner.last_result.get("reason") == "skipped gate" and not runner.last_result.get("passed", true), id + " later gate fails out of order")
-		elif id == "FD-09":
+		elif id in ["FD-09", "FD-20"]:
 			var cone := _point(mission.episode[0].cones[2])
 			runner._previous = cone + Vector3(0, 5, 0)
 			runner.tick(0.1, cone)
 			ok(runner.step_index == 0 and runner.flag_progress().current == 1 and runner.last_result.is_empty(), "out-of-order flag 3 neither advances nor fails")
 			runner.abort()
 		else:
-			var cone := _point(mission.episode[0].cones[0])
+			var cone := _point(mission.episode[1 if id == "FD-21" else 0].cones[0])
 			runner._previous = cone + Vector3(2, 0, 0)
 			runner.tick(0.1, cone - Vector3(2, 0, 0))
 			ok(runner.last_result.get("reason") == "cone hit" and not runner.last_result.get("passed", true), id + " swept cone contact fails")
@@ -390,8 +392,12 @@ func _production() -> void:
 		runner.set_physics_process(false)
 		runner.tick(mission.scoring.time_limit_s + 1.0, car.global_position)
 		ok(runner.last_result.get("reason") == "time limit" and not runner.last_result.get("passed", true), id + " time limit fails")
+		if id == "FD-22":
+			ok(runner.campaign.state.rank == "test_driver" and not runner.campaign.owns_car("boxster_986"), "failed production promotion grants no Chief ownership")
 		var bands: Dictionary = mission.scoring.medal_times
 		var samples := {"gold": bands.gold / 2.0, "silver": (bands.gold + bands.silver) / 2.0, "bronze": (bands.silver + bands.bronze) / 2.0, "complete": (bands.bronze + mission.scoring.time_limit_s) / 2.0}
+		if bands.bronze == mission.scoring.time_limit_s:
+			samples.erase("complete") # No unmedalled success interval at this source limit.
 		for medal: String in samples:
 			ok(runner.start(id), id + " starts for " + medal + " scoring")
 			runner.set_physics_process(false)
@@ -407,6 +413,8 @@ func _production() -> void:
 		if id == "FD-12":
 			_reward_roundtrip(runner, garage)
 			ok(runner.campaign.state.rank == "test_driver" and runner.campaign.state.credentials.test_driver_licence and runner.campaign.state.rewards.test_driver, "production FD-12 grants Test Driver and RS 2.7 entitlement")
+		if id == "FD-22":
+			_chief_roundtrip(runner, garage)
 	scene.queue_free()
 	await process_frame
 	WorldStore.path_override = ""
@@ -433,7 +441,7 @@ func _production() -> void:
 		var result: Dictionary = loaded.state.results.get(id, {})
 		ok(runner.last_result.get("saved", false) and result.get("medal", "") != "" and is_equal_approx(result.get("best_time_s", -1.0), runner.last_result.get("time_s", -2.0)), id + " scripted pass survives store reload")
 		ok(not Input.is_action_pressed("accelerate") and not Input.is_action_pressed("steer_left") and not Input.is_action_pressed("steer_right"), id + " script releases its inputs")
-		if id in ["FD-05", "FD-06", "FD-07", "FD-08", "FD-09", "FD-10", "FD-11"]:
+		if id not in ["FD-01", "FD-02", "FD-03", "FD-04", "FD-12"]:
 			var shipped: Dictionary = runner.catalog[id].input_script
 			runner.catalog[id].input_script = {"steps": [{"press": ["accelerate" if id in ["FD-06", "FD-07"] else "brake"]}]}
 			ok(runner.start(id, true), id + " bad scripted drive starts")
@@ -450,7 +458,7 @@ func _production() -> void:
 		await process_frame
 	var persisted := CampaignStore.new()
 	persisted.load_state()
-	ok(persisted.state.rank == "test_driver" and persisted.state.credentials.test_driver_licence and persisted.state.rewards.test_driver and persisted.owns_car("fd_1073"), "scripted promotion persists rank, licence and RS entitlement together")
+	ok(persisted.state.rank == "chief" and persisted.state.credentials.chief_licence and persisted.state.rewards.chief and persisted.owns_car("fd_1073") and persisted.owns_car("boxster_986"), "scripted promotion persists Chief rank, licence and both reward entitlements together")
 
 func _reward_roundtrip(runner: MissionRunner, garage: Garage) -> void:
 	var loaded := CampaignStore.new()
@@ -487,8 +495,8 @@ func _visible_flag(runner: MissionRunner, target: int) -> bool:
 			visible.append(prop.name)
 	return visible == ["Flag_0_%d" % target] if target > 0 else visible.is_empty()
 
-func _flag_mechanics(runner: MissionRunner) -> void:
-	ok(runner.start("FD-09"), "flag rally starts for reveal checks")
+func _flag_mechanics(runner: MissionRunner, id := "FD-09") -> void:
+	ok(runner.start(id), "flag rally starts for reveal checks")
 	runner.set_physics_process(false)
 	var mission: Dictionary = runner.active.duplicate(true)
 	var cones: Array = mission.episode[0].cones
@@ -519,34 +527,34 @@ func _flag_mechanics(runner: MissionRunner) -> void:
 	runner._previous = finish + Vector3(0, 10, 0)
 	runner.tick(0.1, finish)
 	ok(runner.last_result.get("passed", false) and runner.get_child_count() == 0 and not runner.is_physics_processing(), "flag finish frees all props synchronously")
-	runner.start("FD-09")
+	runner.start(id)
 	var before := FileAccess.get_file_as_string(test_path)
 	runner.abort()
 	ok(runner.get_child_count() == 0 and not runner.is_physics_processing() and runner.flag_progress().is_empty() and runner.progress_text().is_empty() and FileAccess.get_file_as_string(test_path) == before, "flag abort frees props, clears progress and writes nothing")
-	runner.start("FD-09")
+	runner.start(id)
 	runner.set_physics_process(false)
 	runner.tick(mission.scoring.time_limit_s + 1, Vector3(200, 0.7, 100))
 	ok(runner.last_result.get("reason") == "time limit" and not runner.last_result.get("passed", true) and runner.get_child_count() == 0, "missing flags times out and frees props")
 	# Reverse spatial order within one sweep must not retroactively count flag 2.
-	var original: Dictionary = runner.catalog["FD-09"]
+	var original: Dictionary = runner.catalog[id]
 	var small := original.duplicate(true)
 	small.scoring.failure_conditions = ["skipped_gate"]
 	small.episode[0].cones = [[0, 0.7, -20], [0, 0.7, -10], [0, 0.7, -30]]
-	runner.catalog["FD-09"] = small
-	runner.start("FD-09")
+	runner.catalog[id] = small
+	runner.start(id)
 	runner.set_physics_process(false)
 	runner._previous = Vector3(0, 0.7, 0)
 	runner.tick(0.1, Vector3(0, 0.7, -40))
 	ok(runner.step_index == 0 and runner.flag_progress().current == 2 and runner.last_result.is_empty(), "sweep ignores target passed before it was revealed")
 	runner.abort()
 	small.episode[0].cones = [[0, 0.7, -10], [0, 0.7, -20], [0, 0.7, -30]]
-	runner.start("FD-09")
+	runner.start(id)
 	runner.set_physics_process(false)
 	runner._previous = Vector3(0, 0.7, 0)
 	runner.tick(0.1, Vector3(0, 0.7, -40))
 	ok(runner.step_index == 1 and runner.last_result.is_empty(), "several sequential flag contacts in one sweep advance in spatial order")
 	runner.abort()
-	runner.catalog["FD-09"] = original
+	runner.catalog[id] = original
 
 func _double_circuit(runner: MissionRunner) -> void:
 	runner.start("FD-10")
@@ -567,3 +575,105 @@ func _double_circuit(runner: MissionRunner) -> void:
 	runner._previous = cone
 	runner.tick(0.1, _point(steps[-1].position))
 	ok(not runner.last_result.get("passed", true) and runner.last_result.get("reason") == "cone hit", "FD-10 cone contact takes precedence on the finish tick")
+
+func _ml5_configs(runner: MissionRunner, car: ArcadeCar, garage: Garage) -> void:
+	var limits := [153, 69, 187, 39, 90, 39, 120, 385, 43, 120]
+	for n in range(13, 23):
+		var id := "FD-%02d" % n
+		var m: Dictionary = runner.catalog[id]
+		ok(m.rank == "test_driver" and m.unlock.required_rank == "test_driver" and m.environment == "pad", id + " rank and venue pinned")
+		ok(m.scoring.time_limit_s == limits[n - 13], id + " source or documented authored limit pinned")
+		var prerequisites: Array = []
+		for previous in range(13, 22) if n == 22 else [n - 1]:
+			prerequisites.append("FD-%02d" % previous)
+		ok(m.unlock.required_missions == prerequisites, id + " exact prerequisite list pinned")
+		var bands: Dictionary = m.scoring.medal_times
+		var measured: float = m.provenance.medals.scripted_time_s
+		ok(measured > 0 and bands.gold == ceil(measured * 1.05) and bands.silver == ceil(measured * 1.25) and bands.bronze == ceil(measured * 1.50), id + " medals derive from shipped-script measurement")
+		var on_pad := true
+		for step: Dictionary in m.episode:
+			for point: Array in [step.position] + step.get("cones", []):
+				on_pad = on_pad and point[1] == 0.7 and point[0] >= TestPad.GROUND_CORE_MIN.x and point[0] <= TestPad.GROUND_CORE_MAX.x and point[2] >= TestPad.GROUND_CORE_MIN.y and point[2] <= TestPad.GROUND_CORE_MAX.y
+		ok(on_pad, id + " all targets lie on pad")
+	var promotion: Dictionary = runner.catalog["FD-22"]
+	for n in range(13, 22):
+		var id := "FD-%02d" % n
+		var result: Dictionary = runner.campaign.state.results[id]
+		runner.campaign.state.results.erase(id)
+		ok(runner.campaign.unlock_reason(promotion) == "Complete " + id and not runner.start("FD-22"), "promotion requires " + id + " independently")
+		runner.campaign.state.results[id] = result
+	ok(not runner.campaign.owns_car("boxster_986") and not runner.campaign.take_car("boxster_986", WorldStore.active_path()), "before Chief, Boxster reward is neither owned nor takeable")
+	garage.show_page(Garage.Page.MISSIONS)
+	for row: Dictionary in garage.page_rows():
+		if row.kind == "reward" and row.id == "chief":
+			ok(not row.enabled and not row.label.contains("OWNED"), "Chief TAKE locked before promotion")
+	var cold: Dictionary = runner.catalog["FD-14"]
+	ok(cold.cold_tyres and cold.briefing.contains("COLD-TARMAC"), "snow stand-in disclosed and cold setup opted in")
+	for value in [null, 0, "true", [], {}]:
+		var bad := cold.duplicate(true)
+		bad.cold_tyres = value
+		ok(not MissionSchema.validate(bad).is_empty(), "cold setup rejects non-boolean " + str(value))
+	car.front_tyre_temp = 1.0
+	car.rear_tyre_temp = 0.5
+	ok(runner.start("FD-14") and car.front_tyre_temp == 0 and car.rear_tyre_temp == 0, "human cold mission resets both axles to ambient")
+	runner.abort()
+	car.front_tyre_temp = 0.8
+	car.rear_tyre_temp = 0.6
+	ok(runner.start("FD-14", true) and car.front_tyre_temp == 0 and car.rear_tyre_temp == 0, "scripted cold retry also resets both axles")
+	runner.abort()
+	car.front_tyre_temp = 0.8
+	car.rear_tyre_temp = 0.6
+	runner.start("FD-16")
+	ok(car.front_tyre_temp == 0.8 and car.rear_tyre_temp == 0.6, "ordinary mission preserves existing tyre heat")
+	runner.abort()
+	var delivery: Array = runner.catalog["FD-15"].episode
+	ok(delivery[0].type == "delivery_pickup" and delivery[3].type == "zone" and delivery[-2].type == "delivery_return" and _point(delivery[0].position).distance_to(_point(delivery[-2].position)) < 30, "Klaus delivery drops at warehouse and comes back to dispatch")
+	ok(runner.catalog["FD-20"].episode[0].cones.size() == 12 and runner.catalog["FD-20"].episode != runner.catalog["FD-09"].episode, "second flag rally has twelve targets on a distinct course")
+	var stunt: Dictionary = runner.catalog["FD-21"]
+	ok(stunt.episode.size() == 13 and stunt.scoring.failure_conditions == ["cone_hit"], "stunt has five route gates plus eight compass crossings; overlapping gates wait their turn")
+	runner.start("FD-21")
+	runner.set_physics_process(false)
+	for i in 6:
+		var point := _point(stunt.episode[i].position)
+		runner._previous = point + Vector3(0, 10, 0)
+		runner.tick(0.1, point)
+	ok(runner.step_index == 6 and runner.last_result.is_empty(), "stunt still needs connecting gates and second spin after first circuit")
+	var cone := _point(stunt.episode[1].cones[1])
+	runner._previous = cone + Vector3(0, 10, 0)
+	runner.tick(0.1, cone)
+	ok(runner.last_result.get("reason") == "cone hit", "stunt second spot is constrained after first spin")
+
+func _chief_roundtrip(runner: MissionRunner, garage: Garage) -> void:
+	var loaded := CampaignStore.new()
+	loaded.load_state()
+	ok(loaded.state.rank == "chief" and loaded.state.credentials.chief_licence and loaded.state.rewards.chief and loaded.owns_car("boxster_986"), "FD-22 atomically persists Chief credential and auto-owned Boxster")
+	ok(loaded.owns_car("fd_1073") and not loaded.state.rewards.ace, "Chief retains RS and does not grant Ace")
+	var boxster: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://configs/cars/boxster_986.json"))
+	ok(CarConfigValidation.validate(boxster, "boxster_986").is_empty(), "Chief uses existing valid Boxster config")
+	garage.show_page(Garage.Page.MISSIONS)
+	var take_row := -1
+	for i in garage.page_rows().size():
+		var row: Dictionary = garage.page_rows()[i]
+		if row.kind == "reward" and row.id == "chief":
+			take_row = i
+			ok(row.enabled and row.label.contains("OWNED — TAKE"), "MISSIONS offers owned Chief TAKE")
+	ok(take_row >= 0, "Chief reward listed")
+	if take_row >= 0:
+		garage.activate_row(take_row)
+	ok(WorldStore.load_driver(WorldStore.active_path()).active_car == "boxster_986", "Chief TAKE selects existing Boxster")
+	garage.show_page(Garage.Page.CAR)
+	ok(garage.page_text().contains("OWNED  " + CampaignStore.REWARDS.chief) and garage.page_text().contains("SELECTED  " + CampaignStore.REWARDS.chief), "CAR identifies Chief ownership and selection")
+	var car_take := false
+	for row: Dictionary in garage.page_rows():
+		car_take = car_take or (row.kind == "take_reward" and row.id == "boxster_986" and row.enabled)
+	ok(car_take, "CAR offers enabled Boxster TAKE row")
+	var cars_path := test_path.get_base_dir().path_join("chief-cars.json")
+	ok(loaded.take_car("boxster_986", WorldStore.active_path(), cars_path, true), "Chief TAKE creates isolated condition record")
+	ok(OdometerStore.load_odometer("boxster_986", cars_path) == 0 and OdometerStore.load_fuel("boxster_986", boxster.fuel.tank_capacity_l, cars_path).fuel_l == boxster.fuel.tank_capacity_l, "Chief Boxster begins at zero distance with its own full tank")
+	OdometerStore.save_car("boxster_986", 2468, 25, cars_path)
+	var before := FileAccess.get_file_as_string(cars_path)
+	ok(loaded.take_car("boxster_986", WorldStore.active_path(), cars_path, true) and FileAccess.get_file_as_string(cars_path) == before, "repeated Chief TAKE preserves condition")
+	var campaign_bytes := FileAccess.get_file_as_string(test_path)
+	loaded.load_state()
+	ok(loaded.owns_car("boxster_986") and FileAccess.get_file_as_string(test_path) == campaign_bytes, "Chief reload derives ownership without rewriting save")
+	ok(loaded.record_result(runner.catalog["FD-22"], 1, true) and loaded.state.rank == "chief" and not loaded.state.rewards.ace, "FD-22 replay cannot promote again")

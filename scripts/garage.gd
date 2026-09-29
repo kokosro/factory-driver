@@ -548,10 +548,15 @@ func _build_car_page() -> void:
 	if runner and runner.campaign.owns_car("fd_1073"):
 		_add_text("OWNED  " + CampaignStore.REWARDS.test_driver + " (fd_1073): granted at promotion.", COLOR_TITLE)
 		_add_row("TAKE — " + CampaignStore.REWARDS.test_driver, "Select your reward car. Live vehicle swapping is pending; driving still uses the Boxster.", "take_reward", _take_reward_car.bind("fd_1073"), world_path != "", "fd_1073")
+	if runner and runner.campaign.owns_car("boxster_986"):
+		_add_text("OWNED  " + CampaignStore.REWARDS.chief + " (boxster_986): granted at promotion; pad Boxster stand-in.", COLOR_TITLE)
+		_add_row("TAKE — " + CampaignStore.REWARDS.chief, "Select your reward car. The pad Boxster stands in for the customised car; live vehicle swapping is pending.", "take_reward", _take_reward_car.bind("boxster_986"), world_path != "", "boxster_986")
 	if world_path != "":
 		var owned := String(WorldStore.load_driver(world_path).active_car)
 		if owned == "fd_1073":
 			_add_text("SELECTED  " + CampaignStore.REWARDS.test_driver, COLOR_TITLE)
+		elif owned == "boxster_986" and runner and runner.campaign.owns_car(owned):
+			_add_text("SELECTED  " + CampaignStore.REWARDS.chief, COLOR_TITLE)
 		elif owned != "":
 			_add_text("OWNED  %s (%s): taken at the dealership on the voucher; its entry rides cars.json. It becomes the car in the scene when the car swap lands (deferred: scripts/first_car.gd)." % [FirstCar.car_name() if owned == FirstCar.CAR_ID else owned, owned], COLOR_TITLE)
 	var kept := "kept in %s" % DataDir.root_on_disk().path_join(OdometerStore.PATH.trim_prefix("user://")) if OdometerStore.enabled() else "not kept in this run (no window: the store is off)"

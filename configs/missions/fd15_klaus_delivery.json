@@ -1,0 +1,4002 @@
+{
+  "briefing": "Dieter: Drop Klaus’ parts at the warehouse and return to dispatch within 187 seconds.\nThere-and-back route: dispatch pickup, warehouse drop crossing, return to dispatch and finish. No stopping or cargo simulation; restart-direction issues are not simulated.\nThe pad stands in for Zone Industrielle; its Boxster stands in for the 1994 993 Carrera Cabriolet. Police, traffic, vehicle damage and opponents are not simulated.",
+  "environment": "pad",
+  "episode": [
+    {
+      "type": "delivery_pickup",
+      "position": [
+        0,
+        0.7,
+        -5
+      ],
+      "radius": 7,
+      "sequence": 0
+    },
+    {
+      "position": [
+        -70.0,
+        0.7,
+        -90.0
+      ],
+      "radius": 12.0,
+      "sequence": 1,
+      "type": "waypoint_gate"
+    },
+    {
+      "position": [
+        -40.0,
+        0.7,
+        -180.0
+      ],
+      "radius": 12.0,
+      "sequence": 2,
+      "type": "waypoint_gate"
+    },
+    {
+      "position": [
+        20.0,
+        0.7,
+        -250.0
+      ],
+      "radius": 12.0,
+      "sequence": 3,
+      "type": "zone"
+    },
+    {
+      "position": [
+        40.0,
+        0.7,
+        -150.0
+      ],
+      "radius": 12.0,
+      "sequence": 4,
+      "type": "waypoint_gate"
+    },
+    {
+      "position": [
+        25.0,
+        0.7,
+        -50.0
+      ],
+      "radius": 12.0,
+      "sequence": 5,
+      "type": "waypoint_gate"
+    },
+    {
+      "type": "delivery_return",
+      "position": [
+        0,
+        0.7,
+        18
+      ],
+      "radius": 12,
+      "sequence": 6
+    },
+    {
+      "type": "timed_finish",
+      "position": [
+        0,
+        0.7,
+        41
+      ],
+      "radius": 12,
+      "sequence": 7
+    }
+  ],
+  "id": "FD-15",
+  "input_script": {
+    "hold_speed": 12.0,
+    "steps": [
+      {
+        "steer_deg": 0.0
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 16.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 74.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 128.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 173.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 204.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 223.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 212.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 221.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 220.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 215.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 205.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 191.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 172.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 148.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 120.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 89.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 59.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 32.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 9.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -9.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -20.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -27.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -30.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -30.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -28.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -25.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -22.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -18.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -14.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -10.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -7.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -56.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -138.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -220.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -287.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -337.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -371.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -344.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -358.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -368.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -372.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -372.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -368.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -361.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -352.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -342.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -329.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -315.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -300.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -283.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -265.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -244.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -221.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -195.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -164.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -129.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -89.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -48.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -10.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 23.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 49.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 68.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 80.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 87.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 89.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 87.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 83.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 76.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 68.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 59.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 48.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 38.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 29.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 21.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 13.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 7.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -7.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -6.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -5.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -30.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -51.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -66.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -76.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -80.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -76.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -77.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -72.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -64.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -56.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -46.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -36.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -27.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -19.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -12.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -5.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -43.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -179.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -398.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -371.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -342.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -316.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -294.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -275.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -259.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -245.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -235.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -226.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -219.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -214.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -209.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -205.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -201.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -198.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -196.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -193.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -191.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -188.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -186.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -183.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -181.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -178.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -175.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -171.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -168.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -164.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -159.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -154.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -149.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -143.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -137.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -130.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -122.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -115.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -106.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -97.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -88.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -79.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -68.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -57.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -46.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -34.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -21.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -8.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 7.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 21.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 35.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 49.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 64.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 81.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 97.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 114.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 130.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 143.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 154.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 162.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 165.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 164.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 159.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 149.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 135.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 117.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 96.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 76.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 57.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 39.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 23.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 10.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -7.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -10.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -9.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -9.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -7.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -5.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -6.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -27.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -46.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -58.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -66.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -70.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -66.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -65.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -60.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -53.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -45.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -37.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -29.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -21.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -14.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -7.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 5.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -8.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -14.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -17.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -18.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -18.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -17.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -16.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -13.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -11.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -8.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -6.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -18.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -47.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -71.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -87.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -97.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -101.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -95.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -94.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -86.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -76.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -64.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -53.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -42.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -31.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -21.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -13.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 5.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 6.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 5.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -3.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 0.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 1.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -2.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -5.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -7.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -8.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -8.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -8.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -8.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -9.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -10.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -11.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -9.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -98.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -258.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -400.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -377.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -350.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -326.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -306.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -290.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -276.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -263.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -252.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -243.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -237.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -231.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -226.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -221.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -216.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -212.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -209.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -205.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -201.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -197.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -194.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -190.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -185.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -180.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -175.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -170.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -164.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -157.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -149.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -141.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -132.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -122.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -112.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -101.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -89.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -76.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -63.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -49.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -35.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -20.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": -4.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 12.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 29.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 45.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 61.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 78.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 94.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 110.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 125.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 138.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 148.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 155.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 158.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 156.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 150.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_deg": 139.0,
+        "when": {
+          "after": 0.099999
+        }
+      },
+      {
+        "steer_free": true,
+        "when": {
+          "after": 60
+        }
+      }
+    ]
+  },
+  "provenance": {
+    "source": "docs/mission-ladder-source.md: FD-15 (Test Driver), section 4; section 6 rewards",
+    "source_course": "Zone Industrielle",
+    "source_car": "1994 993 Carrera Cabriolet",
+    "source_time_limit_s": 187,
+    "adaptation": "There-and-back route: dispatch pickup, warehouse drop crossing, return to dispatch and finish. No stopping or cargo simulation; restart-direction issues are not simulated. The pad stands in for Zone Industrielle; its Boxster stands in for the 1994 993 Carrera Cabriolet. Police, traffic, vehicle damage and opponents are not simulated.",
+    "medals": {
+      "scripted_time_s": 53.3,
+      "method": "ceil(measured scripted seconds * 1.05 / 1.25 / 1.50) for gold / silver / bronze; source time remains the limit where supplied",
+      "run": "Godot 4.7.2, headless fixed 60 Hz, tests/mission_ladder_test.gd, fresh pad Boxster, shipped input_script, 2026-09-29"
+    }
+  },
+  "rank": "test_driver",
+  "scoring": {
+    "failure_conditions": [
+      "skipped_gate"
+    ],
+    "medal_times": {
+      "gold": 56,
+      "silver": 67,
+      "bronze": 80
+    },
+    "time_limit_s": 187
+  },
+  "title": "Klaus’ Delivery",
+  "unlock": {
+    "required_rank": "test_driver",
+    "required_missions": [
+      "FD-14"
+    ]
+  }
+}

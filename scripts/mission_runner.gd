@@ -92,6 +92,10 @@ func start(mission_id: String, scripted := false) -> bool:
 			_suspended[node] = node.process_mode
 			node.process_mode = Node.PROCESS_MODE_DISABLED
 	car.reset_to(car.get_spawn_transform())
+	# Mission setup uses the existing thermal model; reset_to preserves heat.
+	if active.get("cold_tyres", false):
+		car.front_tyre_temp = 0.0
+		car.rear_tyre_temp = 0.0
 	_previous = car.global_position
 	# HandlingTests owns the scripted driver's press/release, hold_speed and
 	# steering servo. Use that mechanism alone; episode scoring is ours.

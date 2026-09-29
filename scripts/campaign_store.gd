@@ -9,7 +9,7 @@ const PATH := "user://campaign.json"
 const VERSION := 1
 const RANKS := MissionSchema.RANKS
 const PROMOTIONS := {"FD-12": "test_driver", "FD-22": "chief", "FD-33": "ace"}
-const REWARD_CARS := {"test_driver": "fd_1073"}
+const REWARD_CARS := {"test_driver": "fd_1073", "chief": "boxster_986"}
 const REWARDS := {
 	"test_driver": "Customised 1973 Porsche 911 Carrera RS 2.7 Coupe",
 	"chief": "Customised 1997 Porsche Boxster",
