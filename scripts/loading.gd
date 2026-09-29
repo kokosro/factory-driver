@@ -1,5 +1,11 @@
 class_name LoadingScreen
 extends Control
+## 4B-8: nine stages -> thirteen. buildings_prepare reads the reduction
+## after terrain_fields; buildings_place places shells/furniture and groups
+## chunks; buildings_meshes fills independent jobs; buildings_nodes consumes
+## them under NODE_BUDGET_MS. Buildings is attached/claimed outside the tree
+## with BuildingsShells.of(), the watcher's same idempotent path.
+##
 ## The loading screen (LOADING-1; decisions.org C07BE6F1, the driver's
 ## canon of 2026-09-27: "no freezing load" - the synchronous Ring build
 ## held the window for ~17 s under the macOS loading bubble; the Ring must
@@ -135,10 +141,15 @@ const NODE_BUDGET_MS := 8.0
 const STAGE_WEIGHTS := {
 	"road_prepare": 1.8, "road_sweep": 4.9, "terrain_fields": 2.3, "terrain_meshes": 6.5,
 	"forest_place": 1.7, "forest_meshes": 0.7, "road_nodes": 0.6, "terrain_nodes": 0.5, "forest_nodes": 0.5,
+	"buildings_prepare": 0.1, "buildings_place": 0.2, "buildings_meshes": 0.5, "buildings_nodes": 0.1,
 }
 
 ## What the screen says for each stage.
 const STAGE_TEXT := {
+	"buildings_prepare": "Buildings: reading the footprints and catalogue",
+	"buildings_place": "Buildings: placing shells and road furniture",
+	"buildings_meshes": "Buildings: making the chunks",
+	"buildings_nodes": "Buildings: meshes and nearby collision",
 	"road_prepare": "Road: reading the files, the rim rule, the right of way, the profile",
 	"road_sweep": "Road: sweeping the strips",
 	"terrain_fields": "Terrain: the lattice, the distance field, the forms, the plan",
@@ -172,6 +183,7 @@ var ring: Node
 var road: RoadBuilder
 var terrain: TerrainBuilder
 var forest: ForestWalls
+var buildings: BuildingsShells
 
 ## What the screen reports: the stage names running, the last chunk
 ## counts, the bar's fraction, whether the handover happened, and the
@@ -202,6 +214,7 @@ var _prepared := {}
 var _fields_ok := false
 var _terrain_jobs: Array[TerrainBuilder.MeshJob] = []
 var _forest_jobs: Array[ForestWalls.MeshJob] = []
+var _building_jobs: Array[BuildingsShells.MeshJob] = []
 ## The node stages' cursors: the next slot to add.
 var _cursor := {"road_nodes": 0, "terrain_nodes": 0, "forest_nodes": 0}
 var _cancelled := false
@@ -270,6 +283,9 @@ func _start() -> void:
 	road.build_deferred = true
 	terrain.build_deferred = true
 	forest.build_deferred = true
+	buildings = BuildingsShells.of(ring)
+	buildings.build_deferred = true
+	buildings.warm_catalogue()
 	_add_stage("road_prepare", "task", [])
 	_add_stage("road_sweep", "group", ["road_prepare"])
 	_add_stage("terrain_fields", "task", ["road_prepare"])
@@ -279,6 +295,10 @@ func _start() -> void:
 	_add_stage("road_nodes", "nodes", ["road_sweep"])
 	_add_stage("terrain_nodes", "nodes", ["terrain_meshes"])
 	_add_stage("forest_nodes", "nodes", ["forest_meshes"])
+	_add_stage("buildings_prepare", "task", ["terrain_fields"])
+	_add_stage("buildings_place", "task", ["buildings_prepare"])
+	_add_stage("buildings_meshes", "group", ["buildings_place"])
+	_add_stage("buildings_nodes", "nodes", ["buildings_meshes"])
 
 
 func _add_stage(name_of: String, kind: String, deps: Array) -> void:
@@ -342,6 +362,18 @@ func _submit(name_of: String, stage: Dictionary) -> void:
 	stage.started = true
 	stage.started_ms = Time.get_ticks_msec()
 	match name_of:
+		"buildings_prepare":
+			stage.id = WorkerThreadPool.add_task(_run_buildings_prepare, false, name_of)
+		"buildings_place":
+			if buildings.data.is_empty():
+				_fallback("the building reduction is missing or invalid")
+				return
+			stage.id = WorkerThreadPool.add_task(_run_buildings_place, false, name_of)
+		"buildings_meshes":
+			stage.total = _building_jobs.size()
+			stage.id = WorkerThreadPool.add_group_task(_run_building_job, _building_jobs.size(), DATA_THREADS, false, name_of)
+		"buildings_nodes":
+			stage.total = _building_jobs.size()
 		"road_prepare":
 			stage.id = WorkerThreadPool.add_task(_run_road_prepare, false, name_of)
 		"road_sweep":
@@ -403,6 +435,8 @@ func _add_nodes(name_of: String, stage: Dictionary) -> void:
 	while stage.done < stage.total and Time.get_ticks_usec() < until:
 		var at: int = stage.done
 		match name_of:
+			"buildings_nodes":
+				buildings.add_job(_building_jobs[at])
 			"road_nodes":
 				road.add_strip(_strips[at])
 				_strips[at] = null
@@ -414,6 +448,8 @@ func _add_nodes(name_of: String, stage: Dictionary) -> void:
 	if stage.done < stage.total:
 		return
 	match name_of:
+		"buildings_nodes":
+			buildings.finish_build(_started_ms)
 		"road_nodes":
 			road.finish_build(_started_ms)
 		"forest_nodes":
@@ -425,6 +461,20 @@ func _add_nodes(name_of: String, stage: Dictionary) -> void:
 
 # The workers' callables: each reads what the main thread set before its
 # stage was submitted and writes its own slot, nothing else.
+
+func _run_buildings_prepare() -> void:
+	buildings.prepare(terrain.profile)
+
+
+func _run_buildings_place() -> void:
+	buildings.place()
+	_building_jobs = buildings.mesh_jobs()
+
+
+func _run_building_job(i: int) -> void:
+	if not _cancelled:
+		buildings.run_job(_building_jobs[i])
+
 
 func _run_road_prepare() -> void:
 	_prepared = RoadBuilder.prepare_data()

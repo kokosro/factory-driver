@@ -220,6 +220,8 @@ func _initialize() -> void:
 		var forest: ForestWalls = scene.get_node("Forest")
 		var sky: SkySet = scene.get_node("Sky")
 		var road: RoadBuilder = scene.get_node("Road")
+		_check_building_dressing(scene)
+		var first_buildings: String = scene.get_node("Buildings").describe()
 		_check_scene(scene, terrain, forest, sky, road)
 		_check_road_material(road)
 		_check_road_uvs(road)
@@ -244,6 +246,7 @@ func _initialize() -> void:
 		await _step(2)
 		var again := await _load_scene()
 		if again != null:
+			_ok(first_buildings == again.get_node("Buildings").describe(), "4B-8: second scene describes Buildings identically")
 			var terrain2: TerrainBuilder = again.get_node("Terrain")
 			var forest2: ForestWalls = again.get_node("Forest")
 			var sky2: SkySet = again.get_node("Sky")
@@ -1527,3 +1530,144 @@ func _sha256_of(bytes: PackedByteArray) -> String:
 
 func _is_sha(value: Variant) -> bool:
 	return value is String and RegEx.create_from_string("^[0-9a-f]{64}$").search(value) != null
+
+
+## 4B-8 additive checks. Was no Buildings sibling; now real catalogue
+## shells, visual village/furniture chunks and 22 solids in bubbled chunks.
+## No existing terrain/forest assertion or marker removed.
+func _check_building_dressing(scene: Node) -> void:
+	var builder := scene.get_node_or_null("Buildings") as BuildingsShells
+	_ok(builder != null, "4B-8: watcher attached Buildings beside the frozen scene's builders")
+	if builder == null:
+		return
+	print("  4B-8 measured: ", builder.describe())
+	_ok(builder.counts.economy == 22 and builder.counts.footprints == 2839 and builder.counts.poles == 750, "4B-8: 22 economy shells, 2839 footprints and 750 mapped poles")
+	var positions_ok := true
+	var footprints_ok := true
+	var castle_ok := false
+	var castle_centroid := Vector2.ZERO
+	var source_polygons := {}
+	for raw: Dictionary in builder.data.buildings:
+		source_polygons[int(raw.osm)] = raw
+		if raw.element == "B3":
+			castle_centroid = Vector2(raw.centroid[0], raw.centroid[1])
+	var economy := 0
+	var fuel_parts := true
+	var budget_ok := true
+	var polygon_ok := true
+	var bodies_ok: bool = builder.bodies.size() == builder.counts.bodies and builder.boxes.size() == builder.bodies.size() * 4
+	for shell: Dictionary in builder.shells:
+		if shell.solid:
+			economy += 1
+			var record := Buildings.record(shell.id)
+			var distance: float = shell.position.distance_to(record.position())
+			positions_ok = positions_ok and (distance >= 8.0 and distance <= 12.0 if record.element == "E11" else distance < 0.005)
+			if record.shell in ["B6", "B7", "B8"]:
+				footprints_ok = footprints_ok and shell.footprint == record.footprint_m()
+			if record.shell == "B6":
+				fuel_parts = fuel_parts and shell.triangles == 72 # 4 posts + slab + kiosk, each 12
+			if record.shell == "B7":
+				fuel_parts = fuel_parts and shell.triangles < 72
+		else:
+			var source: Dictionary = source_polygons[shell.osm]
+			if shell.removed_corners == 0:
+				polygon_ok = polygon_ok and shell.polygon == BuildingsShells.polygon_of(source.polygon)
+			if shell.element == "B0":
+				budget_ok = budget_ok and shell.triangles <= int(ElementCatalogue.entry("B0").stone_parameters.tris_max)
+			if shell.element == "B3":
+				castle_ok = shell.osm == 31010481 and shell.position.distance_to(castle_centroid) < 0.005 and shell.height == ElementCatalogue.entry("B3").stone_parameters.height_default_m and shell.polygon.size() == 15
+	_ok(positions_ok and economy == 22, "4B-8: all 22 record projections held within 5 mm; E11 alone shifted 8–12 m")
+	var station := Buildings.record("E2.1")
+	_ok(station.osm_id == 12023011572 and station.position().distance_to(SkeletonLoader.wgs84_to_local(50.3780403, 6.9492187)) < 5.0, "4B-8: E2.1 at its known OSM coordinates within 5 m")
+	_ok(footprints_ok and fuel_parts, "4B-8: B6 12x8 canopy/four posts/kiosk, B7 15x10 closed hall, B8 20x12 showroom")
+	_ok(castle_ok, "4B-8: castle way 31010481 shell within 5 mm of area centroid %s, 20 m tall, all footprint corners" % castle_centroid)
+	_ok(polygon_ok and budget_ok, "4B-8: footprints extruded, B0 capped at 60 triangles; %d oversized footprints simplified" % builder.counts.simplified_houses)
+	for body: StaticBody3D in builder.bodies:
+		var shape := body.get_node("Shape") as CollisionShape3D
+		bodies_ok = bodies_ok and shape.shape is ConcavePolygonShape3D and shape.shape.backface_collision and body.get_child_count() == 1
+	_ok(bodies_ok and builder.bubble.car == builder.road.car and builder.bubble.bodies == builder.bodies, "4B-8: chunked concave backface solids fed to PhysicsBubble with the road's car; furniture has no bodies")
+	var outside_ground_ok := false
+	for shell: Dictionary in builder.shells:
+		var p: Vector2 = shell.position
+		if not shell.solid or shell.element != "B7" or builder.profile.covers(p.x,p.y):
+			continue
+		var corner: Vector2 = shell.polygon[0]
+		var expected_y := WorldContinuation.height(builder.profile,p.x,p.y)
+		for body: StaticBody3D in builder.bodies:
+			var shape: ConcavePolygonShape3D = body.get_node("Shape").shape
+			for vertex: Vector3 in shape.get_faces():
+				if Vector2(vertex.x,vertex.z).distance_to(corner) < 0.005 and absf(vertex.y-expected_y) < 0.005:
+					outside_ground_ok = true
+	_ok(outside_ground_ok, "4B-8: an economy shell beyond the DGM lattice stands on Terrain's continuation, not y=0")
+	var sampled: Array[Dictionary] = []
+	for post: Dictionary in builder.rail_posts:
+		if post.road == "683303211-0" and post.side == 1.0:
+			sampled.append(post)
+	var spacing_ok := sampled.size() > 5
+	for i: int in range(1, sampled.size()):
+		spacing_ok = spacing_ok and absf(sampled[i].s-sampled[i-1].s-4.0) < 0.005
+		if i < 5:
+			spacing_ok = spacing_ok and absf(sampled[i].position.distance_to(sampled[i-1].position)-4.0) < 0.005
+	_ok(spacing_ok, "4B-8: sampled R17 posts every 4 m within 5 mm (centreline and straight's mesh positions)")
+	var kerbs_ok := not builder.kerb_segments.is_empty()
+	var strip_found := false
+	var sample_kerb := {}
+	var sample_id := builder.kerb_segments[0] if kerbs_ok else ""
+	for prop: Dictionary in builder.props:
+		if prop.kind == "kerb":
+			strip_found = true
+			sample_kerb = prop
+			break
+	_ok(kerbs_ok and strip_found and builder._segments[sample_id].road_class == "residential", "4B-8: Adenau residential kerb strips present, sample %s; 0.12 m catalogue height" % sample_id)
+	var kerb_height_ok := false
+	if not sample_kerb.is_empty():
+		var p: Vector2 = sample_kerb.position
+		var node := builder.get_node("R15_%d_%d" % [floori(p.x/BuildingsShells.CHUNK_M), floori(p.y/BuildingsShells.CHUNK_M)]) as MeshInstance3D
+		var vertices: PackedVector3Array = node.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+		var foot := builder._height(sample_kerb.a)
+		var target: float = ElementCatalogue.entry("R15").stone_parameters.kerb_height_m
+		for v: Vector3 in vertices:
+			if Vector2(v.x,v.z).distance_to(sample_kerb.a) < 0.005 and absf(v.y-foot-target) < 0.005:
+				kerb_height_ok = true
+	_ok(kerb_height_ok, "4B-8: sampled kerb's actual mesh top is 0.12 m over its road edge within 5 mm")
+	_ok(builder.counts.parked_cars <= builder.counts.parking_ceiling, "4B-8: %d parked cars within the 0–2/100 m ceiling %d" % [builder.counts.parked_cars, builder.counts.parking_ceiling])
+	var expected := {"guardrail_posts": 10392, "guardrail_spans": 10392, "delineators": 984, "kerb_segments": 46, "parked_cars": 17, "parking_ceiling": 32}
+	var counts_ok := true
+	for key: String in expected:
+		counts_ok = counts_ok and builder.counts[key] == expected[key] and builder.data.counts.rule_placements[key] == expected[key]
+	_ok(counts_ok, "4B-8: catalogue/stone rule counts pinned from offline reduction: %s" % [expected])
+	var textures_ok := true
+	var rail_triangles := 0
+	for child: Node in builder.get_children():
+		if child is MeshInstance3D:
+			var mesh: Mesh = child.mesh
+			if mesh.get_meta("element", "") == "F1":
+				rail_triangles += mesh.surface_get_array_len(0) / 3
+			textures_ok = textures_ok and mesh.has_meta("texture_size_px") and int(mesh.get_meta("texture_size_px")) == 0 and mesh.surface_get_material(0).albedo_texture == null
+	_ok(rail_triangles == builder.counts.guardrail_posts * int(ElementCatalogue.entry("F1").stone_parameters.tris_max_per_4_m), "4B-8: W-beam plus posts exactly eight triangles per 4 m bay, continuous over segment joins")
+	_ok(textures_ok, "4B-8: flat shell/furniture materials allocate no textures (metadata 0), within all catalogue texture budgets")
+	var start: Vector2 = SkeletonLoader.segment("683303211-0").points[0]
+	var tree := Vector2(4469.06, -2744.16)
+	var bubble_clear := INF
+	var grass_clear := INF
+	for shell: Dictionary in builder.shells:
+		if not shell.solid:
+			continue
+		var polygon: PackedVector2Array = shell.polygon
+		for i: int in polygon.size():
+			var a := polygon[i]
+			var b := polygon[(i+1)%polygon.size()]
+			bubble_clear = minf(bubble_clear, _shell_line_distance(a,b,start,tree+(tree-start).normalized()*10.0))
+			# Conservative 300 m north corridor covers the frozen 660 ticks.
+			grass_clear = minf(grass_clear, _shell_line_distance(a,b,Vector2(6120,-2640),Vector2(6120,-2940)))
+	_ok(bubble_clear > 2.0 and grass_clear > 2.0, "4B-8 FROZEN-DRIVE CLEARANCE: solids %.3f m from tree drive (plus 10 m), %.3f m from 300 m grass corridor" % [bubble_clear, grass_clear])
+	var crossings := 0
+	for prop: Dictionary in builder.props:
+		if prop.kind == "beam" and Geometry2D.segment_intersects_segment(prop.a,prop.b,start,tree) != null:
+			crossings += 1
+	print("  4B-8 rail/drive crossings: %d; visual rails continuous, collision deferred to driver ruling" % crossings)
+
+func _shell_line_distance(a: Vector2, b: Vector2, c: Vector2, d: Vector2) -> float:
+	if Geometry2D.segment_intersects_segment(a,b,c,d) != null:
+		return 0.0
+	return minf(minf(a.distance_to(Geometry2D.get_closest_point_to_segment(a,c,d)), b.distance_to(Geometry2D.get_closest_point_to_segment(b,c,d))), minf(c.distance_to(Geometry2D.get_closest_point_to_segment(c,a,b)),d.distance_to(Geometry2D.get_closest_point_to_segment(d,a,b))))

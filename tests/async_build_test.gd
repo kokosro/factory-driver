@@ -97,6 +97,16 @@ extends SceneTree
 ## sample the changed shoulder field. No literal pin was relaxed: every
 ## array, collider and child order still compares sync against async.
 
+## 4B-8: the stage pin was 9 -> 13 (four Buildings stages); builder
+## comparisons were Road/Terrain/Forest -> those plus Buildings. Existing
+## arrays/children/colliders remain compared, and Buildings adds its own
+## complete digest, counts and describe() comparison. No old pin relaxed.
+## Measured before the continuation-height correction: Buildings
+## 9d14a5ceeeb1a49d, 227 meshes / 12 shapes, 240
+## children, 586254 vertices / 195418 triangles. Continuation-height fix
+## changes Buildings to c91220c9e775c1da; counts remain the same. Road af1cd69f426516cc,
+## Terrain 5c5ee1f6ba4d1b4a, Forest 3241b4b76c9e000a unchanged.
+
 const RING_SCENE := "res://scenes/eifel_ring.tscn"
 const PAD_SCENE := "res://scenes/main.tscn"
 const CAR_SCENE := "res://scenes/car.tscn"
@@ -226,16 +236,18 @@ func _load_async(target: String) -> Dictionary:
 
 func _check_determinism(ring: Node, sync_report: Dictionary, sync_hashes: Dictionary, sync_children: Dictionary) -> void:
 	var report := _report_of(ring)
+	_ok(report.buildings == sync_report.buildings, "(a) Buildings describe/counts/elements equal the reference: %s" % report.buildings.describe)
 	_ok(report.road.describe == sync_report.road.describe and report.terrain.describe == sync_report.terrain.describe and report.forest.describe == sync_report.forest.describe, "(a) the three describe() lines equal the reference's: %s | %s | %s" % [report.road.describe, report.terrain.describe, report.forest.describe], "async %s | %s | %s" % [report.road.describe, report.terrain.describe, report.forest.describe])
 	_ok(report.road.counters == sync_report.road.counters and report.terrain.counts == sync_report.terrain.counts and report.forest.counts == sync_report.forest.counts and report.terrain.elements == sync_report.terrain.elements and report.forest.elements == sync_report.forest.elements, "(a) the road's seven counters, the terrain's and the forest's counts and element tallies equal the reference's", "road %s vs %s, terrain %s vs %s, forest %s vs %s, elements %s / %s vs %s / %s" % [report.road.counters, sync_report.road.counters, report.terrain.counts, sync_report.terrain.counts, report.forest.counts, sync_report.forest.counts, report.terrain.elements, report.forest.elements, sync_report.terrain.elements, sync_report.forest.elements])
 	var children := _children_of(ring)
 	var same_children := true
-	for builder: String in ["Road", "Terrain", "Forest"]:
+	for builder: String in ["Road", "Terrain", "Forest", "Buildings"]:
 		same_children = same_children and children[builder] == sync_children[builder]
 	_ok(same_children, "(a) the children under Road (%d), Terrain (%d) and Forest (%d) are the reference's names in the reference's order: CHUNK_ORDER held" % [children.Road.size(), children.Terrain.size(), children.Forest.size()], "async %d / %d / %d, sync %d / %d / %d" % [children.Road.size(), children.Terrain.size(), children.Forest.size(), sync_children.Road.size(), sync_children.Terrain.size(), sync_children.Forest.size()])
 	var hashes := _hashes_of(ring)
+	_ok(hashes.Buildings == sync_hashes.Buildings, "(a) Buildings SHA-256 %s (%d meshes, %d shapes), identical sync/async" % [hashes.Buildings.digest.substr(0,16), hashes.Buildings.meshes, hashes.Buildings.shapes])
 	var same_hashes := true
-	for builder: String in ["Road", "Terrain", "Forest"]:
+	for builder: String in ["Road", "Terrain", "Forest", "Buildings"]:
 		same_hashes = same_hashes and hashes[builder].digest == sync_hashes[builder].digest
 	_ok(same_hashes, "(a) SHA-256 over every surface array and collider face list equals the reference's: Road %s (%d meshes, %d shapes), Terrain %s (%d meshes), Forest %s (%d meshes, %d shapes) - the async build's meshes are the sync build's to the byte" % [hashes.Road.digest.substr(0, 16), hashes.Road.meshes, hashes.Road.shapes, hashes.Terrain.digest.substr(0, 16), hashes.Terrain.meshes, hashes.Forest.digest.substr(0, 16), hashes.Forest.meshes, hashes.Forest.shapes], "async %s / %s / %s, sync %s / %s / %s" % [hashes.Road.digest, hashes.Terrain.digest, hashes.Forest.digest, sync_hashes.Road.digest, sync_hashes.Terrain.digest, sync_hashes.Forest.digest])
 
@@ -247,11 +259,11 @@ func _check_progress(ring: Node, outcome: Dictionary) -> void:
 	var stages: Dictionary = outcome.stages
 	var terrain_jobs := terrain.mesh_jobs().size()
 	var forest_jobs := forest.mesh_jobs().size()
-	var counted: bool = stages.size() == 9 and stages.road_sweep.total == road.road_count and stages.road_nodes.total == road.road_count and stages.terrain_meshes.total == terrain_jobs and stages.terrain_nodes.total == terrain_jobs and stages.forest_meshes.total == forest_jobs and stages.forest_nodes.total == forest_jobs and stages.road_prepare.total == 1 and stages.terrain_fields.total == 1 and stages.forest_place.total == 1
+	var counted: bool = stages.size() == 13 and stages.buildings_prepare.total == 1 and stages.buildings_place.total == 1 and stages.buildings_meshes.total == (ring.get_node("Buildings") as BuildingsShells).mesh_jobs().size() and stages.buildings_nodes.total == stages.buildings_meshes.total and stages.road_sweep.total == road.road_count and stages.road_nodes.total == road.road_count and stages.terrain_meshes.total == terrain_jobs and stages.terrain_nodes.total == terrain_jobs and stages.forest_meshes.total == forest_jobs and stages.forest_nodes.total == forest_jobs and stages.road_prepare.total == 1 and stages.terrain_fields.total == 1 and stages.forest_place.total == 1
 	var all_done := true
 	for name_of: String in stages:
 		all_done = all_done and stages[name_of].done == stages[name_of].total and stages[name_of].finished
-	_ok(counted and all_done, "(b) every chunk counted: the sweep and the road node stage %d roads, the terrain's two stages %d jobs, the forest's two %d jobs, the three serial stages one each, every stage done to its total at the handover" % [road.road_count, terrain_jobs, forest_jobs], "stages %s, road_count %d, terrain jobs %d, forest jobs %d" % [stages, road.road_count, terrain_jobs, forest_jobs])
+	_ok(counted and all_done, "(b) every chunk counted: the sweep and the road node stage %d roads, the terrain's two stages %d jobs, the forest's two %d jobs, Buildings %d jobs, the five serial stages one each, all thirteen stages done to their totals at the handover" % [road.road_count, terrain_jobs, forest_jobs, stages.buildings_nodes.total], "stages %s, road_count %d, terrain jobs %d, forest jobs %d" % [stages, road.road_count, terrain_jobs, forest_jobs])
 	var monotonic := true
 	var samples: PackedFloat64Array = outcome.progress
 	for k: int in range(1, samples.size()):
@@ -280,7 +292,7 @@ func _check_handover(ring: Node, outcome: Dictionary) -> void:
 	var road: RoadBuilder = ring.get_node("Road")
 	var car: ArcadeCar = ring.get_node("Car")
 	var floor_body := road.get_node_or_null("Floor")
-	_ok(car != null and car.road_profile is WorldRoadProfile and car.road_profile == road.profile and car.reset_to_last_pose and floor_body is StaticBody3D and road.build_deferred and ring.get_node("Terrain").build_deferred and ring.get_node("Forest").build_deferred and outcome.fallback == "", "(d) the car stands on the road's profile (the same object, a WorldRoadProfile), the reset flag set, the floor slab under it; the three builders still marked deferred (their _ready built nothing, the loading scene did); no fallback", "profile %s == %s: %s, reset %s, floor %s, deferred %s/%s/%s, fallback '%s'" % [car.road_profile if car else null, road.profile, car.road_profile == road.profile if car else false, car.reset_to_last_pose if car else false, floor_body, road.build_deferred, ring.get_node("Terrain").build_deferred, ring.get_node("Forest").build_deferred, outcome.fallback])
+	_ok(car != null and car.road_profile is WorldRoadProfile and car.road_profile == road.profile and car.reset_to_last_pose and floor_body is StaticBody3D and road.build_deferred and ring.get_node("Terrain").build_deferred and ring.get_node("Forest").build_deferred and ring.get_node("Buildings").build_deferred and outcome.fallback == "", "(d) the car stands on the road's profile (the same object, a WorldRoadProfile), the reset flag set, the floor slab under it; all four builders still marked deferred (their _ready built nothing, the loading scene did); no fallback", "profile %s == %s: %s, reset %s, floor %s, deferred %s/%s/%s, fallback '%s'" % [car.road_profile if car else null, road.profile, car.road_profile == road.profile if car else false, car.reset_to_last_pose if car else false, floor_body, road.build_deferred, ring.get_node("Terrain").build_deferred, ring.get_node("Forest").build_deferred, outcome.fallback])
 
 
 func _check_setting() -> void:
@@ -329,13 +341,14 @@ func _report_of(ring: Node) -> Dictionary:
 		"road": {"describe": road.describe(), "road_count": road.road_count, "counters": [road.road_count, road.section_count, road.split_count, road.fine_split_count, road.vertex_count, road.triangle_count, road.body_count]},
 		"terrain": {"describe": terrain.describe(), "counts": terrain.counts.duplicate(), "elements": terrain.elements.duplicate()},
 		"forest": {"describe": forest.describe(), "counts": forest.counts.duplicate(), "elements": forest.elements.duplicate()},
+		"buildings": {"describe": ring.get_node("Buildings").describe(), "counts": ring.get_node("Buildings").counts.duplicate(), "elements": ring.get_node("Buildings").elements.duplicate()},
 	}
 
 
 ## The child names under each builder, in order.
 func _children_of(ring: Node) -> Dictionary:
 	var out := {}
-	for builder: String in ["Road", "Terrain", "Forest"]:
+	for builder: String in ["Road", "Terrain", "Forest", "Buildings"]:
 		var names := PackedStringArray()
 		for child: Node in ring.get_node(builder).get_children():
 			names.append(child.name)
@@ -351,7 +364,7 @@ func _children_of(ring: Node) -> Dictionary:
 ## number in every build) is not data and is left out.
 func _hashes_of(ring: Node) -> Dictionary:
 	var out := {}
-	for builder: String in ["Road", "Terrain", "Forest"]:
+	for builder: String in ["Road", "Terrain", "Forest", "Buildings"]:
 		var context := HashingContext.new()
 		context.start(HashingContext.HASH_SHA256)
 		var counters := {"meshes": 0, "shapes": 0}

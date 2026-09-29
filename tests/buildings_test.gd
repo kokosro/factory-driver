@@ -71,6 +71,7 @@ func _initialize() -> void:
 		print("BUILDINGS TEST FAILED: %d fault(s)" % _failures)
 		quit(1)
 		return
+	_check_dressing_data()
 	_check_provenance(data)
 	_check_stations()
 	_check_social()
@@ -411,3 +412,32 @@ func _is_sha(value: Variant) -> bool:
 ## The first words of a line, for an ok line.
 func _short(line: String) -> String:
 	return line if line.length() <= 96 else line.substr(0, 93) + "..."
+
+
+## 4B-8 additive data pins: was no footprint reduction -> 2 839 records,
+## classes measured by buildings.py. The original 22 E records stay pinned.
+func _check_dressing_data() -> void:
+	var data: Variant = BuildingsShells.read_buildings()
+	var errors := BuildingsShells.validate_buildings(data)
+	_ok(errors.is_empty(), "4B-8 reduction validates", str(errors))
+	if not data is Dictionary:
+		return
+	var expected := {"B0": 2828, "B1": 1, "B2": 6, "B3": 1, "B4": 3}
+	var counts_equal := true
+	for id: String in expected:
+		counts_equal = counts_equal and data.counts.classes.get(id, -1) == expected[id]
+	_ok(counts_equal and data.counts.buildings == 2839 and data.counts.poles == 750, "4B-8 measured counts: %s; 750 poles (B5: 0 qualifying)" % [expected])
+	_ok(data.residential.size() == 151 and data.counts.selected_residential == 12 and data.places.size() == 6, "151 residential polygons, 12 intersect six village discs; q4 schema recovered")
+	_ok(data.audit.grass_within_120_m == 0 and data.audit.approach_within_15_m == 0, "raw q5 footprint clearances: grass %.3f m, approach %.3f m" % [data.audit.grass_footprint_min_m, data.audit.approach_footprint_min_m])
+	var broken: Dictionary = data.duplicate(true)
+	broken.buildings[0].polygon.pop_back()
+	_ok(not BuildingsShells.validate_buildings(broken).is_empty(), "footprint validation rejects an open ring")
+	broken = data.duplicate(true)
+	broken.buildings[0].element = "E2"
+	_ok(not BuildingsShells.validate_buildings(broken).is_empty(), "footprint validation rejects a non-shell class")
+	broken = data.duplicate(true)
+	broken.counts.poles = 0
+	_ok(not BuildingsShells.validate_buildings(broken).is_empty(), "footprint validation rejects dishonest counts")
+	broken = data.duplicate(true)
+	broken.buildings.append(broken.buildings[0])
+	_ok(not BuildingsShells.validate_buildings(broken).is_empty(), "footprint validation rejects duplicate ways")
