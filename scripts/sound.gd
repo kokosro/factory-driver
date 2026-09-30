@@ -17,13 +17,29 @@ extends Node
 ## the mapping's pitch constants changed, every old number kept below as a
 ## was-> note.
 ##
-## THREE PLAYERS, THREE LOOPS: the node holds three AudioStreamPlayer
-## children (ENGINE_PLAYER, SURFACE_PLAYER, SKID_PLAYER), each looping one
-## two-second buffer built IN CODE at first need (no asset, no scene:
-## AudioStreamWAV from generated 16-bit PCM at MIX_RATE, looped end to end
-## through loop_begin / loop_end). Every buffer is BUFFER_SAMPLES long (2 s:
-## the grid is 0.5 Hz) and every partial in it is a whole number of cycles
-## over that length (the cycle tables below), so the loop point is seamless.
+## SOUND-3 (2026-10-01): three more layers, the smallest honest version of
+## each, after the driver's line (docs/design/user-thoughts-economy.org:
+## "the sound: real sim data, also, it matters in which environment the car
+## is, if it's in a tunel, within the buildings or in open nature, the sound
+## is different"): a WIND layer (a fourth loop, its level a quadratic of the
+## speed), IMPACT thumps (one-shot bursts on the car's real slide collisions
+## - the move_and_slide seam, below) and an ENVIRONMENT trim (the nearest
+## building shell trims the wind down and the rumble up). The SOUND-1/2
+## architecture stays to the letter; the three earlier channels' mapping
+## functions keep their signatures, the environment is its own offset layer
+## on top of them.
+##
+## FOUR LOOPING PLAYERS AND A BURST POOL (was-> THREE PLAYERS, THREE LOOPS:
+## SOUND-3 added the wind loop and the thump pool): the node holds four
+## looping AudioStreamPlayer children (ENGINE_PLAYER, SURFACE_PLAYER,
+## SKID_PLAYER, WIND_PLAYER), each looping one two-second buffer built IN
+## CODE at first need (no asset, no scene: AudioStreamWAV from generated
+## 16-bit PCM at MIX_RATE, looped end to end through loop_begin / loop_end),
+## and THUMP_PLAYERS more (THUMP_PREFIX + 0..3, the pool) that each play the
+## one shared non-looping impact burst on demand. Every loop buffer is
+## BUFFER_SAMPLES long (2 s: the grid is 0.5 Hz) and every partial in it is
+## a whole number of cycles over that length (the cycle tables below), so
+## the loop point is seamless.
 ## The engine is a flat-6's order stack (ENGINE_CYCLES: the crank's 3rd / 6th
 ## / 9th / 12th orders - a four-stroke's firing frequency, rpm / 60 x
 ## cylinders / 2, is the root, 45 / 90 / 135 / 180 Hz at pitch 1 = idle -
@@ -43,9 +59,17 @@ extends Node
 ## 51 partials every 50 Hz over 1500..4000 Hz, RMS 0.15 of the tone) and,
 ## baked into the buffer, an amplitude modulation at SKID_AM_CYCLES (9 Hz at
 ## pitch 1: the tread blocks through the contact patch at the wheel's
-## rotation rate) of SKID_AM_DEPTH, mean-preserving, whole cycles too.
-## Deterministic: sums of sines, no random, no wall clock; the three streams
-## are shared by every node (built once).
+## rotation rate) of SKID_AM_DEPTH, mean-preserving, whole cycles too; the
+## wind is broadband pseudo-noise alone (WIND_CYCLES: 31 partials every 20
+## Hz over 100..700 Hz, equal amplitudes, the golden spread - the
+## low-passed roar a cabin hears, no tone in it); the thump is a short
+## decaying burst (IMPACT_BUFFER_SAMPLES, 371 ms: a low sine at
+## IMPACT_TONE_HZ, 90 Hz, phase 0, under IMPACT_PARTIAL_HZ knock partials
+## with the golden spread, the sum under an exponential decay of
+## IMPACT_DECAY_S and a 2 ms linear attack - it plays once and stops, so the
+## whole-cycles rule does not apply to it: nothing wraps).
+## Deterministic: sums of sines, no random, no wall clock; the five streams
+## (was-> three) are shared by every node (built once).
 ##
 ## THE MAPPING, every physics tick (process_physics_priority -1: after the
 ## bubble's -2, with the Surfaces node, before the car's 0 - one state, the
@@ -85,29 +109,115 @@ extends Node
 ##     SKID_PITCH_ONSET to SKID_PITCH_SOLID (0.85 to 1.5, nearly an octave -
 ##     the real squeal's span; across it the baked AM plays 7.65 to 13.5 Hz,
 ##     inside the real 3..15 Hz wheel-rotation band).
+##   - WIND (SOUND-3): a level 0..1 from |forward_speed| alone - AUTHORED
+##     LAW: clamp((speed / WIND_SPEED_FULL)^2, 0, 1), muted under
+##     WIND_SPEED_MIN. scratch/sound-2-references.md carries speed laws for
+##     TYRE noise only (tread impact ~ speed^2, air pumping ~ speed^4, its
+##     lines 23-24) and nothing for aerodynamic noise; the quadratic is the
+##     implementer's choice (a sound-pressure ~ dynamic-pressure shape), not
+##     a measured one. Never surface-dependent: the same on tarmac, gravel
+##     or in the air - the wind reads no surface field. volume_db = db_of the
+##     level under WIND_DB_MAX (-10: ambience, under the engine and the
+##     rumble); pitch_scale fixed at WIND_PITCH (1.0).
+##   - IMPACTS (SOUND-3): one-shot thumps on the car's REAL collisions, read
+##     through the only honest seam: the car (scripts/car.gd, frozen) calls
+##     move_and_slide() once per tick and reads velocity back, so at this
+##     node's tick (priority -1, before the car's 0) get_slide_collision_count
+##     / get_slide_collision(i) hold the car's PREVIOUS tick's slide - one
+##     tick stale, deterministic. Real contact, not a deceleration proxy.
+##     Per collision: the normal n = get_normal(); n . UP over
+##     IMPACT_UP_NORMAL_MAX is the floor (the pad's WorldBoundaryShape3D, the
+##     ring's slab), not an impact, skipped; the CLOSING SPEED is |n . v|
+##     where v is the velocity THIS NODE READ ONE TICK EARLIER (last tick's
+##     car.velocity: the velocity the car carried into the tick of the move,
+##     up to that tick's own force integration - measured on the pad 19.70
+##     against a 19.75 m/s approach). NOT this tick's car.velocity: after
+##     move_and_slide the velocity is already slid along the wall and its
+##     normal component is exactly 0 at every impact (the rehearsal probe
+##     measured 0.000 on the shed), so a closing speed off it would never
+##     thump. intensity = clamp(closing / IMPACT_SPEED_FULL, 0, 1), nothing
+##     under IMPACT_SPEED_MIN (a gentle nudge is silent), the largest wall
+##     contact of the tick; a cooldown of IMPACT_COOLDOWN_FRAMES physics
+##     frames since the last fired thump (0.25 s at 60 Hz: a sustained rail
+##     scrape thumps at most every 0.25 s, and only when the car pushes into
+##     the rail again with a normal component over the gate - the slid
+##     velocity of a scrape has none). volume_db = db_of the intensity under
+##     IMPACT_DB_MAX (-2), snapped, on the next pooled player round-robin
+##     (next_thump = (next_thump + 1) % THUMP_PLAYERS: deterministic), and
+##     play(); impacts_fired counts them. THE CONES NEVER THUMP AND THAT IS
+##     RIGHT: the pad's cones (scripts/pad_cone.gd) are RigidBody3D on layer
+##     4 (1 << 2), the car's mask is 1, the server never pairs them -
+##     "move_and_slide neither slows nor deflects for a cone", the pad
+##     drives them through TestPad's own bump() - so a cone nudge is no slide
+##     collision and no thump, correct by the physics, not a gap. The rails
+##     (the PhysicsBubble's F1 rail chunk bodies on layer 1 when active,
+##     scripts/physics_bubble.gd), the trunk chunk bodies and the pad's
+##     sheds (layer 1) DO pair, and thump.
+##   - ENVIRONMENT v1 (SOUND-3): "within the buildings vs open nature", the
+##     simplest honest version - read-only over the ring's building shells
+##     (scripts/buildings_shells.gd, BuildingsShells.shells: one Dictionary
+##     per building with "position" a Vector2 (x, z) - 2839 of them on the
+##     Ring, under the scene root's child named "Buildings"). The node looks
+##     the child up by name (get_node_or_null(BUILDINGS_NODE) on the scene
+##     root, its parent) - NEVER BuildingsShells.of(): that static CREATES
+##     the node where Road, Terrain and Forest exist and would start a heavy
+##     build in a scene that was never to have buildings; nothing here
+##     creates or writes anything. Every ENV_SCAN_TICKS physics ticks (0.5 s
+##     at 60 Hz, tick counting, never the wall clock) the horizontal distance
+##     from the car to the NEAREST shell position is scanned linearly over a
+##     PackedVector2Array of the shell positions built once when the shells
+##     are first seen non-empty (no allocation per scan, no spatial index:
+##     2839 distances every half second is trivial); an empty or absent
+##     shells array (the pad, a bare car, the Ring while its build still
+##     runs) is fully open. openness = clamp(d / ENV_OPEN_RADIUS, 0, 1),
+##     and two trims, pure functions: the wind down by WIND_SHELTER_DB x (1 -
+##     openness) (sheltered among buildings), the rumble up by
+##     SURFACE_REFLECT_DB x (1 - openness) (walls throw some of it back); the
+##     written volume_db is trimmed_db(base, offset): the base plus the
+##     offset, snapped, never under MUTE_DB, and a MUTED base stays muted (a
+##     trim never wakes a silent channel). On a scene without a Buildings
+##     node the openness is 1 and both offsets 0: the pad's sound is
+##     bit-identical to SOUND-2's. NOT IN v1, honestly: no low-pass or
+##     equalisation, no reverb bus (a real early-reflection tail is future
+##     work); and TUNNELS DO NOT EXIST anywhere in the world yet (no tunnel
+##     geometry is built), so the driver's "in a tunnel" case is documented
+##     as not-yet-existing rather than faked.
 ## Every mapped value is snapped to SNAP (0.001) - the same reads give the
 ## same volume_db / pitch_scale to the bit (tests/sound_test.gd holds two
 ## nodes to it); the mapping functions are static and pure, the tests pin
 ## them at their corners. The node's own fields hold the snapped doubles;
 ## the players' properties are the engine's 32-bit floats of them.
 ##
-## PURELY A READER: nothing here writes the car, the Surfaces node or the
-## profile - the reads are engine_rpm, throttle_pedal, engine_running,
-## forward_speed, the three surface inputs, the four slip numbers,
-## driven_wheels, global_transform (the wheel contact points under a Surfaces
-## node) and the ArcadeCar statics; the writes are the three players'
-## volume_db and pitch_scale. The car's samples are byte-identical with and
-## without the node (the sound test's pin). Non-positional players: the
-## camera rides with the car, the car is the listener's subject.
+## PURELY A READER: nothing here writes the car, the Surfaces node, the
+## Buildings node or the profile - the reads are engine_rpm, throttle_pedal,
+## engine_running, forward_speed, the three surface inputs, the four slip
+## numbers, driven_wheels, global_transform (the wheel contact points under a
+## Surfaces node; the position for the environment scan), the ArcadeCar
+## statics and, since SOUND-3, the CharacterBody3D engine API velocity,
+## get_slide_collision_count() and get_slide_collision(i).get_normal() (all
+## read-only) plus BuildingsShells.shells on a scene that has the node; the
+## writes are the players' volume_db and pitch_scale plus play() on the
+## pooled thump players (was-> the three players' volume_db and pitch_scale).
+## The car's samples are byte-identical with and without the node (the
+## sound test's pin). Non-positional players: the camera rides with the car,
+## the car is the listener's subject.
 
 # --- Tuning ------------------------------------------------------------------
 
 ## The node's name under the scene root (SoundWatcher gives it) and the
-## three players' names under the node.
+## players' names under the node: the four loops, and the thump pool
+## THUMP_PREFIX + 0..THUMP_PLAYERS-1 (was-> the three players' names:
+## SOUND-3 added the wind and the pool). THUMP_STREAM keys the burst in
+## buffers(). PLAYER_COUNT is what one node holds (the tests count them).
 const NODE_NAME := "Sound"
 const ENGINE_PLAYER := "Engine"
 const SURFACE_PLAYER := "Surface"
 const SKID_PLAYER := "Skid"
+const WIND_PLAYER := "Wind"
+const THUMP_PREFIX := "Thump"
+const THUMP_STREAM := "Thump"
+const THUMP_PLAYERS := 4
+const PLAYER_COUNT := 4 + THUMP_PLAYERS
 
 ## The buffers: sample rate [Hz], length [samples] (two seconds: every
 ## partial's cycle count below is whole over it, so 0.5 Hz is the grid), the
@@ -175,6 +285,31 @@ const SKID_NOISE_AMPLITUDE := 0.0297
 const SKID_AM_CYCLES := 18
 const SKID_AM_DEPTH := 0.30
 
+## WIND (SOUND-3): broadband pseudo-noise alone - a partial every 20 Hz
+## over 100..700 Hz (cycles 200..1400 step 40 on the 0.5 Hz grid: 31
+## partials, every one whole cycles, the loop seamless), equal amplitudes
+## of 1, the golden spread of phases. The low-passed roar a cabin hears at
+## speed: no tone, no modulation. AUTHORED (no recording analysed for it;
+## scratch/sound-2-references.md covers the engine, the tyres and the
+## squeal only).
+const WIND_CYCLES: Array[int] = [200, 240, 280, 320, 360, 400, 440, 480, 520, 560, 600, 640, 680, 720, 760, 800, 840, 880, 920, 960, 1000, 1040, 1080, 1120, 1160, 1200, 1240, 1280, 1320, 1360, 1400]
+
+## IMPACT BURST (SOUND-3): IMPACT_BUFFER_SAMPLES at MIX_RATE (8192: 371 ms),
+## non-looping - a low sine at IMPACT_TONE_HZ (90 Hz, phase 0, amplitude 1:
+## the body's thud) under knock partials IMPACT_PARTIAL_HZ at
+## IMPACT_PARTIAL_AMPLITUDES with the golden spread, the sum under
+## exp(-t / IMPACT_DECAY_S) (60 ms: at the buffer's end the envelope is
+## exp(-6.2), 0.002 - no tail left to cut) and a linear attack over
+## IMPACT_ATTACK_SAMPLES (44: 2 ms, so the spread phases open without a
+## step). Frequencies in Hz, not cycles: the burst plays once and stops,
+## nothing wraps, the whole-cycles rule is the loops' alone. AUTHORED.
+const IMPACT_BUFFER_SAMPLES := 8192
+const IMPACT_TONE_HZ := 90.0
+const IMPACT_PARTIAL_HZ: Array[float] = [135.0, 200.0, 290.0, 420.0, 610.0]
+const IMPACT_PARTIAL_AMPLITUDES: Array[float] = [0.5, 0.35, 0.25, 0.18, 0.12]
+const IMPACT_DECAY_S := 0.06
+const IMPACT_ATTACK_SAMPLES := 44
+
 ## Silence [dB]: no mapped volume goes under it, a muted channel sits on it.
 const MUTE_DB := -60.0
 
@@ -224,7 +359,38 @@ const SKID_SPEED_MIN := 1.5
 const SKID_PITCH_ONSET := 0.85
 const SKID_PITCH_SOLID := 1.5
 
-## The three streams, built once for every node (buffers()).
+## WIND (SOUND-3): the speed [m/s] of a full level (the level is the square
+## of the speed's share of it - the AUTHORED law, see the header: the
+## references carry tyre-noise speed laws only, nothing for aero), the speed
+## under which it is muted, the ceiling [dB] (ambience: under the engine's
+## -8..-18 and the rumble's -6), the fixed pitch.
+const WIND_SPEED_FULL := 50.0
+const WIND_SPEED_MIN := 5.0
+const WIND_DB_MAX := -10.0
+const WIND_PITCH := 1.0
+
+## IMPACTS (SOUND-3): a contact whose normal's dot with UP is over
+## IMPACT_UP_NORMAL_MAX is the floor (a slope under 45.6 degrees), not a
+## wall; the closing speed [m/s] of a full thump, the one under which a
+## contact is a silent nudge, the frames between two thumps, the ceiling
+## [dB] at a full one.
+const IMPACT_UP_NORMAL_MAX := 0.7
+const IMPACT_SPEED_FULL := 20.0
+const IMPACT_SPEED_MIN := 1.0
+const IMPACT_COOLDOWN_FRAMES := 15
+const IMPACT_DB_MAX := -2.0
+
+## ENVIRONMENT v1 (SOUND-3): the scene root's child that holds the shells,
+## the ticks between two nearest-shell scans, the distance [m] to the
+## nearest shell at and beyond which the car is fully open, the wind's cut
+## [dB] and the rumble's lift [dB] when fully closed in (openness 0).
+const BUILDINGS_NODE := "Buildings"
+const ENV_SCAN_TICKS := 30
+const ENV_OPEN_RADIUS := 60.0
+const WIND_SHELTER_DB := 4.0
+const SURFACE_REFLECT_DB := 1.5
+
+## The five streams (was-> three), built once for every node (buffers()).
 static var _buffers: Dictionary = {}
 
 # --- State -------------------------------------------------------------------
@@ -235,10 +401,12 @@ var car: ArcadeCar = null
 ## The scene's Surfaces node, null where it has none (the pad): the squeal's gate.
 var surfaces: Surfaces = null
 
-## The players (made in _ready).
+## The players (made in _ready): the four loops and the thump pool.
 var engine_player: AudioStreamPlayer = null
 var surface_player: AudioStreamPlayer = null
 var skid_player: AudioStreamPlayer = null
+var wind_player: AudioStreamPlayer = null
+var thump_players: Array[AudioStreamPlayer] = []
 
 ## The reads of the last tick (what the mapping saw) and the mapped values
 ## written to the players, snapped: the tests pin them.
@@ -261,6 +429,45 @@ var skid_intensity := 0.0
 var skid_pitch := SKID_PITCH_ONSET
 var skid_db := MUTE_DB
 
+## SOUND-3. The wind: its base volume from the speed, and the written one
+## (the base under the environment's trim). The rumble's base likewise
+## (surface_db above is the WRITTEN one, trimmed; was-> the base itself, the
+## two equal wherever the offset is 0 - every scene without buildings).
+var wind_base_db := MUTE_DB
+var wind_db := MUTE_DB
+var surface_base_db := MUTE_DB
+
+## SOUND-3, the impacts: this tick's and the previous tick's read of the
+## car's velocity (the closing speed is against the PREVIOUS: see the
+## header), the largest wall contact's closing speed and normal this tick
+## (0 / ZERO for none), the intensity it maps to, the last fired thump's
+## intensity and volume, the tick it fired on, the pool's next player, the
+## count of thumps fired (the tests read it).
+var last_velocity := Vector3.ZERO
+var prev_velocity := Vector3.ZERO
+var impact_closing := 0.0
+var impact_normal := Vector3.ZERO
+var impact_intensity := 0.0
+var thump_intensity := 0.0
+var thump_db := MUTE_DB
+var last_impact_tick := -IMPACT_COOLDOWN_FRAMES
+var next_thump := 0
+var impacts_fired := 0
+
+## SOUND-3, the environment: the car's position this tick, the shell
+## positions (x, z) built once from the first non-empty shells seen and the
+## instance id of the Buildings node they came from, the ticks until the
+## next scan (0: this tick scans), the last scan's nearest distance [m]
+## (INF: no shell), the openness and the two trims.
+var last_position := Vector3.ZERO
+var shell_points := PackedVector2Array()
+var shells_source_id := 0
+var env_ticks_to_scan := 0
+var nearest_shell_m := INF
+var openness := 1.0
+var wind_offset_db := 0.0
+var surface_offset_db := 0.0
+
 ## Ticks run and ticks with a car to read.
 var ticks := 0
 var read_ticks := 0
@@ -272,6 +479,9 @@ func _ready() -> void:
 	engine_player = _make_player(ENGINE_PLAYER, streams[ENGINE_PLAYER])
 	surface_player = _make_player(SURFACE_PLAYER, streams[SURFACE_PLAYER])
 	skid_player = _make_player(SKID_PLAYER, streams[SKID_PLAYER])
+	wind_player = _make_player(WIND_PLAYER, streams[WIND_PLAYER])
+	for i in THUMP_PLAYERS:
+		thump_players.append(_make_thump_player(THUMP_PREFIX + str(i), streams[THUMP_STREAM]))
 	_write_players()
 
 
@@ -287,8 +497,10 @@ func _physics_process(_delta: float) -> void:
 		return
 	read_ticks += 1
 	_read()
+	_scan_environment()
 	_map()
 	_write_players()
+	_fire_thump()
 
 
 # =============================================================================
@@ -366,6 +578,108 @@ static func skid_pitch_of(intensity: float) -> float:
 	return snappedf(lerpf(SKID_PITCH_ONSET, SKID_PITCH_SOLID, clampf(intensity, 0.0, 1.0)), SNAP)
 
 
+## SOUND-3, the wind's linear level 0..1 at `speed` [m/s], either way: 0
+## under WIND_SPEED_MIN, else the square of the speed's share of
+## WIND_SPEED_FULL, clamped - the AUTHORED quadratic law (the references
+## carry tyre-noise speed laws only). No surface term: the wind is the same
+## on every surface and in the air.
+static func wind_level_of(speed: float) -> float:
+	var v := absf(speed)
+	if v < WIND_SPEED_MIN:
+		return 0.0
+	var share := v / WIND_SPEED_FULL
+	return clampf(share * share, 0.0, 1.0)
+
+
+## The wind's base volume [dB]: db_of the level under WIND_DB_MAX.
+static func wind_db_of(speed: float) -> float:
+	return db_of(wind_level_of(speed), WIND_DB_MAX)
+
+
+## SOUND-3, whether a slide collision's `normal` is a wall (an impact) and
+## not the floor: its dot with UP at or under IMPACT_UP_NORMAL_MAX.
+static func impact_is_wall(normal: Vector3) -> bool:
+	return normal.dot(Vector3.UP) <= IMPACT_UP_NORMAL_MAX
+
+
+## The closing speed [m/s] of `velocity` against a contact `normal`: |n . v|.
+static func impact_closing_of(normal: Vector3, velocity: Vector3) -> float:
+	return absf(normal.dot(velocity))
+
+
+## The thump's intensity 0..1 at a closing speed [m/s]: 0 under
+## IMPACT_SPEED_MIN, else the speed's share of IMPACT_SPEED_FULL, clamped,
+## snapped.
+static func impact_intensity_of(closing: float) -> float:
+	if closing < IMPACT_SPEED_MIN:
+		return 0.0
+	return snappedf(clampf(closing / IMPACT_SPEED_FULL, 0.0, 1.0), SNAP)
+
+
+## The thump's volume [dB] at `intensity`: db_of under IMPACT_DB_MAX.
+static func impact_db_of(intensity: float) -> float:
+	return db_of(clampf(intensity, 0.0, 1.0), IMPACT_DB_MAX)
+
+
+## Whether a thump may fire on `tick` after one fired on `last_tick`:
+## IMPACT_COOLDOWN_FRAMES or more frames between them.
+static func impact_ready(tick: int, last_tick: int) -> bool:
+	return tick - last_tick >= IMPACT_COOLDOWN_FRAMES
+
+
+## SOUND-3, the openness 0..1 at a nearest-shell distance [m]: the
+## distance's share of ENV_OPEN_RADIUS, clamped, snapped; INF (no shell) is
+## 1.
+static func openness_of(distance: float) -> float:
+	if not is_finite(distance):
+		return 1.0
+	return snappedf(clampf(distance / ENV_OPEN_RADIUS, 0.0, 1.0), SNAP)
+
+
+## The wind's trim [dB] at `openness`: -WIND_SHELTER_DB at 0 (closed in), 0
+## at 1 (open), a line between, snapped.
+static func wind_offset_of(openness_value: float) -> float:
+	return snappedf(-WIND_SHELTER_DB * (1.0 - clampf(openness_value, 0.0, 1.0)), SNAP)
+
+
+## The rumble's trim [dB] at `openness`: +SURFACE_REFLECT_DB at 0, 0 at 1,
+## a line between, snapped.
+static func surface_offset_of(openness_value: float) -> float:
+	return snappedf(SURFACE_REFLECT_DB * (1.0 - clampf(openness_value, 0.0, 1.0)), SNAP)
+
+
+## A channel's written volume [dB]: `base` plus `offset`, snapped, never
+## under MUTE_DB; a muted base stays MUTE_DB whatever the offset (a trim
+## never wakes a silent channel). At an offset of 0 the base itself, to the
+## bit (snappedf is idempotent on a snapped value).
+static func trimmed_db(base: float, offset: float) -> float:
+	if base <= MUTE_DB:
+		return MUTE_DB
+	return snappedf(maxf(base + offset, MUTE_DB), SNAP)
+
+
+## The distance [m] from `at` (x, z) to the nearest of `points`, a linear
+## scan; INF for none.
+static func nearest_distance(points: PackedVector2Array, at: Vector2) -> float:
+	if points.is_empty():
+		return INF
+	var least := INF
+	for p in points:
+		least = minf(least, at.distance_squared_to(p))
+	return sqrt(least)
+
+
+## The (x, z) positions of `shells` (BuildingsShells.shells: one Dictionary
+## per building, "position" a Vector2), the ones that carry one.
+static func shell_positions(shells: Array[Dictionary]) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for shell in shells:
+		var p: Variant = shell.get("position")
+		if p is Vector2:
+			out.append(p)
+	return out
+
+
 ## The surface under (x, z) as the gate sees it: the Surfaces node's read
 ## where the scene has one, road everywhere on a scene without (MarksLayer's
 ## surface_at, the same rule).
@@ -379,19 +693,22 @@ func surface_at(x: float, z: float) -> StringName:
 #  The buffers
 # =============================================================================
 
-## The three streams, keyed by player name, built at first need and shared.
+## The five streams (was-> three), keyed by player name (the burst by
+## THUMP_STREAM), built at first need and shared.
 static func buffers() -> Dictionary:
 	if _buffers.is_empty():
 		_buffers = build_buffers()
 	return _buffers
 
 
-## Builds the three streams anew (pure: the same bytes every time). The
-## engine: the order stack and the sidebands, every phase 0. The surface: the
-## body layer at 1 and the noise layer at SURFACE_NOISE_AMPLITUDE, each with
-## its own golden spread of phases. The skid: the two tones at phase 0, the
-## grit at SKID_NOISE_AMPLITUDE with the golden spread, the AM envelope over
-## the sum.
+## Builds the five streams anew (pure: the same bytes every time; was->
+## three). The engine: the order stack and the sidebands, every phase 0. The
+## surface: the body layer at 1 and the noise layer at
+## SURFACE_NOISE_AMPLITUDE, each with its own golden spread of phases. The
+## skid: the two tones at phase 0, the grit at SKID_NOISE_AMPLITUDE with the
+## golden spread, the AM envelope over the sum. The wind (SOUND-3): the
+## noise table at 1 with the golden spread. The thump (SOUND-3): the burst,
+## impact_stream().
 static func build_buffers() -> Dictionary:
 	var engine_cycles: Array[int] = []
 	var engine_amplitudes: Array[float] = []
@@ -421,6 +738,8 @@ static func build_buffers() -> Dictionary:
 		ENGINE_PLAYER: make_stream(engine_cycles, engine_amplitudes, level_amplitudes(engine_cycles.size(), 0.0)),
 		SURFACE_PLAYER: make_stream(surface_cycles, surface_amplitudes, surface_phases),
 		SKID_PLAYER: make_stream(skid_cycles, skid_amplitudes, skid_phases, SKID_AM_CYCLES, SKID_AM_DEPTH),
+		WIND_PLAYER: make_stream(WIND_CYCLES, level_amplitudes(WIND_CYCLES.size(), 1.0), golden_phases(WIND_CYCLES.size())),
+		THUMP_STREAM: impact_stream(),
 	}
 
 
@@ -490,6 +809,52 @@ static func pcm(cycles: Array[int], amplitudes: Array[float], phases: Array[floa
 	return out
 
 
+## SOUND-3: the impact burst as a non-looping 16-bit mono stream of
+## IMPACT_BUFFER_SAMPLES at MIX_RATE (impact_pcm), normalised to BUFFER_PEAK.
+static func impact_stream() -> AudioStreamWAV:
+	var samples := impact_pcm()
+	var stream := AudioStreamWAV.new()
+	stream.format = AudioStreamWAV.FORMAT_16_BITS
+	stream.mix_rate = MIX_RATE
+	stream.stereo = false
+	stream.loop_mode = AudioStreamWAV.LOOP_DISABLED
+	var bytes := PackedByteArray()
+	bytes.resize(IMPACT_BUFFER_SAMPLES * 2)
+	for n in IMPACT_BUFFER_SAMPLES:
+		bytes.encode_s16(n * 2, samples[n])
+	stream.data = bytes
+	return stream
+
+
+## The burst's samples as 16-bit integers: the IMPACT_TONE_HZ sine at phase
+## 0 and amplitude 1 plus the IMPACT_PARTIAL_HZ partials at their amplitudes
+## with the golden spread, times exp(-t / IMPACT_DECAY_S), times the linear
+## attack n / IMPACT_ATTACK_SAMPLES over the first IMPACT_ATTACK_SAMPLES (so
+## the first sample is 0), normalised to BUFFER_PEAK. Deterministic, no
+## random; frequencies in Hz (nothing wraps).
+static func impact_pcm() -> PackedInt32Array:
+	var phases := golden_phases(IMPACT_PARTIAL_HZ.size())
+	var values := PackedFloat64Array()
+	values.resize(IMPACT_BUFFER_SAMPLES)
+	var peak := 0.0
+	for n in IMPACT_BUFFER_SAMPLES:
+		var t := float(n) / float(MIX_RATE)
+		var value := sin(TAU * IMPACT_TONE_HZ * t)
+		for k in IMPACT_PARTIAL_HZ.size():
+			value += IMPACT_PARTIAL_AMPLITUDES[k] * sin(TAU * IMPACT_PARTIAL_HZ[k] * t + phases[k])
+		value *= exp(-t / IMPACT_DECAY_S)
+		if n < IMPACT_ATTACK_SAMPLES:
+			value *= float(n) / float(IMPACT_ATTACK_SAMPLES)
+		values[n] = value
+		peak = maxf(peak, absf(value))
+	var scale := BUFFER_PEAK * 32767.0 / peak if peak > 0.0 else 0.0
+	var out := PackedInt32Array()
+	out.resize(IMPACT_BUFFER_SAMPLES)
+	for n in IMPACT_BUFFER_SAMPLES:
+		out[n] = clampi(roundi(values[n] * scale), -32768, 32767)
+	return out
+
+
 # =============================================================================
 #  The tick
 # =============================================================================
@@ -507,6 +872,51 @@ func _read() -> void:
 	last_front_ratio = car.front_slip_ratio
 	last_rear_angle = car.rear_slip_angle
 	last_rear_ratio = car.rear_slip_ratio
+	# SOUND-3: the position (the environment scan), the velocity (this tick's
+	# read becomes next tick's closing-speed reference) and the previous
+	# tick's slide, the largest wall contact's closing speed against the
+	# velocity read a tick ago (see the header: this tick's velocity is
+	# already slid along the wall, its normal component 0).
+	last_position = car.global_position
+	prev_velocity = last_velocity
+	last_velocity = car.velocity
+	impact_closing = 0.0
+	impact_normal = Vector3.ZERO
+	for i in car.get_slide_collision_count():
+		var normal := car.get_slide_collision(i).get_normal()
+		if not impact_is_wall(normal):
+			continue
+		var closing := impact_closing_of(normal, prev_velocity)
+		if closing > impact_closing:
+			impact_closing = closing
+			impact_normal = normal
+
+
+## SOUND-3: every ENV_SCAN_TICKS read ticks (the first one included) the
+## nearest shell of the scene's Buildings node - looked up by name on the
+## scene root, never created - and the openness and the two trims from it.
+## The shell positions are copied once, from the first non-empty shells seen
+## on a given node; an absent node, or one whose build has not placed its
+## shells yet, is fully open.
+func _scan_environment() -> void:
+	if env_ticks_to_scan > 0:
+		env_ticks_to_scan -= 1
+		return
+	env_ticks_to_scan = ENV_SCAN_TICKS - 1
+	var scene_root := get_parent()
+	var buildings: BuildingsShells = null
+	if scene_root != null:
+		buildings = scene_root.get_node_or_null(BUILDINGS_NODE) as BuildingsShells
+	if buildings == null:
+		shell_points = PackedVector2Array()
+		shells_source_id = 0
+	elif shell_points.is_empty() or shells_source_id != buildings.get_instance_id():
+		shell_points = shell_positions(buildings.shells)
+		shells_source_id = buildings.get_instance_id()
+	nearest_shell_m = nearest_distance(shell_points, Vector2(last_position.x, last_position.z))
+	openness = openness_of(nearest_shell_m)
+	wind_offset_db = wind_offset_of(openness)
+	surface_offset_db = surface_offset_of(openness)
 
 
 ## The mapped values from the reads.
@@ -515,11 +925,17 @@ func _map() -> void:
 	var limiter: float = ArcadeCar.REDLINE_RPM
 	engine_pitch = engine_pitch_of(last_rpm, idle, limiter)
 	engine_db = engine_db_of(last_rpm, last_throttle, last_running, idle, limiter)
-	surface_db = surface_db_of(last_drag, minf(last_grip_front, last_grip_rear), last_speed)
+	# was-> surface_db = surface_db_of(...) written as is (SOUND-3: the base,
+	# then the environment's trim on it; the same value wherever the trim is 0).
+	surface_base_db = surface_db_of(last_drag, minf(last_grip_front, last_grip_rear), last_speed)
+	surface_db = trimmed_db(surface_base_db, surface_offset_db)
 	surface_pitch = surface_pitch_of(last_speed)
 	skid_intensity = _skid_intensity()
 	skid_db = skid_db_of(skid_intensity, last_speed)
 	skid_pitch = skid_pitch_of(skid_intensity)
+	wind_base_db = wind_db_of(last_speed)
+	wind_db = trimmed_db(wind_base_db, wind_offset_db)
+	impact_intensity = impact_intensity_of(impact_closing)
 
 
 ## The largest wheel intensity on road: the axle's trigger intensity for each
@@ -553,6 +969,24 @@ func _write_players() -> void:
 	surface_player.volume_db = surface_db
 	skid_player.pitch_scale = skid_pitch
 	skid_player.volume_db = skid_db
+	wind_player.pitch_scale = WIND_PITCH
+	wind_player.volume_db = wind_db
+
+
+## SOUND-3: a thump on this tick's mapped impact, if any and if the cooldown
+## has run: the next pooled player round-robin at impact_db_of the
+## intensity, played from its start.
+func _fire_thump() -> void:
+	if impact_intensity <= 0.0 or thump_players.is_empty() or not impact_ready(ticks, last_impact_tick):
+		return
+	thump_intensity = impact_intensity
+	thump_db = impact_db_of(impact_intensity)
+	last_impact_tick = ticks
+	var player := thump_players[next_thump]
+	next_thump = (next_thump + 1) % THUMP_PLAYERS
+	player.volume_db = thump_db
+	player.play()
+	impacts_fired += 1
 
 
 func _make_player(player_name: String, stream: AudioStreamWAV) -> AudioStreamPlayer:
@@ -565,15 +999,29 @@ func _make_player(player_name: String, stream: AudioStreamWAV) -> AudioStreamPla
 	return player
 
 
-## The mapped state as a dictionary, the tests' determinism pin.
+## A pooled thump player: the burst loaded, muted, NOT playing until a thump.
+func _make_thump_player(player_name: String, stream: AudioStreamWAV) -> AudioStreamPlayer:
+	var player := AudioStreamPlayer.new()
+	player.name = player_name
+	player.stream = stream
+	player.volume_db = MUTE_DB
+	add_child(player)
+	return player
+
+
+## The mapped state as a dictionary, the tests' determinism pin (twelve
+## values; was-> seven: SOUND-3 added the wind's written volume, the
+## openness, the two trims and the impact intensity).
 func state() -> Dictionary:
 	return {
 		"engine_pitch": engine_pitch, "engine_db": engine_db,
 		"surface_pitch": surface_pitch, "surface_db": surface_db,
 		"skid_intensity": skid_intensity, "skid_pitch": skid_pitch, "skid_db": skid_db,
+		"wind_db": wind_db, "openness": openness, "wind_offset_db": wind_offset_db, "surface_offset_db": surface_offset_db,
+		"impact_intensity": impact_intensity,
 	}
 
 
 ## One line for the eye.
 func describe() -> String:
-	return "sound: engine %.3f x / %.1f dB (%.0f rpm, throttle %.2f), surface %.3f x / %.1f dB (drag %.2f, grip %.2f / %.2f, %.1f m/s), skid %.3f x / %.1f dB (intensity %.3f), %d ticks" % [engine_pitch, engine_db, last_rpm, last_throttle, surface_pitch, surface_db, last_drag, last_grip_front, last_grip_rear, last_speed, skid_pitch, skid_db, skid_intensity, ticks]
+	return "sound: engine %.3f x / %.1f dB (%.0f rpm, throttle %.2f), surface %.3f x / %.1f dB (drag %.2f, grip %.2f / %.2f, %.1f m/s), skid %.3f x / %.1f dB (intensity %.3f), wind %.1f dB, openness %.3f (nearest shell %.1f m, trims %.2f / %+.2f dB), %d thumps (last %.3f at %.1f dB), %d ticks" % [engine_pitch, engine_db, last_rpm, last_throttle, surface_pitch, surface_db, last_drag, last_grip_front, last_grip_rear, last_speed, skid_pitch, skid_db, skid_intensity, wind_db, openness, nearest_shell_m, wind_offset_db, surface_offset_db, impacts_fired, thump_intensity, thump_db, ticks]

@@ -2604,7 +2604,7 @@ records to the bit.
 even with no window, unset on in the game and off headless - so the test suite sees no
 layer unless a test asks (`tests/marks_test.gd` does, for its own scenes, and restores).
 
-### Sound (SOUND-1, SOUND-2)
+### Sound (SOUND-1, SOUND-2, SOUND-3)
 
 The game was silent (backlog U-1). The first sound goes everywhere the car goes, the way the
 marks do: the `SoundWatch` autoload (`scripts/sound_watch.gd`, registered in `project.godot`
@@ -2614,7 +2614,8 @@ car, in front of the `TelemetryRecorder` (which stays the root's last child), an
 when the car leaves; a scene root already carrying a sound of its own for the car would get
 no second one (no shipped scene carries any audio today: the guard is future-proofing).
 
-No asset and no scene: the node holds three `AudioStreamPlayer`s, each looping a two-second
+No asset and no scene: the node holds four looping `AudioStreamPlayer`s and a pool of four
+one-shot thump players (SOUND-3; was three players), each loop a two-second
 16-bit buffer built in code at first need and shared (SOUND-2; was a half-second buffer on a
 2 Hz grid, the flat-6's 45 Hz root and its half-orders whole on no grid coarser than the
 0.5 Hz the 2 s give) - the engine a flat-6's order stack, the crank's 3rd / 6th / 9th / 12th
@@ -2648,8 +2649,73 @@ noise is barely pitched); **skid** - the intensity is
 marks and squeal together), gated per wheel by the same road-only surface rule, muted at no
 intensity and under 1.5 m/s, -4 dB at solid, the pitch rising 0.85 to 1.5 with it (nearly an
 octave, the real squeal's span; was 0.9 to 1.15). Purely a
-reader: nothing writes the car, the `Surfaces` node or the profile, and the car's telemetry
-samples of the same drive are byte-identical with and without the node.
+reader: nothing writes the car, the `Surfaces` node, the `Buildings` node or the profile, and
+the car's telemetry samples of the same drive are byte-identical with and without the node.
+
+SOUND-3 adds three layers, the smallest honest version of each, after the driver's line
+(`docs/design/user-thoughts-economy.org`: "it matters in which environment the car is, if
+it's in a tunel, within the buildings or in open nature, the sound is different"). The
+three earlier channels' mapping functions keep their signatures; the environment is its own
+offset layer on top.
+
+**Wind** - a fourth loop, `Wind`, its own buffer: broadband pseudo-noise alone, 31 partials
+every 20 Hz over 100..700 Hz with the golden phase spread, whole cycles over the same 2 s
+grid so the loop is seamless, the same bytes every build. Its level is `forward_speed`
+alone, either way, squared: `clamp((speed / 50)^2, 0, 1)`, muted under 5 m/s, -10 dB at the
+ceiling (ambience: under the engine's -8..-18 and the rumble's -6), the pitch fixed at 1.
+THE SPEED LAW IS AUTHORED: `scratch/sound-2-references.md` carries speed laws for tyre noise
+only (tread impact with the square of the speed, air pumping with the fourth power; its
+lines 23-24) and nothing for aerodynamic noise, so the quadratic is the implementer's
+choice, not a measured one. The wind is never surface-dependent - the same on tarmac,
+gravel or in the air; it reads no surface field.
+
+**Impacts** - one-shot thumps on the car's REAL collisions, through the only honest seam:
+the car (`scripts/car.gd`, frozen) calls `move_and_slide()` once per tick and reads its
+velocity back, so at the node's tick (priority -1, before the car's) the car's
+`get_slide_collision_count()` / `get_slide_collision(i)` hold the PREVIOUS tick's slide -
+one tick stale, deterministic, real contact and not a deceleration proxy. A contact whose
+normal's dot with UP is over 0.7 is the floor (the pad's ground plane, the ring's slab),
+skipped; a wall contact's closing speed is `|n . v|` with `v` the velocity THE NODE READ ONE
+TICK EARLIER - after `move_and_slide` the car's velocity is already slid along the wall and
+its normal component is exactly 0 at every impact (the rehearsal probe measured 0.000 on the
+shed; the previous read gave 19.70 against a 19.75 m/s approach), so this tick's velocity
+would never thump. The intensity is the closing speed's share of 20 m/s, nothing under 1 m/s
+(a gentle nudge is silent); a cooldown of 15 physics frames (0.25 s at 60 Hz) since the last
+thump, so a sustained rail scrape thumps at most four times a second, and only when the car
+pushes into the rail again with a normal component over the gate (a scrape's slid velocity
+has none). The thump plays on the next of the four pooled players round-robin (`Thump0`..
+`Thump3`, children of the node itself: the scene root still carries no audio of its own) at
+-2 dB plus `linear_to_db(intensity)`, snapped; `impacts_fired` on the node counts them. The
+burst is built in code too: 8192 samples (371 ms) of a 90 Hz sine under knock partials with
+the golden spread, an exponential decay of 60 ms and a 2 ms attack, NOT looping - it plays
+once and stops, so the whole-cycles rule is the loops' alone. The pad's cones NEVER thump,
+and that is correct by the physics, not a gap: they are `RigidBody3D`s on layer 4
+(`scripts/pad_cone.gd`, `1 << 2`), the car's mask is 1, the server never pairs them -
+"move_and_slide neither slows nor deflects for a cone", the pad drives them through
+`TestPad`'s own `bump()`. The rails (the bubble's F1 rail chunk bodies on layer 1 when
+active within 80 m, `scripts/physics_bubble.gd`), the trunk chunk bodies and the pad's sheds
+(layer 1) do pair, and thump.
+
+**Environment v1** - "within the buildings vs open nature", read-only over the ring's
+building shells (`scripts/buildings_shells.gd`: `shells`, one dictionary per building with
+its `position`, 2839 on the Ring, under the scene root's child `Buildings`). The node looks
+that child up by name on the scene root and never calls `BuildingsShells.of()` - that
+static CREATES the node where Road, Terrain and Forest exist and would start a heavy build in
+a scene that was never to have buildings; nothing here creates or writes anything. Every 30
+physics ticks (0.5 s at 60 Hz, tick counting, never the wall clock) the horizontal distance
+from the car to the NEAREST shell is scanned linearly over a `PackedVector2Array` of the
+shell positions copied once when the shells are first seen non-empty (no allocation per
+scan, no spatial index: 2839 distances every half second is trivial); an absent or empty
+shells array (the pad, a bare car, the Ring while its build still runs) is fully open.
+`openness = clamp(d / 60 m, 0, 1)`, and two level trims, pure functions pinned by the test:
+the wind down by 4 dB x (1 - openness) (sheltered among buildings), the rumble up by 1.5 dB
+x (1 - openness) (walls throw some of it back); the written `volume_db` is the base plus the
+trim, snapped, and a muted base stays muted (a trim never wakes a silent channel). On a scene
+without a `Buildings` node the openness is 1 and both trims 0: the pad's sound is
+bit-identical to SOUND-2's. Not in v1, honestly: no low-pass or equalisation and no reverb
+bus (a real early-reflection tail is future work), and TUNNELS DO NOT EXIST anywhere in the
+world yet (no tunnel geometry is built), so the driver's "in a tunnel" case is documented as
+not-yet-existing rather than faked.
 
 `FD_SOUND` in the environment switches it exactly as `FD_MARKS` does: `0` off everywhere,
 `1` on even with no window, unset on in the game and off headless - so the test suite sees

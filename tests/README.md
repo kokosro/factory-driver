@@ -29,7 +29,10 @@ the 2 kHz modulated squeal, their partial tables, zero-crossing rates and the ba
 amplitude modulation pinned on the built PCM - the engine / surface / skid mapping pinned at its corners and on the
 car's own public fields written straight, two nodes fed the same reads mapping the same
 values to the bit, the `FD_SOUND` switch, and a second pad's recorder samples of the same
-slide byte-identical with `FD_SOUND=0`; `FD_SOUND` is unset in the suite, which is off
+slide byte-identical with `FD_SOUND=0`; since SOUND-3 also the wind loop and the thump burst,
+the wind / impact / environment functions at their corners, a bare car beside an inert
+`Buildings` node whose hand-written shells trim the wind and the rumble, and one real drive
+into the pad's shed 0 that fires a thump; `FD_SOUND` is unset in the suite, which is off
 headless, so no other test sees a node or an audio player), the first run test once more for the
 dealership and sits the L0 exam twice on the pad; since 4B-7 every Ring scene load also
 builds the terrain, the forest walls and the sky, about nine seconds more each; since
@@ -37,7 +40,10 @@ BUBBLE-1 the forest build also writes the trunk bodies, a few hundred millisecon
 OFFROAD-1 the terrain build also writes the continuation skirt, about a second).
 `tests/run_tests.sh --parallel` runs the thirty-four tests side by side after the import and
 prints the same lines in the same order (was thirty-one -> the ML-1 mission ladder test; was thirty-two -> the credits test, ECON-1; was thirty-three -> the sound test, SOUND-1; 36 markers including import and the final verdict, was 35 -> the sound test, SOUND-1).
-The sound test adds 53 checks (`SOUND TEST PASSED`), measured on the host (was 51 -> SOUND-2's
+The sound test adds 73 checks (`SOUND TEST PASSED`), measured on the host (was 53 -> SOUND-3's
+twenty: the thump burst and the wind's zero-crossing rate on the built PCM, the wind, impact
+and environment corners, the wind on the bare car, the eight-check environment battery and the
+three-check shed impact drive; was 51 -> SOUND-2's
 two measured checks on the built PCM, the zero-crossing rates and the squeal's amplitude
 modulation; SOUND-1's 51 was the count as written, unmeasured by its implementer's session).
 The side road test adds nine checks: the skeleton SHA, the 5.0 m issue segment, a

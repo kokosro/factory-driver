@@ -2,7 +2,8 @@ class_name SoundWatcher
 extends Node
 ## SOUND-1 (2026-09-30): the one mechanism that puts a sound node
 ## (scripts/sound.gd, SoundNode: the engine note, the surface rumble, the
-## tyre squeal) on every car, whatever scene the car is in - the MarksWatch
+## tyre squeal and, since SOUND-3, the wind, the impact thumps and the
+## buildings' environment trim) on every car, whatever scene the car is in - the MarksWatch
 ## precedent (scripts/marks_watch.gd, SKIDMARKS-1), line for line where it
 ## fits, itself the TelemetryWatch precedent's. An autoload (project.godot,
 ## SoundWatch) that watches the tree's node_added: every ArcadeCar that
