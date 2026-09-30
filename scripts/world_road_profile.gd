@@ -14,7 +14,9 @@ extends RoadProfile
 ##     straight, superelevation into a bend, the Karussell's bank); within
 ##     BLEND_BAND_M outside the paved edge, the platform's edge eased into
 ##     the terrain (smoothstep); a loop-only 0.11 m lip in the first 0.40 m
-##     outside pavement; off the road, the terrain lattice, bilinear.
+##     outside pavement, or, inside a kerb window of the ROAD-8 table on
+##     that side, the kerb in the lip's place; off the road, the terrain
+##     lattice, bilinear.
 ##   * ramp_gradient(x, z): the smooth field's gravity gradient (no lip) by
 ##     central differences over GRADIENT_SPAN_M (the shape of
 ##     RoadProfile.elevation_slope): what gravity pulls the car down.
@@ -132,6 +134,181 @@ static func edge_lift(outside_m: float) -> float:
 		return 0.0
 	return EDGE_HEIGHT_M * minf(outside_m / EDGE_PEAK_AT_M,
 		(EDGE_WIDTH_M - outside_m) / (EDGE_WIDTH_M - EDGE_PEAK_AT_M))
+
+
+## ROAD-8: racing-line kerbs at named corners (docs/road-0068-0069-analysis.md
+## §5.3: kerbs only at selected corners and runoff edges, never a blanket
+## perimeter). A table, data/regions/eifel_ring/kerbs.json, names LOOP
+## segments, a side in travel direction, a type and a chainage window; the
+## table's own header carries the selection rule and every entry its basis.
+## Inside a window the kerb REPLACES the ROAD-5 lip on that side, through
+## the same `height + lift` line _height takes for the lip - the kerb is a
+## lift over the same eased shoulder, nothing else moves - and outside every
+## window (and on every non-loop road, and on pavement: outside_m <= 0 lifts
+## nothing) the old operations run verbatim. ramp_gradient never sees a kerb,
+## exactly as it never sees the lip: gravity stays byte-identical.
+## Two types:
+##   * "flat" - a painted band: KERB_FLAT_HEIGHT_M (0.02 m, the paint's
+##     thickness at a real flat kerb, 1-2 cm) over KERB_FLAT_WIDTH_M (1.2 m)
+##     outside pavement, piecewise linear like edge_lift: up over the first
+##     KERB_FLAT_RAMP_M, flat, down over the last KERB_FLAT_RAMP_M. It stands
+##     in for the lip on that side: a flat kerb is flatter than the plain
+##     0.11 m lip by design (it goes where a raised edge would trip a fast
+##     car), so the height there is the old shoulder + 0.02 m, not the lip.
+##   * "raised" - the classic toothed apex kerb: the lip's own shape
+##     amplified from EDGE_HEIGHT_M to KERB_RAISED_HEIGHT_M (0.165 m at
+##     EDGE_PEAK_AT_M, 0.15 m out: 1.5 x the lip, 5.5 cm more, a real kerb's
+##     step over the verge) with teeth - a ±KERB_TOOTH_M (0.02 m) sine along
+##     the chainage at KERB_TOOTH_WAVELENGTH_M (0.5 m: 60 Hz at 30 m/s, 30 Hz
+##     at 15 m/s, the buzz of a serrated kerb), zero at every tooth boundary
+##     (the sine's zeros every 0.25 m), riding the crest: the tooth's
+##     amplitude across is 0 at KERB_TOOTH_FROM_M (0.05 m: the asphalt's
+##     edge itself stays a clean step), 1 at the 0.15 m crest, 0 again at
+##     EDGE_WIDTH_M. The raised kerb is >= the plain lip at every outside
+##     distance (0.5 x lip >= the tooth's reach everywhere: on the rise the
+##     tooth is at most 0.2 x (outside - 0.05) against 0.367 x outside, on
+##     the fall 0.18 x lip against 0.5 x lip), 0 exactly at the paved edge,
+##     and 0 again at EDGE_WIDTH_M where the blend band resumes as before.
+## Both fade in and out over KERB_FADE_M (2 m) of chainage at the window's
+## ends (a smoothstep on the kerb's EXCESS over the plain lip), so at the
+## window's exact ends the kerb IS the plain lip to the bit and the drive
+## into a kerb is a ramp, not a step.
+const KERBS_PATH := "res://data/regions/eifel_ring/kerbs.json"
+const KERBS_VERSION := 1
+const KERBS_TOP_KEYS := ["version", "header", "kerbs"]
+const KERB_KEYS := ["segment_id", "side", "type", "chainage_from", "chainage_to", "basis"]
+const KERB_SIDES := ["left", "right", "both"]
+const KERB_TYPES := ["flat", "raised"]
+const KERB_FLAT_WIDTH_M := 1.2
+const KERB_FLAT_RAMP_M := 0.15
+const KERB_FLAT_HEIGHT_M := 0.02
+const KERB_RAISED_HEIGHT_M := 0.165
+const KERB_TOOTH_M := 0.02
+const KERB_TOOTH_WAVELENGTH_M := 0.5
+const KERB_TOOTH_FROM_M := 0.05
+const KERB_FADE_M := 2.0
+
+
+## One kerb entry as the sampler holds it: the loop segment, the side in
+## travel direction (-1 left, +1 right, 0 both: the sign _nearest_chord's
+## offset carries, right of travel positive), the type and the chainage
+## window [from, to] in segment-local metres.
+class Kerb:
+	extends RefCounted
+	var segment_id: String
+	var side: int = 0
+	var raised: bool = false
+	var from: float = 0.0
+	var to: float = 0.0
+	var basis: String
+
+	## Whether this entry covers a point at a signed offset and a chainage.
+	func covers(offset: float, chainage: float) -> bool:
+		if chainage < from or chainage > to:
+			return false
+		return side == 0 or (side < 0 and offset < 0.0) or (side > 0 and offset > 0.0)
+
+
+## The kerb's share at a chainage: 0 at the window's ends, 1 inside past
+## KERB_FADE_M of either end, a smoothstep between (a window shorter than
+## two fades peaks under 1 at its middle).
+static func kerb_fade(along_m: float, entry: Kerb) -> float:
+	var reach := minf(along_m - entry.from, entry.to - along_m) / KERB_FADE_M
+	return smoothstep(0.0, 1.0, clampf(reach, 0.0, 1.0))
+
+
+## The kerb's lift over the eased shoulder at `outside_m` past the paved
+## edge and `along_m` of chainage (the header): a pure function of the
+## three. The plain lip where the fade is 0; 0 on pavement and past the
+## band, as edge_lift.
+static func kerb_lift(outside_m: float, along_m: float, entry: Kerb) -> float:
+	if outside_m <= 0.0:
+		return 0.0
+	var plain := edge_lift(outside_m)
+	var fade := kerb_fade(along_m, entry)
+	if entry.raised:
+		if outside_m >= EDGE_WIDTH_M:
+			return 0.0
+		var teeth := 0.0
+		if outside_m > KERB_TOOTH_FROM_M:
+			var across := minf((outside_m - KERB_TOOTH_FROM_M) / (EDGE_PEAK_AT_M - KERB_TOOTH_FROM_M),
+				(EDGE_WIDTH_M - outside_m) / (EDGE_WIDTH_M - EDGE_PEAK_AT_M))
+			teeth = KERB_TOOTH_M * across * sin(TAU * along_m / KERB_TOOTH_WAVELENGTH_M)
+		return plain + fade * (plain * (KERB_RAISED_HEIGHT_M / EDGE_HEIGHT_M - 1.0) + teeth)
+	if outside_m >= KERB_FLAT_WIDTH_M:
+		return 0.0
+	var flat := KERB_FLAT_HEIGHT_M * clampf(minf(outside_m / KERB_FLAT_RAMP_M,
+		(KERB_FLAT_WIDTH_M - outside_m) / KERB_FLAT_RAMP_M), 0.0, 1.0)
+	return plain + fade * (flat - plain)
+
+
+## The faults of a parsed kerb table (read_file's Variant): the version,
+## the keys, the sides and types, the window's order, the basis. Empty
+## when the table is well formed. What the table says about the roads
+## (that the segment exists and is a loop's) is set_kerbs' to check: it
+## needs the roads.
+static func validate_kerbs(data: Variant) -> PackedStringArray:
+	var errors := PackedStringArray()
+	if not data is Dictionary:
+		errors.append("the kerb table is not a JSON object")
+		return errors
+	for key: String in data.keys():
+		if not KERBS_TOP_KEYS.has(key):
+			errors.append("unknown top-level key %s" % key)
+	if data.get("version") != KERBS_VERSION:
+		errors.append("version %s is not %d" % [data.get("version"), KERBS_VERSION])
+	if not data.get("kerbs") is Array:
+		errors.append("kerbs is not an array")
+		return errors
+	for i: int in data.kerbs.size():
+		var raw: Variant = data.kerbs[i]
+		if not raw is Dictionary:
+			errors.append("kerbs[%d] is not an object" % i)
+			continue
+		for key: String in KERB_KEYS:
+			if not raw.has(key):
+				errors.append("kerbs[%d] lacks %s" % [i, key])
+		for key: String in raw.keys():
+			if not KERB_KEYS.has(key):
+				errors.append("kerbs[%d] has an unknown key %s" % [i, key])
+		if not raw.get("segment_id") is String or raw.get("segment_id") == "":
+			errors.append("kerbs[%d].segment_id is not a segment id" % i)
+		if not KERB_SIDES.has(raw.get("side")):
+			errors.append("kerbs[%d].side %s is not one of %s" % [i, raw.get("side"), KERB_SIDES])
+		if not KERB_TYPES.has(raw.get("type")):
+			errors.append("kerbs[%d].type %s is not one of %s" % [i, raw.get("type"), KERB_TYPES])
+		if not _is_number(raw.get("chainage_from")) or not _is_number(raw.get("chainage_to")):
+			errors.append("kerbs[%d] chainage window is not two finite numbers" % i)
+		elif raw.chainage_from < 0.0 or raw.chainage_from >= raw.chainage_to:
+			errors.append("kerbs[%d] chainage window [%s, %s] is not ordered from 0" % [i, raw.chainage_from, raw.chainage_to])
+		if not raw.get("basis") is String or raw.get("basis") == "":
+			errors.append("kerbs[%d].basis is empty" % i)
+	return errors
+
+
+## The typed entries of a well-formed table (validate_kerbs empty); an
+## empty list for anything else.
+static func kerbs_of(data: Variant) -> Array[Kerb]:
+	var out: Array[Kerb] = []
+	if not validate_kerbs(data).is_empty():
+		return out
+	for raw: Dictionary in data.kerbs:
+		var entry := Kerb.new()
+		entry.segment_id = raw.segment_id
+		entry.side = -1 if raw.side == "left" else (1 if raw.side == "right" else 0)
+		entry.raised = raw.type == "raised"
+		entry.from = float(raw.chainage_from)
+		entry.to = float(raw.chainage_to)
+		entry.basis = raw.basis
+		out.append(entry)
+	return out
+
+
+## The checked-in kerb table's entries (read_file's shape): empty where
+## the file is missing, not JSON or not well formed - a fixture without a
+## table, or a broken table, is a Ring without kerbs, never an error.
+static func read_kerbs(path: String = KERBS_PATH) -> Array[Kerb]:
+	return kerbs_of(read_file(path))
 
 
 ## The Karussell's bank (ring-region-decisions.md §3, branch (c)): way
@@ -273,10 +450,24 @@ class Road:
 	## entry (the Nordschleife's 92), false for every other road.
 	var priority: bool = false
 
+	## ROAD-8: the kerb entries filed on this road by set_kerbs (a loop
+	## road's only; empty on every other road and wherever no table names
+	## it), read by _height outside the pavement.
+	var kerbs: Array[Kerb] = []
+
 	## How far from the centreline the road has a say [m]: the paved half
 	## width plus the blend band.
 	func reach() -> float:
 		return half_width + BLEND_BAND_M
+
+	## The kerb entry covering a signed offset and a chainage, or null:
+	## the first in table order (the table keeps one entry per side and
+	## window; two overlapping the same side would read the first).
+	func kerb_at(offset: float, chainage: float) -> Kerb:
+		for entry: Kerb in kerbs:
+			if entry.covers(offset, chainage):
+				return entry
+		return null
 
 
 ## The drape's coverage box in game metres; flat outside it.
@@ -326,8 +517,12 @@ static func ring() -> WorldRoadProfile:
 ## geometry and widths, the drape the heights. Only covered drape segments
 ## whose skeleton segment exists become roads; the rest of the skeleton is
 ## not a road for the profile (terrain, or flat outside coverage). The pad's
-## layers are zeroed here. The index is built here, once.
-static func from_data(skeleton_data: Dictionary, drape_data: Dictionary) -> WorldRoadProfile:
+## layers are zeroed here. The index is built here, once. ROAD-8: the kerb
+## table too - the checked-in KERBS_PATH when `kerb_entries` is null (so
+## ring() and every caller building the Ring's profile from the real files
+## carry it; a missing or malformed file is an empty table), or the typed
+## entries a fixture hands in (an empty Array: none).
+static func from_data(skeleton_data: Dictionary, drape_data: Dictionary, kerb_entries: Variant = null) -> WorldRoadProfile:
 	var profile := WorldRoadProfile.new()
 	profile.micro_amplitude = 0.0
 	profile.swell_amplitude = 0.0
@@ -365,7 +560,34 @@ static func from_data(skeleton_data: Dictionary, drape_data: Dictionary) -> Worl
 			road.priority = priority.has(road.id)
 			profile._roads.append(road)
 	profile._build_cells()
+	profile.set_kerbs(read_kerbs() if kerb_entries == null else kerb_entries)
 	return profile
+
+
+## Files the kerb entries on their roads (ROAD-8), replacing whatever was
+## filed before, and lists the entries it refused: an entry naming a road
+## the profile does not hold, a road that is not a loop's (kerbs are
+## loop-only by construction: the edge branch of _height runs for priority
+## roads alone) or a window past the road's length. A refused entry lifts
+## nothing; the suite pins the checked-in table refusing none.
+func set_kerbs(entries: Array) -> PackedStringArray:
+	var refused := PackedStringArray()
+	var by_id := {}
+	for r: int in _roads.size():
+		_roads[r].kerbs = []
+		by_id[_roads[r].id] = r
+	for entry: Kerb in entries:
+		if not by_id.has(entry.segment_id):
+			refused.append("kerb %s: no covered road with that id" % entry.segment_id)
+			continue
+		var road: Road = _roads[by_id[entry.segment_id]]
+		if not road.priority:
+			refused.append("kerb %s: not a loop road" % entry.segment_id)
+		elif entry.to > road.length:
+			refused.append("kerb %s: window ends at %.3f past the road's %.3f m" % [entry.segment_id, entry.to, road.length])
+		else:
+			road.kerbs.append(entry)
+	return refused
 
 
 ## The skeleton's points as 64-bit pairs, by segment id (SkeletonLoader's
@@ -467,8 +689,12 @@ func _height(x: float, z: float, with_edge: bool) -> float:
 	var height := lerpf(edge, terrain_height(x, z), eased)
 	# Preserve the old operations and return verbatim wherever the lip is
 	# zero. Priority is derived from skeleton loops, using EACH road's width.
+	# ROAD-8: inside a kerb window on this side the kerb's lift replaces the
+	# lip's through the same line; a road without an entry here takes the
+	# old call with the old argument, bit for bit.
 	if with_edge and road.priority:
-		var lift := edge_lift(distance - road.half_width)
+		var kerb := road.kerb_at(found.offset, found.chainage)
+		var lift := edge_lift(distance - road.half_width) if kerb == null else kerb_lift(distance - road.half_width, found.chainage, kerb)
 		if lift > 0.0:
 			return height + lift
 	return height

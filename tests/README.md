@@ -43,14 +43,31 @@ modulation; SOUND-1's 51 was the count as written, unmeasured by its implementer
 The side road test adds nine checks: the skeleton SHA, the 5.0 m issue segment, a
 covered 3.0 m control, sideways heading, four individual wheel classifications and
 front/rear road readings at issue-0069’s exact pose.
-The road edge test adds 18 checks (configured total 2913 -> 2931): a fixed
+The road edge test adds 39 checks (was 18 at ROAD-5, configured total 2913 -> 2931
+then; ROAD-8 adds 21: the suite's 5018 ok lines at SOUND-2 become 5039 by count,
+measured by the landing's full run): a fixed
 ROAD-6 byte digest of 4965 paved loop points (height/elevation/gradient), exact
 pavement boundaries, both sides of the 0.40 m / 0.11 m lip, the 7.5 m width,
 issue-0068's right-wheel heights, 132 widened-side-road controls, all 92 rumble
 meshes (135444 vertices / 179856 triangles, no new shapes), and an 8 m/s crossing
 against the old smooth profile, repeated deterministically. The existing
 world-profile digest remains unchanged. See `docs/road-5-implementation.md` for
-measured gates and sandbox limitations.
+measured gates and sandbox limitations. ROAD-8's 21 checks pin the kerb table
+(`data/regions/eifel_ring/kerbs.json`: version 1, 25 entries, 18 raised / 7 flat,
+every one filed on a named loop corner inside its length, none on the Karussell,
+Döttinger Höhe or the certified drive's stretch, Hatzenbogen's inside raised; the
+reader's refusals), the kerb on the Ring (Hatzenbogen's 0.165 m crest and its
+±0.02 m teeth on the 0.5 m wavelength, Aremberg's raised inside and flat outside
+band, Lauda-Links as the no-entry control showing the plain lip to the bit, the
+window's edges and 2 m fades), gravity byte-identical to a kerb-free profile
+built from the same files at 750 points across every window and heights
+byte-identical 1 m outside every window and on every window's other side, the
+fixture's exact numbers for both types (raised [0, .0825, .165, .0825, 0] and its
+teeth, flat [0, .01, .02, ..., .01, 0] over 1.2 m, the fade's half-way values,
+side and chainage gating, pavement and gradient to the bit), and the render
+census (one `Kerb_<id>_<n>` mesh per entry on 18 segments, 25 meshes / 69150
+vertices / 110440 triangles on the physical field + 0.02 m, the rumble census
+unchanged).
 What each test checks is in the main
 `README.md` (since FOREST-2 the dressing test also holds the forest edge's card recipe -
 the gap share, the feathers, every card's texture window, the wall texture's skyline and

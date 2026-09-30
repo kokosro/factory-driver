@@ -318,6 +318,20 @@ const NORMAL_SCALE := 2.0
 ## added in the node stage beside the strip's nodes. Tinted the
 ## asphalt's darker side (SKIRT_TINT under the canon's neutral-dark
 ## shadows), rough, no texture, no vertex colour.
+## ROAD-8 (the kerb bands, _kerb_arrays): the paint lift over the physical
+## field, the rumble's own 0.02 m; the rows a raised band is sampled at
+## along the chainage (0.125 m: four rows per KERB_TOOTH_WAVELENGTH_M, the
+## tooth's crest, zero, trough and zero, so the teeth show); the offsets
+## outside pavement the two bands carry a vertex at (the raised: the toe,
+## the teeth's start, the crest, the mid-fall and the outer toe of the
+## lip's own band; the flat: the toe, the ramp's top, the middle, the
+## ramp's start and the outer edge of KERB_FLAT_WIDTH_M); the flat kerb's
+## paint (raw linear, as the skirt's SKIRT_TINT is authored).
+const KERB_PAINT_LIFT_M := 0.02
+const KERB_RAISED_ROW_M := 0.125
+const KERB_RAISED_OFFSETS: Array[float] = [0.0, WorldRoadProfile.KERB_TOOTH_FROM_M, WorldRoadProfile.EDGE_PEAK_AT_M, 0.275, WorldRoadProfile.EDGE_WIDTH_M]
+const KERB_FLAT_OFFSETS: Array[float] = [0.0, WorldRoadProfile.KERB_FLAT_RAMP_M, 0.6, WorldRoadProfile.KERB_FLAT_WIDTH_M - WorldRoadProfile.KERB_FLAT_RAMP_M, WorldRoadProfile.KERB_FLAT_WIDTH_M]
+const KERB_FLAT_PAINT := Color(0.88, 0.88, 0.86, 1.0)
 const SKIRT_OUT_M := 0.5
 const SKIRT_DOWN_M := 0.3
 const SKIRT_FOOT_UNDER_M := 0.1
@@ -363,6 +377,14 @@ var rumble_mesh_count := 0
 var rumble_vertex_count := 0
 var rumble_triangle_count := 0
 var _rumble_material: ShaderMaterial
+## ROAD-8 counters, separate from the rumble census (which stays the
+## loop's 92 bands whatever the kerb table says): one mesh per kerb entry.
+var kerb_mesh_count := 0
+var kerb_vertex_count := 0
+var kerb_triangle_count := 0
+## The flat kerb's paint (ROAD-8): the raised kerb takes the rumble's own
+## red/white shader.
+var _kerb_flat_material: StandardMaterial3D
 var _skirt_material: StandardMaterial3D
 var _floor: StaticBody3D
 
@@ -405,6 +427,10 @@ class Strip:
 	var faces: PackedVector3Array
 	## ROAD-5 loop band arrays, released after the node stage uploads them.
 	var rumble_arrays: Array = []
+	## ROAD-8 kerb bands, one per kerb entry of this road in table order:
+	## {"raised": bool, "arrays": the surface arrays}; released after the
+	## node stage uploads them.
+	var kerb_arrays: Array = []
 	## The road body's skirt (ROAD-3, SKIRT_OUT_M): four vertices per
 	## section - the left foot, the left paved edge, the right paved
 	## edge, the right foot - a quad per side between sections; the
@@ -550,6 +576,10 @@ void fragment() {
 }
 """
 	_rumble_material.shader = shader
+	_kerb_flat_material = StandardMaterial3D.new()
+	_kerb_flat_material.albedo_color = KERB_FLAT_PAINT
+	_kerb_flat_material.roughness = 0.85
+	_kerb_flat_material.cull_mode = BaseMaterial3D.CULL_DISABLED
 	return true
 
 
@@ -583,6 +613,7 @@ func sweep_road(road: Road) -> Strip:
 		if r.id == strip.id:
 			if r.priority:
 				_rumble_arrays(strip)
+				_kerb_arrays(strip, r)
 			break
 	return strip
 
@@ -1008,6 +1039,98 @@ func _rumble_arrays(strip: Strip) -> void:
 	strip.rumble_arrays[Mesh.ARRAY_INDEX] = indices
 
 
+## ROAD-8: one band per kerb entry of the road (the table's order), on the
+## entry's side (both sides for "both": two bands in one surface), from
+## chainage_from to chainage_to exactly - the rows are the strip's own
+## sections inside the window (so the band follows the mitres the strip
+## does), the window's two ends (the paved-edge point interpolated between
+## the bracketing sections) and, for a raised kerb, the KERB_RAISED_ROW_M
+## grid so the teeth show. Every vertex samples the physical field
+## (profile.elevation_height: the kerb's own lift, since the entry is filed
+## on the profile's road) plus KERB_PAINT_LIFT_M, as the rumble band does;
+## UVs (offset, chainage) so the raised band takes the rumble's red/white
+## shader by chainage. No collision shape: car support reads the profile.
+## The data stage's (a worker thread's): a pure function of the strip, the
+## road's entries and the profile.
+func _kerb_arrays(strip: Strip, road: WorldRoadProfile.Road) -> void:
+	strip.kerb_arrays = []
+	var sections := strip.chainages.size()
+	if sections < 2:
+		return
+	for entry: WorldRoadProfile.Kerb in road.kerbs:
+		var from := maxf(entry.from, strip.chainages[0])
+		var to := minf(entry.to, strip.chainages[sections - 1])
+		if to <= from:
+			continue
+		# The rows: the ends, the sections between, the tooth grid.
+		var rows := PackedFloat64Array([from])
+		for k: int in sections:
+			if strip.chainages[k] > from and strip.chainages[k] < to:
+				rows.append(strip.chainages[k])
+		if entry.raised:
+			var s := ceilf(from / KERB_RAISED_ROW_M) * KERB_RAISED_ROW_M
+			while s < to:
+				if s > from:
+					rows.append(s)
+				s += KERB_RAISED_ROW_M
+		rows.append(to)
+		rows.sort()
+		var offsets: Array[float] = KERB_RAISED_OFFSETS.duplicate() if entry.raised else KERB_FLAT_OFFSETS.duplicate()
+		var sides: Array[int] = []
+		if entry.side <= 0:
+			sides.append(-1)
+		if entry.side >= 0:
+			sides.append(1)
+		var vertices := PackedVector3Array()
+		var normals := PackedVector3Array()
+		var uvs := PackedVector2Array()
+		var indices := PackedInt32Array()
+		var per_row := offsets.size() * sides.size()
+		var cursor := 0
+		for row: int in rows.size():
+			var s := rows[row]
+			while cursor < sections - 2 and strip.chainages[cursor + 1] < s:
+				cursor += 1
+			var span := strip.chainages[cursor + 1] - strip.chainages[cursor]
+			var u := 0.0 if span <= 0.0 else clampf((s - strip.chainages[cursor]) / span, 0.0, 1.0)
+			var left := strip.vertex(cursor, 0).lerp(strip.vertex(cursor + 1, 0), u)
+			var right := strip.vertex(cursor, strip.offsets.size() - 1).lerp(strip.vertex(cursor + 1, strip.offsets.size() - 1), u)
+			var across := (right - left) / (2.0 * strip.half_width)
+			across.y = 0.0
+			for side: int in sides:
+				for offset: float in offsets:
+					var v := (left - across * offset) if side < 0 else (right + across * offset)
+					v.y = profile.elevation_height(v.x, v.z) + KERB_PAINT_LIFT_M
+					vertices.append(v)
+					normals.append(Vector3.UP)
+					uvs.append(Vector2(offset, s))
+			if row == 0:
+				continue
+			for i: int in sides.size():
+				for j: int in offsets.size() - 1:
+					var a := (row - 1) * per_row + i * offsets.size() + j
+					var b := row * per_row + i * offsets.size() + j
+					indices.append_array(PackedInt32Array([a, b, a + 1, a + 1, b, b + 1]))
+		# Smooth normals from the sampled slopes, as the rumble band's.
+		for row: int in rows.size():
+			var r0 := maxi(row - 1, 0)
+			var r1 := mini(row + 1, rows.size() - 1)
+			for i: int in sides.size():
+				for j: int in offsets.size():
+					var a := i * offsets.size() + j
+					var along := vertices[r1 * per_row + a] - vertices[r0 * per_row + a]
+					var over := vertices[row * per_row + i * offsets.size() + mini(j + 1, offsets.size() - 1)] - vertices[row * per_row + i * offsets.size() + maxi(j - 1, 0)]
+					var normal := over.cross(along).normalized()
+					normals[row * per_row + a] = normal if normal.y >= 0.0 else -normal
+		var arrays := []
+		arrays.resize(Mesh.ARRAY_MAX)
+		arrays[Mesh.ARRAY_VERTEX] = vertices
+		arrays[Mesh.ARRAY_NORMAL] = normals
+		arrays[Mesh.ARRAY_TEX_UV] = uvs
+		arrays[Mesh.ARRAY_INDEX] = indices
+		strip.kerb_arrays.append({"raised": entry.raised, "arrays": arrays})
+
+
 ## Where the road body's foot stands (SKIRT_OUT_M): SKIRT_DOWN_M under
 ## the paved edge, or SKIRT_FOOT_UNDER_M under the field at the foot
 ## where that is lower (the field fallen away: an embankment). The one
@@ -1140,6 +1263,22 @@ func _add_nodes(strip: Strip) -> void:
 	strip.skirt_vertices = PackedVector3Array()
 	strip.skirt_normals = PackedVector3Array()
 	strip.skirt_indices = PackedInt32Array()
+	# ROAD-8: the kerb bands after the strip's other nodes (Kerb_<id>_<n>,
+	# n the entry's index in the road's table order), so every node that
+	# was under Road before keeps its place.
+	for n: int in strip.kerb_arrays.size():
+		var band: Dictionary = strip.kerb_arrays[n]
+		var kerb_mesh := ArrayMesh.new()
+		kerb_mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, band.arrays)
+		kerb_mesh.surface_set_material(0, _rumble_material if band.raised else _kerb_flat_material)
+		var kerb := MeshInstance3D.new()
+		kerb.name = "Kerb_%s_%d" % [strip.id, n]
+		kerb.mesh = kerb_mesh
+		add_child(kerb)
+		kerb_mesh_count += 1
+		kerb_vertex_count += band.arrays[Mesh.ARRAY_VERTEX].size()
+		kerb_triangle_count += band.arrays[Mesh.ARRAY_INDEX].size() / 3
+	strip.kerb_arrays = []
 
 
 ## The floor the car meets (see the header): one level slab on the car's

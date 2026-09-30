@@ -1028,6 +1028,55 @@ the skirts and the carved strips in both builds as it hashes everything else: th
 meshes are still the sync build's to the byte. The certification metrics are byte-identical (a
 mesh under the road is not a force). Frozen files untouched.
 
+### The loop edge and the kerbs (ROAD-5, ROAD-8)
+
+**The lip (ROAD-5, issue-0068** *"felt like there was no hump ... physically doesn't feel like
+i'm stepping off the road"*): a loop-only physical edge in `scripts/world_road_profile.gd`,
+`edge_lift` - zero on pavement, 0.11 m at 0.15 m outside the paved edge, zero again at 0.40 m,
+piecewise linear, then the six-metre shoulder blend exactly as before; only a road whose
+`priority` came from the skeleton's loop membership gets it (the 92 loop segments, each at its
+own half width, the 7.5 m Karussell included), and `ramp_gradient` keeps sampling the smooth
+field without it so gravity is byte-identical on pavement. `RoadBuilder._rumble_arrays` draws
+it: both edges of every loop strip, vertices at the toe, the 0.15 m crest and the outer toe on
+the physical field + 0.02 m of paint, red/white every 2 m of chainage, no collision shape (the
+car reads the profile). `docs/road-5-implementation.md` carries the measurements.
+
+**The kerbs (ROAD-8, `docs/road-0068-0069-analysis.md` §5.3: kerbs at selected corners, never
+a blanket perimeter):** a table, `data/regions/eifel_ring/kerbs.json` (version 1, 25 entries on
+18 named corner segments: Hatzenbogen x3, Hocheichen x2, Flugplatz x2, Schwedenkreuz, Aremberg x2,
+Adenauer Forst x2, Metzgesfeld, Kallenhard x2, Wehrseifen x2, Breidscheid, Bergwerk, Steilstrecke,
+Brünnchen, Eiskurve, Mini-Karussell, Schwalbenschwanz, Galgenkopf), each naming a loop segment, a
+side in travel direction, a type and a chainage window, with a basis string like the
+dealership's - the segment's `name` in skeleton.json, the loop's own turn geometry for the
+corner's inside, `docs/nordschleife-data-sources.md` §4 (limited runoff, barriers close) for the
+outside bands, and the driver's own laps of 2026-09-28 (telemetry sessions 0190 and 0192, read
+only) where the line clipped that edge. 18 are `raised` (the inside of the tight corners) and 7
+`flat` (fast-corner entries and exits, and outside runoff edges where a raised kerb would trip a
+fast car). Excluded on purpose: the Karussell (its bank is its own mechanism), Döttinger Höhe
+and the certified ring drive's 2 km from it, and the segments right after that stretch. Inside a
+window the kerb REPLACES the lip on that side through the lip's own `height + lift` line
+(`kerb_lift`): **flat** is 0.02 m of paint over 1.2 m outside pavement (0.15 m ramps), flatter
+than the lip by design; **raised** is the lip's own shape amplified 1.5 x to 0.165 m at the
+0.15 m crest with teeth - a ±0.02 m sine along the chainage at 0.5 m wavelength (60 Hz at
+30 m/s), zero at every tooth boundary, riding the crest between 0.05 and 0.40 m out - never
+under the plain lip, zero at the paved edge and zero again at 0.40 m where the blend band
+resumes. Both fade in and out over 2 m of chainage at the window's ends, so at the ends the kerb
+is the plain lip to the bit. Loop-only by construction (the edge branch runs for priority
+roads alone; `set_kerbs` refuses an entry naming a side road, an unknown road or a window past
+the road's length). On asphalt bit-identical (the road edge test's 4965-point paved digest is
+unchanged); gravity untouched (`ramp_gradient` byte-identical across every window); off every
+window byte-identical to a kerb-free profile from the same files. Grip unchanged: a wheel on a
+kerb is what `Surfaces.classify` names it today (the 1.5 m shoulder rule: gravel) - a named
+kerb surface class is a follow-up needing a freeze ruling on surfaces.json / surfaces.gd; the
+feel is the height feature through the suspension, as the lip's is. The render
+(`RoadBuilder._kerb_arrays`, the data stage): one `Kerb_<id>_<n>` mesh per entry under Road
+after the strip's other nodes, rows at the strip's own sections plus the window's ends and,
+for a raised kerb, a 0.125 m grid so the teeth show, five offsets across, every vertex on the
+physical field + 0.02 m; the raised bands take the rumble's red/white shader, the flat a plain
+paint material; no collision shape. Census (measured): 25 meshes, 69 150 vertices, 110 440
+triangles; the rumble census stays 92 / 135 444 / 179 856. `tests/road_edge_test.gd` grows
+18 -> 39 checks.
+
 ### Data sources & licences
 
 The Ring region's world data under `data/regions/eifel_ring/` is derived from two public

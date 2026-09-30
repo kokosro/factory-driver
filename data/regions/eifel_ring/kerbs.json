@@ -1,0 +1,213 @@
+{
+  "version": 1,
+  "header": [
+    "ROAD-8: racing-line kerbs at named Nordschleife corners (docs/road-0068-0069-analysis.md section 5.3: kerbs only at selected corners and runoff edges, never a blanket perimeter). Read by WorldRoadProfile.read_kerbs; every entry names a LOOP segment of data/regions/eifel_ring/skeleton.json (loops[0].segments, whose order is the travel order: all 92 chain head to tail, so a segment's point order is the travel direction).",
+    "side is in road-travel direction: left / right / both. chainage_from and chainage_to are metres along that segment, the same chainage WorldRoadProfile._nearest_chord returns and RoadBuilder.Strip.chainages carries. The kerb replaces the plain ROAD-5 lip on that side inside the window, faded in and out over KERB_FADE_M of chainage so the window's ends are steps in nothing.",
+    "SELECTION RULE (authored): a kerb only at a segment whose skeleton.json name is a documented corner (docs/nordschleife-data-sources.md section 4: T-numbers plus named sections), never the generic 'Nuerburgring Nordschleife' name and never a plain straight. The corner's inside is read from the loop's own geometry: the signed heading change over the segment's points in the x-east / z-south frame, positive to the right of travel. 'raised' (the red/white toothed apex kerb, WorldRoadProfile.KERB_RAISED_HEIGHT_M) goes on the inside edge of the named tight corners; 'flat' (the painted 0.02 m band, KERB_FLAT_HEIGHT_M over KERB_FLAT_WIDTH_M) at fast-corner entries and exits and on outside edges where the runoff is documented as limited (data-sources section 4: 'Armco steel guardrails run close to the road; runoff is limited to gravel or grass in most places') and a raised kerb would trip a fast car.",
+    "EXCLUDED on purpose: 414785755-0 Karussell (its bank is its own mechanism, KARUSSELL_BANK); 683303211-0 Doettinger Hoehe and the certified ring-drive stretch (tests/ring_drive_test.gd: 2000 m from that segment's chainage 30, through the three unnamed straights and Antoniusbuche) and the frozen offroad/marks tests' straight; Tiergarten, Hohenrain, T13 and Sabine-Schmitz-Kurve, the segments right after that stretch, for margin. Hatzenbogen 1009142895-0 is wanted (the driver's own ask): its first raised window starts at chainage 100 because tests/road_edge_test.gd pins the plain lip at the issue-0068 pose's right wheels, chainage 82 of that segment.",
+    "GRIP: the existing shoulder classification answers - a wheel outside pavement inside a kerb window is what Surfaces.classify names it today (the 1.5 m shoulder rule: gravel). The kerb is a height feature the suspension reads, as ROAD-5's lip is; a named kerb surface class is a follow-up needing a freeze ruling on surfaces.json / surfaces.gd.",
+    "TELEMETRY: the driver's own free laps of 2026-09-28 (sessions 0190_153507_free.jsonl and 0192_172931_free.jsonl, read only) were joined to the loop by the same chord geometry; where an entry cites a session the driver's line ran within 1.2 m inside to 1.5 m outside of that edge in that chainage window. Where telemetry was silent or ambiguous the window is authored from the geometry and the docs alone, and the basis says so."
+  ],
+  "kerbs": [
+    {
+      "segment_id": "1009142895-0",
+      "side": "right",
+      "type": "raised",
+      "chainage_from": 100.0,
+      "chainage_to": 180.0,
+      "basis": "Hatzenbogen (skeleton.json name), a right-hander of +89 degrees over 468 m; its first arc turns +30 degrees between chainage 98 and 175, the inside edge is the right. The driver asked for a kerb here. Starts at 100, past the issue-0068 pose's right wheels at chainage 82 whose plain lip tests/road_edge_test.gd pins. Session 0190 clipped this inside edge at chainage 9-14 (the entry) and ran 147 samples off the left: the corner is driven on the racing line."
+    },
+    {
+      "segment_id": "1009142895-0",
+      "side": "left",
+      "type": "flat",
+      "chainage_from": 175.0,
+      "chainage_to": 275.0,
+      "basis": "Hatzenbogen's outside edge between its two right-hand arcs (chainage 175-276 turns under 8 degrees): where a car that runs wide out of the first arc lands. Session 0190 has 147 samples off the left edge of this segment, session 0192 none. A flat painted band, the outside rule (data-sources section 4: limited runoff, barriers close), never a raised kerb on the outside of a fast arc."
+    },
+    {
+      "segment_id": "1009142895-0",
+      "side": "right",
+      "type": "raised",
+      "chainage_from": 270.0,
+      "chainage_to": 365.0,
+      "basis": "Hatzenbogen's second arc: +50 degrees between chainage 276 and 361, the tighter of the two, the inside edge the right. Authored from the geometry; the telemetry sessions did not clip this apex within 1.2 m."
+    },
+    {
+      "segment_id": "799394497-0",
+      "side": "right",
+      "type": "raised",
+      "chainage_from": 135.0,
+      "chainage_to": 205.0,
+      "basis": "Hocheichen (skeleton.json name), the right-hander: +60 degrees over the segment, all of it between chainage 131 and 204. Sessions 0190 (chainage 151-172, 67 samples) and 0192 (153-194, 113 samples) clipped this inside edge."
+    },
+    {
+      "segment_id": "799394497-1",
+      "side": "left",
+      "type": "raised",
+      "chainage_from": 5.0,
+      "chainage_to": 40.0,
+      "basis": "Hocheichen's left-hand exit (skeleton.json name, the -1 segment): -28 degrees between chainage 14 and 38, the inside edge the left. Sessions 0190 (chainage 5-13, 59 samples) and 0192 (0-27, 62 samples) clipped it."
+    },
+    {
+      "segment_id": "799394498-0",
+      "side": "right",
+      "type": "flat",
+      "chainage_from": 30.0,
+      "chainage_to": 85.0,
+      "basis": "Flugplatz (skeleton.json name), the fast right-hand crest: +36 degrees between chainage 32 and 80, taken near flat out, so a painted flat band and not a raised kerb on the inside. Session 0190 clipped this edge at chainage 53-80 (86 samples), session 0192 at 53-62."
+    },
+    {
+      "segment_id": "799394498-0",
+      "side": "right",
+      "type": "flat",
+      "chainage_from": 160.0,
+      "chainage_to": 205.0,
+      "basis": "Flugplatz's second right kink: +28 degrees between chainage 161 and 201, fast, the inside edge the right; flat for the same reason as the first. Session 0192 clipped it at chainage 174-184."
+    },
+    {
+      "segment_id": "799394499-1",
+      "side": "left",
+      "type": "flat",
+      "chainage_from": 250.0,
+      "chainage_to": 400.0,
+      "basis": "Schwedenkreuz (skeleton.json name), the fastest left of the lap: -30 degrees spread over chainage 250-393, the inside edge the left. A raised kerb at this speed would trip the car: flat. Session 0192 clipped the edge at chainage 378-384; otherwise authored from the geometry."
+    },
+    {
+      "segment_id": "799394500-1",
+      "side": "right",
+      "type": "raised",
+      "chainage_from": 20.0,
+      "chainage_to": 160.0,
+      "basis": "Aremberg (skeleton.json name), the tight right-hander after Schwedenkreuz: +133 degrees between chainage 13 and 162, the inside edge the right. Authored from the geometry; neither session clipped this inside edge within 1.2 m (both stayed between -2.2 and +2.5 m of the centre)."
+    },
+    {
+      "segment_id": "799394500-1",
+      "side": "left",
+      "type": "flat",
+      "chainage_from": 60.0,
+      "chainage_to": 170.0,
+      "basis": "Aremberg's outside edge through the apex and the exit: the barrier side of a tight corner (data-sources section 4: guardrails close, runoff limited). A painted flat band on the outside, per the outside rule. Authored from the geometry and the docs."
+    },
+    {
+      "segment_id": "799394502-0",
+      "side": "left",
+      "type": "raised",
+      "chainage_from": 200.0,
+      "chainage_to": 290.0,
+      "basis": "Adenauer Forst (skeleton.json name), the chicane's tight left: -108 degrees between chainage 196 and 285 (the two -15.5 degree kinks at 256 and 264 are the apex), the inside edge the left. Authored from the geometry; the sessions clipped the right edge (the following right) and not this one."
+    },
+    {
+      "segment_id": "799394502-0",
+      "side": "right",
+      "type": "raised",
+      "chainage_from": 300.0,
+      "chainage_to": 365.0,
+      "basis": "Adenauer Forst's tight right out of the chicane: +91 degrees between chainage 303 and 361, the inside edge the right. Session 0192 clipped this inside edge at chainage 319-350 (106 samples), session 0190 at 363-367."
+    },
+    {
+      "segment_id": "799394503-1",
+      "side": "left",
+      "type": "raised",
+      "chainage_from": 150.0,
+      "chainage_to": 255.0,
+      "basis": "Metzgesfeld (skeleton.json name, the -1 segment), the long left: -50 degrees between chainage 148 and 253, the inside edge the left. Authored from the geometry; the sessions ran off the right (the outside) here, not the inside."
+    },
+    {
+      "segment_id": "799394504-0",
+      "side": "right",
+      "type": "flat",
+      "chainage_from": 5.0,
+      "chainage_to": 75.0,
+      "basis": "Kallenhard (skeleton.json name), its entry: a -70 degree left between chainage 6 and 74 whose OUTSIDE is the right edge. Session 0190 ran that outside edge at chainage 34-56 (145 samples within 1.2 m in to 1.5 m out): a runoff edge, so a flat painted band under the outside rule (data-sources section 4)."
+    },
+    {
+      "segment_id": "799394504-0",
+      "side": "right",
+      "type": "raised",
+      "chainage_from": 275.0,
+      "chainage_to": 380.0,
+      "basis": "Kallenhard proper, the right-hander: +130 degrees between chainage 272 and 379, the inside edge the right. Authored from the geometry; the sessions did not clip this apex within 1.2 m."
+    },
+    {
+      "segment_id": "799394507-0",
+      "side": "left",
+      "type": "raised",
+      "chainage_from": 180.0,
+      "chainage_to": 255.0,
+      "basis": "Wehrseifen (skeleton.json name), the tight left: -150 degrees between chainage 180 and 253, the inside edge the left. Sessions 0190 (chainage 158-182 and 227-241) and 0192 (155-172) clipped this inside edge."
+    },
+    {
+      "segment_id": "799394507-0",
+      "side": "right",
+      "type": "raised",
+      "chainage_from": 275.0,
+      "chainage_to": 340.0,
+      "basis": "Wehrseifen's exit right towards Breidscheid: +55 degrees between chainage 273 and 338, the inside edge the right. Authored from the geometry."
+    },
+    {
+      "segment_id": "683061814-1",
+      "side": "left",
+      "type": "raised",
+      "chainage_from": 25.0,
+      "chainage_to": 90.0,
+      "basis": "Breidscheid (skeleton.json name, the 683061814-1 segment), the left-hander before the bridge: -75 degrees between chainage 24 and 88, the inside edge the left. Authored from the geometry; the sessions kept to the platform here."
+    },
+    {
+      "segment_id": "799394509-0",
+      "side": "right",
+      "type": "raised",
+      "chainage_from": 60.0,
+      "chainage_to": 140.0,
+      "basis": "Bergwerk (skeleton.json name), the right-hander: +119 degrees over the segment, its tightest 65 degrees between chainage 70 and 134, the inside edge the right. Authored from the geometry; session 0192 clipped the inside edge only at the exit (chainage 398-404)."
+    },
+    {
+      "segment_id": "799394513-1",
+      "side": "right",
+      "type": "raised",
+      "chainage_from": 5.0,
+      "chainage_to": 115.0,
+      "basis": "Steilstrecke (skeleton.json name, the -1 segment), the climbing right before the Karussell: +118 degrees between chainage 5 and 117, the inside edge the right. Sessions 0190 (chainage 63-98, 102 samples) and 0192 (1-15 and 85-107) clipped this inside edge. The Karussell itself, 414785755-0, carries no kerb."
+    },
+    {
+      "segment_id": "799394517-1",
+      "side": "right",
+      "type": "raised",
+      "chainage_from": 50.0,
+      "chainage_to": 150.0,
+      "basis": "Bruennchen (skeleton.json name Brünnchen, the -1 segment), the second right-hander: +96 degrees between chainage 46 and 147, the inside edge the right. Session 0192 clipped this inside edge at chainage 62-108 (125 samples)."
+    },
+    {
+      "segment_id": "799394518-0",
+      "side": "left",
+      "type": "raised",
+      "chainage_from": 50.0,
+      "chainage_to": 125.0,
+      "basis": "Eiskurve (skeleton.json name), the left-hander: -82 degrees between chainage 50 and 124, the inside edge the left. Authored from the geometry; the sessions kept to the platform here."
+    },
+    {
+      "segment_id": "799394523-0",
+      "side": "left",
+      "type": "raised",
+      "chainage_from": 140.0,
+      "chainage_to": 220.0,
+      "basis": "Mini-Karussell (skeleton.json name), the banked left: -110 degrees between chainage 138 and 219, the inside edge the left. Authored from the geometry; the sessions kept to the platform here. Not the Karussell: this segment carries no bank label, so the kerb is a plain edge feature on it."
+    },
+    {
+      "segment_id": "799394522-2",
+      "side": "left",
+      "type": "raised",
+      "chainage_from": 12.0,
+      "chainage_to": 85.0,
+      "basis": "Schwalbenschwanz (skeleton.json name, the -2 segment), the tight left of the swallowtail: -60 degrees between chainage 12 and 83, the inside edge the left. Authored from the geometry; the sessions kept to the platform here."
+    },
+    {
+      "segment_id": "799394524-0",
+      "side": "right",
+      "type": "flat",
+      "chainage_from": 390.0,
+      "chainage_to": 470.0,
+      "basis": "Galgenkopf (skeleton.json name), the long fast right onto Doettinger Hoehe: +131 degrees spread over 380 m, taken fast, so a painted flat band on the inside and not a raised kerb. Session 0190 clipped this inside edge at chainage 394-469 (153 samples). Ends at 470, well short of the segment's 683 m and of 683303211-0."
+    }
+  ]
+}
