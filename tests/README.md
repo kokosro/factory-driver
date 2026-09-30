@@ -3,7 +3,7 @@
 `tests/run_tests.sh` is the gate: a headless import, then the config, element catalogue,
 skeleton, world profile, buildings, dressing, ring drive, bubble, offroad, async build, smoke, handling, camera, mission, battery,
 thermal, tyre/brake thermal, steering-feel, wear, licence, menu, issue flag, minimap, airborne, reset,
-refuel, telemetry watch, marks, side road, road edge, mission ladder and first run tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
+refuel, telemetry watch, marks, sound, side road, road edge, mission ladder, credits and first run tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
 minutes (the dressing test builds the Ring scene twice; the ring drive test builds the Ring's
 road twice and drives 2 km on it twice; the bubble test builds it twice more and drives
 700 m of the loop twice, at a tree twice and a teleport (BUBBLE-1; `FD_BUBBLE_PERF=1` in
@@ -22,13 +22,21 @@ the ones that must not, the grass gate, two fresh pad scenes driven the same sli
 same records, the pool's bound and the 180 s fade run out on the tick clock, `FD_MARKS=0`
 leaving no layer and the recorder's samples of the same slide byte-identical with and
 without it; `FD_MARKS` is unset in the suite, which is off headless, so no other test sees
-a layer), the first run test once more for the
+a layer), the sound test builds no Ring (SOUND-1: the `SoundWatch` autoload's node on bare
+cars under the root and on the shipped pad in front of the recorder, the three procedural
+loops built in code, the engine / surface / skid mapping pinned at its corners and on the
+car's own public fields written straight, two nodes fed the same reads mapping the same
+values to the bit, the `FD_SOUND` switch, and a second pad's recorder samples of the same
+slide byte-identical with `FD_SOUND=0`; `FD_SOUND` is unset in the suite, which is off
+headless, so no other test sees a node or an audio player), the first run test once more for the
 dealership and sits the L0 exam twice on the pad; since 4B-7 every Ring scene load also
 builds the terrain, the forest walls and the sky, about nine seconds more each; since
 BUBBLE-1 the forest build also writes the trunk bodies, a few hundred milliseconds; since
 OFFROAD-1 the terrain build also writes the continuation skirt, about a second).
-`tests/run_tests.sh --parallel` runs the thirty-two tests side by side after the import and
-prints the same lines in the same order (was thirty-one -> the ML-1 mission ladder test; 34 markers including import and the final verdict).
+`tests/run_tests.sh --parallel` runs the thirty-four tests side by side after the import and
+prints the same lines in the same order (was thirty-one -> the ML-1 mission ladder test; was thirty-two -> the credits test, ECON-1; was thirty-three -> the sound test, SOUND-1; 36 markers including import and the final verdict, was 35 -> the sound test, SOUND-1).
+The sound test adds 51 checks (`SOUND TEST PASSED`), the count as written - no shell was
+available to the implementer's session to run it, so it is unmeasured until the host runs it.
 The side road test adds nine checks: the skeleton SHA, the 5.0 m issue segment, a
 covered 3.0 m control, sideways heading, four individual wheel classifications and
 front/rear road readings at issue-0069’s exact pose.
@@ -71,7 +79,8 @@ test's `/tmp/fd-3T-battery-<pid>/`, the wear test's `/tmp/fd-3L-wear-<pid>/`, th
 licence test's `/tmp/fd-3K-licence-<pid>/`, the menu test's `/tmp/fd-4A-menu-<pid>/`, the
 issue flag test's `/tmp/fd-3IF-issue-<pid>/`, the telemetry watch test's
 `/tmp/fd-TW-telemetry-<pid>/`, the marks test's `/tmp/fd-SM-marks-<pid>/` (two recorder
-files of the pad's slide, compared and removed) and the first run test's `/tmp/fd-4B6-first-<pid>/` (its
+files of the pad's slide, compared and removed), the sound test's `/tmp/fd-SOUND-<pid>/`
+(the same two, compared and removed) and the first run test's `/tmp/fd-4B6-first-<pid>/` (its
 own world.json and cars.json; the data folder's never), one per process each, removed when the
 test finishes (the ring drive test writes nothing:
 it reads the checked-in skeleton and drape and builds in memory; the buildings test writes

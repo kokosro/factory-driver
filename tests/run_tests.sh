@@ -11,14 +11,15 @@
 # the smoke test, then the handling,
 # camera, mission, battery, thermal, tyre/brake thermal, steering-feel,
 # wear, licence, menu, issue flag, minimap, airborne, reset, refuel,
-# telemetry watch, marks, side road, road edge, mission ladder, credits and first run tests (35 markers
-# including import and the final verdict; was 34 -> the credits test, ECON-1). Fails on a non-zero exit code
+# telemetry watch, marks, sound, side road, road edge, mission ladder, credits and first run tests (36 markers
+# including import and the final verdict; was 35 -> the sound test, SOUND-1; was 34 -> the credits test, ECON-1). Fails on a non-zero exit code
 # or on any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the thirty-three tests side by side
+#   tests/run_tests.sh --parallel   the import first, then the thirty-four tests side by side
 #                                   (was thirty-one -> the mission ladder test, ML-1;
-#                                   was thirty-two -> the credits test, ECON-1)
+#                                   was thirty-two -> the credits test, ECON-1;
+#                                   was thirty-three -> the sound test, SOUND-1)
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -178,6 +179,13 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 # the layer (the suite's FD_MARKS default is off headless: no other test
 # sees a layer).
 "$STEP" "marks test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/marks_test.gd
+# SOUND-1, the first sound: the SoundWatch autoload's node on a bare car and
+# on the pad (in front of the recorder), the three procedural loops built in
+# code, the engine / surface / skid mapping pinned pure and on the car's own
+# fields, determinism across two nodes, the FD_SOUND switch and the car's
+# samples byte-identical with and without the node (the suite's FD_SOUND
+# default is off headless: no other test sees a node or a player).
+"$STEP" "sound test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/sound_test.gd
 # ROAD-6: all four contacts paved at issue-0069's sideways pose.
 "$STEP" "side road test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/side_road_test.gd
 # ROAD-5: loop lip physics, byte-exact pavement and matching rumble meshes.

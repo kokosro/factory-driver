@@ -2555,6 +2555,40 @@ records to the bit.
 even with no window, unset on in the game and off headless - so the test suite sees no
 layer unless a test asks (`tests/marks_test.gd` does, for its own scenes, and restores).
 
+### Sound (SOUND-1)
+
+The game was silent (backlog U-1). The first sound goes everywhere the car goes, the way the
+marks do: the `SoundWatch` autoload (`scripts/sound_watch.gd`, registered in `project.godot`
+after `ShellsWatch`, before `MissionRunner`) puts a `SoundNode` (`scripts/sound.gd`, the node
+`Sound`) under the scene root of every car that enters any scene, one deferred call after the
+car, in front of the `TelemetryRecorder` (which stays the root's last child), and frees it
+when the car leaves; a scene root already carrying a sound of its own for the car would get
+no second one (no shipped scene carries any audio today: the guard is future-proofing).
+
+No asset and no scene: the node holds three `AudioStreamPlayer`s, each looping a half-second
+16-bit buffer built in code at first need and shared - the engine a harmonic stack from 56 Hz,
+the surface a rumble of twenty prime-spaced partials (62..226 Hz) with spread phases, the
+skid a squeal stack around 800 Hz; every partial a whole number of cycles over the buffer,
+so the loops are seamless, and sums of sines only: the same bytes every build. Every physics
+tick (priority -1, before the car's own tick, one state) the node reads the car's public
+fields and maps them, every value snapped to 0.001: **engine** - `pitch_scale` 1.0 at
+`IDLE_RPM` to 2.5 at `REDLINE_RPM` from `engine_rpm`, `volume_db` -18 dB at idle with the
+pedal up, 4 dB more at the limiter and 6 dB more at full `throttle_pedal` (-8 dB at full
+load), muted with `engine_running` false; **surface** - a level from the three surface
+inputs the `Surfaces` node feeds (`front_` / `rear_surface_grip`, `surface_rolling_decel`)
+and `forward_speed`: the speed wash alone on tarmac, the rolling drag and the grip deficit
+scaled by motion on top (silent at rest on any surface: the rumble is the tyres rolling),
+-6 dB at the ceiling, the pitch 0.8 at rest to 1.2 at 50 m/s; **skid** - the intensity is
+`MarksLayer`'s own triggers called per axle (never re-declared: a threshold change moves
+marks and squeal together), gated per wheel by the same road-only surface rule, muted at no
+intensity and under 1.5 m/s, -4 dB at solid, the pitch rising 0.9 to 1.15 with it. Purely a
+reader: nothing writes the car, the `Surfaces` node or the profile, and the car's telemetry
+samples of the same drive are byte-identical with and without the node.
+
+`FD_SOUND` in the environment switches it exactly as `FD_MARKS` does: `0` off everywhere,
+`1` on even with no window, unset on in the game and off headless - so the test suite sees
+no node unless a test asks (`tests/sound_test.gd` does, for its own scenes, and restores).
+
 ### Odometer
 
 The car counts its metres (`odometer_m` on the car, `ODO 12.3 km` over the aid lamps on
