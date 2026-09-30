@@ -27,6 +27,15 @@ var _flag_index := 0
 var _flag_props: Array[Dictionary] = []
 var _surface_original: Array[float] = []
 var _surface_car: ArcadeCar
+## SNOW-2: the venue ground's tint for the episode. The pad's ground material
+## is built fresh per pad and referenced by the ground mesh alone (test_pad.gd
+## _build_ground_surface; the cone/paint cache and the skid disc's material are
+## other instances), so it is tinted IN PLACE and restored by writing the
+## captured original back: the ground mesh keeps its material instance. Only a
+## pad venue has a ground material to reach; a ring venue applies nothing.
+var _ground_material: StandardMaterial3D
+var _ground_original := Color.BLACK
+var _ground_tint := Color.BLACK
 ## start() counts the episodes; the payment remembers the one it paid.
 var _episode := 0
 var _paid_episode := 0
@@ -118,6 +127,8 @@ func start(mission_id: String, scripted := false) -> bool:
 		_surface_car = car
 		_surface_original.assign([car.front_surface_grip, car.rear_surface_grip, car.surface_rolling_decel])
 		_apply_surface_override()
+		if active.surface_override.has("ground_tint"):
+			_capture_ground_tint(scene, active.surface_override.ground_tint)
 	_previous = car.global_position
 	# HandlingTests owns the scripted driver's press/release, hold_speed and
 	# steering servo. Use that mechanism alone; episode scoring is ours.
@@ -142,6 +153,7 @@ func _physics_process(delta: float) -> void:
 	# Surfaces runs at -1; this autoload runs at 0 before the scene's car.
 	# Reassert after classification and before the car consumes its inputs.
 	_apply_surface_override()
+	_apply_ground_tint()
 	tick(delta, car.global_position)
 
 func _apply_surface_override() -> void:
@@ -153,6 +165,27 @@ func _apply_surface_override() -> void:
 	car.surface_rolling_decel = surface.rolling_drag
 	# Bump needs the ring's Surfaces + RingProfile micro-profile machinery.
 	# The pad has neither; this override delivers grip and drag, not bumps.
+
+## The tint is authored as a display colour; Godot reads a code-set albedo as
+## linear (the OFFROAD-1 rule, TerrainBuilder.albedo), so it is converted ONCE
+## here. The original albedo is captured before the first write. No TestPad in
+## the car's scene (a ring venue) means no ground material: nothing is applied.
+func _capture_ground_tint(scene: Node, tint: Array) -> void:
+	var pad := scene.find_child("TestPad", true, false) as TestPad
+	if pad == null:
+		return
+	var material := pad.get_ground_material()
+	if material == null:
+		return
+	_ground_material = material
+	_ground_original = material.albedo_color
+	_ground_tint = Color(tint[0], tint[1], tint[2]).srgb_to_linear()
+	_apply_ground_tint()
+
+func _apply_ground_tint() -> void:
+	if _ground_material == null or not is_instance_valid(_ground_material):
+		return
+	_ground_material.albedo_color = _ground_tint
 
 ## Swept segment gates prevent tunnelling. Later gates hit before the current
 ## one fail when requested. Lap requires leaving its radius before returning;
@@ -297,6 +330,10 @@ func _cleanup() -> void:
 			_surface_car.surface_rolling_decel = _surface_original[2]
 		_surface_original.clear()
 		_surface_car = null
+	if _ground_material != null:
+		if is_instance_valid(_ground_material):
+			_ground_material.albedo_color = _ground_original
+		_ground_material = null
 	for prop: Dictionary in _flag_props:
 		prop.node.free()
 	_flag_props.clear()

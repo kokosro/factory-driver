@@ -24,6 +24,11 @@ func write_json(value: Variant) -> void:
 	file.store_string(JSON.stringify(value))
 	file.close()
 
+func fixture_with_surface(surface: Dictionary) -> Dictionary:
+	var m := fixture.duplicate(true)
+	m.surface_override = surface.duplicate()
+	return m
+
 func promoted(id: String, rank: String) -> Dictionary:
 	var m := fixture.duplicate(true)
 	m.id = id
@@ -80,6 +85,24 @@ func _schema() -> void:
 		var valid := fixture.duplicate(true)
 		valid.surface_override = {"grip": grip, "rolling_drag": 0, "bump": 0}
 		ok(MissionSchema.validate(valid).is_empty(), "surface override accepts inclusive bounds and zero drag/bump")
+	# SNOW-2: the optional ground tint beside the three required keys.
+	var shipped_tint: Array = snow_surface.ground_tint
+	ok(shipped_tint.size() == 3 and is_equal_approx(shipped_tint[0], 0.82) and is_equal_approx(shipped_tint[1], 0.84) and is_equal_approx(shipped_tint[2], 0.87) and MissionSchema.validate(fixture_with_surface(snow_surface)).is_empty(), "FD-14 packed-snow ground tint validates as shipped")
+	var untinted := snow_surface.duplicate()
+	untinted.erase("ground_tint")
+	ok(untinted.size() == 3 and MissionSchema.validate(fixture_with_surface(untinted)).is_empty(), "surface override without ground_tint stays valid")
+	for value in [null, false, 0, 1.0, "white", {}, [], [1, 1], [1, 1, 1, 1], [1, "1", 1], [1, null, 1], [[1], [1], [1]], [INF, 1, 1], [1, NAN, 1], [1, 1, -INF], [-0.1, 1, 1], [1, 1.1, 1], [1, 1, 1.0001], [0, -0.0001, 0]]:
+		var tinted := snow_surface.duplicate()
+		tinted.ground_tint = value
+		var faults := MissionSchema.validate(fixture_with_surface(tinted))
+		ok(faults.size() >= 1 and faults[0].begins_with("surface_override.ground_tint"), "ground tint refuses " + str(value))
+	for value in [[0, 0, 0], [1, 1, 1], [0.0, 1.0, 0.5], [1, 0.5, 0]]:
+		var tinted := snow_surface.duplicate()
+		tinted.ground_tint = value
+		ok(MissionSchema.validate(fixture_with_surface(tinted)).is_empty(), "ground tint accepts " + str(value))
+	var ring := fixture_with_surface(snow_surface)
+	ring.environment = "ring"
+	ok(MissionSchema.validate(ring).is_empty(), "ring mission carrying ground_tint validates (the runner applies nothing without a pad ground)")
 	for value in [null, [], 3, "bad"]:
 		ok(not MissionSchema.validate(value).is_empty(), "non-object refused: " + str(value))
 	for field in ["id", "rank", "title", "briefing", "environment", "episode", "scoring", "unlock"]:
@@ -417,7 +440,7 @@ func _production() -> void:
 		var next_id: String = PRODUCTION_IDS[i + 1]
 		ok(rows[next_id].enabled and runner.campaign.unlock_reason(runner.catalog[next_id]) == "", next_id + " row unlocks after predecessor")
 		if id == "FD-21":
-			_ml5_configs(runner, car, garage)
+			await _ml5_configs(runner, car, garage)
 			chief_entry = runner.campaign.state.duplicate(true)
 	_ml6_configs(runner, garage)
 	# Restore the pre-Chief state for the original promotion failure/pass proof.
@@ -507,6 +530,7 @@ func _production() -> void:
 		ok(runner.start(id, true), id + " shipped scripted drive starts")
 		if id == "FD-14":
 			ok(car.front_tyre_temp == 0 and car.rear_tyre_temp == 0 and _surface_values(car) == [snow_surface.grip, snow_surface.grip, snow_surface.rolling_drag], "FD-14 measured drive starts with cold tyres AND snow")
+			ok(_ground(car) != null and _close(_ground(car).albedo_color, _linear_tint()), "FD-14 measured drive runs on the packed-snow ground tint")
 		for frame in range(int(runner.catalog[id].scoring.time_limit_s * 60) + 120):
 			await physics_frame
 			if id == "FD-29" and runner.step_index != last_step:
@@ -517,6 +541,7 @@ func _production() -> void:
 		ok(runner.active.is_empty() and runner.last_result.get("passed", false), id + " shipped script passes with the actual pad car")
 		if id == "FD-14":
 			ok(runner.last_result.get("passed", false) and _surface_values(car) == [1.0, 1.0, 0.0], "snow restored after real PASSED drive")
+			ok(_ground(car).albedo_color == TestPad.COLOR_ASPHALT and runner._ground_material == null, "asphalt ground restored after real PASSED drive")
 			var measured: float = runner.last_result.get("time_s", -1.0)
 			var bands: Dictionary = runner.catalog[id].scoring.medal_times
 			ok(measured > 0 and measured <= runner.catalog[id].scoring.time_limit_s and bands.gold == ceil(measured * 1.05) and bands.silver == ceil(measured * 1.25) and bands.bronze == ceil(measured * 1.50), "FD-14 medal bands derive from this real snow pass inside source limit")
@@ -554,6 +579,7 @@ func _production() -> void:
 			ok(runner.active.is_empty() and not runner.last_result.get("passed", true), id + " bad scripted drive fails on the actual pad car")
 			if id == "FD-14":
 				ok(runner.last_result.get("reason") == "time limit" and _surface_values(car) == [1.0, 1.0, 0.0], "snow restored after real FAILED drive")
+				ok(_ground(car).albedo_color == TestPad.COLOR_ASPHALT and runner._ground_material == null, "asphalt ground restored after real FAILED drive")
 			if int(id.substr(3)) >= 23:
 				ok(runner.last_result.get("reason") == "time limit" and runner.step_index > 0 and car.global_position.distance_to(car.get_spawn_transform().origin) > 1.0, id + " shipped controls drive gates before the forced deadline fails")
 			runner.catalog[id].input_script = shipped
@@ -571,6 +597,157 @@ func _production() -> void:
 
 func _surface_values(car: ArcadeCar) -> Array:
 	return [car.front_surface_grip, car.rear_surface_grip, car.surface_rolling_decel]
+
+## SNOW-2 helpers. The pad's ground material through its own accessor; the
+## display tint converted once, as the runner converts it; a Color match within
+## one 8-bit step per channel; every OTHER StandardMaterial3D under the pad
+## (material overrides and mesh surface materials) keyed by instance id.
+func _ground(car: ArcadeCar) -> StandardMaterial3D:
+	var pad := car.get_parent().find_child("TestPad", true, false) as TestPad
+	return pad.get_ground_material() if pad != null else null
+
+func _linear_tint() -> Color:
+	return Color(snow_surface.ground_tint[0], snow_surface.ground_tint[1], snow_surface.ground_tint[2]).srgb_to_linear()
+
+func _close(a: Color, b: Color) -> bool:
+	return absf(a.r - b.r) <= 1.0 / 255.0 and absf(a.g - b.g) <= 1.0 / 255.0 and absf(a.b - b.b) <= 1.0 / 255.0 and absf(a.a - b.a) <= 1.0 / 255.0
+
+func _pad_albedos(pad: Node, ground: Material) -> Dictionary:
+	var albedos := {}
+	var stack: Array[Node] = [pad]
+	while not stack.is_empty():
+		var node: Node = stack.pop_back()
+		if node is MeshInstance3D:
+			var instance := node as MeshInstance3D
+			var materials: Array = [instance.material_override]
+			if instance.mesh != null:
+				for i in instance.mesh.get_surface_count():
+					materials.append(instance.mesh.surface_get_material(i))
+					materials.append(instance.get_surface_override_material(i))
+			for material in materials:
+				if material is StandardMaterial3D and material != ground:
+					albedos[material.get_instance_id()] = material.albedo_color
+		for child in node.get_children():
+			stack.append(child)
+	return albedos
+
+func _snow_tint(runner: MissionRunner, car: ArcadeCar) -> void:
+	var pad := car.get_parent().find_child("TestPad", true, false) as TestPad
+	var ground := _ground(car)
+	var ground_mesh := pad.get_node_or_null("Ground/MeshInstance3D") as MeshInstance3D
+	var expected := _linear_tint()
+	var display := Color(snow_surface.ground_tint[0], snow_surface.ground_tint[1], snow_surface.ground_tint[2])
+	ok(ground != null and ground_mesh != null and ground_mesh.material_override == ground and ground.albedo_color == TestPad.COLOR_ASPHALT, "pad ground mesh carries the pad's authored asphalt material before the episode")
+	var original: Color = ground.albedo_color
+	var witnesses := _pad_albedos(pad, ground)
+	var skid_seen := false
+	for id in witnesses:
+		skid_seen = skid_seen or witnesses[id] == TestPad.COLOR_SKID_SURFACE
+	ok(witnesses.size() >= 3 and skid_seen, "pad carries witness materials beside the ground, the skid disc's paler asphalt among them")
+	ok(runner._ground_material == null, "no ground capture before the tinted episode")
+	ok(runner.start("FD-14"), "tinted human FD-14 starts")
+	ok(_close(ground.albedo_color, expected), "ground albedo is the display tint converted once to linear")
+	ok(not _close(ground.albedo_color, display) and expected.r < display.r and expected.g < display.g and expected.b < display.b, "the tint is not written raw: linear albedo sits below the display value")
+	ok(ground.albedo_color.a == original.a, "tint keeps the ground's alpha")
+	ok(ground_mesh.material_override == ground and pad.get_ground_material() == ground and runner._ground_material == ground, "ground mesh keeps the same material instance: tinted in place, not replaced")
+	ok(_pad_albedos(pad, ground) == witnesses, "no other pad material takes the tint (material overrides and surface materials)")
+	ok(runner._ground_original == original, "the original asphalt albedo was captured before the first write")
+	ground.albedo_color = TestPad.COLOR_ASPHALT
+	runner._physics_process(1.0 / 60.0)
+	ok(_close(ground.albedo_color, expected) and _surface_values(car) == [snow_surface.grip, snow_surface.grip, snow_surface.rolling_drag], "tint reasserted each physics tick beside the surface inputs")
+	runner.abort()
+	ok(ground.albedo_color == original and runner._ground_material == null, "abort restores the exact original ground albedo and clears the capture")
+	ok(_pad_albedos(pad, ground) == witnesses, "witness materials unchanged after abort")
+	# PASSED path: every FD-14 target crossed by injection.
+	var cold: Dictionary = runner.catalog["FD-14"]
+	ok(runner.start("FD-14") and _close(ground.albedo_color, expected), "tinted FD-14 starts for the injected pass")
+	runner.set_physics_process(false)
+	for step: Dictionary in cold.episode:
+		var point := _point(step.position)
+		runner._previous = point + Vector3(0, step.radius + 1.0, 0)
+		runner.tick(0.1, point)
+	ok(runner.last_result.get("passed", false) and ground.albedo_color == original and runner._ground_material == null, "PASSED finish restores the ground albedo")
+	# FAILED path: the time limit.
+	ok(runner.start("FD-14") and _close(ground.albedo_color, expected), "tinted FD-14 starts for the timeout")
+	runner.set_physics_process(false)
+	runner.tick(cold.scoring.time_limit_s + 1.0, car.global_position)
+	ok(runner.last_result.get("reason") == "time limit" and ground.albedo_color == original and runner._ground_material == null, "FAILED finish restores the ground albedo")
+	# FAILED path: cone contact.
+	ok(runner.start("FD-14") and _close(ground.albedo_color, expected), "tinted FD-14 starts for the cone contact")
+	runner.set_physics_process(false)
+	var cone := _point(cold.episode[0].cones[0])
+	runner._previous = cone + Vector3(2, 0, 0)
+	runner.tick(0.1, cone - Vector3(2, 0, 0))
+	ok(runner.last_result.get("reason") == "cone hit" and ground.albedo_color == original, "cone failure restores the ground albedo")
+	# Teardown path: the single cleanup, as _exit_tree reaches it.
+	ok(runner.start("FD-14") and _close(ground.albedo_color, expected), "tinted FD-14 starts for the teardown")
+	runner._cleanup()
+	ok(ground.albedo_color == original and runner._ground_material == null and runner.active.is_empty(), "teardown restores the ground albedo")
+	runner._cleanup()
+	ok(ground.albedo_color == original, "repeated cleanup without a capture leaves the ground untouched")
+	# The capture is whatever was there, not the authored asphalt.
+	var external := Color(0.1, 0.2, 0.3)
+	ground.albedo_color = external
+	ok(runner.start("FD-14") and _close(ground.albedo_color, expected), "tint applies over an external ground albedo")
+	runner.abort()
+	ok(ground.albedo_color == external, "restore writes back the captured pre-episode albedo, not the authored asphalt")
+	# Inert without the field: an override without ground_tint, and no override.
+	var plain: Dictionary = cold.duplicate(true)
+	plain.id = "SNOW-PLAIN"
+	plain.surface_override.erase("ground_tint")
+	runner.catalog[plain.id] = plain
+	ok(runner.start(plain.id) and ground.albedo_color == external and runner._ground_material == null, "override without ground_tint captures and writes no ground material")
+	ok(_surface_values(car) == [snow_surface.grip, snow_surface.grip, snow_surface.rolling_drag], "the untinted override still delivers the surface inputs")
+	runner._physics_process(1.0 / 60.0)
+	ok(ground.albedo_color == external, "untinted tick writes no ground material")
+	runner.abort()
+	ok(ground.albedo_color == external and runner._ground_material == null, "untinted cleanup writes no ground material")
+	runner.catalog.erase(plain.id)
+	ok(runner.start("FD-16") and ground.albedo_color == external and runner._ground_material == null, "mission without any override captures no ground material")
+	runner._physics_process(1.0 / 60.0)
+	runner.abort()
+	ok(ground.albedo_color == external, "no-override tick and cleanup leave the ground albedo alone")
+	ground.albedo_color = original
+	ok(_pad_albedos(pad, ground) == witnesses, "witness materials unchanged through every path")
+	# The boundary: a scene without a TestPad (the ring venue) has no ground material to tint.
+	var bare := Node3D.new()
+	root.add_child(bare)
+	runner._capture_ground_tint(bare, snow_surface.ground_tint)
+	ok(runner._ground_material == null and ground.albedo_color == original, "no TestPad in the scene: the tint applies nothing (ring venues are not tinted by this mechanism)")
+	runner._apply_ground_tint()
+	runner._cleanup()
+	ok(ground.albedo_color == original, "apply and cleanup without a capture are inert")
+	bare.free()
+	# A pad torn down under a live tinted episode: the runner's own reference keeps
+	# the material alive, so the restore writes to a material nothing displays and
+	# the capture clears; the freed car is what the next tick notices.
+	var scene: Node = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	await process_frame
+	# The spare boot can auto-open the fresh-driver world map (WorldMap._ready's
+	# open(true) pauses the tree) and a freed scene never closes it: the pause
+	# would latch and stop every later real drive. Closed here, as a player
+	# closing it would, with the boot's state pinned.
+	var spare_map: WorldMap = scene.get_node_or_null("WorldMap") as WorldMap
+	var auto_opened := spare_map != null and spare_map.is_open
+	if auto_opened:
+		spare_map.close()
+	ok(auto_opened and not paused, "the spare boot's fresh-driver world map auto-open is closed before the episode (its open(true) pauses the tree; a freed scene would leave the pause latched)")
+	var spare: ArcadeCar = scene.get_node("Car")
+	runner.configure(spare, scene.get_node("HUD"))
+	var spare_ground := _ground(spare)
+	ok(runner.start("FD-14") and spare_ground != null and spare_ground != ground and _close(spare_ground.albedo_color, expected), "a second pad's own fresh ground material is tinted, not the first pad's")
+	ok(ground.albedo_color == original, "the first pad's ground keeps its albedo while the second is tinted")
+	runner.set_physics_process(false)
+	scene.queue_free()
+	await process_frame
+	ok(not is_instance_valid(spare) and is_instance_valid(spare_ground) and runner._ground_material == spare_ground, "pad freed under the episode: the material reference stays valid (held by the runner and this test) and the capture is still held")
+	runner._physics_process(1.0 / 60.0)
+	ok(runner.active.is_empty() and runner._ground_material == null and spare_ground.albedo_color == original, "freed-car tick aborts, restores the captured albedo and clears the capture")
+	runner.configure(car, car.get_parent().get_node("HUD"))
+	ok(runner.start("FD-14") and _close(ground.albedo_color, expected), "the original pad tints again after the torn-down one")
+	runner.abort()
+	ok(ground.albedo_color == original and _pad_albedos(pad, ground) == witnesses, "original pad restored, witnesses unchanged")
 
 func _snow_braking() -> void:
 	var runner := MissionRunner.of(self)
@@ -801,6 +978,7 @@ func _ml5_configs(runner: MissionRunner, car: ArcadeCar, garage: Garage) -> void
 	car.rear_surface_grip = 1.0
 	car.surface_rolling_decel = 0.0
 	ok(cold.provenance.medals.run == "Godot 4.7.2, headless fixed 60 Hz, tests/mission_ladder_test.gd, fresh pad Boxster, cold tyres on packed snow (grip 0.42, rolling_drag 1.5, bump 0.03 validated only), shipped input_script, 2026-09-29", "FD-14 snow measurement run provenance pinned")
+	await _snow_tint(runner, car)
 	car.front_tyre_temp = 0.8
 	car.rear_tyre_temp = 0.6
 	runner.start("FD-16")

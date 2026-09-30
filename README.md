@@ -2732,3 +2732,18 @@ estimated from the certified SLALOM pace and tuned from the scripted runs.
 (best time, medal, attempts), credentials and reward entitlements separately from
 the numeric licence and car records. Writes use a temporary file and atomic rename;
 `FD_TELEMETRY=0` keeps campaign play in memory. Aborts record nothing.
+
+A mission may carry an optional flat `surface_override` (SNOW-1: `grip`,
+`rolling_drag`, `bump`, applied by the runner to the car's three existing
+surface inputs for the episode and restored at its end; FD-14 Snow Testing
+drives on packed snow this way, grip 0.42 / drag 1.5 m/s², see
+`docs/ml5-implementation.md`). SNOW-2 adds the optional fourth key
+`ground_tint`, display-space RGB in [0, 1]: at the episode's start the runner
+takes the pad's own ground material (`TestPad.get_ground_material()`, unshared,
+built fresh per pad), captures its albedo, writes the tint converted once with
+`Color.srgb_to_linear()` (the colour-space rule above: a code-set albedo is
+read as linear) in place, re-asserts it every tick and restores the captured
+albedo on pass, failure, abort and teardown. FD-14's pad ground reads as packed
+snow, `[0.82, 0.84, 0.87]`, for the episode only. Ring-venue grounds are not
+tinted by this mechanism: a ring mission carrying the key validates and applies
+nothing.

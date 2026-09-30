@@ -1,5 +1,5 @@
 {
-  "briefing": "Klaus: Test your line on cold tyres and packed snow within 69 seconds.\nCold tyres on packed snow: grip 0.42 and rolling drag 1.5 m/s^2 are applied to both axles through the existing physics. Tyres start at ambient and warm through the existing thermal model. AWD is not simulated. The pad stands in for Alps; its Boxster stands in for the 1999 996 Carrera 4 Cabriolet. Police, traffic, vehicle damage and opponents are not simulated.",
+  "briefing": "Klaus: Test your line on cold tyres and packed snow within 69 seconds.\nCold tyres on packed snow: grip 0.42 and rolling drag 1.5 m/s^2 are applied to both axles through the existing physics. Tyres start at ambient and warm through the existing thermal model. AWD is not simulated. The pad stands in for Alps; its Boxster stands in for the 1999 996 Carrera 4 Cabriolet. The pad ground is tinted as packed snow for the episode. Police, traffic, vehicle damage and opponents are not simulated.",
   "environment": "pad",
   "episode": [
     {
@@ -864,7 +864,7 @@
     "source_course": "Alps",
     "source_car": "1999 996 Carrera 4 Cabriolet",
     "source_time_limit_s": 69,
-    "adaptation": "Cold tyres on packed snow: grip 0.42 and rolling drag 1.5 m/s^2 are applied to both axles through the existing physics. Tyres start at ambient and warm through the existing thermal model. AWD is not simulated. The pad stands in for Alps; its Boxster stands in for the 1999 996 Carrera 4 Cabriolet. Police, traffic, vehicle damage and opponents are not simulated. Bump 0.03 m is validated but undelivered on the pad, which lacks Surfaces + RingProfile micro-profile machinery. The Conductor ruling uses packed-snow drag 1.5 m/s^2, below gravel 1.6 and the loose/deep snow band 2.0-3.0; cold rear traction ~2.143 m/s^2 exceeds COAST_DECEL 0.15 + 1.5 = 1.65 m/s^2 resistance, so the car launches.",
+    "adaptation": "Cold tyres on packed snow: grip 0.42 and rolling drag 1.5 m/s^2 are applied to both axles through the existing physics. Tyres start at ambient and warm through the existing thermal model. AWD is not simulated. The pad stands in for Alps; its Boxster stands in for the 1999 996 Carrera 4 Cabriolet. Police, traffic, vehicle damage and opponents are not simulated. Bump 0.03 m is validated but undelivered on the pad, which lacks Surfaces + RingProfile micro-profile machinery. The Conductor ruling uses packed-snow drag 1.5 m/s^2, below gravel 1.6 and the loose/deep snow band 2.0-3.0; cold rear traction ~2.143 m/s^2 exceeds COAST_DECEL 0.15 + 1.5 = 1.65 m/s^2 resistance, so the car launches. SNOW-2: ground_tint [0.82, 0.84, 0.87] is an authored display-space packed-snow colour (a bluish white, below pure white because packed snow is trodden and shaded); it is converted once to linear albedo and written to the pad's own ground material for the episode, then restored. The tint is visual only: the scripted measurement above is unchanged by it.",
     "medals": {
       "scripted_time_s": 44.983333,
       "method": "ceil(measured scripted seconds * 1.05 / 1.25 / 1.50) for gold / silver / bronze; source time remains the limit where supplied",
@@ -877,6 +877,7 @@
   "surface_override": {
     "grip": 0.42,
     "rolling_drag": 1.5,
-    "bump": 0.03
+    "bump": 0.03,
+    "ground_tint": [0.82, 0.84, 0.87]
   }
 }

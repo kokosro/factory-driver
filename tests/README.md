@@ -107,3 +107,16 @@ medal bands per mission, the garage's unscripted launch, then drives every shipp
 script on a fresh pad car to completion (never asserting a fixed time or medal) and
 proves each result plus the FD-12 promotion survive a store reload. Result lines
 use `episode result:`.
+The SNOW-1 checks cover FD-14's `surface_override` (schema bounds, the sticky
+surface inputs, restoration on every path, identical cold braking on road and
+snow, the shipped drive's recorded time). The SNOW-2 checks cover its optional
+`ground_tint`: the schema battery (non-array, wrong length, non-number, INF/NAN
+and out-of-[0, 1] elements refused, the 0 and 1 edges accepted, an override
+without the key still valid, a ring mission carrying it valid), the mechanism
+on the real pad (the ground albedo equals the display tint converted once to
+linear within an 8-bit step, the ground mesh keeps its material instance, every
+other material under the pad keeps its albedo, the tint is re-asserted each tick
+and restored exactly after pass, timeout, cone contact, abort and teardown,
+inert without the key, a scene without a TestPad applies nothing, a pad torn
+down under a live episode restores safely) and the shipped FD-14 drive running
+tinted at its unchanged recorded time.

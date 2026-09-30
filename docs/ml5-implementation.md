@@ -174,6 +174,59 @@ assertion pass is not a claim of a clean full-suite gate. The host orchestrator
 retains full suite gates, commit and push. Temporary recording tools and logs are
 removed after inspection.
 
+## SNOW-2 ground tint (the visual at FD-14's venue)
+
+SNOW-1 left FD-14 driving on snow over dark asphalt. SNOW-2 closes that gap
+with one optional fourth key in `surface_override`: `ground_tint`, an array
+of exactly three finite numbers in [0, 1], display-space RGB. The three
+existing keys stay required; MissionSchema refuses a non-array, a wrong
+length, a non-number, INF/NAN or out-of-range element and accepts the edges
+0.0 and 1.0. FD-14 ships `[0.82, 0.84, 0.87]`, an authored packed-snow
+bluish white (no source document carries a colour); the basis is recorded in
+its `provenance.adaptation`, the briefing says the ground is tinted, and
+`provenance.medals` is untouched.
+
+Mechanism (`scripts/mission_runner.gd`): at `start()`, only when the mission
+carries `ground_tint`, the runner finds the venue's pad through the same
+lookup `environment_matches()` uses (`find_child("TestPad")` under the car's
+scene) and takes its ground material through the pad's own accessor
+`TestPad.get_ground_material()`. The original `albedo_color` is captured
+before the first write; the display tint is converted ONCE with
+`Color.srgb_to_linear()` at the application site (the OFFROAD-1 rule: Godot
+reads a code-set albedo as linear, so a display colour written raw reads too
+bright; the pad's own `COLOR_ASPHALT` is authored raw-linear and is not
+converted) and written as the albedo. The tint is re-asserted every physics
+tick beside the surface re-asserts and restored in `_cleanup()`, the single
+teardown reached from `finish()` on pass and failure, `abort()` and
+`_exit_tree()`. Without the field the runner performs no pad lookup and no
+material write; an override without `ground_tint` still delivers the surface
+inputs alone.
+
+The shared-material question, investigated and settled: `test_pad.gd` keeps
+a `_materials` cache, but that cache serves cones, paint and the grid through
+`_get_material`; the ground material is built fresh per pad instance in
+`_build_ground_surface()` and is referenced only by the ground mesh's
+`material_override` and the pad's private var, and the skid disc builds its
+own separate asphalt instance. The ground material is therefore unshared and
+is tinted IN PLACE, restored by writing the captured original back. It is not
+duplicated and reassigned: the frozen smoke test pins that the ground mesh's
+override is the accessor's instance. The ladder test proves the non-leak
+directly, sweeping every StandardMaterial3D under the pad (material overrides
+and mesh surface materials, the skid disc's paler asphalt and the cone and
+paint materials among them) before and after the tint and asserting all but
+the ground keep their albedo, and that the ground mesh keeps the same
+instance. No frozen file or scene is changed: `test_pad.gd`, `car.gd`,
+`surfaces.gd` and `main.tscn` are untouched.
+
+The boundary: ring-venue grounds are NOT tinted by this mechanism. A ring
+mission carrying `ground_tint` validates but applies nothing (no TestPad in
+the car's scene, so no ground material is found) until ring-ground machinery
+exists. A pad torn down under a live tinted episode is safe: the runner's own
+reference keeps the material valid, the freed car is what the next tick
+notices, and the abort restores the captured albedo and clears the capture.
+The tint is visual only: FD-14's shipped drive still passes at its recorded
+provenance time, which the ladder test pins to 1e-6.
+
 ## Chief reward
 
 `CampaignStore.REWARD_CARS` adds `"chief": "boxster_986"`. Existing

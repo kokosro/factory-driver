@@ -46,7 +46,7 @@ static func validate(data: Variant) -> PackedStringArray:
 			errors.append("surface_override must be an object")
 		else:
 			for key in surface:
-				if key not in ["grip", "rolling_drag", "bump"]:
+				if key not in ["grip", "rolling_drag", "bump", "ground_tint"]:
 					errors.append("unknown surface_override field: " + str(key))
 			for key in ["grip", "rolling_drag", "bump"]:
 				if not number(surface.get(key)):
@@ -56,6 +56,18 @@ static func validate(data: Variant) -> PackedStringArray:
 						errors.append("surface_override.grip outside surface bounds")
 				elif surface[key] < 0:
 					errors.append("surface_override.%s must be non-negative" % key)
+			# SNOW-2: the venue ground's colour for the episode, optional beside
+			# the three required keys: display-space RGB, each channel in [0, 1].
+			if surface.has("ground_tint"):
+				var tint: Variant = surface.ground_tint
+				if not tint is Array or tint.size() != 3:
+					errors.append("surface_override.ground_tint must be three numbers")
+				else:
+					for channel in tint:
+						if not number(channel):
+							errors.append("surface_override.ground_tint must be three finite numbers")
+						elif channel < 0 or channel > 1:
+							errors.append("surface_override.ground_tint outside [0, 1]")
 	var steps: Variant = data.get("episode")
 	if not steps is Array or steps.is_empty():
 		errors.append("episode must contain steps")
