@@ -2555,7 +2555,7 @@ records to the bit.
 even with no window, unset on in the game and off headless - so the test suite sees no
 layer unless a test asks (`tests/marks_test.gd` does, for its own scenes, and restores).
 
-### Sound (SOUND-1)
+### Sound (SOUND-1, SOUND-2)
 
 The game was silent (backlog U-1). The first sound goes everywhere the car goes, the way the
 marks do: the `SoundWatch` autoload (`scripts/sound_watch.gd`, registered in `project.godot`
@@ -2565,23 +2565,40 @@ car, in front of the `TelemetryRecorder` (which stays the root's last child), an
 when the car leaves; a scene root already carrying a sound of its own for the car would get
 no second one (no shipped scene carries any audio today: the guard is future-proofing).
 
-No asset and no scene: the node holds three `AudioStreamPlayer`s, each looping a half-second
-16-bit buffer built in code at first need and shared - the engine a harmonic stack from 56 Hz,
-the surface a rumble of twenty prime-spaced partials (62..226 Hz) with spread phases, the
-skid a squeal stack around 800 Hz; every partial a whole number of cycles over the buffer,
-so the loops are seamless, and sums of sines only: the same bytes every build. Every physics
+No asset and no scene: the node holds three `AudioStreamPlayer`s, each looping a two-second
+16-bit buffer built in code at first need and shared (SOUND-2; was a half-second buffer on a
+2 Hz grid, the flat-6's 45 Hz root and its half-orders whole on no grid coarser than the
+0.5 Hz the 2 s give) - the engine a flat-6's order stack, the crank's 3rd / 6th / 9th / 12th
+orders at 45 / 90 / 135 / 180 Hz at idle (the firing frequency rpm / 60 x cylinders / 2 is
+the root) with weak half-order sidebands at 22.5 / 67.5 / 112.5 Hz, the boxer's unequal
+exhaust paths (was 56 Hz and its first harmonics: a single cylinder's stack), the surface a
+body layer of twenty prime-spaced partials (62..226 Hz, the structure-borne band the cabin
+hears) under a broadband noise layer of 61 partials every 25 Hz over 500..2000 Hz, the
+tread-impact band of rolling noise, both with spread phases (was the primes alone), the
+skid one self-excited tone at 2000 Hz with an inharmonic 2800 Hz overtone, band-limited
+grit of 51 partials over 1500..4000 Hz and a baked-in 9 Hz amplitude modulation of 0.3 -
+the tread blocks through the contact patch at the wheel's rate (was a steady chord around
+800 Hz, an octave under where a squeal lives: a howl); every partial a whole number of
+cycles over the buffer, so the loops are seamless, and sums of sines only: the same bytes
+every build. SOUND-2 re-tuned the three buffers against `scratch/sound-2-references.md`
+(real recordings, the engine order analysis, the tyre-noise and squeal literature) after
+the driver's verdict on the first drive - "The tires sound is unbearable, very high...
+otherwise the game is unplayable" - and touched nothing else. Every physics
 tick (priority -1, before the car's own tick, one state) the node reads the car's public
 fields and maps them, every value snapped to 0.001: **engine** - `pitch_scale` 1.0 at
-`IDLE_RPM` to 2.5 at `REDLINE_RPM` from `engine_rpm`, `volume_db` -18 dB at idle with the
+`IDLE_RPM` to 8.0 at `REDLINE_RPM` from `engine_rpm` (the 3rd order's true 8:1 span, 45 Hz
+to 360 Hz; was 2.5; never under 0.5 below idle, was 0.25), `volume_db` -18 dB at idle with the
 pedal up, 4 dB more at the limiter and 6 dB more at full `throttle_pedal` (-8 dB at full
 load), muted with `engine_running` false; **surface** - a level from the three surface
 inputs the `Surfaces` node feeds (`front_` / `rear_surface_grip`, `surface_rolling_decel`)
 and `forward_speed`: the speed wash alone on tarmac, the rolling drag and the grip deficit
 scaled by motion on top (silent at rest on any surface: the rumble is the tyres rolling),
--6 dB at the ceiling, the pitch 0.8 at rest to 1.2 at 50 m/s; **skid** - the intensity is
+-6 dB at the ceiling, the pitch 0.9 at rest to 1.1 at 50 m/s (was 0.8 to 1.2: broadband
+noise is barely pitched); **skid** - the intensity is
 `MarksLayer`'s own triggers called per axle (never re-declared: a threshold change moves
 marks and squeal together), gated per wheel by the same road-only surface rule, muted at no
-intensity and under 1.5 m/s, -4 dB at solid, the pitch rising 0.9 to 1.15 with it. Purely a
+intensity and under 1.5 m/s, -4 dB at solid, the pitch rising 0.85 to 1.5 with it (nearly an
+octave, the real squeal's span; was 0.9 to 1.15). Purely a
 reader: nothing writes the car, the `Surfaces` node or the profile, and the car's telemetry
 samples of the same drive are byte-identical with and without the node.
 

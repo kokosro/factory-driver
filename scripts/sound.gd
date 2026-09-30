@@ -7,27 +7,55 @@ extends Node
 ## SKIDMARKS-1 MarksWatch precedent, line for line where it fits), named
 ## "Sound" under the car's scene root, in front of the TelemetryRecorder.
 ##
+## SOUND-2 (2026-09-30): the three buffers re-tuned against real-world
+## acoustics - scratch/sound-2-references.md, the verified research file:
+## real recordings, the engine order analysis, the tyre-noise and squeal
+## literature - after the driver's verdict on the first drive: "The tires
+## sound is unbearable, very high... otherwise the game is unplayable." The
+## architecture is SOUND-1's to the letter (the watcher, the reads, the
+## writes, the switch, the determinism rules); only the buffers' content and
+## the mapping's pitch constants changed, every old number kept below as a
+## was-> note.
+##
 ## THREE PLAYERS, THREE LOOPS: the node holds three AudioStreamPlayer
 ## children (ENGINE_PLAYER, SURFACE_PLAYER, SKID_PLAYER), each looping one
-## short buffer built IN CODE at first need (no asset, no scene: AudioStreamWAV
-## from generated 16-bit PCM at MIX_RATE, looped end to end through
-## loop_begin / loop_end). Every buffer is BUFFER_SAMPLES long and every
-## partial in it is a whole number of cycles over that length (the cycle
-## tables below), so the loop point is seamless and the first sample is
-## zero. The engine is a low harmonic stack (ENGINE_CYCLES: 56 Hz and its
-## first harmonics at pitch 1); the rumble is a dense sum of partials at
-## prime cycle counts with spread phases - a deterministic pseudo-noise
-## that repeats only once per buffer, not a click; the squeal is a stack
-## around 800 Hz (SKID_CYCLES). Deterministic: sums of sines, no random, no
-## wall clock; the three streams are shared by every node (built once).
+## two-second buffer built IN CODE at first need (no asset, no scene:
+## AudioStreamWAV from generated 16-bit PCM at MIX_RATE, looped end to end
+## through loop_begin / loop_end). Every buffer is BUFFER_SAMPLES long (2 s:
+## the grid is 0.5 Hz) and every partial in it is a whole number of cycles
+## over that length (the cycle tables below), so the loop point is seamless.
+## The engine is a flat-6's order stack (ENGINE_CYCLES: the crank's 3rd / 6th
+## / 9th / 12th orders - a four-stroke's firing frequency, rpm / 60 x
+## cylinders / 2, is the root, 45 / 90 / 135 / 180 Hz at pitch 1 = idle -
+## with weak half-order sidebands, ENGINE_SIDEBAND_CYCLES, the boxer's
+## unequal exhaust paths between the banks: 22.5 / 67.5 / 112.5 Hz; every
+## phase 0, the pulses phase-locked to the crank, so the first sample is
+## zero); the rumble is a body layer (SURFACE_BODY_CYCLES: twenty
+## prime-spaced partials over 62..226 Hz, the structure-borne band the cabin
+## hears through the suspension) under a broadband noise layer
+## (SURFACE_NOISE_CYCLES: 61 partials every 25 Hz over 500..2000 Hz, the
+## tread-impact / air-pumping band of rolling noise, each at
+## SURFACE_NOISE_AMPLITUDE - the layer's RMS 0.8 of the body's), both with
+## phases spread by the golden ratio - a deterministic pseudo-noise that
+## repeats only once per buffer, not a click; the squeal is one self-excited
+## tone at 2000 Hz with an inharmonic 2800 Hz overtone (SKID_TONE_CYCLES,
+## ratio 1.4: the friction-mode region), band-limited grit (SKID_NOISE_CYCLES:
+## 51 partials every 50 Hz over 1500..4000 Hz, RMS 0.15 of the tone) and,
+## baked into the buffer, an amplitude modulation at SKID_AM_CYCLES (9 Hz at
+## pitch 1: the tread blocks through the contact patch at the wheel's
+## rotation rate) of SKID_AM_DEPTH, mean-preserving, whole cycles too.
+## Deterministic: sums of sines, no random, no wall clock; the three streams
+## are shared by every node (built once).
 ##
 ## THE MAPPING, every physics tick (process_physics_priority -1: after the
 ## bubble's -2, with the Surfaces node, before the car's 0 - one state, the
 ## one the car's last tick left, exactly as MarksLayer reads it):
 ##   - ENGINE: pitch_scale from engine_rpm - ENGINE_PITCH_IDLE (1.0) at
-##     ArcadeCar.IDLE_RPM to ENGINE_PITCH_LIMITER (2.5) at REDLINE_RPM, a line
+##     ArcadeCar.IDLE_RPM to ENGINE_PITCH_LIMITER (8.0) at REDLINE_RPM - the
+##     3rd order's true span, 45 Hz at idle to 360 Hz at the redline - a line
 ##     between, clamped to [ENGINE_PITCH_MIN, ENGINE_PITCH_LIMITER] (a run-down
-##     engine below idle drops below 1); volume_db from the rpm share and the
+##     engine below idle drops below 1, to half the idle root at the least);
+##     volume_db from the rpm share and the
 ##     throttle_pedal load: ENGINE_DB_IDLE (-18) at idle with the pedal up,
 ##     plus ENGINE_DB_RPM_SPAN (4) at the limiter, plus ENGINE_DB_LOAD_SPAN
 ##     (6) at full throttle - -8 dB at full load; MUTE_DB when engine_running
@@ -43,7 +71,8 @@ extends Node
 ##     car standing on gravel rumbles no more than one on tarmac - the rumble
 ##     is the tyres rolling); volume_db = SURFACE_DB_MAX + linear_to_db(level),
 ##     MUTE_DB at a level of 0; pitch_scale mildly speed-mapped,
-##     SURFACE_PITCH_SLOW at rest to SURFACE_PITCH_FAST at SURFACE_WASH_SPEED.
+##     SURFACE_PITCH_SLOW at rest to SURFACE_PITCH_FAST at SURFACE_WASH_SPEED
+##     (0.9 to 1.1: broadband rolling noise is barely pitched).
 ##   - SKID: the intensity is MarksLayer's OWN triggers, called, never
 ##     re-declared (a future threshold change moves marks and squeal
 ##     together): per axle MarksLayer.axle_intensity(slip angle, slip ratio,
@@ -53,7 +82,9 @@ extends Node
 ##     intensity the largest wheel's; volume_db = SKID_DB_MAX +
 ##     linear_to_db(intensity), MUTE_DB at 0 and under SKID_SPEED_MIN (no
 ##     squeal standing still); pitch_scale rises with the intensity,
-##     SKID_PITCH_ONSET to SKID_PITCH_SOLID.
+##     SKID_PITCH_ONSET to SKID_PITCH_SOLID (0.85 to 1.5, nearly an octave -
+##     the real squeal's span; across it the baked AM plays 7.65 to 13.5 Hz,
+##     inside the real 3..15 Hz wheel-rotation band).
 ## Every mapped value is snapped to SNAP (0.001) - the same reads give the
 ## same volume_db / pitch_scale to the bit (tests/sound_test.gd holds two
 ## nodes to it); the mapping functions are static and pure, the tests pin
@@ -78,26 +109,71 @@ const ENGINE_PLAYER := "Engine"
 const SURFACE_PLAYER := "Surface"
 const SKID_PLAYER := "Skid"
 
-## The buffers: sample rate [Hz], length [samples] (half a second: every
-## partial's cycle count below is whole over it, so 2 Hz is the grid), the
+## The buffers: sample rate [Hz], length [samples] (two seconds: every
+## partial's cycle count below is whole over it, so 0.5 Hz is the grid), the
 ## peak the PCM is normalised to (of full scale).
+## was-> BUFFER_SAMPLES 11025, half a second on a 2 Hz grid (SOUND-2: the
+## flat-6's 3rd-order root at idle, 45 Hz, is 22.5 cycles on that grid, and
+## the half-order sidebands 22.5 / 67.5 / 112.5 Hz are whole on no grid
+## coarser than 0.5 Hz; on 0.5 Hz every prescribed partial is whole and
+## every loop stays seamless).
 const MIX_RATE := 22050
-const BUFFER_SAMPLES := 11025
+const BUFFER_SAMPLES := 44100
 const BUFFER_PEAK := 0.9
 
-## ENGINE: cycles per buffer and amplitude per partial - 56 Hz and its
-## first three harmonics at pitch 1 (28 cycles x 2 Hz).
-const ENGINE_CYCLES: Array[int] = [28, 56, 84, 112]
-const ENGINE_AMPLITUDES: Array[float] = [1.0, 0.5, 0.3, 0.15]
+## ENGINE: cycles per buffer and amplitude per partial - the crank's 3rd,
+## 6th, 9th and 12th orders (45 / 90 / 135 / 180 Hz at pitch 1 = idle, 900
+## rpm: a four-stroke's firing frequency is rpm / 60 x cylinders / 2, and a
+## flat-6's exhaust energy sits at that order's multiples), and the
+## half-order sidebands 1.5 / 4.5 / 7.5 (22.5 / 67.5 / 112.5 Hz: the boxer's
+## unequal header paths between the banks) at low amplitude. Every phase 0:
+## the firing pulses are phase-locked to the crank.
+## was-> ENGINE_CYCLES [28, 56, 84, 112] with amplitudes [1.0, 0.5, 0.3,
+## 0.15], no sidebands (56 Hz and its first three harmonics: a single
+## cylinder's stack, "an organ" - scratch/sound-2-references.md; the 6th
+## order is stronger in the recordings, so 0.6).
+const ENGINE_CYCLES: Array[int] = [90, 180, 270, 360]
+const ENGINE_AMPLITUDES: Array[float] = [1.0, 0.6, 0.3, 0.15]
+const ENGINE_SIDEBAND_CYCLES: Array[int] = [45, 135, 225]
+const ENGINE_SIDEBAND_AMPLITUDES: Array[float] = [0.08, 0.06, 0.04]
 
-## SURFACE: prime cycle counts (62..226 Hz), equal amplitudes, the phases
-## spread by the golden ratio - a rumble that repeats once per buffer.
-const SURFACE_CYCLES: Array[int] = [31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113]
+## SURFACE: the body layer - prime-spaced cycle counts (62..226 Hz, the
+## structure-borne band the cabin hears through the suspension), equal
+## amplitudes of 1, the phases spread by the golden ratio - under the noise
+## layer: a partial every 25 Hz over 500..2000 Hz (the tread-impact /
+## air-pumping band of rolling noise), every one at SURFACE_NOISE_AMPLITUDE
+## (0.8 x sqrt(20 / 61) = 0.458: the layer's RMS 0.8 of the body's), its own
+## golden spread. A rumble that repeats once per buffer.
+## was-> SURFACE_CYCLES [31, 37, 41, 43, 47, 53, 59, 61, 67, 71, 73, 79, 83,
+## 89, 97, 101, 103, 107, 109, 113] on the 2 Hz grid (the same 62..226 Hz
+## body, x4 on the 0.5 Hz grid), and no noise layer (rolling noise is
+## broadband mechanical noise, 500..2000 Hz dominant; twenty low tones alone
+## are a drone - scratch/sound-2-references.md).
+const SURFACE_BODY_CYCLES: Array[int] = [124, 148, 164, 172, 188, 212, 236, 244, 268, 284, 292, 316, 332, 356, 388, 404, 412, 428, 436, 452]
+const SURFACE_NOISE_CYCLES: Array[int] = [1000, 1050, 1100, 1150, 1200, 1250, 1300, 1350, 1400, 1450, 1500, 1550, 1600, 1650, 1700, 1750, 1800, 1850, 1900, 1950, 2000, 2050, 2100, 2150, 2200, 2250, 2300, 2350, 2400, 2450, 2500, 2550, 2600, 2650, 2700, 2750, 2800, 2850, 2900, 2950, 3000, 3050, 3100, 3150, 3200, 3250, 3300, 3350, 3400, 3450, 3500, 3550, 3600, 3650, 3700, 3750, 3800, 3850, 3900, 3950, 4000]
+const SURFACE_NOISE_AMPLITUDE := 0.458
 const SURFACE_PHASE_STEP := 0.6180339887498949
 
-## SKID: 800 Hz with a 700, a 900 and a 1600 Hz partial - a squeal.
-const SKID_CYCLES: Array[int] = [400, 350, 450, 800]
-const SKID_AMPLITUDES: Array[float] = [1.0, 0.3, 0.4, 0.2]
+## SKID: one self-excited tone at 2000 Hz with an inharmonic overtone at
+## 2800 Hz (ratio 1.4, the friction-mode region), band-limited grit - a
+## partial every 50 Hz over 1500..4000 Hz at SKID_NOISE_AMPLITUDE (0.15 x
+## sqrt(2 / 51) = 0.0297: the layer's RMS 0.15 of the tone's amplitude), the
+## golden spread - and an amplitude modulation baked into the buffer:
+## SKID_AM_CYCLES (9 Hz at pitch 1, the tread blocks through the contact
+## patch at the wheel's rotation rate; 7.65..13.5 Hz across the pitch range,
+## inside the real 3..15 Hz band) at SKID_AM_DEPTH, mean-preserving
+## (1 + depth x sin, 1 exactly at the first sample).
+## was-> SKID_CYCLES [400, 350, 450, 800] with amplitudes [1.0, 0.3, 0.4,
+## 0.2] (an 800 Hz chord with a 700, a 900 and a 1600: a steady "howl" an
+## octave under where a squeal lives, 1500..4000 Hz peaking near 2 kHz - the
+## driver's "unbearable, very high"), no grit, no modulation (a constant
+## alarm - scratch/sound-2-references.md).
+const SKID_TONE_CYCLES: Array[int] = [4000, 5600]
+const SKID_TONE_AMPLITUDES: Array[float] = [1.0, 0.25]
+const SKID_NOISE_CYCLES: Array[int] = [3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000, 4100, 4200, 4300, 4400, 4500, 4600, 4700, 4800, 4900, 5000, 5100, 5200, 5300, 5400, 5500, 5600, 5700, 5800, 5900, 6000, 6100, 6200, 6300, 6400, 6500, 6600, 6700, 6800, 6900, 7000, 7100, 7200, 7300, 7400, 7500, 7600, 7700, 7800, 7900, 8000]
+const SKID_NOISE_AMPLITUDE := 0.0297
+const SKID_AM_CYCLES := 18
+const SKID_AM_DEPTH := 0.30
 
 ## Silence [dB]: no mapped volume goes under it, a muted channel sits on it.
 const MUTE_DB := -60.0
@@ -109,9 +185,12 @@ const SNAP := 0.001
 ## live from ArcadeCar: a config sets them), never under ENGINE_PITCH_MIN;
 ## ENGINE_DB_IDLE at idle with the pedal up, ENGINE_DB_RPM_SPAN more at the
 ## limiter, ENGINE_DB_LOAD_SPAN more at full throttle.
+## was-> ENGINE_PITCH_LIMITER 2.5, ENGINE_PITCH_MIN 0.25 (SOUND-2: the 3rd
+## order runs 45 Hz at idle to 360 Hz at the redline, 8:1 - the true span;
+## a run-down or cranking engine dips to at most half the idle root).
 const ENGINE_PITCH_IDLE := 1.0
-const ENGINE_PITCH_LIMITER := 2.5
-const ENGINE_PITCH_MIN := 0.25
+const ENGINE_PITCH_LIMITER := 8.0
+const ENGINE_PITCH_MIN := 0.5
 const ENGINE_DB_IDLE := -18.0
 const ENGINE_DB_RPM_SPAN := 4.0
 const ENGINE_DB_LOAD_SPAN := 6.0
@@ -127,15 +206,23 @@ const SURFACE_DRAG_REF := 3.0
 const SURFACE_DRAG_LEVEL := 0.6
 const SURFACE_DEFICIT_LEVEL := 0.28
 const SURFACE_DB_MAX := -6.0
-const SURFACE_PITCH_SLOW := 0.8
-const SURFACE_PITCH_FAST := 1.2
+## was-> SURFACE_PITCH_SLOW 0.8, SURFACE_PITCH_FAST 1.2 (SOUND-2: broadband
+## rolling noise is not meaningfully pitched; the research proposed no pitch
+## modulation at all, the narrowed range is the smaller change).
+const SURFACE_PITCH_SLOW := 0.9
+const SURFACE_PITCH_FAST := 1.1
 
 ## SKID: the ceiling [dB] at an intensity of 1, the speed gate [m/s] under
 ## which nothing squeals, the pitch at the onset and at solid.
 const SKID_DB_MAX := -4.0
 const SKID_SPEED_MIN := 1.5
-const SKID_PITCH_ONSET := 0.9
-const SKID_PITCH_SOLID := 1.15
+## was-> SKID_PITCH_ONSET 0.9, SKID_PITCH_SOLID 1.15 (SOUND-2: a real squeal
+## spans nearly an octave as the contact resonance shifts with speed and
+## load; the pitch stays a function of the intensity alone - the research's
+## "intensity AND speed" would change the pure function's signature, and in
+## a slide the intensity already runs with the speed).
+const SKID_PITCH_ONSET := 0.85
+const SKID_PITCH_SOLID := 1.5
 
 ## The three streams, built once for every node (buffers()).
 static var _buffers: Dictionary = {}
@@ -299,31 +386,69 @@ static func buffers() -> Dictionary:
 	return _buffers
 
 
-## Builds the three streams anew (pure: the same bytes every time).
+## Builds the three streams anew (pure: the same bytes every time). The
+## engine: the order stack and the sidebands, every phase 0. The surface: the
+## body layer at 1 and the noise layer at SURFACE_NOISE_AMPLITUDE, each with
+## its own golden spread of phases. The skid: the two tones at phase 0, the
+## grit at SKID_NOISE_AMPLITUDE with the golden spread, the AM envelope over
+## the sum.
 static func build_buffers() -> Dictionary:
-	var engine_phases: Array[float] = []
-	var skid_phases: Array[float] = []
+	var engine_cycles: Array[int] = []
+	var engine_amplitudes: Array[float] = []
+	engine_cycles.append_array(ENGINE_CYCLES)
+	engine_cycles.append_array(ENGINE_SIDEBAND_CYCLES)
+	engine_amplitudes.append_array(ENGINE_AMPLITUDES)
+	engine_amplitudes.append_array(ENGINE_SIDEBAND_AMPLITUDES)
+	var surface_cycles: Array[int] = []
 	var surface_amplitudes: Array[float] = []
 	var surface_phases: Array[float] = []
-	for i in ENGINE_CYCLES.size():
-		engine_phases.append(0.0)
-	for i in SKID_CYCLES.size():
-		skid_phases.append(0.0)
-	for i in SURFACE_CYCLES.size():
-		surface_amplitudes.append(1.0)
-		surface_phases.append(fmod(float(i + 1) * SURFACE_PHASE_STEP, 1.0) * TAU)
+	surface_cycles.append_array(SURFACE_BODY_CYCLES)
+	surface_cycles.append_array(SURFACE_NOISE_CYCLES)
+	surface_amplitudes.append_array(level_amplitudes(SURFACE_BODY_CYCLES.size(), 1.0))
+	surface_amplitudes.append_array(level_amplitudes(SURFACE_NOISE_CYCLES.size(), SURFACE_NOISE_AMPLITUDE))
+	surface_phases.append_array(golden_phases(SURFACE_BODY_CYCLES.size()))
+	surface_phases.append_array(golden_phases(SURFACE_NOISE_CYCLES.size()))
+	var skid_cycles: Array[int] = []
+	var skid_amplitudes: Array[float] = []
+	var skid_phases: Array[float] = []
+	skid_cycles.append_array(SKID_TONE_CYCLES)
+	skid_cycles.append_array(SKID_NOISE_CYCLES)
+	skid_amplitudes.append_array(SKID_TONE_AMPLITUDES)
+	skid_amplitudes.append_array(level_amplitudes(SKID_NOISE_CYCLES.size(), SKID_NOISE_AMPLITUDE))
+	skid_phases.append_array(level_amplitudes(SKID_TONE_CYCLES.size(), 0.0))
+	skid_phases.append_array(golden_phases(SKID_NOISE_CYCLES.size()))
 	return {
-		ENGINE_PLAYER: make_stream(ENGINE_CYCLES, ENGINE_AMPLITUDES, engine_phases),
-		SURFACE_PLAYER: make_stream(SURFACE_CYCLES, surface_amplitudes, surface_phases),
-		SKID_PLAYER: make_stream(SKID_CYCLES, SKID_AMPLITUDES, skid_phases),
+		ENGINE_PLAYER: make_stream(engine_cycles, engine_amplitudes, level_amplitudes(engine_cycles.size(), 0.0)),
+		SURFACE_PLAYER: make_stream(surface_cycles, surface_amplitudes, surface_phases),
+		SKID_PLAYER: make_stream(skid_cycles, skid_amplitudes, skid_phases, SKID_AM_CYCLES, SKID_AM_DEPTH),
 	}
+
+
+## `count` copies of `level` (a table's equal amplitudes, or its zero phases).
+static func level_amplitudes(count: int, level: float) -> Array[float]:
+	var out: Array[float] = []
+	out.resize(count)
+	out.fill(level)
+	return out
+
+
+## `count` phases spread by the golden ratio [rad]: the k-th (from 1) is
+## fmod(k x SURFACE_PHASE_STEP, 1) turns - deterministic, never two alike,
+## the pseudo-noise's spread.
+static func golden_phases(count: int) -> Array[float]:
+	var out: Array[float] = []
+	out.resize(count)
+	for i in count:
+		out[i] = fmod(float(i + 1) * SURFACE_PHASE_STEP, 1.0) * TAU
+	return out
 
 
 ## A looping 16-bit mono stream of BUFFER_SAMPLES at MIX_RATE: the sum of
 ## one sine per entry of `cycles` (whole cycles over the buffer) at its
-## amplitude and phase, normalised to BUFFER_PEAK.
-static func make_stream(cycles: Array[int], amplitudes: Array[float], phases: Array[float]) -> AudioStreamWAV:
-	var samples := pcm(cycles, amplitudes, phases)
+## amplitude and phase, under the optional envelope (pcm), normalised to
+## BUFFER_PEAK.
+static func make_stream(cycles: Array[int], amplitudes: Array[float], phases: Array[float], envelope_cycles: int = 0, envelope_depth: float = 0.0) -> AudioStreamWAV:
+	var samples := pcm(cycles, amplitudes, phases, envelope_cycles, envelope_depth)
 	var stream := AudioStreamWAV.new()
 	stream.format = AudioStreamWAV.FORMAT_16_BITS
 	stream.mix_rate = MIX_RATE
@@ -339,8 +464,13 @@ static func make_stream(cycles: Array[int], amplitudes: Array[float], phases: Ar
 	return stream
 
 
-## The samples of such a buffer as 16-bit integers.
-static func pcm(cycles: Array[int], amplitudes: Array[float], phases: Array[float]) -> PackedInt32Array:
+## The samples of such a buffer as 16-bit integers. With `envelope_cycles`
+## over 0 the sum is multiplied, before the normalisation, by the
+## mean-preserving envelope 1 + envelope_depth x sin(TAU x envelope_cycles x
+## n / BUFFER_SAMPLES) - whole cycles too, 1 exactly at the first sample, so
+## the loop stays seamless (the skid's AM; the engine and the surface pass
+## none).
+static func pcm(cycles: Array[int], amplitudes: Array[float], phases: Array[float], envelope_cycles: int = 0, envelope_depth: float = 0.0) -> PackedInt32Array:
 	var values := PackedFloat64Array()
 	values.resize(BUFFER_SAMPLES)
 	var peak := 0.0
@@ -348,6 +478,8 @@ static func pcm(cycles: Array[int], amplitudes: Array[float], phases: Array[floa
 		var value := 0.0
 		for k in cycles.size():
 			value += amplitudes[k] * sin(TAU * float(cycles[k]) * float(n) / float(BUFFER_SAMPLES) + phases[k])
+		if envelope_cycles > 0:
+			value *= 1.0 + envelope_depth * sin(TAU * float(envelope_cycles) * float(n) / float(BUFFER_SAMPLES))
 		values[n] = value
 		peak = maxf(peak, absf(value))
 	var scale := BUFFER_PEAK * 32767.0 / peak if peak > 0.0 else 0.0

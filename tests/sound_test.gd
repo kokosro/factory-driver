@@ -10,11 +10,19 @@ extends SceneTree
 ## MissionRunner, on node_added; the FD_SOUND switch ("0" off, "1" on, unset
 ## off with no window - this suite's default, so no other test sees a sound
 ## node or an audio player). THE BUFFERS (scripts/sound.gd, SoundNode): three
-## 16-bit mono loops of BUFFER_SAMPLES at MIX_RATE, looped end to end, built
-## once and shared, the same bytes when built again, normalised to the peak,
-## the engine's and the squeal's starting at zero. THE MAPPING, pure and
-## snapped to 0.001: the engine's pitch 1 at idle and 2.5 at the redline
-## (ArcadeCar's own numbers) and its volume -18 dB at idle with the pedal up
+## 16-bit mono loops of BUFFER_SAMPLES at MIX_RATE - 2 s on a 0.5 Hz grid
+## (was-> 0.5 s on 2 Hz) - looped end to end, built once and shared, the
+## same bytes when built again, normalised to the peak: the engine a flat-6's
+## order stack from 45 Hz with half-order sidebands (was-> 56 Hz and its
+## harmonics), the rumble the 62..226 Hz body primes under a 500..2000 Hz
+## noise layer (was-> the primes alone), the squeal a 2000 Hz tone with a
+## 2800 Hz overtone, 1500..4000 Hz grit and a baked 9 Hz amplitude modulation
+## (was-> an 800 Hz chord) - SOUND-2, scratch/sound-2-references.md, after
+## the driver's "unbearable, very high"; every partial whole cycles over the
+## buffer, the engine starting at zero, the zero-crossing rates and the AM
+## measured on the built PCM. THE MAPPING, pure and snapped to 0.001: the
+## engine's pitch 1 at idle and 8 at the redline (was-> 2.5; ArcadeCar's own
+## rpm numbers) and its volume -18 dB at idle with the pedal up
 ## to -8 dB at full load, MUTE_DB with the engine stopped; the rumble silent
 ## at rest on any surface, the speed wash alone on tarmac, gravel's drag and
 ## grip deficit louder at the same speed, -6 dB at the ceiling; the squeal
@@ -164,19 +172,58 @@ func _check_buffers() -> void:
 	var full := roundi(SoundNode.BUFFER_PEAK * 32767.0)
 	_check(absi(int(peaks[SoundNode.ENGINE_PLAYER]) - full) <= 1 and absi(int(peaks[SoundNode.SURFACE_PLAYER]) - full) <= 1 and absi(int(peaks[SoundNode.SKID_PLAYER]) - full) <= 1, "each is normalised to %.2f of full scale (peaks %d / %d / %d, %d expected)" % [SoundNode.BUFFER_PEAK, peaks[SoundNode.ENGINE_PLAYER], peaks[SoundNode.SURFACE_PLAYER], peaks[SoundNode.SKID_PLAYER], full])
 	var engine: AudioStreamWAV = streams[SoundNode.ENGINE_PLAYER]
+	var surface: AudioStreamWAV = streams[SoundNode.SURFACE_PLAYER]
 	var skid: AudioStreamWAV = streams[SoundNode.SKID_PLAYER]
 	var hz := float(SoundNode.MIX_RATE) / float(SoundNode.BUFFER_SAMPLES)
+	# was-> ENGINE_CYCLES + SURFACE_CYCLES + SKID_CYCLES, three tables (SOUND-2:
+	# seven tables and the AM carrier - the sidebands, the rumble's noise layer
+	# and the squeal's grit joined the whole-cycles rule).
+	var tables: Array = [SoundNode.ENGINE_CYCLES, SoundNode.ENGINE_SIDEBAND_CYCLES, SoundNode.SURFACE_BODY_CYCLES, SoundNode.SURFACE_NOISE_CYCLES, SoundNode.SKID_TONE_CYCLES, SoundNode.SKID_NOISE_CYCLES, [SoundNode.SKID_AM_CYCLES]]
 	var whole := true
-	for cycles: int in SoundNode.ENGINE_CYCLES + SoundNode.SURFACE_CYCLES + SoundNode.SKID_CYCLES:
-		whole = whole and cycles > 0
-	_check(whole and engine.data.decode_s16(0) == 0 and skid.data.decode_s16(0) == 0 and absf(SoundNode.ENGINE_CYCLES[0] * hz - 56.0) < 1.0e-9 and absf(SoundNode.SKID_CYCLES[0] * hz - 800.0) < 1.0e-9 and SoundNode.SURFACE_CYCLES[0] * hz >= 60.0 and SoundNode.SURFACE_CYCLES[SoundNode.SURFACE_CYCLES.size() - 1] * hz <= 230.0 and SoundNode.SURFACE_CYCLES.size() >= 16, "every partial is a whole number of cycles over the buffer (the grid %.0f Hz): the engine's stack from %.0f Hz, the squeal's from %.0f Hz, the rumble %d partials over %.0f..%.0f Hz; the engine and the squeal start at zero (seamless loops)" % [hz, SoundNode.ENGINE_CYCLES[0] * hz, SoundNode.SKID_CYCLES[0] * hz, SoundNode.SURFACE_CYCLES.size(), SoundNode.SURFACE_CYCLES[0] * hz, SoundNode.SURFACE_CYCLES[SoundNode.SURFACE_CYCLES.size() - 1] * hz])
+	var partials := 0
+	for table: Array in tables:
+		for cycles: int in table:
+			whole = whole and cycles > 0
+			partials += 1
+	var orders := SoundNode.ENGINE_CYCLES.size() == 4 and SoundNode.ENGINE_SIDEBAND_CYCLES.size() == 3 and SoundNode.ENGINE_AMPLITUDES.size() == 4 and SoundNode.ENGINE_SIDEBAND_AMPLITUDES.size() == 3
+	for k in SoundNode.ENGINE_CYCLES.size():
+		orders = orders and SoundNode.ENGINE_CYCLES[k] == SoundNode.ENGINE_CYCLES[0] * (k + 1)
+	for k in SoundNode.ENGINE_SIDEBAND_CYCLES.size():
+		orders = orders and SoundNode.ENGINE_SIDEBAND_CYCLES[k] * 2 == SoundNode.ENGINE_CYCLES[0] * (2 * k + 1) and SoundNode.ENGINE_SIDEBAND_AMPLITUDES[k] < SoundNode.ENGINE_AMPLITUDES[3]
+	var body_lo := SoundNode.SURFACE_BODY_CYCLES[0] * hz
+	var body_hi := SoundNode.SURFACE_BODY_CYCLES[-1] * hz
+	var noise_lo := SoundNode.SURFACE_NOISE_CYCLES[0] * hz
+	var noise_hi := SoundNode.SURFACE_NOISE_CYCLES[-1] * hz
+	var grit_lo := SoundNode.SKID_NOISE_CYCLES[0] * hz
+	var grit_hi := SoundNode.SKID_NOISE_CYCLES[-1] * hz
+	# was-> the engine's stack from 56.0 Hz, the squeal's from 800.0 Hz, one
+	# rumble table over 60..230 Hz, the grid 2 Hz, the engine AND the squeal
+	# starting at zero (SOUND-2: the root is the flat-6's 3rd order at idle,
+	# 45 Hz, the squeal's tone 2000 Hz where a real squeal peaks, the grid
+	# 0.5 Hz; the squeal's grit carries spread phases, so its first sample is
+	# wherever the sum starts - the wrap is seamless regardless: every partial
+	# and the AM carrier are whole cycles over the buffer, so sample N would
+	# equal sample 0 whatever the phases).
+	_check(whole and partials == 4 + 3 + 20 + 61 + 2 + 51 + 1 and absf(hz - 0.5) < 1.0e-9 and orders and engine.data.decode_s16(0) == 0 and absf(SoundNode.ENGINE_CYCLES[0] * hz - 45.0) < 1.0e-9 and absf(SoundNode.ENGINE_SIDEBAND_CYCLES[0] * hz - 22.5) < 1.0e-9 and absf(SoundNode.SKID_TONE_CYCLES[0] * hz - 2000.0) < 1.0e-9 and SoundNode.SKID_TONE_CYCLES[1] * 5 == SoundNode.SKID_TONE_CYCLES[0] * 7 and SoundNode.SKID_TONE_AMPLITUDES[1] < SoundNode.SKID_TONE_AMPLITUDES[0] and body_lo >= 60.0 and body_hi <= 230.0 and SoundNode.SURFACE_BODY_CYCLES.size() >= 16 and noise_lo >= 500.0 and noise_hi <= 2000.0 and SoundNode.SURFACE_NOISE_CYCLES.size() >= 16 and grit_lo >= 1500.0 and grit_hi <= 4000.0 and SoundNode.SKID_NOISE_CYCLES.size() >= 16 and absf(SoundNode.SKID_AM_CYCLES * hz - 9.0) < 1.0e-9 and SoundNode.SKID_AM_DEPTH > 0.0 and SoundNode.SKID_AM_DEPTH < 1.0, "every one of the %d partials over the seven tables is a whole number of cycles over the buffer (the grid %.1f Hz), the AM carrier among them (%.1f Hz, depth %.2f in (0, 1)): the engine's root at %.1f Hz with its 2nd, 3rd and 4th multiples above and the half-order sidebands from %.1f Hz, weaker than the weakest order; the squeal's tone at %.0f Hz with the 7/5 overtone at %.0f, weaker, its grit %d partials over %.0f..%.0f Hz; the rumble's body %d partials over %.0f..%.0f Hz under %d noise partials over %.0f..%.0f Hz; the engine starts at zero (its phases 0), and every loop wraps seamlessly whatever its phases" % [partials, hz, SoundNode.SKID_AM_CYCLES * hz, SoundNode.SKID_AM_DEPTH, SoundNode.ENGINE_CYCLES[0] * hz, SoundNode.ENGINE_SIDEBAND_CYCLES[0] * hz, SoundNode.SKID_TONE_CYCLES[0] * hz, SoundNode.SKID_TONE_CYCLES[1] * hz, SoundNode.SKID_NOISE_CYCLES.size(), grit_lo, grit_hi, SoundNode.SURFACE_BODY_CYCLES.size(), body_lo, body_hi, SoundNode.SURFACE_NOISE_CYCLES.size(), noise_lo, noise_hi])
 	var rebuilt := SoundNode.build_buffers()
 	var same := rebuilt.size() == 3
 	var distinct := true
 	for player_name in names:
 		same = same and rebuilt[player_name] != streams[player_name] and (rebuilt[player_name] as AudioStreamWAV).data == (streams[player_name] as AudioStreamWAV).data
-	distinct = engine.data != skid.data and engine.data != (streams[SoundNode.SURFACE_PLAYER] as AudioStreamWAV).data
+	distinct = engine.data != skid.data and engine.data != surface.data and surface.data != skid.data
 	_check(same and distinct, "DETERMINISM: built again, three new streams carry the same bytes; the three buffers differ from each other")
+	# MEASURED on the built PCM, not the constants (SOUND-2; character pins,
+	# wide and honest: the probe's build gave 90.0 / 792.0 / 4000.0 crossings a
+	# second - the old buffers 112.0 / 324.0 / 1600.0 - and a skid crest /
+	# trough ratio over the envelope's periods of 1.454..1.486, the engine's
+	# 0.967..1.034).
+	var engine_zcr := _zero_crossings_per_second(engine)
+	var surface_zcr := _zero_crossings_per_second(surface)
+	var skid_zcr := _zero_crossings_per_second(skid)
+	_check(engine_zcr >= 60.0 and engine_zcr <= 140.0 and surface_zcr >= 400.0 and surface_zcr <= 1600.0 and skid_zcr >= 3000.0 and skid_zcr <= 5000.0 and skid_zcr > surface_zcr and surface_zcr > engine_zcr, "ZERO-CROSSING RATES of the built PCM: the engine's %.1f a second (the 45 Hz root's own 90, between 60 and 140), the rumble's %.1f (the noise layer over the body: between 400 and 1600, the old primes alone gave 324), the squeal's %.1f (the 2000 Hz tone's own 4000, between 3000 and 5000: two and a half times the old 800 Hz chord's 1600 - the note is where a squeal lives, not a howl)" % [engine_zcr, surface_zcr, skid_zcr])
+	var skid_am := _crest_trough_ratios(skid)
+	var engine_am := _crest_trough_ratios(engine)
+	_check(skid_am.min >= 1.2 and skid_am.max <= 2.0 and engine_am.min >= 0.9 and engine_am.max <= 1.1, "THE AM SHOWS IN THE BUFFER: over each of the %d envelope periods the squeal's crest half is louder than its trough half, an RMS ratio of %.3f..%.3f (between 1.2 and 2.0: a depth of %.2f gives about 1.47), while the engine's, built with no envelope, stays %.3f..%.3f (between 0.9 and 1.1) - the squeal breathes at the wheel's rate, the note does not" % [SoundNode.SKID_AM_CYCLES, skid_am.min, skid_am.max, SoundNode.SKID_AM_DEPTH, engine_am.min, engine_am.max])
 
 
 # =============================================================================
@@ -597,9 +644,46 @@ func _players_match(sound: SoundNode) -> bool:
 	return absf(sound.engine_player.pitch_scale - sound.engine_pitch) < PLAYER_TOLERANCE and absf(sound.engine_player.volume_db - sound.engine_db) < PLAYER_TOLERANCE and absf(sound.surface_player.pitch_scale - sound.surface_pitch) < PLAYER_TOLERANCE and absf(sound.surface_player.volume_db - sound.surface_db) < PLAYER_TOLERANCE and absf(sound.skid_player.pitch_scale - sound.skid_pitch) < PLAYER_TOLERANCE and absf(sound.skid_player.volume_db - sound.skid_db) < PLAYER_TOLERANCE
 
 
+## Sign changes a second across a buffer's samples, the wrap counted (a
+## sample under 0 against one at or over 0).
+func _zero_crossings_per_second(stream: AudioStreamWAV) -> float:
+	var count := stream.data.size() / 2
+	var crossings := 0
+	var previous_negative := stream.data.decode_s16((count - 1) * 2) < 0
+	for n in count:
+		var negative := stream.data.decode_s16(n * 2) < 0
+		if negative != previous_negative:
+			crossings += 1
+		previous_negative = negative
+	return float(crossings) / (float(count) / float(SoundNode.MIX_RATE))
+
+
+## The buffer cut into SKID_AM_CYCLES periods of the envelope, each into its
+## crest half (the envelope's sine positive) and its trough half: the least
+## and the greatest crest / trough RMS ratio over the periods.
+func _crest_trough_ratios(stream: AudioStreamWAV) -> Dictionary:
+	var half := SoundNode.BUFFER_SAMPLES / SoundNode.SKID_AM_CYCLES / 2
+	var out := {"min": INF, "max": 0.0}
+	for period in SoundNode.SKID_AM_CYCLES:
+		var ratio := _rms_of(stream, 2 * period * half, half) / _rms_of(stream, (2 * period + 1) * half, half)
+		out.min = minf(out.min, ratio)
+		out.max = maxf(out.max, ratio)
+	return out
+
+
+## The RMS of `count` samples from `start`, of full scale.
+func _rms_of(stream: AudioStreamWAV, start: int, count: int) -> float:
+	var acc := 0.0
+	for n in count:
+		var value := float(stream.data.decode_s16((start + n) * 2))
+		acc += value * value
+	return sqrt(acc / float(count)) / 32767.0
+
+
 ## A value through the node's own snap: a mapped value equals a constant
-## only through it (snappedf(1.15, 0.001) is not the double 1.15; the marks
-## test's alpha_of precedent).
+## only through it (snappedf(1.15, 0.001) is not the double 1.15 - SOUND-1's
+## SKID_PITCH_SOLID, kept as the example; the marks test's alpha_of
+## precedent).
 func _snap(value: float) -> float:
 	return snappedf(value, SoundNode.SNAP)
 
