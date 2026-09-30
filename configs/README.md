@@ -255,6 +255,19 @@ The validation is generic and `tests/config_test.gd` checks every file in
 `ArcadeCar.derived_shift_points` on it and bring the shift constants in `car.gd` to its
 figures: the smoke test fails until they agree.
 
+## The dealership's price table
+
+`dealership.json` (ECON-3) is what the garage's CAR page sells and for how many
+credits: `{"version": 1, "cars": [{"car_id", "price_credits", "basis"}, ...]}`, read
+by `scripts/dealership.gd` (strict, every fault listed, nothing invented; version 1
+only, `car_id` must have its config here, duplicates and malformed entries are
+refused). Prices are NOT fields of the car configs: the schema above pins a config's
+top-level keys, and a price is a shop's number, not a car's. Every price is AUTHORED
+(no source document carries a car price) and its `basis` string is its provenance in
+the file itself; the three reward cars are listed so a driver can buy one early, and
+`fd_1001` is absent on purpose: the serial-number car is the L0 voucher's
+(`scripts/first_car.gd`), never bought with credits.
+
 ## FD-2000 promotion stand-in
 
 `cars/fd_2000.json` uses the neutral identity **FD-2000**, following FD-1001's

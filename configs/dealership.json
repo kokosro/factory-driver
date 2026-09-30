@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "cars": [
+    {
+      "car_id": "fd_1073",
+      "price_credits": 60000,
+      "basis": "AUTHORED (no source price: docs/mission-ladder-source.md and the design docs carry none). The Test Driver reward car, priced as a long-horizon sink: at the job board's 95-150 credits a job this is hundreds of jobs, or a rank-early splurge for a driver who will not wait for FD-12. The ladder stays the primary way to it; the price mirrors how a real RS 2.7 dwarfed a junior driver's income."
+    },
+    {
+      "car_id": "boxster_986",
+      "price_credits": 44000,
+      "basis": "AUTHORED (no source price). The Chief reward car, the pad Boxster's own config: the cheapest of the three because it is the youngest and the least exotic of them, still hundreds of courier jobs at the board's pay so the ladder's FD-22 grant stays the ordinary road to it."
+    },
+    {
+      "car_id": "fd_2000",
+      "price_credits": 100000,
+      "basis": "AUTHORED (no source price). The Ace reward car, the top of the table: the config-only FD-2000 stand-in for the customised 996 Turbo, priced at the far horizon (a thousand of the board's best jobs) so that buying it early is a splurge and the FD-33 promotion remains the way most drivers get it."
+    }
+  ]
+}

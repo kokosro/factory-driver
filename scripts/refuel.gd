@@ -16,9 +16,30 @@ extends Node
 ## fuel_mass from fuel_l every tick, and total_mass() rides it). That is
 ## the whole state change. Nothing else is restored: the wear, the battery,
 ## the odometer, the heat all stay where they are (a fill is a fill, as a
-## reset is a reset); no money changes hands (no economy yet), no menu, no
-## animation, no trickle - one deterministic fill to the bit, the same
-## number every time. Away from every station: no line, no key, nothing.
+## reset is a reset); no menu, no animation, no trickle - one deterministic
+## fill to the bit, the same number every time. Away from every station: no
+## line, no key, nothing.
+##
+## PAID FUEL (ECON-3; was: "no money changes hands (no economy yet)"): the
+## station charges LITRE_PRICE_CREDITS a litre, AUTHORED - no source fuel
+## price exists; 2 cr/L makes a full 64 L Boxster fill 128 credits, about
+## one good courier job (the board pays 95-150), so fuel is a routine but
+## real draw on the job income. The fill tick computes the litres the tank
+## is short BEFORE the write and the cost as those litres times the price,
+## rounded UP to the whole credit (fill_cost: ceil, deterministic, no float
+## dust in the balance), and pays the credits ledger FIRST (spend, reason
+## "fuel") - payment before fuel, the purchase order: a spend the ledger
+## refuses (the balance cannot cover it) is NO fuel, the tank untouched,
+## the line says the shortfall. All or nothing: no partial fill for what
+## the balance can cover (a documented follow-up). THE GRACE SEAM: the
+## station pays only where a ledger is wired - the mission runner's
+## (MissionRunner.of(get_tree()).credits) with its store on
+## (CreditsLedger.active_path() != ""); without a runner (a bare test
+## node) or with the store gated (headless, no override) the fill happens
+## free exactly as before and the line is exactly HINT_TEXT. The unpaid
+## refuel stays until the station-only rule lands with the cat ecology.
+## fill_count counts every tick that filled, paid or free; paid_credits
+## sums what this node paid and refused_count the ticks a fill was refused.
 ##
 ## THE STATIONS are the region's typed buildings (scripts/buildings.gd,
 ## data/regions/eifel_ring/focus.json): Buildings.by_element("E2") read
@@ -38,8 +59,16 @@ extends Node
 ## CanvasLayer, add_child works; scenes/hud.tscn and scripts/hud.gd are
 ## untouched), styled as hud.tscn's GateHint (amber, black outline 6 px,
 ## 18 px), just above it at the bottom right, hidden unless a station is
-## near. On the pad (scenes/main.tscn) this node does not exist: the pad
-## has no station and no scene edit puts one there.
+## near. With a ledger wired the line carries the price and the balance
+## (hint_line: "... (2 cr/L — you hold N cr)", or the shortfall "... (2
+## cr/L — need ~X cr, you hold N cr)" when the balance cannot cover the
+## tank's gap; ~ because the gap moves with the idle burn until the key
+## is pressed). The ledger is read from disk once on ARRIVAL at a station
+## (the tick `near` turns from null to a record) and in memory after: the
+## runner's ledger is the running game's one writer, its state current
+## after every commit of its own. On the pad (scenes/main.tscn) this node
+## does not exist: the pad has no station and no scene edit puts one
+## there.
 ##
 ## THE KEY: U (physical 85), plain, "fill Up". The brief named H; walking
 ## the whole InputMap headless (the minimap's and the flagger's own
@@ -52,8 +81,9 @@ extends Node
 ## word in it. project.godot gains exactly one action, refuel, on this
 ## one key; the test holds it there and holds every other action off it.
 ##
-## This node READS the car's position and WRITES its fuel_l, nothing else;
-## it presses no input and moves nothing.
+## This node READS the car's position and WRITES its fuel_l, and with a
+## ledger wired the ledger (spend), nothing else; it presses no input and
+## moves nothing.
 
 ## The key: U, plain. See the header for the conflict check.
 const ACTION := &"refuel"
@@ -72,7 +102,20 @@ const RADIUS_M := 30.0
 const PRIVILEGE := "sell_fuel"
 
 ## The line, exactly this: the tool names its key. No station name in it.
+## Without a ledger wired this is the whole line.
 const HINT_TEXT := "FUEL STATION near — hold U to fill"
+
+## The price of a litre [credits], AUTHORED (see the header). A fill costs
+## ceil(litres short x this), whole credits.
+const LITRE_PRICE_CREDITS := 2
+
+## The ledger reason a fill is written under.
+const FUEL_REASON := "fuel"
+
+## What the line adds with a ledger wired: the price and the balance, or
+## the shortfall (the cost of the tank's gap now, the balance).
+const HINT_PRICE_SUFFIX := " (%d cr/L — you hold %d cr)"
+const HINT_SHORT_SUFFIX := " (%d cr/L — need ~%d cr, you hold %d cr)"
 
 ## The line's node on the HUD and its style: hud.tscn's GateHint, stacked
 ## above it (GateHint: offset -760..-370 x, -200..-174 y from the bottom
@@ -101,8 +144,13 @@ var stations: Array[Buildings.Record] = []
 var near: Buildings.Record = null
 
 ## How many ticks filled the tank: the test's proof that nothing filled it
-## at the spawn and something did at the station.
+## at the spawn and something did at the station. Paid or free.
 var fill_count := 0
+
+## What this node paid the ledger [credits], summed, and how many ticks a
+## fill was refused (the balance could not cover it: no fuel).
+var paid_credits := 0
+var refused_count := 0
 
 var _hint: Label
 
@@ -119,13 +167,60 @@ func _ready() -> void:
 func _physics_process(_delta: float) -> void:
 	if car == null:
 		return
+	var was := near
 	near = nearest_within(car_xz(), stations, RADIUS_M)
 	_hint.visible = near != null
-	if near != null and Input.is_action_pressed(ACTION) and car.fuel_l < ArcadeCar.FUEL_TANK_CAPACITY_L:
+	if near == null:
+		return
+	var ledger := wired_ledger()
+	if ledger != null and was == null:
+		# Arrival: the file as it stands on disk, once.
+		ledger.load_state()
+	var cost := fill_cost(car.fuel_l)
+	var line := hint_line(cost, ledger.balance() if ledger != null else 0, ledger != null)
+	if _hint.text != line:
+		_hint.text = line
+	if Input.is_action_pressed(ACTION) and car.fuel_l < ArcadeCar.FUEL_TANK_CAPACITY_L:
+		if ledger != null:
+			# Payment before fuel: a refused spend is no fuel, the tank
+			# untouched (all or nothing).
+			if ledger.spend(cost, FUEL_REASON).is_empty():
+				refused_count += 1
+				return
+			paid_credits += cost
 		# The whole state change: the car's own setter clamps to the tank,
 		# the mass follows on the car's next tick.
 		car.fuel_l = ArcadeCar.FUEL_TANK_CAPACITY_L
 		fill_count += 1
+
+
+## The ledger a fill pays: the mission runner's, where there is a runner
+## and its store is on (CreditsLedger.active_path() != ""); null otherwise
+## - the fill is free then (the grace seam, see the header).
+func wired_ledger() -> CreditsLedger:
+	var runner := MissionRunner.of(get_tree()) if is_inside_tree() else null
+	if runner == null or CreditsLedger.active_path() == "":
+		return null
+	return runner.credits
+
+
+## What a fill from `fuel_l` costs [credits]: the litres to the tank's
+## capacity times LITRE_PRICE_CREDITS, rounded up to the whole credit; 0
+## for a full (or over-full) tank. Pure.
+static func fill_cost(fuel_l: float) -> int:
+	var litres := maxf(ArcadeCar.FUEL_TANK_CAPACITY_L - fuel_l, 0.0)
+	return int(ceil(litres * LITRE_PRICE_CREDITS))
+
+
+## The line for a fill that costs `cost` against `balance`: HINT_TEXT alone
+## without a ledger (`wired` false), else with the price and the balance,
+## or the shortfall when the balance cannot cover the cost. Pure.
+static func hint_line(cost: int, balance: int, wired: bool) -> String:
+	if not wired:
+		return HINT_TEXT
+	if balance >= cost:
+		return HINT_TEXT + HINT_PRICE_SUFFIX % [LITRE_PRICE_CREDITS, balance]
+	return HINT_TEXT + HINT_SHORT_SUFFIX % [LITRE_PRICE_CREDITS, cost, balance]
 
 
 ## Whether the line is up: a station is near.

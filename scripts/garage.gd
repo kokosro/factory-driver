@@ -27,7 +27,13 @@ extends CanvasLayer
 ##   CAR        the car's condition as it stands: the odometer, the tank, the
 ##              battery, the wear of every component as a bar, the dashboard
 ##              - the same fields the store keeps per car (condition_text
-##              reads a store-shaped entry: the live car's or a file's),
+##              reads a store-shaped entry: the live car's or a file's); the
+##              cars owned and selected; and the DEALERSHIP (ECON-3): the
+##              price table's cars (scripts/dealership.gd,
+##              configs/dealership.json), an OWNED line or a BUY row each,
+##              the row live where the credits cover the price (buy_car:
+##              the ledger's spend first, then the store's side as
+##              CampaignStore.take_car writes it, a refund where that fails),
 ##   LICENCE    the licence held, what is passed, what the next level still
 ##              takes, and the licence book's own text (LicenceManager),
 ##   SETTINGS   the data folder (DataDir: where it is, choose another, back
@@ -154,6 +160,10 @@ var _folder_status := ""
 ## What the dealership's last row did (FirstCar.take's dictionary), for
 ## whoever asks (tests).
 var last_dealership_result: Dictionary = {}
+
+## What the CAR page's last BUY row did (buy_car's dictionary; {} before
+## any), shown on the page and read by tests.
+var last_purchase_result: Dictionary = {}
 
 ## The first-run map layer beside this one, found or made on demand.
 var _world_map: WorldMap
@@ -323,7 +333,7 @@ func show_page(wanted: Page) -> void:
 ## The current page's rows: {label, hint, kind, enabled}, in order. `kind`
 ## is what the row starts: "map", "world_map", "take_car", "loaner",
 ## "test", "l0", "skid_pad", "lesson", "choose_folder", "default_folder",
-## "mission", "reward", "job".
+## "mission", "reward", "job", "buy_car".
 func page_rows() -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []
 	for row in _rows:
@@ -554,6 +564,12 @@ func _build_car_page() -> void:
 		_add_bar(field.replace("_", " ").capitalize(), share, "%.3f %%" % (share * 100.0), COLOR_WEAR)
 	var world_path := WorldStore.active_path()
 	var runner := MissionRunner.of(get_tree())
+	# ECON-3: the ledger is read here as the JOBS page reads it (gated: the
+	# defaults, nothing read), for the SELECTED line and the dealership.
+	var wired := runner != null and CreditsLedger.active_path() != ""
+	if wired:
+		runner.credits.load_state()
+	var purchases: Array = runner.credits.transactions() if wired else []
 	if runner and runner.campaign.owns_car("fd_1073"):
 		_add_text("OWNED  " + CampaignStore.REWARDS.test_driver + " (fd_1073): granted at promotion.", COLOR_TITLE)
 		_add_row("TAKE — " + CampaignStore.REWARDS.test_driver, "Select your reward car. Live vehicle swapping is pending; driving still uses the Boxster.", "take_reward", _take_reward_car.bind("fd_1073"), world_path != "", "fd_1073")
@@ -571,10 +587,137 @@ func _build_car_page() -> void:
 			_add_text("SELECTED  " + CampaignStore.REWARDS.chief, COLOR_TITLE)
 		elif owned == "fd_2000" and runner and runner.campaign.owns_car(owned):
 			_add_text("SELECTED  " + CampaignStore.REWARDS.ace, COLOR_TITLE)
+		elif owned != "" and Dealership.purchased(purchases, owned):
+			_add_text("SELECTED  %s (%s): bought at the dealership; its entry rides cars.json. It becomes the car in the scene when the car swap lands (deferred: scripts/first_car.gd)." % [Dealership.car_name(owned), owned], COLOR_TITLE)
 		elif owned != "":
 			_add_text("OWNED  %s (%s): taken at the dealership on the voucher; its entry rides cars.json. It becomes the car in the scene when the car swap lands (deferred: scripts/first_car.gd)." % [FirstCar.car_name() if owned == FirstCar.CAR_ID else owned, owned], COLOR_TITLE)
+	_build_dealership(runner, wired, world_path, purchases)
 	var kept := "kept in %s" % DataDir.root_on_disk().path_join(OdometerStore.PATH.trim_prefix("user://")) if OdometerStore.enabled() else "not kept in this run (no window: the store is off)"
 	_add_text("The car's file: %s. Saved every %.0f s of driving and when the game closes." % [kept, ArcadeCar.ODOMETER_SAVE_INTERVAL], COLOR_DIM_TEXT)
+
+
+## The dealership (ECON-3): the price table's cars in file order, an OWNED
+## line for a car the driver holds (by promotion or by purchase), a BUY
+## row for one they do not, live where the balance covers the price and a
+## world record exists; a greyed row shows the price and the shortfall.
+## Rows only where a ledger is wired (the runner's, its store on): gated
+## (headless, no override) a row could pay nothing and write nothing, so
+## the table is listed as text alone and the page says why. The table's
+## faults are listed as the JOBS page lists the ledger's.
+func _build_dealership(runner: MissionRunner, wired: bool, world_path: String, purchases: Array) -> void:
+	var table := Dealership.read()
+	var balance: int = runner.credits.balance() if wired else 0
+	_add_heading("DEALERSHIP  —  CREDITS: %d" % balance)
+	_add_text("The garage's car shop: the cars the dealership sells and their credit prices, the promotion ladder's reward cars among them (a price buys one early; the ladder still grants it). The Ring's general dealership %s in Adenau honours the voucher from the DRIVE page; this shop is a page of the garage, no building to drive to. A bought car's entry starts fresh in cars.json and it is selected; live vehicle swapping is pending, driving still uses the Boxster." % DEALERSHIP_ID, COLOR_DIM_TEXT)
+	if not wired:
+		_add_text("No ledger this run (the store is off): the prices are listed, nothing can be bought.", COLOR_DIM_TEXT)
+	if last_purchase_result.get("summary", "") != "":
+		_add_text("Last purchase: " + last_purchase_result.summary, COLOR_TEXT)
+	for problem: String in table.problems:
+		_add_text("Dealership: " + problem, COLOR_DIM_TEXT)
+	for entry: Dictionary in table.cars:
+		var car_id: String = entry.car_id
+		var price: int = entry.price_credits
+		var label := Dealership.car_name(car_id)
+		if runner and runner.campaign.owns_car(car_id):
+			_add_text("OWNED  %s (%s): granted at promotion; listed at %d credits, not for sale to its owner." % [label, car_id, price], COLOR_TITLE)
+		elif Dealership.purchased(purchases, car_id):
+			_add_text("OWNED  %s (%s): bought here for %d credits." % [label, car_id, price], COLOR_TITLE)
+		elif wired:
+			var hint: String = entry.basis
+			if world_path == "":
+				hint += "  No world record this run: nothing can be bought."
+			elif balance >= price:
+				hint += "  You hold %d credits." % balance
+			else:
+				hint += "  You hold %d credits: %d short." % [balance, price - balance]
+			_add_row("BUY — %s — %d credits" % [label, price], hint, "buy_car", _buy_car.bind(car_id), world_path != "" and balance >= price, car_id)
+		else:
+			_add_text("%s (%s): %d credits." % [label, car_id, price], COLOR_TEXT)
+
+
+## The BUY row: buy_car with the run's own paths (the store where it is
+## on), the page built anew so the row becomes OWNED or the refusal shows.
+func _buy_car(car_id: String) -> void:
+	last_purchase_result = buy_car(car_id, WorldStore.active_path(), OdometerStore.PATH, OdometerStore.enabled(), car)
+	show_page(Page.CAR)
+
+
+## Buys `car_id` at the dealership's price (ECON-3), in this order: the
+## ledger's spend FIRST (the debit committed, reason "car:<car_id>"), then
+## the store's side exactly as CampaignStore.take_car's branch writes it -
+## the entry with a new car's defaults (FirstCar.default_entry, the tank
+## its config's) where the store is kept (`store_kept`, the running game;
+## an entry the file already holds is kept as it is, take_car's rule),
+## "active_car" in the world record at `world_path`, a rental on
+## `target_car` ended - and where the store's side fails AFTER the spend
+## the price is refunded (earn, reason "refund:car:<car_id>") and the
+## failure reported. Refused before any write: no runner or ledger this
+## run, no world record, a car the table does not sell, a car already
+## owned (by promotion or by purchase), a config the validation refuses,
+## a credits file of a later build's, a balance the price exceeds (the
+## greyed row's guard, checked again here). Returns
+##   {"bought": bool, "reason": "" or why not, "summary": one line for
+##    the page, "transaction": the spend as written or {}, "refund": the
+##    refund as written or {}, "entry": the entry written or {}}
+func buy_car(car_id: String, world_path: String, store_path := OdometerStore.PATH, store_kept := false, target_car: ArcadeCar = null) -> Dictionary:
+	var result := {"bought": false, "reason": "", "summary": "", "transaction": {}, "refund": {}, "entry": {}}
+	var label := Dealership.car_name(car_id)
+	var runner := MissionRunner.of(get_tree())
+	if runner == null or CreditsLedger.active_path() == "":
+		return _purchase_refused(result, label, "no ledger this run (the store is off)")
+	if world_path == "":
+		return _purchase_refused(result, label, "no world record this run")
+	var entry := Dealership.entry_of(Dealership.read(), car_id)
+	if entry.is_empty():
+		return _purchase_refused(result, label, "the dealership does not sell %s" % car_id)
+	var ledger: CreditsLedger = runner.credits
+	ledger.load_state()
+	if runner.campaign.owns_car(car_id) or Dealership.purchased(ledger.transactions(), car_id):
+		return _purchase_refused(result, label, "already owned")
+	var config: Variant = JSON.parse_string(FileAccess.get_file_as_string(Dealership.config_path(car_id)))
+	if not config is Dictionary or not CarConfigValidation.validate(config, car_id).is_empty():
+		return _purchase_refused(result, label, "its config is refused by the validation")
+	var price: int = entry.price_credits
+	if ledger.newer_file:
+		return _purchase_refused(result, label, "the credits file is a later build's")
+	if ledger.balance() < price:
+		return _purchase_refused(result, label, "%d credits short (%d of %d)" % [price - ledger.balance(), ledger.balance(), price])
+	var transaction := ledger.spend(price, Dealership.purchase_reason(car_id))
+	if transaction.is_empty():
+		return _purchase_refused(result, label, "the ledger refused the payment")
+	result.transaction = transaction
+	var failure := ""
+	if store_kept and not OdometerStore._cars(OdometerStore._read(store_path)).has(car_id):
+		var fresh := FirstCar.default_entry()
+		fresh.fuel_l = config.fuel.tank_capacity_l
+		OdometerStore.save_car(car_id, fresh.odometer_m, fresh.fuel_l, store_path, fresh.driver, fresh.battery, fresh.wear)
+		OdometerStore.save_licence(car_id, fresh.licence, store_path)
+		if OdometerStore._cars(OdometerStore._read(store_path)).has(car_id):
+			result.entry = fresh
+		else:
+			failure = "the car's entry could not be written to cars.json"
+	if failure == "":
+		WorldStore.set_active_car(car_id, world_path)
+		if WorldStore.load_driver(world_path).active_car != car_id:
+			failure = "the world record could not be written"
+	if failure != "":
+		result.refund = ledger.earn(price, Dealership.refund_reason(car_id))
+		return _purchase_refused(result, label, failure + (", the %d credits refunded" % price if not result.refund.is_empty() else ", AND the refund failed: the ledger holds the debit"))
+	var rental := RentalGate.active_on(target_car)
+	if rental:
+		rental.end()
+	elif WorldStore.rental_active(world_path):
+		WorldStore.clear_rental(world_path)
+	result.bought = true
+	result.summary = "%s bought for %d credits." % [label, price]
+	return result
+
+
+static func _purchase_refused(result: Dictionary, label: String, reason: String) -> Dictionary:
+	result.reason = reason
+	result.summary = "%s not bought: %s." % [label, reason]
+	return result
 
 
 ## The car's name from its config's identity, the id if the file says none.

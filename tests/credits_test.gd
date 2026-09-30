@@ -30,6 +30,12 @@ const PASS_JOB := "JOB-01"
 const FAIL_JOB := "JOB-02"
 const FAIL_DEADLINE_S := 45.0
 const RING_SCENE := "res://scenes/eifel_ring.tscn"
+## ECON-3: the prices as documented (docs/econ3-implementation.md), the
+## station the paid fill is driven at (the refuel test's E2.4) and the tank
+## the fills start from [L].
+const PRICES := {"fd_1073": 60000, "boxster_986": 44000, "fd_2000": 100000}
+const FUEL_STATION_ID := "E2.4"
+const PART_TANK_L := 20.0
 
 func _initialize() -> void:
 	_run.call_deferred()
@@ -67,13 +73,19 @@ func _run() -> void:
 	_idle()
 	print("-- the ledger")
 	_ledger()
+	print("-- the ledger's spend side (ECON-3)")
+	_spend()
 	print("-- the schema")
 	_schema()
+	print("-- the dealership's price table (ECON-3)")
+	_dealership()
 	print("-- the job board's configs")
 	_jobs()
 	print("-- the runner pays")
 	await _payment()
-	print("-- the Ring: the board, a real pass, a real failure")
+	print("-- the purchase (ECON-3)")
+	await _purchase()
+	print("-- the Ring: the board, a real pass, a real failure, paid fuel")
 	await _ring()
 	print("-- nothing of the driver's was touched")
 	CreditsLedger.path_override = ""
@@ -100,7 +112,9 @@ func _idle() -> void:
 	ok(gated.state == CreditsLedger.defaults() and gated.balance() == 0 and gated.transactions().is_empty(), "gated load reads nothing: the defaults")
 	ok(gated.earn(95, "job:GATED").is_empty() and gated.balance() == 0 and heard.is_empty(), "gated earn returns {} and keeps nothing, in memory or as a signal")
 	ok(stamp(real_path) == real_before and not DirAccess.dir_exists_absolute(test_dir), "a fresh runner and a gated ledger touch no file")
-	ok(CreditsLedger.PATH == "user://credits.json" and CreditsLedger.VERSION == 1 and CreditsLedger.KINDS == ["earn"], "the store's name, version and the one kind written")
+	# was KINDS == ["earn"], "the one kind written" -> both kinds (ECON-3), the
+	# version unchanged: the schema reserved the kind, no migration.
+	ok(CreditsLedger.PATH == "user://credits.json" and CreditsLedger.VERSION == 1 and CreditsLedger.KINDS == ["earn", "spend"], "the store's name, version 1 still, and the two kinds written (was earn alone, spend reserved)")
 	ok(MissionRunner.JOBS_DIR == "res://configs/jobs" and MissionRunner.CATALOG_DIR == "res://configs/missions", "the runner scans the ladder and the job board")
 
 # =============================================================================
@@ -164,11 +178,14 @@ func _ledger() -> void:
 
 	# Entries that are none of the ledger's own are reported and left out.
 	var good := {"seq": 1, "kind": "earn", "amount": 20, "reason": "a"}
-	for bad in [null, 3, "earn", [], {}, {"seq": 2, "kind": "spend", "amount": 5, "reason": "b"}, {"seq": 2, "kind": "earn", "amount": 0, "reason": "b"}, {"seq": 2, "kind": "earn", "amount": -5, "reason": "b"}, {"seq": 2, "kind": "earn", "amount": 1.5, "reason": "b"}, {"seq": 2, "kind": "earn", "amount": "5", "reason": "b"}, {"seq": 2, "kind": "earn", "amount": 5}, {"seq": 2, "kind": "earn", "amount": 5, "reason": " "}, {"seq": 2, "kind": "earn", "amount": 5, "reason": 7}, {"seq": 2, "kind": "earn", "amount": 5, "reason": "b", "at_s": -1}, {"seq": 2, "kind": "earn", "amount": 5, "reason": "b", "at_s": "soon"}]:
+	# was: a spend entry among the bad ones -> it is read now (ECON-3); a
+	# kind that is neither stands in for it.
+	for bad in [null, 3, "earn", [], {}, {"seq": 2, "kind": "refund", "amount": 5, "reason": "b"}, {"seq": 2, "kind": "spend", "amount": 0, "reason": "b"}, {"seq": 2, "kind": "spend", "amount": -5, "reason": "b"}, {"seq": 2, "kind": "earn", "amount": 0, "reason": "b"}, {"seq": 2, "kind": "earn", "amount": -5, "reason": "b"}, {"seq": 2, "kind": "earn", "amount": 1.5, "reason": "b"}, {"seq": 2, "kind": "earn", "amount": "5", "reason": "b"}, {"seq": 2, "kind": "earn", "amount": 5}, {"seq": 2, "kind": "earn", "amount": 5, "reason": " "}, {"seq": 2, "kind": "earn", "amount": 5, "reason": 7}, {"seq": 2, "kind": "earn", "amount": 5, "reason": "b", "at_s": -1}, {"seq": 2, "kind": "earn", "amount": 5, "reason": "b", "at_s": "soon"}]:
 		write_json(ledger_path, {"version": 1, "balance": 30, "transactions": [good, bad, {"seq": 3, "kind": "earn", "amount": 10, "reason": "c"}]})
 		loaded.load_state()
 		ok(loaded.balance() == 30 and loaded.state.transactions.size() == 2 and loaded.state.transactions[1].seq == 2 and loaded.state.transactions[1].reason == "c" and loaded.problems.size() == 2, "entry left out, the rest renumbered: " + str(bad))
-	ok(CreditsLedger.transaction_problem({"kind": "spend", "amount": 5, "reason": "b"}) != "" and CreditsLedger.transaction_problem(good) == "", "spend is reserved: no entry of that kind is read yet")
+	# was `!= ""`, "spend is reserved: no entry of that kind is read yet".
+	ok(CreditsLedger.transaction_problem({"kind": "spend", "amount": 5, "reason": "b"}) == "" and CreditsLedger.transaction_problem(good) == "", "a spend entry is read (was reserved): the same amount rule as an earn, a whole number above zero")
 	write_json(ledger_path, {"version": 1, "balance": 30, "transactions": [{"seq": 7, "kind": "earn", "amount": 20, "reason": "a", "note": "kept"}, {"kind": "earn", "amount": 10, "reason": "c"}]})
 	loaded.load_state()
 	ok(loaded.balance() == 30 and loaded.state.transactions[0].seq == 1 and loaded.state.transactions[1].seq == 2 and loaded.problems.size() == 2 and loaded.state.transactions[0].note == "kept", "seq is an entry's place: a wrong or a missing one is reported and derived, an extra field rides along")
@@ -215,7 +232,91 @@ func _ledger() -> void:
 	ok(read_text(ledger_path) == bytes and files() == PackedStringArray(["credits.json"]), "the failed write publishes nothing: the file is the last committed one")
 	loaded.load_state()
 	ok(loaded.state == committed, "and the ledger is where it was")
-	ok(not DataDir.SEEDED_FILES.has("credits.json"), "known gap, documented: the data folder's seed does not carry credits.json yet (DataDir is outside ECON-1's surface)")
+	# was `not has("credits.json")`, ECON-1's known gap pinned -> closed (ECON-2).
+	ok(DataDir.SEEDED_FILES.has("credits.json") and DataDir.SEEDED_FILES[-1] == "credits.json" and DataDir.SEEDED_FILES[-2] == "campaign.json", "the data folder's seed carries credits.json, last after campaign.json (was ECON-1's known gap)")
+	DirAccess.remove_absolute(ledger_path)
+
+# =============================================================================
+#  The spend side (ECON-3)
+# =============================================================================
+
+func _spend() -> void:
+	CreditsLedger.path_override = ledger_path
+	DirAccess.remove_absolute(ledger_path)
+	var ledger := CreditsLedger.new()
+	var spends: Array = []
+	heard.clear()
+	ledger.earned.connect(func(t: Dictionary): heard.append(t))
+	ledger.spent.connect(func(t: Dictionary): spends.append(t))
+	ledger.load_state()
+	ok(ledger.spend(1, "fuel").is_empty() and spends.is_empty() and not FileAccess.file_exists(ledger_path) and ledger.balance() == 0, "a spend on an empty ledger is refused: nothing written, nothing emitted, the balance 0")
+	ok(ledger.earn(200, "job:JOB-01").seq == 1 and ledger.balance() == 200, "200 earned to spend from")
+	for bad in [0, -1, -50]:
+		ok(ledger.spend(bad, "fuel").is_empty(), "spend refuses amount " + str(bad))
+	for bad in ["", "   ", "\n\t"]:
+		ok(ledger.spend(5, bad).is_empty(), "spend refuses an empty reason")
+	for bad in [NAN, INF, -INF]:
+		ok(ledger.spend(5, "fuel", bad).is_empty(), "spend refuses the time " + str(bad))
+	ok(ledger.spend(201, "car:fd_1073").is_empty() and spends.is_empty() and ledger.balance() == 200, "a spend above the balance is refused: 201 of 200, the balance unchanged, nothing emitted")
+	var bytes := read_text(ledger_path)
+	ok(JSON.parse_string(bytes).transactions.size() == 1 and not FileAccess.file_exists(ledger_path + ".tmp"), "refused spends write nothing")
+	var first := ledger.spend(60, "fuel")
+	ok(first == {"seq": 2, "kind": "spend", "amount": 60, "reason": "fuel"}, "the first spend returns the transaction as written: kind spend, the POSITIVE amount, no time")
+	ok(spends.size() == 1 and spends[0] == first and heard.size() == 1, "spent fires once with the committed transaction; earned did not fire for it")
+	ok(ledger.balance() == 140 and JSON.parse_string(read_text(ledger_path)).balance == 140, "the balance is the earns less the spends, in memory and on disk")
+	ok(not FileAccess.file_exists(ledger_path + ".tmp") and files() == PackedStringArray(["credits.json"]), "atomic write: the temporary file consumed")
+	var timed := ledger.spend(40, "car:test", 3.5)
+	ok(timed == {"seq": 3, "kind": "spend", "amount": 40, "reason": "car:test", "at_s": 3.5} and ledger.balance() == 100, "a time on the caller's tick clock is written when given")
+	ok(ledger.spend(100, "fuel").seq == 4 and ledger.balance() == 0, "a spend of exactly the balance is allowed: zero")
+	ok(ledger.spend(1, "fuel").is_empty() and ledger.balance() == 0 and spends.size() == 3, "and one more credit is refused: the balance never goes below zero through the write path")
+	var loaded := CreditsLedger.new()
+	loaded.spent.connect(func(t: Dictionary): spends.append(t))
+	loaded.load_state()
+	ok(loaded.state == ledger.state and loaded.problems.is_empty() and loaded.balance() == 0 and loaded.state.transactions.size() == 4, "round trip: the mixed log reads back to the same state, no problem")
+	var other := CreditsLedger.new()
+	ok(other.earn(10, "job:JOB-02").seq == 5 and other.spend(4, "fuel").seq == 6 and other.balance() == 6, "a second ledger joins the log as it stands on disk, spends included")
+	loaded.load_state()
+	ok(loaded.balance() == 6, "and the first reads the joined log")
+
+	# The derived sum: earn minus spend; a stored balance is never trusted.
+	write_json(ledger_path, {"version": 1, "balance": 150, "transactions": [{"seq": 1, "kind": "earn", "amount": 100, "reason": "a"}, {"seq": 2, "kind": "spend", "amount": 30, "reason": "fuel"}, {"seq": 3, "kind": "earn", "amount": 50, "reason": "b"}, {"seq": 4, "kind": "spend", "amount": 20, "reason": "fuel"}]})
+	bytes = read_text(ledger_path)
+	loaded.load_state()
+	ok(loaded.balance() == 100 and loaded.problems.size() == 1 and loaded.problems[0].contains("balance 150") and loaded.problems[0].contains("100"), "a stored balance that is the earns alone is reported: the derived earn-minus-spend sum 100 is adopted")
+	ok(read_text(ledger_path) == bytes, "the read leaves the file as it is")
+	write_json(ledger_path, {"version": 1, "transactions": [{"seq": 1, "kind": "earn", "amount": 100, "reason": "a"}, {"seq": 2, "kind": "spend", "amount": 30.0, "reason": "fuel"}]})
+	loaded.load_state()
+	ok(loaded.balance() == 70 and loaded.problems.is_empty() and loaded.state.transactions[1].kind == "spend" and loaded.state.transactions[1].amount is int, "a missing balance is derived from the mixed log without complaint, the spend's amount a whole number")
+	write_json(ledger_path, {"version": 1, "balance": -50, "transactions": [{"seq": 1, "kind": "earn", "amount": 50, "reason": "a"}, {"seq": 2, "kind": "spend", "amount": 100, "reason": "fuel"}]})
+	bytes = read_text(ledger_path)
+	loaded.load_state()
+	ok(loaded.balance() == -50 and loaded.problems.size() == 1 and loaded.problems[0].contains("spends more than it earns") and loaded.state.transactions.size() == 2, "a hand-edited log that spends more than it earns reads as its negative sum, reported, both entries kept (nothing invented)")
+	ok(read_text(ledger_path) == bytes and loaded.spend(1, "fuel").is_empty(), "the read leaves the file alone and no spend is possible from it")
+	ok(loaded.earn(60, "job:x").seq == 3 and loaded.balance() == 10 and JSON.parse_string(read_text(ledger_path)).balance == 10, "an earn on it writes the derived balance: 10")
+	write_json(ledger_path, {"version": 1, "balance": 0, "transactions": [{"seq": 1, "kind": "spend", "amount": 5, "reason": "fuel"}]})
+	loaded.load_state()
+	ok(loaded.balance() == -5 and loaded.problems.size() == 2, "a spend-only log: the negative sum reported, and the stored 0 reported as not the sum")
+
+	# Version refusal protects a newer file from spends too; gated keeps nothing.
+	write_json(ledger_path, {"version": 2, "balance": 500, "transactions": [{"seq": 1, "kind": "earn", "amount": 500, "reason": "later build"}]})
+	bytes = read_text(ledger_path)
+	spends.clear()
+	ok(ledger.spend(5, "fuel").is_empty() and spends.is_empty() and read_text(ledger_path) == bytes and not FileAccess.file_exists(ledger_path + ".tmp"), "a later build's file is never written over: spend refuses, the bytes stay")
+	CreditsLedger.path_override = ""
+	ok(ledger.spend(5, "fuel").is_empty() and spends.is_empty() and stamp(real_path) == real_before, "gated, a spend returns {} and keeps nothing")
+	CreditsLedger.path_override = ledger_path
+
+	# A write that fails publishes nothing: the temporary file's name taken by a folder.
+	write_json(ledger_path, {"version": 1, "balance": 100, "transactions": [{"seq": 1, "kind": "earn", "amount": 100, "reason": "a"}]})
+	bytes = read_text(ledger_path)
+	loaded.load_state()
+	var committed: Dictionary = loaded.state.duplicate(true)
+	DirAccess.make_dir_absolute(ledger_path + ".tmp")
+	ok(loaded.spend(5, "fuel").is_empty() and spends.is_empty(), "a write that fails returns {} and emits nothing")
+	DirAccess.remove_absolute(ledger_path + ".tmp")
+	ok(read_text(ledger_path) == bytes and loaded.state == committed, "the failed spend publishes nothing: the file and the state are the last committed")
+	ok(loaded.spend(5, "fuel").seq == 2 and loaded.balance() == 95, "the retry commits it")
+	ok(loaded.earn(1, "a").seq == 3 and loaded.earn(0, "a").is_empty() and loaded.earn(1, " ").is_empty() and loaded.earn(1, "a", NAN).is_empty() and loaded.balance() == 96, "the earn path's rules stand beside the spend's")
 	DirAccess.remove_absolute(ledger_path)
 
 # =============================================================================
@@ -250,6 +351,109 @@ func _schema() -> void:
 	var bad_entry := fixture.duplicate(true)
 	bad_entry.reward_credits = 0
 	ok(MissionSchema.catalog_errors([bad_entry]).has(fixture.id), "a bad reward keeps the entry out of the catalog")
+
+# =============================================================================
+#  The dealership's price table (ECON-3)
+# =============================================================================
+
+func _dealership() -> void:
+	var shipped := FileAccess.get_file_as_string(Dealership.PATH)
+	var table := Dealership.read()
+	ok(Dealership.PATH == "res://configs/dealership.json" and Dealership.VERSION == 1 and table.usable and not table.newer_file and table.problems.is_empty() and table.version == 1, "the shipped table reads clean: version 1, no problem")
+	var ids: Array = []
+	for entry: Dictionary in table.cars:
+		ids.append(entry.car_id)
+		ok(entry.price_credits == PRICES.get(entry.car_id, -1) and entry.price_credits is int, entry.car_id + " is priced as documented: %d credits" % entry.price_credits)
+		ok(entry.basis is String and entry.basis.length() > 40 and entry.basis.contains("AUTHORED") and entry.basis.contains("no source price"), entry.car_id + "'s basis says the price is authored and why")
+		ok(FileAccess.file_exists(Dealership.config_path(entry.car_id)) and Dealership.car_name(entry.car_id) != entry.car_id, entry.car_id + " has a config and a name of its own (" + Dealership.car_name(entry.car_id) + ")")
+	ok(ids == ["fd_1073", "boxster_986", "fd_2000"], "the three reward cars in file order")
+	var configs := PackedStringArray()
+	for file in DirAccess.get_files_at(Dealership.CARS_DIR):
+		if file.ends_with(".json"):
+			configs.append(file.get_basename())
+	var all_but_voucher := true
+	for id in configs:
+		all_but_voucher = all_but_voucher and (ids.has(id) != (id == FirstCar.CAR_ID))
+	ok(configs.size() == 4 and all_but_voucher and Dealership.entry_of(table, FirstCar.CAR_ID).is_empty() and Dealership.price_of(table, FirstCar.CAR_ID) == 0, "every car under configs/cars is for sale except fd_1001, the voucher's car, absent")
+	for rank: String in CampaignStore.REWARD_CARS:
+		ok(ids.has(CampaignStore.REWARD_CARS[rank]), "the " + rank + " reward car is purchasable early as well as granted")
+	ok(Dealership.price_of(table, "fd_1073") == 60000 and Dealership.entry_of(table, "fd_1073").basis == table.cars[0].basis and Dealership.entry_of(table, "nobody").is_empty() and Dealership.price_of(table, "nobody") == 0, "entry_of and price_of: the entry, the price, {} and 0 for a car not sold")
+	ok(Dealership.purchase_reason("fd_1073") == "car:fd_1073" and Dealership.refund_reason("fd_1073") == "refund:car:fd_1073" and Refuel.FUEL_REASON == "fuel", "the spend reasons the game writes: car:<id>, refund:car:<id>, fuel")
+	var log := [{"seq": 1, "kind": "spend", "amount": 5, "reason": "car:fd_1073"}]
+	ok(Dealership.purchased(log, "fd_1073") and not Dealership.purchased(log, "fd_2000") and not Dealership.purchased([], "fd_1073"), "purchased: a car:<id> spend in the log is the ownership")
+	log.append({"seq": 2, "kind": "earn", "amount": 5, "reason": "refund:car:fd_1073"})
+	ok(not Dealership.purchased(log, "fd_1073"), "a refund:car:<id> earn undoes it")
+	log.append({"seq": 3, "kind": "spend", "amount": 5, "reason": "car:fd_1073"})
+	ok(Dealership.purchased(log, "fd_1073") and not Dealership.purchased([{"kind": "earn", "amount": 5, "reason": "car:fd_1073"}], "fd_1073") and not Dealership.purchased([null, 3], "fd_1073"), "bought again after a refund; an earn under the purchase reason is no purchase; junk is skipped")
+
+	# The validation battery on tables of the test's own.
+	var table_path := test_dir.path_join("dealership.json")
+	var good := {"car_id": "fd_1073", "price_credits": 60000, "basis": "authored"}
+	var second := {"car_id": "boxster_986", "price_credits": 44000, "basis": "authored"}
+	write_json(table_path, {"version": 1, "cars": [good, second]})
+	var read := Dealership.read(table_path)
+	ok(read.usable and read.problems.is_empty() and read.cars.size() == 2 and read.cars[0] == good and read.cars[1] == second, "a good table of the test's own loads: the entries as kept")
+	write_json(table_path, {"version": 1, "cars": [{"car_id": "fd_1073", "price_credits": 60000.0, "basis": "authored"}]})
+	read = Dealership.read(table_path)
+	ok(read.cars.size() == 1 and read.cars[0].price_credits == 60000 and read.cars[0].price_credits is int, "a whole number read from JSON as a float is a whole number, kept as int")
+	for bad in [2, 99]:
+		write_json(table_path, {"version": bad, "cars": [good]})
+		read = Dealership.read(table_path)
+		ok(not read.usable and read.newer_file and read.cars.is_empty() and read.problems.size() == 1 and read.problems[0].contains("later build"), "version %d is a later build's: unusable, reported, sells nothing" % bad)
+	for bad in [0, -1, 1.5, "1", null, [], true]:
+		write_json(table_path, {"version": bad, "cars": [good]})
+		read = Dealership.read(table_path)
+		ok(not read.usable and not read.newer_file and read.cars.is_empty() and read.problems.size() == 1, "version " + str(bad) + " is not 1: unusable, reported")
+	write_json(table_path, {"cars": [good]})
+	read = Dealership.read(table_path)
+	ok(not read.usable and read.cars.is_empty() and read.problems.size() == 1, "a table without a version is unusable (no version-zero grace: the table is shipped, never migrated)")
+	for bad in ["[1]", "\"x\"", "3", "null", "{broken"]:
+		write_text(table_path, bad)
+		read = Dealership.read(table_path)
+		ok(not read.usable and read.cars.is_empty() and read.problems.size() == 1, "a file that is no object, or no JSON, sells nothing: " + bad)
+	read = Dealership.read(test_dir.path_join("nowhere.json"))
+	ok(not read.usable and read.cars.is_empty() and read.problems.size() == 1 and read.problems[0].contains("no such file"), "a missing table sells nothing, reported")
+	for bad in [{"version": 1}, {"version": 1, "cars": {}}, {"version": 1, "cars": "fd_1073"}, {"version": 1, "cars": null}]:
+		write_json(table_path, bad)
+		read = Dealership.read(table_path)
+		ok(read.usable and read.cars.is_empty() and read.problems.size() == 1 and read.problems[0].contains("not a list"), "cars missing or no list: usable, sells nothing, reported: " + str(bad))
+	write_json(table_path, {"version": 1, "cars": []})
+	read = Dealership.read(table_path)
+	ok(read.usable and read.cars.is_empty() and read.problems.size() == 1 and read.problems[0].contains("no entry is valid"), "a well-formed table with no entry sells nothing and says so")
+	write_json(table_path, {"version": 1, "cars": [good], "extra": 1})
+	read = Dealership.read(table_path)
+	ok(read.usable and read.cars.size() == 1 and read.problems.size() == 1 and read.problems[0].contains("unknown key extra"), "an unknown top-level key is reported and ignored")
+	var bad_entries := [
+		[null, "is not an object"], [3, "is not an object"], ["fd_1073", "is not an object"], [[], "is not an object"], [{}, "has no car_id"],
+		[{"car_id": "fd_1073", "price_credits": 60000}, "has no basis"],
+		[{"car_id": "fd_1073", "basis": "b"}, "has no price_credits"],
+		[{"price_credits": 60000, "basis": "b"}, "has no car_id"],
+		[{"car_id": "fd_1073", "price_credits": 60000, "basis": "b", "name": "x"}, "unknown key (name)"],
+		[{"car_id": "", "price_credits": 60000, "basis": "b"}, "car_id is not a nonempty string"],
+		[{"car_id": "  ", "price_credits": 60000, "basis": "b"}, "car_id is not a nonempty string"],
+		[{"car_id": 7, "price_credits": 60000, "basis": "b"}, "car_id is not a nonempty string"],
+		[{"car_id": "no_such_car", "price_credits": 60000, "basis": "b"}, "has no config"],
+		[{"car_id": "fd_1073", "price_credits": 0, "basis": "b"}, "not a whole number above zero"],
+		[{"car_id": "fd_1073", "price_credits": -5, "basis": "b"}, "not a whole number above zero"],
+		[{"car_id": "fd_1073", "price_credits": 1.5, "basis": "b"}, "not a whole number above zero"],
+		[{"car_id": "fd_1073", "price_credits": "60000", "basis": "b"}, "not a whole number above zero"],
+		[{"car_id": "fd_1073", "price_credits": null, "basis": "b"}, "not a whole number above zero"],
+		[{"car_id": "fd_1073", "price_credits": 60000, "basis": ""}, "basis is not a nonempty string"],
+		[{"car_id": "fd_1073", "price_credits": 60000, "basis": "  "}, "basis is not a nonempty string"],
+		[{"car_id": "fd_1073", "price_credits": 60000, "basis": 3}, "basis is not a nonempty string"],
+	]
+	for pair in bad_entries:
+		write_json(table_path, {"version": 1, "cars": [second, pair[0], good]})
+		read = Dealership.read(table_path)
+		ok(read.usable and read.cars.size() == 2 and read.cars[0].car_id == "boxster_986" and read.cars[1].car_id == "fd_1073" and read.problems.size() == 1 and read.problems[0].contains("cars[1]") and read.problems[0].contains(pair[1]) and read.problems[0].contains("left out"), "entry refused and reported, the rest kept in order: " + str(pair[0]))
+	write_json(table_path, {"version": 1, "cars": [good, second, {"car_id": "fd_1073", "price_credits": 1, "basis": "cheap"}]})
+	read = Dealership.read(table_path)
+	ok(read.cars.size() == 2 and read.cars[0].price_credits == 60000 and read.problems.size() == 1 and read.problems[0].contains("cars[2]") and read.problems[0].contains("again"), "a duplicated car_id is refused: the first listing stands, the second reported")
+	write_json(table_path, {"version": 1, "cars": [null, {"car_id": "nobody", "price_credits": 1, "basis": "b"}]})
+	read = Dealership.read(table_path)
+	ok(read.usable and read.cars.is_empty() and read.problems.size() == 3, "a table whose every entry is refused sells nothing: each refusal and the empty result reported")
+	ok(FileAccess.get_file_as_string(Dealership.PATH) == shipped and JSON.parse_string(shipped).cars.size() == 3, "the shipped table was never written by the reader")
+	DirAccess.remove_absolute(table_path)
 
 # =============================================================================
 #  The job board's configs
@@ -465,6 +669,155 @@ func _payment() -> void:
 	DirAccess.remove_absolute(campaign_path)
 
 # =============================================================================
+#  The purchase (ECON-3)
+# =============================================================================
+
+## The CAR page's dealership on the pad, wired to the test's own ledger,
+## world record and cars file: the greyed rows, the refusals, the forced
+## store failure and its refund, the round trip, persistence, the rank
+## grant, the shipped row, and the gated page.
+func _purchase() -> void:
+	var runner := MissionRunner.of(self)
+	var world_path := test_dir.path_join("world.json")
+	var store_path := test_dir.path_join("cars.json")
+	CreditsLedger.path_override = ledger_path
+	CampaignStore.path_override = campaign_path
+	DirAccess.remove_absolute(ledger_path)
+	# The world record BEFORE the pad loads: a path without a record forces
+	# the first-run map open, the tree paused under it (world_map.gd).
+	WorldStore.set_spawn("eifel_ring", "E8.1", world_path)
+	WorldStore.path_override = world_path
+	var scene: Node = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	await process_frame
+	var car: ArcadeCar = scene.get_node("Car")
+	var garage: Garage = scene.get_node("Garage")
+	ok(WorldStore.has_record(world_path) and not paused and not (scene.get_node("WorldMap") as WorldMap).is_open, "the pad loads over a world record of the test's own: no forced map, the tree runs")
+	runner.campaign.state = CampaignStore.defaults()
+	runner.campaign.reconcile(LicenceExams.LICENCE_L1)
+	runner.configure(car, scene.get_node("HUD"))
+	var table := Dealership.read()
+	var price := Dealership.price_of(table, "boxster_986")
+	var ledger := CreditsLedger.new()
+	var spends: Array = []
+	var refunds: Array = []
+	var on_spent := func(t: Dictionary): spends.append(t)
+	var on_earned := func(t: Dictionary): refunds.append(t)
+	runner.credits.spent.connect(on_spent)
+	runner.credits.earned.connect(on_earned)
+
+	# Broke: the three listed, every row greyed with the price and the shortfall.
+	garage.show_page(Garage.Page.CAR)
+	var rows := garage.page_rows()
+	var text := garage.page_text()
+	ok(text.contains("DEALERSHIP  —  CREDITS: 0") and text.contains("general dealership E4.1") and not text.contains("No ledger this run") and not text.contains("Last purchase"), "the CAR page carries the dealership with the balance, wired to the test's ledger, no purchase yet")
+	ok(rows.size() == 3 and rows[0].id == "fd_1073" and rows[1].id == "boxster_986" and rows[2].id == "fd_2000", "one BUY row per table entry in file order")
+	var greyed := rows.size() == 3
+	for i in mini(rows.size(), 3):
+		var entry: Dictionary = table.cars[i]
+		greyed = greyed and rows[i].kind == "buy_car" and not rows[i].enabled and rows[i].label == "BUY — %s — %d credits" % [Dealership.car_name(entry.car_id), entry.price_credits] and rows[i].hint.contains(entry.basis) and rows[i].hint.contains("You hold 0 credits: %d short" % entry.price_credits)
+	ok(greyed, "with no credits every row is greyed: the price on the label, the basis and the shortfall in the hint")
+	ok(not garage.activate_row(1) and not FileAccess.file_exists(ledger_path), "a greyed row does nothing")
+	var direct := garage.buy_car("boxster_986", world_path, store_path, true, car)
+	ok(not direct.bought and direct.reason.contains("short") and direct.transaction.is_empty() and direct.summary.begins_with("1997 Boxster 986 not bought:") and not FileAccess.file_exists(ledger_path) and not FileAccess.file_exists(store_path), "buy_car called directly re-checks: refused short of credits, nothing written")
+
+	# One short: greyed; exactly the price: live.
+	ledger.earn(price - 1, "job:test")
+	garage.show_page(Garage.Page.CAR)
+	rows = garage.page_rows()
+	ok(garage.page_text().contains("CREDITS: %d" % (price - 1)) and not rows[1].enabled and rows[1].hint.contains("1 short"), "one credit short: the row is greyed and says 1 short")
+	ledger.earn(1, "job:test")
+	garage.show_page(Garage.Page.CAR)
+	rows = garage.page_rows()
+	ok(rows[1].enabled and rows[1].hint.contains("You hold %d credits." % price) and not rows[0].enabled and not rows[2].enabled, "exactly the price: the Boxster's row is live, the dearer two greyed")
+
+	# Refusals before any write.
+	ok(garage.buy_car("fd_1001", world_path, store_path, true, car).reason.contains("does not sell") and garage.buy_car("nobody", world_path, store_path, true, car).reason.contains("does not sell"), "a car the table does not sell (fd_1001, an unknown id) is refused")
+	ok(garage.buy_car("boxster_986", "", store_path, true, car).reason == "no world record this run", "no world record: refused")
+	ok(garage.buy_car("fd_1073", world_path, store_path, true, car).reason.contains("short"), "the dearer car: refused short")
+	ledger.load_state()
+	ok(ledger.balance() == price and ledger.transactions().size() == 2 and spends.is_empty() and not FileAccess.file_exists(store_path), "every refusal wrote nothing")
+
+	# The forced store-write failure AFTER the spend: the refund.
+	var bad_store := test_dir.path_join("cars_dir")
+	DirAccess.make_dir_recursive_absolute(bad_store)
+	var failed := garage.buy_car("boxster_986", world_path, bad_store, true, car)
+	ok(not failed.bought and failed.reason.contains("could not be written") and failed.reason.contains("refunded") and failed.transaction == {"seq": 3, "kind": "spend", "amount": price, "reason": "car:boxster_986"} and failed.refund == {"seq": 4, "kind": "earn", "amount": price, "reason": "refund:car:boxster_986"}, "a store write that fails after the spend: the debit committed, then refunded exactly, reason refund:car:<id>")
+	ledger.load_state()
+	ok(ledger.balance() == price and ledger.transactions().size() == 4 and spends.size() == 1 and refunds.size() == 1 and not Dealership.purchased(ledger.transactions(), "boxster_986"), "the ledger sums back: the balance as before, four entries, one spent and one earned signal, the car not owned")
+	ok(WorldStore.load_driver(world_path).active_car == "" and not FileAccess.file_exists(store_path), "nothing selected, no entry")
+	garage.show_page(Garage.Page.CAR)
+	ok(garage.page_rows()[1].enabled and garage.page_rows()[1].kind == "buy_car" and garage.page_text().contains("CREDITS: %d" % price), "the row is live again after the refund")
+	DirAccess.remove_absolute(bad_store)
+
+	# The round trip through the store: buy_car with the test's paths, the
+	# store kept (the shipped row passes OdometerStore.enabled(), false
+	# headless; the row itself is driven below).
+	var bought := garage.buy_car("boxster_986", world_path, store_path, true, car)
+	ok(bought.bought and bought.reason == "" and bought.summary == "1997 Boxster 986 bought for %d credits." % price and bought.transaction == {"seq": 5, "kind": "spend", "amount": price, "reason": "car:boxster_986"} and bought.refund.is_empty(), "bought: the spend recorded with reason car:<id>")
+	ledger.load_state()
+	ok(ledger.balance() == 0 and ledger.transactions().size() == 5 and spends.size() == 2 and refunds.size() == 1, "the balance debited exactly once: zero")
+	var stored: Dictionary = OdometerStore._cars(OdometerStore._read(store_path)).get("boxster_986", {})
+	ok(bought.entry == FirstCar.default_entry(), "the entry written is FirstCar.default_entry: a new car's defaults (%s)" % str(bought.entry.keys()))
+	ok(stored.get("odometer_m") == 0.0 and stored.get("fuel_l") == 64.0, "the entry in cars.json: 0 m, the tank its config's 64 L (%s)" % str(stored))
+	var read_back := Garage.stored_entry("boxster_986", store_path)
+	var new_car := Garage.stored_entry("no_such_car", store_path)
+	ok(read_back == new_car, "read back through the store the entry is a new car's: 0 km, a full tank, nothing worn, the dashboard and the battery defaults, unlicensed (%s vs %s)" % [str(read_back), str(new_car)])
+	ok(OdometerStore.load_licence("boxster_986", store_path).level == LicenceExams.LICENCE_NONE, "the new car's driver starts unlicensed in its own entry (FirstCar's rule)")
+	ok(WorldStore.load_driver(world_path).active_car == "boxster_986", "active_car set")
+	ok(Dealership.purchased(ledger.transactions(), "boxster_986") and not runner.campaign.owns_car("boxster_986"), "owned by the log, not by the ladder (no chief credential)")
+	garage.show_page(Garage.Page.CAR)
+	rows = garage.page_rows()
+	text = garage.page_text()
+	ok(rows.size() == 2 and rows[0].id == "fd_1073" and rows[1].id == "fd_2000" and text.contains("OWNED  1997 Boxster 986 (boxster_986): bought here for %d credits." % price) and text.contains("SELECTED  1997 Boxster 986 (boxster_986): bought at the dealership") and text.contains("CREDITS: 0"), "the CAR page: OWNED and SELECTED lines, no BUY row for it, the other two still for sale")
+	ok(garage.buy_car("boxster_986", world_path, store_path, true, car).reason == "already owned" and ledger.transactions().size() == 5, "buying it again is refused: already owned, nothing written")
+	var bytes := read_text(store_path)
+	ok(garage.buy_car("boxster_986", world_path, store_path, true, car).transaction.is_empty() and read_text(store_path) == bytes, "and the entry is not touched")
+
+	# Persistence across reload.
+	var persisted := CreditsLedger.new()
+	persisted.load_state()
+	ok(persisted.balance() == 0 and persisted.problems.is_empty() and persisted.transactions()[4].reason == "car:boxster_986" and Dealership.purchased(persisted.transactions(), "boxster_986"), "reloaded from disk: the purchase stands")
+	var on_disk: Dictionary = JSON.parse_string(read_text(ledger_path))
+	ok(on_disk.balance == 0 and on_disk.transactions.size() == 5 and on_disk.transactions[2].kind == "spend" and on_disk.transactions[3].kind == "earn" and on_disk.transactions[4].kind == "spend", "the file: earn, earn, spend, refund earn, spend; balance 0")
+
+	# A rank grant: OWNED by promotion, not for sale to its owner.
+	runner.campaign.state.rewards["test_driver"] = true
+	garage.show_page(Garage.Page.CAR)
+	rows = garage.page_rows()
+	var buy_rows: Array = rows.filter(func(r: Dictionary): return r.kind == "buy_car")
+	var take_rows: Array = rows.filter(func(r: Dictionary): return r.kind == "take_reward")
+	ok(buy_rows.size() == 1 and buy_rows[0].id == "fd_2000" and take_rows.size() == 1 and take_rows[0].id == "fd_1073" and garage.page_text().contains("OWNED  Customised 1973 Porsche 911 Carrera RS 2.7 Coupe (fd_1073): granted at promotion"), "a rank-granted car shows OWNED by promotion (its TAKE row as before) and no BUY row")
+	ok(garage.buy_car("fd_1073", world_path, store_path, true, car).reason == "already owned", "and cannot be bought")
+	runner.campaign.state.rewards["test_driver"] = false
+
+	# The shipped row: _buy_car through activate_row (the store off headless:
+	# no entry, the rest of the flow).
+	ledger.earn(Dealership.price_of(table, "fd_2000"), "job:big")
+	garage.show_page(Garage.Page.CAR)
+	rows = garage.page_rows()
+	var index := rows.find_custom(func(r: Dictionary): return r.id == "fd_2000")
+	ok(index >= 0 and rows[index].enabled and garage.activate_row(index), "the FD-2000 row live with the price on hand: Enter buys")
+	ledger.load_state()
+	ok(garage.last_purchase_result.bought and garage.last_purchase_result.entry.is_empty() and ledger.balance() == 0 and ledger.transactions()[-1] == {"seq": 7, "kind": "spend", "amount": 100000, "reason": "car:fd_2000"} and WorldStore.load_driver(world_path).active_car == "fd_2000", "the row's purchase: the spend committed, active_car fd_2000, no entry (the store is off headless: cars.json in the data folder untouched)")
+	ok(garage.page == Garage.Page.CAR and garage.page_text().contains("Last purchase: FD-2000 bought for 100000 credits.") and garage.page_text().contains("OWNED  FD-2000 (fd_2000): bought here") and garage.page_text().contains("SELECTED  FD-2000 (fd_2000)") and garage.page_rows().size() == 1 and garage.page_rows()[0].id == "fd_1073", "the page rebuilt: the last purchase named, FD-2000 owned and selected, one car left for sale")
+	ok(stamp(real_path) == real_before, "the driver's own credits.json is as it was")
+
+	# Gated: no rows, the prices as text (menu_test's rowless CAR page).
+	CreditsLedger.path_override = ""
+	garage.show_page(Garage.Page.CAR)
+	ok(garage.page_rows().is_empty() and garage.page_text().contains("No ledger this run") and garage.page_text().contains("FD-2000 (fd_2000): 100000 credits.") and garage.page_text().contains("CREDITS: 0"), "gated (the store off, no override): the prices listed as text, no BUY row")
+	ok(garage.buy_car("fd_1073", world_path, store_path, true, car).reason.contains("no ledger") and stamp(real_path) == real_before, "gated, buy_car refuses before any write")
+	CreditsLedger.path_override = ledger_path
+	runner.credits.spent.disconnect(on_spent)
+	runner.credits.earned.disconnect(on_earned)
+	WorldStore.path_override = ""
+	scene.queue_free()
+	await process_frame
+	for file in ["credits.json", "campaign.json", "world.json", "cars.json"]:
+		DirAccess.remove_absolute(test_dir.path_join(file))
+
+# =============================================================================
 #  The Ring
 # =============================================================================
 
@@ -526,7 +879,7 @@ func _ring() -> void:
 		if runner.active.is_empty():
 			break
 	var result: Dictionary = runner.last_result
-	ok(result.get("passed", false) and result.get("reason") == "course complete" and result.get("medal") == "gold", PASS_JOB + " shipped controls drive the actual Ring car to a pass")
+	ok(result.get("passed", false) and result.get("reason") == "course complete" and result.get("medal") == "gold", PASS_JOB + " shipped controls drive the actual Ring car to a pass (" + runner.result_text() + ")")
 	var measured: float = result.get("time_s", 0.0)
 	var bands: Dictionary = job.scoring.medal_times
 	ok(absf(measured - job.provenance.medals.scripted_time_s) < 0.000001, PASS_JOB + " measurement matches recorded provenance")
@@ -568,7 +921,111 @@ func _ring() -> void:
 	var persisted := CampaignStore.new()
 	persisted.load_state()
 	ok(persisted.state.rank == "junior" and persisted.state.results[PASS_JOB].medal == "gold" and persisted.state.results[FAIL_JOB].medal == "" and not persisted.state.rewards.test_driver, "the campaign keeps both results; a job promotes nobody")
+	await _fuel(scene, car, runner, ledger)
 	ok(files() == PackedStringArray(["campaign.json", "credits.json"]), "the test's folder holds the two stores it opted into, no temporary file")
 	root.remove_child(scene)
 	scene.free()
 	await physics_frame
+
+# =============================================================================
+#  Paid fuel (ECON-3)
+# =============================================================================
+
+## The Ring's shipped Refuel node, wired to the runner's ledger (the test's
+## file, the job's 95 credits in it): the dry run away from every station,
+## the paid fill at E2.4 by the ceil rule, the line's texts, the
+## unaffordable fill, the exact-balance fill, and the gated (unwired) free
+## fill.
+func _fuel(scene: Node, car: ArcadeCar, runner: MissionRunner, ledger: CreditsLedger) -> void:
+	var refuel: Refuel = scene.get_node("Refuel")
+	var station := Buildings.record(FUEL_STATION_ID)
+	var at := station.position()
+	var spends: Array = []
+	var on_spent := func(t: Dictionary): spends.append(t)
+	runner.credits.spent.connect(on_spent)
+	ok(Refuel.LITRE_PRICE_CREDITS == 2 and Refuel.fill_cost(20.0) == 88 and Refuel.fill_cost(0.0) == 128 and Refuel.fill_cost(63.7) == 1 and Refuel.fill_cost(64.0) == 0 and Refuel.fill_cost(70.0) == 0 and Refuel.fill_cost(63.5) == 1 and Refuel.fill_cost(63.4) == 2, "the price: 2 credits a litre, the cost the gap rounded up to the whole credit (a full fill 128, 0.3 L 1, 0.6 L 2, a full tank 0)")
+	ok(Refuel.hint_line(88, 95, false) == Refuel.HINT_TEXT and Refuel.hint_line(88, 95, true) == "FUEL STATION near — hold U to fill (2 cr/L — you hold 95 cr)" and Refuel.hint_line(88, 7, true) == "FUEL STATION near — hold U to fill (2 cr/L — need ~88 cr, you hold 7 cr)" and Refuel.hint_line(88, 88, true).contains("you hold 88 cr") and not Refuel.hint_line(88, 88, true).contains("need"), "the line: the old text unwired; the price and the balance wired; the shortfall when the balance cannot cover the gap; exactly enough is enough")
+	ok(refuel.wired_ledger() == runner.credits and refuel.fill_count == 0 and refuel.paid_credits == 0 and refuel.refused_count == 0, "the Ring's Refuel node is wired to the runner's ledger; the jobs filled and paid nothing")
+
+	# Away from every station: the dry run.
+	car.reset_to(Transform3D(car.global_basis, Vector3(at.x + 100.0, 0.0, at.y)))
+	_engine_off(car)
+	car.fuel_l = PART_TANK_L
+	for i in 20:
+		await physics_frame
+	var bytes := read_text(ledger_path)
+	Input.action_press(Refuel.ACTION)
+	for i in 30:
+		await physics_frame
+	Input.action_release(Refuel.ACTION)
+	ok(refuel.near == null and not refuel.hint_visible() and refuel.fill_count == 0 and refuel.paid_credits == 0 and refuel.refused_count == 0 and car.fuel_l == PART_TANK_L and read_text(ledger_path) == bytes, "100 m off E2.4 the key held 30 ticks fills nothing, pays nothing, the ledger untouched")
+
+	# At the station with the job's 95 credits, 44 L short: 88 credits.
+	car.reset_to(Transform3D(car.global_basis, Vector3(at.x, 0.0, at.y)))
+	_engine_off(car)
+	car.fuel_l = PART_TANK_L
+	for i in 20:
+		await physics_frame
+	ok(refuel.near == station and refuel.hint_visible() and car.fuel_l == PART_TANK_L and refuel.hint_text() == "FUEL STATION near — hold U to fill (2 cr/L — you hold 95 cr)", "at E2.4 with 95 credits and 44 L short: the line names the price and the balance")
+	Input.action_press(Refuel.ACTION)
+	await physics_frame
+	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == 1 and refuel.paid_credits == 88 and refuel.refused_count == 0, "the first tick with the key held: the tank filled to capacity, 88 credits paid")
+	ledger.load_state()
+	ok(ledger.balance() == 7 and ledger.transactions().size() == 2 and ledger.transactions()[1] == {"seq": 2, "kind": "spend", "amount": 88, "reason": "fuel"} and spends.size() == 1 and spends[0].amount == 88, "the ledger: one spend of 88 with reason fuel after the job's pay, 7 credits left, one spent signal")
+	for i in 30:
+		await physics_frame
+	Input.action_release(Refuel.ACTION)
+	ledger.load_state()
+	ok(refuel.fill_count == 1 and refuel.paid_credits == 88 and ledger.balance() == 7 and ledger.transactions().size() == 2, "held on at a full tank 30 ticks: nothing more filled, nothing more paid")
+	ok(refuel.hint_text() == "FUEL STATION near — hold U to fill (2 cr/L — you hold 7 cr)", "the line follows the balance")
+	car.fuel_l = 63.7
+	Input.action_press(Refuel.ACTION)
+	await physics_frame
+	Input.action_release(Refuel.ACTION)
+	ledger.load_state()
+	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == 2 and refuel.paid_credits == 89 and ledger.balance() == 6 and ledger.transactions()[-1].amount == 1, "a 0.3 L gap costs 1 credit: the station rounds up to the whole credit")
+
+	# Unaffordable: 6 credits, 44 L short.
+	car.fuel_l = PART_TANK_L
+	await physics_frame
+	ok(refuel.hint_text() == "FUEL STATION near — hold U to fill (2 cr/L — need ~88 cr, you hold 6 cr)", "short of credits the line says the shortfall")
+	bytes = read_text(ledger_path)
+	Input.action_press(Refuel.ACTION)
+	for i in 30:
+		await physics_frame
+	Input.action_release(Refuel.ACTION)
+	ledger.load_state()
+	ok(car.fuel_l == PART_TANK_L and refuel.fill_count == 2 and refuel.paid_credits == 89 and refuel.refused_count == 30 and read_text(ledger_path) == bytes and ledger.balance() == 6 and spends.size() == 2, "the unaffordable fill: no fuel, no debit, every one of the 30 ticks refused (all or nothing: no partial fill)")
+	car.fuel_l = 62.5
+	Input.action_press(Refuel.ACTION)
+	await physics_frame
+	Input.action_release(Refuel.ACTION)
+	ledger.load_state()
+	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.paid_credits == 92 and ledger.balance() == 3, "1.5 L short with 6 credits: 3 paid, 3 left")
+	car.fuel_l = 60.5
+	Input.action_press(Refuel.ACTION)
+	await physics_frame
+	Input.action_release(Refuel.ACTION)
+	ledger.load_state()
+	ok(car.fuel_l == 60.5 and refuel.refused_count == 31 and ledger.balance() == 3 and refuel.hint_text().contains("need ~7 cr, you hold 3 cr"), "3.5 L short with 3 credits: refused, 7 needed")
+
+	# Unwired: the ledger gated, the fill is free and the line the old text.
+	CreditsLedger.path_override = ""
+	bytes = read_text(ledger_path)
+	await physics_frame
+	ok(refuel.wired_ledger() == null and refuel.hint_text() == Refuel.HINT_TEXT, "the ledger gated: no ledger wired, the line is exactly the old text")
+	Input.action_press(Refuel.ACTION)
+	await physics_frame
+	Input.action_release(Refuel.ACTION)
+	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == 4 and refuel.paid_credits == 92 and refuel.refused_count == 31 and read_text(ledger_path) == bytes and stamp(real_path) == real_before, "the fill is free: the tank full, nothing paid, the file and the driver's own untouched (the grace seam)")
+	CreditsLedger.path_override = ledger_path
+	runner.credits.spent.disconnect(on_spent)
+	Input.action_release(Refuel.ACTION)
+
+
+## The engine off, honestly (the refuel test's rule): engine_running false
+## AND the crank at rest, so the idle burn cannot move the tank under the
+## bit-exact assertions.
+func _engine_off(car: ArcadeCar) -> void:
+	car.engine_running = false
+	car.engine_omega = 0.0

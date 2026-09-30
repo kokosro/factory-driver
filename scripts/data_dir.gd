@@ -55,7 +55,11 @@ const MARKER_FILE := ".factory-driver-data"
 # first-run map again and lose the voucher. A source without it copies
 # nothing new.
 # was three files -> campaign.json follows the driver to a chosen folder (ML-1).
-const SEEDED_FILES: Array[String] = ["cars.json", "issues.json", "world.json", "campaign.json"]
+# was four files -> credits.json follows the driver to a chosen folder
+# (CreditsLedger.PATH, the credits log; ECON-2 closing ECON-1's known gap):
+# a fresh data folder seeded without it would zero the balance and, with
+# ECON-3, lose every car bought from the log.
+const SEEDED_FILES: Array[String] = ["cars.json", "issues.json", "world.json", "campaign.json", "credits.json"]
 const SEEDED_DIRS: Array[String] = ["telemetry"]
 
 ## Where the game kept its data before it had a folder of its own: Godot's

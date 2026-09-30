@@ -132,6 +132,11 @@ func _check_key() -> void:
 	_check(Refuel.KEY == KEY_U and OS.get_keycode_string(Refuel.KEY) == "U", "the refuel key is U (physical %d, the engine names it %s)" % [Refuel.KEY, OS.get_keycode_string(Refuel.KEY)])
 	_check(on_key and others.is_empty(), "refuel's one event is plain physical U (keycode 0, no modifier), and no other action - the engine's built-ins included - is on plain U (%s)" % (", ".join(others) if not others.is_empty() else "none"))
 	_check(Refuel.HINT_TEXT == "FUEL STATION near — hold U to fill" and Refuel.HINT_TEXT.contains(OS.get_keycode_string(Refuel.KEY)), "the line names the key: \"%s\"" % Refuel.HINT_TEXT)
+	# ECON-3, the price: 2 credits a litre, the fill's cost the gap rounded
+	# up to the whole credit; the line unwired is the old text exactly, wired
+	# it carries the price and the balance, or the shortfall.
+	_check(Refuel.LITRE_PRICE_CREDITS == 2 and Refuel.FUEL_REASON == "fuel" and Refuel.fill_cost(20.0) == 88 and Refuel.fill_cost(63.7) == 1 and Refuel.fill_cost(ArcadeCar.FUEL_TANK_CAPACITY_L) == 0 and Refuel.fill_cost(0.0) == int(ceil(ArcadeCar.FUEL_TANK_CAPACITY_L * 2.0)), "the price is 2 cr/L and a fill costs the gap rounded up to the whole credit (20 L -> 88, 63.7 L -> 1, full -> 0, empty -> %d)" % Refuel.fill_cost(0.0))
+	_check(Refuel.hint_line(88, 95, false) == Refuel.HINT_TEXT and Refuel.hint_line(0, 0, false) == Refuel.HINT_TEXT and Refuel.hint_line(88, 95, true) == Refuel.HINT_TEXT + " (2 cr/L — you hold 95 cr)" and Refuel.hint_line(88, 7, true) == Refuel.HINT_TEXT + " (2 cr/L — need ~88 cr, you hold 7 cr)" and Refuel.hint_line(88, 88, true) == Refuel.HINT_TEXT + " (2 cr/L — you hold 88 cr)", "the line: exactly the old text without a ledger; with one the price and the balance, or the shortfall when the balance cannot cover the gap")
 
 
 # =============================================================================
@@ -338,6 +343,54 @@ func _check_ring() -> Dictionary:
 	Input.action_release(Refuel.ACTION)
 	_check(refuel.car_xz().distance_to(at) > Refuel.RADIUS_M and refuel.near == null and not refuel.hint_visible() and not hint.visible, "moved %.0f m off the station (%.1f m from it): the line is down" % [AWAY_M, refuel.car_xz().distance_to(at)])
 	_check(car.fuel_l == PART_TANK_L and refuel.fill_count == fills_before, "and the key held %d ticks there fills nothing (%.1f L)" % [HOLD_FRAMES, car.fuel_l])
+
+	# ECON-3, wired: the ledger pointed at a file of this test's own (the
+	# runner's ledger reads it on arrival at the station), the fill paid;
+	# every pin above is the no-ledger one (the store off, no override: the
+	# grace seam) and stays as it was. 50 credits in the file, the tank at
+	# 60 L: 4 L short, 8 credits.
+	var ledger_dir := (OS.get_environment("TMPDIR") if not OS.get_environment("TMPDIR").is_empty() else "/tmp").path_join("factory-driver-refuel-%d" % OS.get_process_id())
+	var ledger_path := ledger_dir.path_join("credits.json")
+	DirAccess.make_dir_recursive_absolute(ledger_dir)
+	var ledger_file := FileAccess.open(ledger_path, FileAccess.WRITE)
+	ledger_file.store_string(JSON.stringify({"version": 1, "balance": 50, "transactions": [{"seq": 1, "kind": "earn", "amount": 50, "reason": "job:test"}]}))
+	ledger_file.close()
+	CreditsLedger.path_override = ledger_path
+	_check(refuel.paid_credits == 0 and refuel.refused_count == 0 and refuel.wired_ledger() != null and refuel.wired_ledger() == MissionRunner.of(self).credits, "the ledger wired now (an override of this test's own): the runner's ledger, nothing paid or refused so far")
+	car.reset_to(Transform3D(car.global_basis, Vector3(at.x, 0.0, at.y)))
+	_engine_off(car)
+	car.fuel_l = 60.0
+	await _step(SETTLE_FRAMES)
+	_check(refuel.near == station and refuel.hint_visible() and hint.text == Refuel.HINT_TEXT + " (2 cr/L — you hold 50 cr)" and car.fuel_l == 60.0, "back at %s wired with 50 credits: the line carries the price and the balance: \"%s\"" % [RING_STATION_ID, refuel.hint_text()])
+	fills_before = refuel.fill_count
+	Input.action_press(Refuel.ACTION)
+	await _step(1)
+	Input.action_release(Refuel.ACTION)
+	var ledger := CreditsLedger.new()
+	ledger.load_state()
+	_check(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == fills_before + 1 and refuel.paid_credits == 8 and refuel.refused_count == 0, "the first tick with the key held: the tank filled to capacity, 8 credits paid (4 L x 2, whole)")
+	_check(ledger.balance() == 42 and ledger.transactions().size() == 2 and ledger.transactions()[1] == {"seq": 2, "kind": "spend", "amount": 8, "reason": "fuel"}, "the ledger file holds the spend: 8 credits with reason fuel, 42 left")
+	await _step(1)
+	_check(hint.text == Refuel.HINT_TEXT + " (2 cr/L — you hold 42 cr)", "the line follows the balance")
+	car.fuel_l = PART_TANK_L
+	await _step(1)
+	_check(hint.text == Refuel.HINT_TEXT + " (2 cr/L — need ~88 cr, you hold 42 cr)", "the tank at %.0f L again, 88 credits short of 42: the line says the shortfall" % PART_TANK_L)
+	fills_before = refuel.fill_count
+	Input.action_press(Refuel.ACTION)
+	await _step(HOLD_FRAMES)
+	Input.action_release(Refuel.ACTION)
+	ledger.load_state()
+	_check(car.fuel_l == PART_TANK_L and refuel.fill_count == fills_before and refuel.refused_count == HOLD_FRAMES and refuel.paid_credits == 8 and ledger.balance() == 42 and ledger.transactions().size() == 2, "the key held %d ticks short of credits: no fuel, no debit, every tick refused (all or nothing)" % HOLD_FRAMES)
+	CreditsLedger.path_override = ""
+	DirAccess.remove_absolute(ledger_path)
+	DirAccess.remove_absolute(ledger_dir)
+	await _step(1)
+	_check(refuel.wired_ledger() == null and hint.text == Refuel.HINT_TEXT, "the override cleared: no ledger wired again, the line exactly the old text")
+	fills_before = refuel.fill_count
+	Input.action_press(Refuel.ACTION)
+	await _step(1)
+	Input.action_release(Refuel.ACTION)
+	_check(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == fills_before + 1 and refuel.paid_credits == 8 and not DirAccess.dir_exists_absolute(ledger_dir), "and the fill is free again, nothing paid, the test's ledger folder gone")
 
 	scene.queue_free()
 	await _step(2)

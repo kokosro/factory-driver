@@ -7,9 +7,14 @@ extends RefCounted
 ## The canon economy is TROC (docs/design/design-synthesis-draft.md §4: no
 ## money, goods for services for vouchers). Credits are NOT that economy's
 ## currency: they are its accounting unit, the number a paid job adds to,
-## which the barter layer will price against when it comes. Nothing spends
-## them yet: "earn" is the only kind written and the only kind read; the
-## schema reserves the field so a later "spend" needs no migration.
+## which the barter layer will price against when it comes. ECON-1 wrote
+## "earn" alone and reserved "spend"; ECON-3 activates it: a car bought at
+## the garage's dealership (scripts/dealership.gd, reason "car:<car_id>";
+## a refund "refund:car:<car_id>" is an earn) and a fill at a station
+## (scripts/refuel.gd, reason "fuel") are spends. The kind carries the
+## direction: an amount is a whole number above zero for BOTH kinds, and
+## the derived balance is the earns less the spends. VERSION stays 1: the
+## schema reserved the kind, so no migration and no version bump.
 ##
 ## A FILE OF ITS OWN, not a field of world.json: world.json is the driver's
 ## place in the world (the pin, the vouchers, the rental) and is written by
@@ -18,9 +23,14 @@ extends RefCounted
 ## (the campaign store's precedent, campaign_store.gd).
 ##
 ## THE LOG IS THE LEDGER. `balance` is derived truth: a reader sums the
-## transactions it accepts and adopts that sum; a stored balance that says
-## otherwise is reported in "problems" and never trusted. `seq` is derived
-## the same way (1-based, contiguous: an entry's place in the accepted log).
+## transactions it accepts (earns added, spends taken off) and adopts that
+## sum; a stored balance that says otherwise is reported in "problems" and
+## never trusted. `seq` is derived the same way (1-based, contiguous: an
+## entry's place in the accepted log). The write path never takes the
+## balance below zero (spend refuses what the balance cannot cover); a
+## hand-edited log that spends more than it earns reads as the negative
+## sum it is, reported, never repaired (the tolerant reader reports and
+## invents nothing).
 ##
 ## TOLERANT READER (WorldStore's rule): a missing file or field is its
 ## default (balance 0, an empty log); an entry that is none of its own is
@@ -46,7 +56,7 @@ extends RefCounted
 ## PATH behind the same switch as every other store (OdometerStore.enabled:
 ## on with a window, off headless); the headless suite reads and writes
 ## NOTHING unless a test points path_override at a file of its own. Gated,
-## earn returns {} and keeps nothing, in memory or on disk.
+## earn and spend return {} and keep nothing, in memory or on disk.
 ##
 ## No autoload, no node: whoever pays holds one (MissionRunner.credits) and
 ## a test makes its own.
@@ -54,11 +64,16 @@ extends RefCounted
 ## Fired when an earn was committed, with the transaction as written.
 signal earned(transaction: Dictionary)
 
+## Fired when a spend was committed, with the transaction as written.
+signal spent(transaction: Dictionary)
+
 const PATH := "user://credits.json"
 const VERSION := 1
 
-## The kinds a transaction may have. "spend" is reserved, not implemented.
-const KINDS := ["earn"]
+## The kinds a transaction may have: what a job pays in, what a car or a
+## fill takes out. was ["earn"], "spend" reserved -> both written and read
+## (ECON-3).
+const KINDS := ["earn", "spend"]
 
 ## A test's file, read and written instead of PATH; "" for none (the game).
 static var path_override := ""
@@ -162,8 +177,12 @@ func load_state() -> void:
 		kept["amount"] = int(kept.amount)
 		if kept.has("at_s"):
 			kept["at_s"] = float(kept.at_s)
-		total += kept.amount
+		# was `total += kept.amount` for the one kind -> the earns less the
+		# spends (ECON-3).
+		total += kept.amount if kept.kind == "earn" else -kept.amount
 		kept_log.append(kept)
+	if total < 0:
+		problems.append("%s: the log spends more than it earns (%d), no write path does that" % [path, total])
 	if data.has("balance") and (not whole(data.balance) or data.balance != total):
 		problems.append("%s: balance %s is not the sum of the log, %d is used" % [path, str(data.balance), total])
 	state = {"version": VERSION, "balance": total, "transactions": kept_log}
@@ -181,15 +200,43 @@ func earn(amount: int, reason: String, at_s := -1.0) -> Dictionary:
 	load_state()
 	if newer_file:
 		return {}
-	var transaction := {"seq": state.transactions.size() + 1, "kind": "earn", "amount": amount, "reason": reason}
+	var transaction := _commit_transaction("earn", amount, reason, at_s)
+	if not transaction.is_empty():
+		earned.emit(transaction.duplicate(true))
+	return transaction
+
+
+## Takes `amount` credits off for `reason` (ECON-3): earn's exact mirror,
+## the same refusals ({} when the store is gated, the amount is not above
+## zero, the reason is empty, the time is not finite, the file is a later
+## build's, or the write failed), and one more: an amount the balance as it
+## stands on disk cannot cover is refused, so the balance never goes below
+## zero through this path. The entry is written with the POSITIVE amount
+## under kind "spend" (the kind carries the direction). Returns the
+## transaction as written, {} when nothing was.
+func spend(amount: int, reason: String, at_s := -1.0) -> Dictionary:
+	if active_path() == "" or amount <= 0 or reason.strip_edges().is_empty() or not is_finite(at_s):
+		return {}
+	load_state()
+	if newer_file or amount > balance():
+		return {}
+	var transaction := _commit_transaction("spend", amount, reason, at_s)
+	if not transaction.is_empty():
+		spent.emit(transaction.duplicate(true))
+	return transaction
+
+
+## Appends one transaction of `kind` to the state as loaded and commits the
+## file; the transaction as written, {} when the write failed.
+func _commit_transaction(kind: String, amount: int, reason: String, at_s: float) -> Dictionary:
+	var transaction := {"seq": state.transactions.size() + 1, "kind": kind, "amount": amount, "reason": reason}
 	if at_s >= 0.0:
 		transaction["at_s"] = at_s
 	var next: Dictionary = state.duplicate(true)
 	next.transactions.append(transaction)
-	next.balance += amount
+	next.balance += amount if kind == "earn" else -amount
 	if not _commit(next):
 		return {}
-	earned.emit(transaction.duplicate(true))
 	return transaction.duplicate(true)
 
 
