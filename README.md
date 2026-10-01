@@ -3108,3 +3108,17 @@ albedo on pass, failure, abort and teardown. FD-14's pad ground reads as packed
 snow, `[0.82, 0.84, 0.87]`, for the episode only. Ring-venue grounds are not
 tinted by this mechanism: a ring mission carrying the key validates and applies
 nothing.
+
+### The obligations ledger (TROC-1 slice 1)
+
+The TROC ruling's store (decisions.org `85BE93B5` and `16036083`,
+`docs/design/troc-redesign.md`): `scripts/obligations_ledger.gd` keeps `obligations.json`
+in the data directory, behind the same telemetry switch as every store (`FD_TELEMETRY=0`
+writes nothing). A record is `creditor`, `debtor`, `owed`, an optional `kind` hint,
+`origin`, `status`, `redemptions` and `transfers`; the counterparties are opaque ids, the
+player one among them. Settlements are one-shot: exactly one redemption closes an
+obligation, a second is refused. A transfer reassigns the creditor and keeps the history.
+There are NO totals anywhere: the log IS the ledger, and the open views are derived,
+never summed. Nothing is visible in the game yet — the store exists and is proven
+(`tests/obligations_test.gd`); slices 2-4 wire the jobs page, the dealership barter and
+the fuel-for-obligation to it.

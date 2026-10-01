@@ -3,7 +3,7 @@
 `tests/run_tests.sh` is the gate: a headless import, then the config, element catalogue,
 skeleton, world profile, buildings, dressing, ring drive, bubble, offroad, async build, smoke, handling, camera, mission, battery,
 thermal, tyre/brake thermal, steering-feel, wear, licence, menu, issue flag, minimap, airborne, reset,
-refuel, telemetry watch, marks, sound, side road, road edge, mission ladder, credits and first run tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
+refuel, telemetry watch, marks, sound, side road, road edge, mission ladder, credits, obligations and first run tests, the driving ones on the tick clock (`--fixed-fps 60`), a few
 minutes (the dressing test builds the Ring scene twice; the ring drive test builds the Ring's
 road twice and drives 2 km on it twice; the bubble test builds it twice more and drives
 700 m of the loop twice, at a tree twice and a teleport (BUBBLE-1; `FD_BUBBLE_PERF=1` in
@@ -53,8 +53,12 @@ more builds of the Ring; the test takes `FD_WEATHER` off for its clear scenes an
 it, and the suite runs with it unset; since
 BUBBLE-1 the forest build also writes the trunk bodies, a few hundred milliseconds; since
 OFFROAD-1 the terrain build also writes the continuation skirt, about a second).
-`tests/run_tests.sh --parallel` runs the thirty-four tests side by side after the import and
-prints the same lines in the same order (was thirty-one -> the ML-1 mission ladder test; was thirty-two -> the credits test, ECON-1; was thirty-three -> the sound test, SOUND-1; 36 markers including import and the final verdict, was 35 -> the sound test, SOUND-1).
+`tests/run_tests.sh --parallel` runs the thirty-five tests side by side after the import and
+prints the same lines in the same order (was thirty-one -> the ML-1 mission ladder test; was thirty-two -> the credits test, ECON-1; was thirty-three -> the sound test, SOUND-1; was thirty-four -> the obligations test, TROC-1 slice 1; 37 markers including import and the final verdict, was 36 -> the obligations test, TROC-1 slice 1; was 35 -> the sound test, SOUND-1).
+The obligations test adds 79 checks (`OBLIGATIONS TEST PASSED`), measured on the host: the
+ObligationsLedger store (TROC-1 slice 1) — the record shape, the one-shot redemption, the
+creditor transfers, the derived open views, the versions and the corruption tolerance, on a
+file of the test's own.
 The sound test adds 91 checks (`SOUND TEST PASSED`), measured on the
 host (was 73 -> CAT-AWARE-1's cat battery, eighteen: with `FD_CAT=1` the one shared `Cat` audio
 bus and its 3000 Hz low-pass, all eight players routed to it, the squeal written at x0.6 pitch and

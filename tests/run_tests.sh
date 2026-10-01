@@ -11,15 +11,16 @@
 # the smoke test, then the handling,
 # camera, mission, battery, thermal, tyre/brake thermal, steering-feel,
 # wear, licence, menu, issue flag, minimap, airborne, reset, refuel,
-# telemetry watch, marks, sound, side road, road edge, mission ladder, credits and first run tests (36 markers
-# including import and the final verdict; was 35 -> the sound test, SOUND-1; was 34 -> the credits test, ECON-1). Fails on a non-zero exit code
+# telemetry watch, marks, sound, side road, road edge, mission ladder, credits, obligations and first run tests (37 markers
+# including import and the final verdict; was 36 -> the obligations test, TROC-1 slice 1; was 35 -> the sound test, SOUND-1; was 34 -> the credits test, ECON-1). Fails on a non-zero exit code
 # or on any engine/script error in the output.
 #
 #   tests/run_tests.sh              one step after the other, stops at the first failure
-#   tests/run_tests.sh --parallel   the import first, then the thirty-four tests side by side
+#   tests/run_tests.sh --parallel   the import first, then the thirty-five tests side by side
 #                                   (was thirty-one -> the mission ladder test, ML-1;
 #                                   was thirty-two -> the credits test, ECON-1;
-#                                   was thirty-three -> the sound test, SOUND-1)
+#                                   was thirty-three -> the sound test, SOUND-1;
+#                                   was thirty-four -> the obligations test, TROC-1 slice 1)
 #
 # Both print the same lines in the same order. --parallel prints a step when it
 # and every step before it is done, runs them all to the end and then fails if
@@ -196,6 +197,10 @@ run_step "import" "$GODOT" --headless --path "$ROOT" --import
 # the payment pins on the pad, the job board on the Ring: one job driven to a
 # real pass through its shipped controls, one to a real failure.
 "$STEP" "credits test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/credits_test.gd
+# TROC-1 slice 1: the obligations ledger (a file of the test's own): the record shape,
+# the one-shot redemption, the transfers, the derived open views, the versions, the
+# corruption tolerance.
+"$STEP" "obligations test" "$GODOT" --headless --fixed-fps 60 --path "$ROOT" --script res://tests/obligations_test.gd
 # 4B-6, the first run: the world map, the pin, the test centre's yard, the L0
 # voucher, the rental lock and the first car; the store pinned off, a world
 # file of the test's own.
