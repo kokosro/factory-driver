@@ -55,7 +55,13 @@ BUBBLE-1 the forest build also writes the trunk bodies, a few hundred millisecon
 OFFROAD-1 the terrain build also writes the continuation skirt, about a second).
 `tests/run_tests.sh --parallel` runs the thirty-four tests side by side after the import and
 prints the same lines in the same order (was thirty-one -> the ML-1 mission ladder test; was thirty-two -> the credits test, ECON-1; was thirty-three -> the sound test, SOUND-1; 36 markers including import and the final verdict, was 35 -> the sound test, SOUND-1).
-The sound test adds 73 checks (`SOUND TEST PASSED`), measured on the host (was 53 -> SOUND-3's
+The sound test adds 91 checks (`SOUND TEST PASSED`), measured on the
+host (was 73 -> CAT-AWARE-1's cat battery, eighteen: with `FD_CAT=1` the one shared `Cat` audio
+bus and its 3000 Hz low-pass, all eight players routed to it, the squeal written at x0.6 pitch and
+-6 dB, the thump at x0.8 pitch and -8 dB, the other channels untouched, the bus made by the first
+cat node and removed with the last, the determinism of two cat cars over the sixteen-value state,
+`FD_SOUND=0` winning over `FD_CAT=1`, the realistic mix to the bit once `FD_CAT` is off again, and
+the `FD_CAT` restore pin; was 53 -> SOUND-3's
 twenty: the thump burst and the wind's zero-crossing rate on the built PCM, the wind, impact
 and environment corners, the wind on the bare car, the eight-check environment battery and the
 three-check shed impact drive; was 51 -> SOUND-2's

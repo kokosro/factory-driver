@@ -73,7 +73,32 @@ extends SceneTree
 ## the scan catching up within a cadence, shells that appear later seen at
 ## the next scan, no node created or written; the pad (no Buildings node)
 ## fully open, its trims 0, its rumble bit-identical to SOUND-2's; the
-## state dictionary twelve values (was-> seven) under the determinism pin.
+## state dictionary twelve values (was-> seven) under the determinism pin
+## (was-> twelve: sixteen since CAT-AWARE-1, below).
+##
+## CAT-AWARE-1 (the driver's ruling, 2026-10-01: "the tire squeke is still
+## scaring my cat. can we try to do all sounds with cat awareness / wellbeing
+## in mind."): FD_CAT is taken OFF for every section above (the realistic
+## mix, whatever the caller's shell exports) and the last section runs the
+## cat battery with FD_CAT=1: the pure corners of the switch and the four cat
+## functions (off: the mapped value itself to the bit; a muted channel stays
+## muted); a bare car's node in cat mode - the one shared "Cat" bus made,
+## its one AudioEffectLowPassFilter at CAT_LOWPASS_HZ, all eight players
+## routed to it; a solid squeal written at x0.6 pitch (0.9) and -10 dB (was
+## 1.5 and -4 realistic); the engine, the rumble and the wind mapped as
+## ever; the state dictionary's sixteen values; the thump's write path fired
+## by hand (pitch 0.8, -10 dB at a full impact, thump_db the mapped base);
+## the bus removed with the last cat node, made again for the next, ONE bus
+## for two nodes, kept while one of them lives; two cat cars fed the same
+## reads equal to the bit; FD_SOUND=0 winning over FD_CAT=1 (no node, no
+## bus); the realism identity with FD_CAT unset again (no bus, the default
+## bus on every player, the squeal and the thump the plain mapped values to
+## the bit); FD_CAT restored at the end. After the last check a REAL-TIME
+## teardown drain (OS.delay_msec 500) lets the AudioServer's mix thread drop
+## the freed players' pending AudioStreamPlaybackWAVs - without it the exit
+## audit leaked 22..27 pending playbacks (a WARNING, differing run to run:
+## two suite logs differing); under --fixed-fps 60 a game-time wait of any
+## length does not drain, the mix thread runs in real time.
 ##
 ## The store pinned off (FD_TELEMETRY=0, the marks test's idiom); FD_SOUND
 ## restored at the end. Exits 0 on success, 1 on any failed check.
@@ -118,6 +143,7 @@ const SAME_READS := {"rpm": 4321.5, "throttle": 0.37, "running": true, "grip_fro
 var _failures := 0
 var _tmp_dir := ""
 var _sound_env_before := ""
+var _cat_env_before := ""
 var _attached := 0
 
 
@@ -128,6 +154,10 @@ func _initialize() -> void:
 func _run() -> void:
 	OS.set_environment("FD_TELEMETRY", "0")
 	_sound_env_before = OS.get_environment(SoundWatcher.ENV_VAR)
+	# CAT-AWARE-1: saved before any section, and taken off - every section up
+	# to the cat battery pins the realistic mix, whatever the shell exports.
+	_cat_env_before = OS.get_environment(SoundNode.CAT_ENV_VAR)
+	OS.set_environment(SoundNode.CAT_ENV_VAR, "")
 	_tmp_dir = TMP_DIR_PREFIX + str(OS.get_process_id())
 	DirAccess.make_dir_recursive_absolute(_tmp_dir)
 	print("-- the watcher")
@@ -153,8 +183,13 @@ func _run() -> void:
 	print("-- FD_SOUND=0: no node, the same slide to the bit")
 	OS.set_environment(SoundWatcher.ENV_VAR, "0")
 	await _check_switched_off(first)
+	print("-- FD_CAT: the cat-aware mix (CAT-AWARE-1)")
+	OS.set_environment(SoundWatcher.ENV_VAR, "1")
+	await _check_cat()
 	OS.set_environment(SoundWatcher.ENV_VAR, _sound_env_before)
 	_check(OS.get_environment(SoundWatcher.ENV_VAR) == _sound_env_before, "FD_SOUND restored to what it was (%s)" % ("unset" if _sound_env_before == "" else _sound_env_before))
+	OS.set_environment(SoundNode.CAT_ENV_VAR, _cat_env_before)
+	_check(OS.get_environment(SoundNode.CAT_ENV_VAR) == _cat_env_before, "FD_CAT restored to what it was (%s)" % ("unset" if _cat_env_before == "" else _cat_env_before))
 	_remove_tmp()
 	_finish()
 
@@ -557,6 +592,10 @@ func _check_determinism() -> void:
 	var snapped := true
 	var live := true
 	for key: String in state_a:
+		# CAT-AWARE-1: the cat mode is the dictionary's one bool, no number
+		# to snap (pinned false below).
+		if state_a[key] is bool:
+			continue
 		var value: float = state_a[key]
 		# The skid intensity is the marks-style raw intermediate (marks.gd's
 		# _streak_intensity rule: the intermediate is raw, the written values
@@ -574,7 +613,12 @@ func _check_determinism() -> void:
 	# move_and_slide pairs them: a REAL slide collision with a wall-like
 	# normal, the same on both - the impact intensity is not 0 here, and
 	# thumps fire on both nodes alike.
-	_check(state_a == state_b and state_a.size() == 12 and snapped and live and _players_match(sound_a) and _players_match(sound_b) and sound_a.skid_intensity > 0.0 and sound_a.skid_intensity < 1.0 and state_a.wind_db == SoundNode.wind_db_of(SAME_READS.speed) and state_a.openness == 1.0 and state_a.wind_offset_db == 0.0 and state_a.surface_offset_db == 0.0 and sound_a.impacts_fired == sound_b.impacts_fired and sound_a.thump_intensity == sound_b.thump_intensity and sound_a.thump_db == sound_b.thump_db, "DETERMINISM: fed the same reads (%.1f rpm, throttle %.2f, grip %.2f / %.2f, drag %.1f, %.1f m/s, slips %.2f / %.2f / %.2f / %.2f) both nodes carry the same twelve mapped values to the bit (was-> seven), the eleven db / pitch / openness / trim / impact values snapped to %.3f (the skid intensity the raw marks intermediate), every channel live, both fully open (no Buildings under the root), the two cars standing in each other on the origin colliding alike (%d thumps each, intensity %.3f): %s" % [SAME_READS.rpm, SAME_READS.throttle, SAME_READS.grip_front, SAME_READS.grip_rear, SAME_READS.drag, SAME_READS.speed, SAME_READS.front_angle, SAME_READS.front_ratio, SAME_READS.rear_angle, SAME_READS.rear_ratio, SoundNode.SNAP, sound_a.impacts_fired, sound_a.thump_intensity, state_a])
+	# was-> state_a.size() == 12, "the same twelve mapped values", "the eleven
+	# ... values snapped" (CAT-AWARE-1: sixteen - the cat mode, false here,
+	# the squeal's written pitch and volume under it, here the plain mapped
+	# ones, and the thump's pitch, 1; the twelve SOUND-3 values the same
+	# numbers as before).
+	_check(state_a == state_b and state_a.size() == 16 and state_a.cat_mode == false and state_a.skid_pitch_cat == state_a.skid_pitch and state_a.skid_db_cat == state_a.skid_db and state_a.skid_pitch == SoundNode.skid_pitch_of(sound_a.skid_intensity) and state_a.skid_db == SoundNode.skid_db_of(sound_a.skid_intensity, SAME_READS.speed) and state_a.thump_pitch_cat == 1.0 and snapped and live and _players_match(sound_a) and _players_match(sound_b) and sound_a.skid_intensity > 0.0 and sound_a.skid_intensity < 1.0 and state_a.wind_db == SoundNode.wind_db_of(SAME_READS.speed) and state_a.openness == 1.0 and state_a.wind_offset_db == 0.0 and state_a.surface_offset_db == 0.0 and sound_a.impacts_fired == sound_b.impacts_fired and sound_a.thump_intensity == sound_b.thump_intensity and sound_a.thump_db == sound_b.thump_db, "DETERMINISM: fed the same reads (%.1f rpm, throttle %.2f, grip %.2f / %.2f, drag %.1f, %.1f m/s, slips %.2f / %.2f / %.2f / %.2f) both nodes carry the same sixteen state values to the bit (was-> twelve; was-> seven), FD_CAT off (the cat mix off: the squeal the plain mapped pitch and volume, the thump's pitch 1), the fourteen db / pitch / openness / trim / impact values snapped to %.3f (was-> eleven) (the skid intensity the raw marks intermediate), every channel live, both fully open (no Buildings under the root), the two cars standing in each other on the origin colliding alike (%d thumps each, intensity %.3f): %s" % [SAME_READS.rpm, SAME_READS.throttle, SAME_READS.grip_front, SAME_READS.grip_rear, SAME_READS.drag, SAME_READS.speed, SAME_READS.front_angle, SAME_READS.front_ratio, SAME_READS.rear_angle, SAME_READS.rear_ratio, SoundNode.SNAP, sound_a.impacts_fired, sound_a.thump_intensity, state_a])
 	_write_reads(a, SAME_READS)
 	await physics_frame
 	_check(sound_a.state() == state_a, "the same reads a tick later map to the same values again")
@@ -753,6 +797,153 @@ func _check_switched_off(first: Dictionary) -> void:
 	_check(slide.ticks > 0 and slide.peak_rear_ratio <= -MarksLayer.LOCK_SOLID_RATIO, "and the rears locked the same (%.2f)" % slide.peak_rear_ratio)
 	_drop(scene)
 	await _step(1)
+
+
+# =============================================================================
+#  The cat-aware mix (CAT-AWARE-1)
+# =============================================================================
+
+## FD_CAT=1 (FD_SOUND=1 by the caller): the shared bus and its low-pass, the
+## routing, the squeal's and the thump's treatment, the bus's life with its
+## nodes, determinism, FD_SOUND=0 winning, and the realistic mix to the bit
+## once FD_CAT is off again. Leaves FD_CAT unset and FD_SOUND "1".
+func _check_cat() -> void:
+	var watch := SoundWatcher.of(self)
+	var buses_before := AudioServer.bus_count
+	var idle: float = ArcadeCar.IDLE_RPM
+	var limiter: float = ArcadeCar.REDLINE_RPM
+	var solid_pitch := SoundNode.skid_pitch_of(1.0)
+	var solid_db := SoundNode.skid_db_of(1.0, 10.0)
+	var full_thump_db := SoundNode.impact_db_of(1.0)
+	var cat_pitch := SoundNode.cat_skid_pitch_of(solid_pitch, true)
+	var cat_db := SoundNode.cat_skid_db_of(solid_db, true)
+	var cat_thump_db := SoundNode.cat_thump_db_of(full_thump_db, true)
+	_check(
+		SoundNode.cat_mode_of("1") and not SoundNode.cat_mode_of("") and not SoundNode.cat_mode_of("0") and not SoundNode.cat_mode_of("true") and not SoundNode.cat_mode_of("2") and SoundNode.CAT_ENV_VAR == "FD_CAT"
+			and SoundNode.cat_skid_pitch_of(solid_pitch, false) == solid_pitch and SoundNode.cat_skid_pitch_of(1.2345, false) == 1.2345 and cat_pitch == _snap(solid_pitch * SoundNode.CAT_SKID_PITCH) and absf(cat_pitch - 0.9) < 1.0e-9
+			and SoundNode.cat_skid_db_of(solid_db, false) == solid_db and SoundNode.cat_skid_db_of(SoundNode.MUTE_DB, false) == SoundNode.MUTE_DB and SoundNode.cat_skid_db_of(SoundNode.MUTE_DB, true) == SoundNode.MUTE_DB and SoundNode.cat_skid_db_of(SoundNode.MUTE_DB + 1.0, true) == SoundNode.MUTE_DB and cat_db == _snap(solid_db + SoundNode.CAT_SKID_DB_TRIM) and absf(cat_db - -10.0) < 1.0e-9
+			and SoundNode.cat_thump_pitch_of(false) == 1.0 and SoundNode.cat_thump_pitch_of(true) == SoundNode.CAT_THUMP_PITCH and SoundNode.cat_thump_db_of(full_thump_db, false) == full_thump_db and SoundNode.cat_thump_db_of(SoundNode.MUTE_DB, true) == SoundNode.MUTE_DB and SoundNode.cat_thump_db_of(SoundNode.MUTE_DB + 1.0, true) == SoundNode.MUTE_DB and cat_thump_db == _snap(full_thump_db + SoundNode.CAT_THUMP_DB_TRIM) and absf(cat_thump_db - -10.0) < 1.0e-9,
+		"FD_CAT, the pure corners of the cat mix: only \"1\" is cat mode (unset, \"0\", anything else off); off, each cat function returns the mapped value itself to the bit; on, the solid squeal's pitch %.3f becomes %.3f (x %.1f, snapped) and its %.1f dB %.1f (%+.0f dB), a full thump's %.1f dB %.1f (%+.0f dB) at pitch %.1f; a muted channel stays muted and nothing goes under %.0f dB" % [solid_pitch, cat_pitch, SoundNode.CAT_SKID_PITCH, solid_db, cat_db, SoundNode.CAT_SKID_DB_TRIM, full_thump_db, cat_thump_db, SoundNode.CAT_THUMP_DB_TRIM, SoundNode.CAT_THUMP_PITCH, SoundNode.MUTE_DB],
+	)
+
+	# A bare car in cat mode.
+	OS.set_environment(SoundNode.CAT_ENV_VAR, "1")
+	var none_before := not SoundNode.cat_bus_ready() and SoundNode.cat_nodes == 0
+	var car: ArcadeCar = (load(CAR_SCENE) as PackedScene).instantiate()
+	root.add_child(car)
+	await _step(SETTLE_FRAMES)
+	var sound := watch.sound_for(car)
+	if not _check(none_before and sound != null and sound.cat_mode and SoundNode.cat_nodes == 1 and _sounds_under(root).size() == 1, "FD_CAT=1: no cat bus and no cat node before the car (every realistic section above ran without one); the bare car's node is in cat mode, the one cat node alive"):
+		root.remove_child(car)
+		await _step(2)
+		car.free()
+		OS.set_environment(SoundNode.CAT_ENV_VAR, "")
+		return
+	var bus := AudioServer.get_bus_index(SoundNode.CAT_BUS_NAME)
+	var lowpass: AudioEffectLowPassFilter = null
+	if bus != -1 and AudioServer.get_bus_effect_count(bus) == 1:
+		lowpass = AudioServer.get_bus_effect(bus, 0) as AudioEffectLowPassFilter
+	_check(bus != -1 and SoundNode.cat_bus_ready() and AudioServer.bus_count == buses_before + 1 and lowpass != null and lowpass.cutoff_hz == SoundNode.CAT_LOWPASS_HZ, "FD_CAT=1: the node made the one shared \"%s\" audio bus (index %d, %d buses, was %d) carrying one effect, an AudioEffectLowPassFilter at CAT_LOWPASS_HZ (%.0f Hz)" % [SoundNode.CAT_BUS_NAME, bus, AudioServer.bus_count, buses_before, SoundNode.CAT_LOWPASS_HZ])
+	var cat_players := _players_under(sound)
+	var routed := cat_players.size() == SoundNode.PLAYER_COUNT
+	for player in cat_players:
+		routed = routed and String((player as AudioStreamPlayer).bus) == SoundNode.CAT_BUS_NAME
+	_check(routed, "FD_CAT=1: every one of the node's %d players (the four loops and the thump pool) plays through the \"%s\" bus" % [SoundNode.PLAYER_COUNT, SoundNode.CAT_BUS_NAME])
+
+	# A solid squeal: the rear at 3 peaks of slip angle at 10 m/s.
+	_write_slips(car, 0.0, 0.0, ArcadeCar.REAR_PEAK_SLIP_ANGLE * 3.0, 0.0, 10.0)
+	await physics_frame
+	_check(sound.skid_intensity == 1.0 and sound.last_speed == 10.0 and sound.skid_pitch == cat_pitch and sound.skid_pitch < solid_pitch and absf(sound.skid_player.pitch_scale - cat_pitch) < PLAYER_TOLERANCE, "the cat mix pitches the squeal down: a solid slide (intensity 1) is written at pitch %.3f, the mapped %.3f x CAT_SKID_PITCH %.1f - the 2000 Hz fundamental at %.0f Hz, under the cat's peak band (FD_CAT=1)" % [sound.skid_pitch, solid_pitch, SoundNode.CAT_SKID_PITCH, 2000.0 * sound.skid_pitch])
+	_check(sound.skid_db == cat_db and sound.skid_db > SoundNode.MUTE_DB and sound.skid_db < solid_db and absf(sound.skid_player.volume_db - cat_db) < PLAYER_TOLERANCE, "the cat mix trims the squeal's ceiling: the solid slide is written at %.1f dB, the mapped %.1f %+.0f (CAT_SKID_DB_TRIM, FD_CAT=1)" % [sound.skid_db, solid_db, SoundNode.CAT_SKID_DB_TRIM])
+	_check(sound.engine_pitch == SoundNode.engine_pitch_of(sound.last_rpm, idle, limiter) and sound.engine_db == SoundNode.engine_db_of(sound.last_rpm, sound.last_throttle, sound.last_running, idle, limiter) and sound.surface_pitch == SoundNode.surface_pitch_of(10.0) and sound.surface_db == SoundNode.surface_db_of(sound.last_drag, minf(sound.last_grip_front, sound.last_grip_rear), 10.0) and sound.surface_db > SoundNode.MUTE_DB and sound.wind_db == SoundNode.wind_db_of(10.0) and sound.wind_db > SoundNode.MUTE_DB and absf(sound.wind_player.pitch_scale - SoundNode.WIND_PITCH) < PLAYER_TOLERANCE and _players_match(sound), "the cat mix (FD_CAT=1) touches ONLY the squeal and the thumps: the engine's pitch and volume (%.3f / %.1f dB), the rumble's (%.3f / %.1f dB) and the wind's (%.1f / %.1f dB) are the plain mapped values to the bit, the players carrying them" % [sound.engine_pitch, sound.engine_db, sound.surface_pitch, sound.surface_db, SoundNode.WIND_PITCH, sound.wind_db])
+	var cat_state := sound.state()
+	_check(cat_state.size() == 16 and cat_state.get("cat_mode") == true and cat_state.get("skid_pitch_cat") == cat_pitch and cat_state.get("skid_db_cat") == cat_db and cat_state.get("skid_pitch") == cat_pitch and cat_state.get("skid_db") == cat_db and cat_state.get("thump_pitch_cat") == SoundNode.CAT_THUMP_PITCH and cat_state.get("skid_intensity") == 1.0, "the state dictionary carries sixteen values (was-> twelve) with the four of the cat mix: cat_mode true under FD_CAT=1, the squeal's written pitch and volume, the thump's pitch %.1f" % SoundNode.CAT_THUMP_PITCH)
+
+	# The thump's write path, fired by hand (the pad's impact drive stays
+	# realistic): a full impact, the cooldown long run.
+	var fired_before := sound.impacts_fired
+	var slot := sound.next_thump
+	sound.impact_intensity = 1.0
+	sound.last_impact_tick = sound.ticks - SoundNode.IMPACT_COOLDOWN_FRAMES
+	sound._fire_thump()
+	var thump: AudioStreamPlayer = sound.thump_players[slot]
+	_check(slot == 0 and sound.impacts_fired == fired_before + 1 and sound.thump_db == full_thump_db and thump.playing and absf(thump.pitch_scale - SoundNode.CAT_THUMP_PITCH) < PLAYER_TOLERANCE and absf(thump.volume_db - cat_thump_db) < PLAYER_TOLERANCE and sound.next_thump == 1, "the cat mix softens the impacts: a full thump fired through _fire_thump plays on %s%d at pitch %.1f (CAT_THUMP_PITCH: the 2 ms attack stretched) and %.1f dB, the mapped %.1f %+.0f (CAT_THUMP_DB_TRIM, FD_CAT=1); thump_db stays the mapped base" % [SoundNode.THUMP_PREFIX, slot, thump.pitch_scale, thump.volume_db, full_thump_db, SoundNode.CAT_THUMP_DB_TRIM])
+	print("  ", sound.describe())
+	_write_slips(car, 0.0, 0.0, 0.0, 0.0, 0.0)
+
+	# The last cat node leaving removes the bus.
+	root.remove_child(car)
+	await _step(2)
+	_check(not is_instance_valid(sound) and not SoundNode.cat_bus_ready() and SoundNode.cat_nodes == 0 and AudioServer.bus_count == buses_before and _players_under(root).is_empty(), "the cat car out of the tree: its node freed and, the last cat node gone, the \"%s\" bus removed (%d buses again, FD_CAT=1 still set)" % [SoundNode.CAT_BUS_NAME, AudioServer.bus_count])
+	car.free()
+
+	# Two cat cars: one bus for both, the same state to the bit.
+	var a: ArcadeCar = (load(CAR_SCENE) as PackedScene).instantiate()
+	var b: ArcadeCar = (load(CAR_SCENE) as PackedScene).instantiate()
+	root.add_child(a)
+	root.add_child(b)
+	await _step(SETTLE_FRAMES)
+	var sound_a := watch.sound_for(a)
+	var sound_b := watch.sound_for(b)
+	if not _check(sound_a != null and sound_b != null and sound_a != sound_b and sound_a.cat_mode and sound_b.cat_mode and SoundNode.cat_nodes == 2 and SoundNode.cat_bus_ready() and AudioServer.bus_count == buses_before + 1, "two bare cars under FD_CAT=1: two cat nodes and ONE shared \"%s\" bus, made again by the first of them" % SoundNode.CAT_BUS_NAME):
+		root.remove_child(a)
+		root.remove_child(b)
+		await _step(2)
+		a.free()
+		b.free()
+		OS.set_environment(SoundNode.CAT_ENV_VAR, "")
+		return
+	_write_reads(a, SAME_READS)
+	_write_reads(b, SAME_READS)
+	await physics_frame
+	var state_a := sound_a.state()
+	var state_b := sound_b.state()
+	_check(state_a == state_b and state_a.size() == 16 and state_a.get("cat_mode") == true and sound_a.skid_intensity > 0.0 and sound_a.skid_intensity < 1.0 and state_a.get("skid_pitch") == SoundNode.cat_skid_pitch_of(SoundNode.skid_pitch_of(sound_a.skid_intensity), true) and state_a.get("skid_db") == SoundNode.cat_skid_db_of(SoundNode.skid_db_of(sound_a.skid_intensity, SAME_READS.speed), true) and state_a.get("skid_pitch") == snappedf(state_a.get("skid_pitch"), SoundNode.SNAP) and state_a.get("skid_db") == snappedf(state_a.get("skid_db"), SoundNode.SNAP) and state_a.get("skid_db") > SoundNode.MUTE_DB and _players_match(sound_a) and _players_match(sound_b) and sound_a.impacts_fired == sound_b.impacts_fired and sound_a.thump_db == sound_b.thump_db, "DETERMINISM in the cat mix (FD_CAT=1): fed the same reads both nodes carry the same sixteen state values to the bit, the part squeal (intensity %.3f) written at the cat pitch %.3f and %.3f dB, snapped: %s" % [sound_a.skid_intensity, sound_a.skid_pitch, sound_a.skid_db, state_a])
+	root.remove_child(a)
+	await _step(2)
+	var bus_kept := not is_instance_valid(sound_a) and is_instance_valid(sound_b) and SoundNode.cat_nodes == 1 and SoundNode.cat_bus_ready() and AudioServer.bus_count == buses_before + 1 and String(sound_b.skid_player.bus) == SoundNode.CAT_BUS_NAME
+	root.remove_child(b)
+	await _step(2)
+	_check(bus_kept and not is_instance_valid(sound_b) and SoundNode.cat_nodes == 0 and not SoundNode.cat_bus_ready() and AudioServer.bus_count == buses_before and watch.live_sounds().is_empty(), "the cat bus lives as long as a cat node does (FD_CAT=1): one of the two cars out, the bus stays for the other; the last one out, the bus is removed and the bus count is back at %d" % buses_before)
+	a.free()
+	b.free()
+
+	# FD_SOUND=0 wins over FD_CAT=1.
+	OS.set_environment(SoundWatcher.ENV_VAR, "0")
+	var attach_off := not SoundWatcher.should_attach()
+	var got_node := await _bare_car_gets_node()
+	_check(attach_off and not got_node and not SoundNode.cat_bus_ready() and SoundNode.cat_nodes == 0 and AudioServer.bus_count == buses_before and _players_under(root).is_empty(), "FD_SOUND=0 wins over FD_CAT=1: should_attach is false, a bare car gets no node, no player, and no cat bus is made")
+	OS.set_environment(SoundWatcher.ENV_VAR, "1")
+
+	# FD_CAT off again: the realistic mix to the bit.
+	OS.set_environment(SoundNode.CAT_ENV_VAR, "")
+	var plain: ArcadeCar = (load(CAR_SCENE) as PackedScene).instantiate()
+	root.add_child(plain)
+	await _step(SETTLE_FRAMES)
+	var plain_sound := watch.sound_for(plain)
+	if not _check(plain_sound != null and not plain_sound.cat_mode and SoundNode.cat_nodes == 0 and not SoundNode.cat_bus_ready() and AudioServer.bus_count == buses_before, "FD_CAT unset again: a fresh bare car's node is NOT in cat mode, no cat bus exists, the bus count unchanged"):
+		root.remove_child(plain)
+		await _step(2)
+		plain.free()
+		return
+	_write_slips(plain, 0.0, 0.0, ArcadeCar.REAR_PEAK_SLIP_ANGLE * 3.0, 0.0, 10.0)
+	await physics_frame
+	var default_bus := true
+	for player in _players_under(plain_sound):
+		default_bus = default_bus and String((player as AudioStreamPlayer).bus) == AudioServer.get_bus_name(0)
+	var plain_state := plain_sound.state()
+	_check(plain_sound.skid_intensity == 1.0 and plain_sound.skid_pitch == solid_pitch and plain_sound.skid_db == solid_db and plain_sound.skid_pitch == _snap(SoundNode.SKID_PITCH_SOLID) and plain_sound.skid_db == _snap(SoundNode.SKID_DB_MAX) and default_bus and plain_state.get("cat_mode") == false and plain_state.get("thump_pitch_cat") == 1.0 and plain_state.get("skid_pitch_cat") == solid_pitch and plain_state.get("skid_db_cat") == solid_db and _players_match(plain_sound), "THE REALISM IDENTITY (FD_CAT unset): the same solid slide is written at the plain mapped pitch %.3f and %.1f dB to the bit (the cat mix's were %.3f / %.1f), every player on the default \"%s\" bus" % [plain_sound.skid_pitch, plain_sound.skid_db, cat_pitch, cat_db, AudioServer.get_bus_name(0)])
+	var plain_slot := plain_sound.next_thump
+	plain_sound.impact_intensity = 1.0
+	plain_sound.last_impact_tick = plain_sound.ticks - SoundNode.IMPACT_COOLDOWN_FRAMES
+	plain_sound._fire_thump()
+	var plain_thump: AudioStreamPlayer = plain_sound.thump_players[plain_slot]
+	_check(plain_thump.playing and plain_thump.pitch_scale == 1.0 and absf(plain_thump.volume_db - full_thump_db) < PLAYER_TOLERANCE and plain_sound.thump_db == full_thump_db and not SoundNode.cat_bus_ready(), "and with FD_CAT unset the same full thump plays at pitch 1 and the mapped %.1f dB (the cat mix's were %.1f / %.1f dB): the realistic thump untouched" % [full_thump_db, SoundNode.CAT_THUMP_PITCH, cat_thump_db])
+	print("  ", plain_sound.describe())
+	_write_slips(plain, 0.0, 0.0, 0.0, 0.0, 0.0)
+	root.remove_child(plain)
+	await _step(2)
+	plain.free()
 
 
 # =============================================================================
@@ -1024,6 +1215,20 @@ func _finish() -> void:
 	Input.action_release(&"brake")
 	Input.action_release(&"handbrake")
 	Input.action_release(&"steer_left")
+	# CAT-AWARE-1: a REAL-TIME teardown drain before quit (no frames, no wall
+	# clock in any determinism rule: this runs after the last check): the
+	# AudioServer's mix thread releases each AudioStreamPlaybackWAV in real
+	# time after its player stops or is freed. The cat battery's players are
+	# freed tens of physics ticks - milliseconds of real time under
+	# --fixed-fps 60 - before quit, so the exit audit leaked its pending
+	# playbacks (a WARNING of 22..27 ObjectDB leaks at exit, differing run to
+	# run: two suite logs differing). Measured on the host: a game-time wait
+	# of any length leaks, a real-time block of 0.5 s does not (the drain
+	# probe, .scratch/cat-aware-1/drain_probe.gd). OS.delay_msecs blocks only
+	# the main thread; the mix thread keeps running. The determinism rules
+	# (tick counting, no wall clock) govern MAPPING and physics: nothing
+	# after the last check reads them.
+	OS.delay_msec(500)
 	if _failures == 0:
 		print("SOUND TEST PASSED")
 	else:

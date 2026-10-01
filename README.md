@@ -2818,6 +2818,46 @@ not-yet-existing rather than faked.
 `1` on even with no window, unset on in the game and off headless - so the test suite sees
 no node unless a test asks (`tests/sound_test.gd` does, for its own scenes, and restores).
 
+**The cat-aware mix (CAT-AWARE-1).** The driver's ruling of 2026-10-01: "the tire squeke is
+still scaring my cat. can we try to do all sounds with cat awareness / wellbeing in mind."
+All sounds are henceforth designed with cat wellbeing in mind. The SOUND-2/3 realistic mix
+stays the default of the code; `FD_CAT=1` in the environment switches a sound node to the cat
+mix, read once per node when it is made, exactly as `FD_SOUND` is read at each attach - any
+value but `1` (unset, `0`, anything else) is off. `run.sh` exports `FD_CAT` as `1` where the
+caller has not set it: the cat mix is the household default, and `FD_CAT=0 ./run.sh` gives
+the realistic mix (launching Godot directly, without `run.sh`, is realistic too).
+
+The mechanism is one shared audio bus, `Cat`, that `SoundNode` creates and owns - the
+AudioServer's buses are global and saved nowhere, so the first cat-mode node creates the bus
+and the last one leaving the tree removes it; no other node, scene or file touches it. The
+bus carries one `AudioEffectLowPassFilter` (`CAT_LOWPASS_HZ`, 3000 Hz), set once at creation
+and never touched per tick, and every one of a cat-mode node's eight players is routed to it
+when it is made. On top of the bus two channels are treated, pure functions over the
+unchanged mapping. The squeal plays at x0.6 pitch - the 2000 Hz fundamental at 1200 Hz
+(1020 to 1800 Hz across the mapped range), below the cat's peak band and still
+unambiguously a slide cue - under a ceiling 6 dB lower (-10 dB at solid, was -4). The thumps
+play under a ceiling 8 dB lower (-10 dB at a full impact, was -2) and the burst at x0.8
+pitch, so the 2 ms attack stretches to 2.5 ms and the transient's edge softens. The engine,
+the rumble and the wind keep their character and their mapping to the bit: their content
+sits under the cutoff (the engine's orders reach 1440 Hz at the redline, the rumble's noise
+layer 2200 Hz at its fastest), and what the low-pass cuts is the top of the squeal's grit.
+
+The reasoning is the domestic cat's audiogram (Heffner & Heffner 1985, Hearing Research
+19:85-88): the cat's best hearing sensitivity sits in the low-to-mid kHz region, with
+high-frequency hearing reaching tens of kHz - the 2-8 kHz band the realistic squeal occupies
+(2000 and 2800 Hz tones, 1500..4000 Hz grit) is exactly the region the pitch-down and the
+cut protect, and sudden loud transients startle. Honestly: v1's shape is authored from the
+literature's shape, not measured on a cat; `CAT_LOWPASS_HZ`, `CAT_SKID_PITCH`,
+`CAT_SKID_DB_TRIM`, `CAT_THUMP_PITCH` and `CAT_THUMP_DB_TRIM` in `scripts/sound.gd` are
+one-line knobs. The guarantees: with `FD_CAT` unset the sound is the realistic mix byte for
+byte (every written volume and pitch, every buffer, every player on the default bus, no bus
+created, no AudioServer call); `FD_SOUND=0` wins - no node, so no cat mix and no bus; and the
+test suite's baseline is unaffected (the suite never reads `run.sh`, and
+`tests/sound_test.gd` takes `FD_CAT` off for its realistic sections, sets it for its cat
+battery and restores it). The node's `state()` dictionary carries sixteen values (was twelve
+-> the cat mode, the squeal's written pitch and volume under it and the thump's pitch), and
+`describe()` ends in `cat mix on` / `cat mix off` (was: ended at the ticks).
+
 ### Weather (WEATHER-1)
 
 The Ring has four skies and rain (`scripts/sky_set.gd`; the canon, docs/art-direction.md,

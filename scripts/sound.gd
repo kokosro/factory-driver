@@ -29,6 +29,39 @@ extends Node
 ## functions keep their signatures, the environment is its own offset layer
 ## on top of them.
 ##
+## CAT-AWARE-1 (2026-10-01): the cat-aware mix, after the driver's ruling
+## (decisions.org 679E66EC): "the tire squeke is still scaring my cat. can we
+## try to do all sounds with cat awareness / wellbeing in mind." All sounds
+## are henceforth designed with cat wellbeing in mind; the SOUND-2/3
+## realistic mix stays the default and FD_CAT=1 (CAT_ENV_VAR, read ONCE per
+## node in _ready, the FD_SOUND convention; anything but "1" is off) switches
+## a node to the cat mix. THE MECHANISM: one shared audio bus, CAT_BUS_NAME,
+## that this class creates and owns - the AudioServer is global, its buses
+## are saved nowhere, so the first cat-mode node creates the bus (one
+## AudioEffectLowPassFilter on it, cutoff CAT_LOWPASS_HZ, set once and never
+## touched per tick) and the last cat-mode node leaving the tree removes it
+## (cat_nodes counts them); every player of a cat-mode node is routed to it
+## at creation. On top of the bus, two channels are treated per tick, pure
+## functions over the unchanged mapping: the squeal's written pitch is the
+## mapped one x CAT_SKID_PITCH (the 2000 Hz fundamental at 1200 Hz) and its
+## volume the mapped one + CAT_SKID_DB_TRIM; a thump's volume is the mapped
+## one + CAT_THUMP_DB_TRIM and the burst plays at CAT_THUMP_PITCH (the 2 ms
+## attack stretched to 2.5 ms: a softer edge). The engine, the rumble and
+## the wind keep their mapping to the bit and sit under the cutoff (the
+## engine's orders reach 1440 Hz at the redline, the rumble's noise 2200
+## Hz); what the low-pass cuts is the top of the squeal's grit.
+## THE REASONING: the domestic cat's audiogram (Heffner & Heffner 1985,
+## Hearing Research 19:85-88) puts the best sensitivity in the low-to-mid
+## kHz with high-frequency hearing reaching tens of kHz; the squeal's 2000 /
+## 2800 Hz tones and 1500..4000 Hz grit sit right in that most sensitive
+## region, and sudden loud transients startle. THE GUARANTEE: with FD_CAT
+## unset (or anything but "1") every written value, every state() value the
+## SOUND-3 pin read, every buffer byte and every player's bus is what it
+## was - the cat branch of each cat function is dead, no bus is created, no
+## AudioServer call is made. HONESTY: v1's shape is authored from the
+## literature's shape, not measured on a cat; the five CAT_ constants are
+## one-line knobs.
+##
 ## FOUR LOOPING PLAYERS AND A BURST POOL (was-> THREE PLAYERS, THREE LOOPS:
 ## SOUND-3 added the wind loop and the thump pool): the node holds four
 ## looping AudioStreamPlayer children (ENGINE_PLAYER, SURFACE_PLAYER,
@@ -197,7 +230,11 @@ extends Node
 ## get_slide_collision_count() and get_slide_collision(i).get_normal() (all
 ## read-only) plus BuildingsShells.shells on a scene that has the node; the
 ## writes are the players' volume_db and pitch_scale plus play() on the
-## pooled thump players (was-> the three players' volume_db and pitch_scale).
+## pooled thump players (was-> the three players' volume_db and pitch_scale)
+## and, in cat mode only (CAT-AWARE-1), the players' bus at creation, the
+## pooled thump players' pitch_scale and the one shared audio bus this class
+## creates and removes (was-> no audio bus touched; still none with FD_CAT
+## off).
 ## The car's samples are byte-identical with and without the node (the
 ## sound test's pin). Non-positional players: the camera rides with the car,
 ## the car is the listener's subject.
@@ -390,8 +427,49 @@ const ENV_OPEN_RADIUS := 60.0
 const WIND_SHELTER_DB := 4.0
 const SURFACE_REFLECT_DB := 1.5
 
+## CAT-AWARE-1, the cat-aware mix (the driver's ruling, 2026-10-01: "the
+## tire squeke is still scaring my cat. can we try to do all sounds with cat
+## awareness / wellbeing in mind."). The environment variable that switches
+## it ("1" on, anything else off; read once per node in _ready) and the name
+## of the one shared audio bus the cat-mode nodes create, play through and
+## remove.
+const CAT_ENV_VAR := "FD_CAT"
+const CAT_BUS_NAME := "Cat"
+## The cutoff [Hz] of the one gentle low-pass on the cat bus. The domestic
+## cat's audiogram (Heffner & Heffner 1985, Hearing Research 19:85-88) puts
+## the best sensitivity in the low-to-mid kHz, with high-frequency hearing
+## reaching tens of kHz (to about 79 kHz measured); the 2..8 kHz band is the
+## peak-sensitivity region, and the squeal's 2000 / 2800 Hz tones and
+## 1500..4000 Hz grit sit right in it. What passes substantially: the
+## engine's orders (45 / 90 / 135 / 180 Hz at idle, x8 at the redline: 360
+## .. 1440 Hz - all under the cutoff; the brief's "up to 2880 Hz" was 360 x
+## 8, the root's redline pitch multiplied twice), the wind (100..700 Hz),
+## the rumble (the body 62..226 Hz whole, the 500..2000 Hz noise layer, to
+## 2200 Hz at its fastest pitch). What it cuts: the top of the cat-pitched
+## squeal's grit (900..2400 Hz at pitch 1, to 3600 Hz at solid) and
+## whatever else would sit above - a gentle slope, not a wall.
+const CAT_LOWPASS_HZ := 3000.0
+## The squeal's pitch multiplier in cat mode: the 2000 Hz fundamental plays
+## at 1200 Hz at pitch 1 (1020..1800 Hz across the mapped 0.85..1.5), under
+## the cat's peak band, still unambiguously a slide cue. And its ceiling's
+## trim [dB].
+const CAT_SKID_PITCH := 0.6
+const CAT_SKID_DB_TRIM := -6.0
+## The thump in cat mode: the burst plays slower (the 2 ms attack stretches
+## to 2.5 ms, the transient's edge softens, the 90 Hz thud sits at 72 Hz)
+## and its ceiling is trimmed [dB] - sudden loud transients startle.
+const CAT_THUMP_PITCH := 0.8
+const CAT_THUMP_DB_TRIM := -8.0
+## HONESTY: v1's shape is authored from the literature's shape, not measured
+## on a cat; each of the five constants above is a one-line knob the driver
+## can re-tune.
+
 ## The five streams (was-> three), built once for every node (buffers()).
 static var _buffers: Dictionary = {}
+
+## CAT-AWARE-1: the live cat-mode nodes (the bus's owners: the first creates
+## it, the last one leaving the tree removes it). 0 with FD_CAT off.
+static var cat_nodes := 0
 
 # --- State -------------------------------------------------------------------
 
@@ -472,9 +550,20 @@ var surface_offset_db := 0.0
 var ticks := 0
 var read_ticks := 0
 
+## CAT-AWARE-1: whether this node plays the cat-aware mix (FD_CAT read once,
+## in _ready; false: the SOUND-2/3 realistic mix to the bit).
+var cat_mode := false
+
 
 func _ready() -> void:
 	process_physics_priority = -1
+	# CAT-AWARE-1: the switch read once (the FD_SOUND convention), and in cat
+	# mode the bus made BEFORE the players, which are routed to it at creation.
+	cat_mode = cat_mode_of(OS.get_environment(CAT_ENV_VAR))
+	if cat_mode:
+		cat_nodes += 1
+		_ensure_cat_bus()
+		tree_exiting.connect(_on_cat_node_exiting, CONNECT_ONE_SHOT)
 	var streams := buffers()
 	engine_player = _make_player(ENGINE_PLAYER, streams[ENGINE_PLAYER])
 	surface_player = _make_player(SURFACE_PLAYER, streams[SURFACE_PLAYER])
@@ -656,6 +745,81 @@ static func trimmed_db(base: float, offset: float) -> float:
 	if base <= MUTE_DB:
 		return MUTE_DB
 	return snappedf(maxf(base + offset, MUTE_DB), SNAP)
+
+
+## CAT-AWARE-1, whether an FD_CAT `setting` asks for the cat mix: "1" does,
+## anything else (unset, "0", any other text) does not.
+static func cat_mode_of(setting: String) -> bool:
+	return setting == "1"
+
+
+## The squeal's written pitch: in `cat` mode the mapped `base_pitch` times
+## CAT_SKID_PITCH, snapped; otherwise `base_pitch` itself, to the bit.
+static func cat_skid_pitch_of(base_pitch: float, cat: bool) -> float:
+	if not cat:
+		return base_pitch
+	return snappedf(base_pitch * CAT_SKID_PITCH, SNAP)
+
+
+## The squeal's written volume [dB]: in `cat` mode the mapped `base_db` plus
+## CAT_SKID_DB_TRIM, snapped, never under MUTE_DB, a muted base staying
+## muted (trimmed_db's rule: a trim never wakes a silent channel); otherwise
+## `base_db` itself, to the bit.
+static func cat_skid_db_of(base_db: float, cat: bool) -> float:
+	if not cat or base_db <= MUTE_DB:
+		return base_db
+	return snappedf(maxf(base_db + CAT_SKID_DB_TRIM, MUTE_DB), SNAP)
+
+
+## The thump's pitch: CAT_THUMP_PITCH in `cat` mode, 1 otherwise.
+static func cat_thump_pitch_of(cat: bool) -> float:
+	return CAT_THUMP_PITCH if cat else 1.0
+
+
+## The thump's written volume [dB]: in `cat` mode the mapped `base_db` plus
+## CAT_THUMP_DB_TRIM, snapped, never under MUTE_DB, a muted base staying
+## muted; otherwise `base_db` itself, to the bit.
+static func cat_thump_db_of(base_db: float, cat: bool) -> float:
+	if not cat or base_db <= MUTE_DB:
+		return base_db
+	return snappedf(maxf(base_db + CAT_THUMP_DB_TRIM, MUTE_DB), SNAP)
+
+
+## Whether the cat bus exists on the AudioServer.
+static func cat_bus_ready() -> bool:
+	return AudioServer.get_bus_index(CAT_BUS_NAME) != -1
+
+
+## Makes the cat bus where there is none: a new bus at the end of the
+## layout (it sends to Master), named CAT_BUS_NAME, with the one low-pass at
+## CAT_LOWPASS_HZ - set here once, never touched again. Called by cat-mode
+## nodes only.
+static func _ensure_cat_bus() -> bool:
+	if AudioServer.get_bus_index(CAT_BUS_NAME) != -1:
+		return true
+	AudioServer.add_bus()
+	AudioServer.set_bus_name(AudioServer.bus_count - 1, CAT_BUS_NAME)
+	var lowpass := AudioEffectLowPassFilter.new()
+	lowpass.cutoff_hz = CAT_LOWPASS_HZ
+	AudioServer.add_bus_effect(AudioServer.get_bus_index(CAT_BUS_NAME), lowpass)
+	return true
+
+
+## Removes the cat bus once no cat-mode node is left (cat_nodes 0); nothing
+## while one lives, nothing where there is no such bus.
+static func _release_cat_bus() -> void:
+	if cat_nodes > 0:
+		return
+	var index := AudioServer.get_bus_index(CAT_BUS_NAME)
+	if index != -1:
+		AudioServer.remove_bus(index)
+
+
+## A cat-mode node leaving the tree (connected in _ready, in cat mode only,
+## one shot): one owner fewer, the bus removed with the last.
+func _on_cat_node_exiting() -> void:
+	cat_nodes = maxi(cat_nodes - 1, 0)
+	_release_cat_bus()
 
 
 ## The distance [m] from `at` (x, z) to the nearest of `points`, a linear
@@ -931,8 +1095,11 @@ func _map() -> void:
 	surface_db = trimmed_db(surface_base_db, surface_offset_db)
 	surface_pitch = surface_pitch_of(last_speed)
 	skid_intensity = _skid_intensity()
-	skid_db = skid_db_of(skid_intensity, last_speed)
-	skid_pitch = skid_pitch_of(skid_intensity)
+	# was-> skid_db = skid_db_of(...) / skid_pitch = skid_pitch_of(...) written
+	# as is (CAT-AWARE-1: the cat functions on top; with cat_mode false they
+	# return the mapped value itself, to the bit).
+	skid_db = cat_skid_db_of(skid_db_of(skid_intensity, last_speed), cat_mode)
+	skid_pitch = cat_skid_pitch_of(skid_pitch_of(skid_intensity), cat_mode)
 	wind_base_db = wind_db_of(last_speed)
 	wind_db = trimmed_db(wind_base_db, wind_offset_db)
 	impact_intensity = impact_intensity_of(impact_closing)
@@ -984,7 +1151,13 @@ func _fire_thump() -> void:
 	last_impact_tick = ticks
 	var player := thump_players[next_thump]
 	next_thump = (next_thump + 1) % THUMP_PLAYERS
-	player.volume_db = thump_db
+	# was-> player.volume_db = thump_db (CAT-AWARE-1: thump_db stays the mapped
+	# base; in cat mode the written volume is trimmed and the burst plays
+	# slower - the pitch is written in cat mode only, a realistic thump's
+	# player is never touched beyond its volume and play()).
+	player.volume_db = cat_thump_db_of(thump_db, cat_mode)
+	if cat_mode:
+		player.pitch_scale = cat_thump_pitch_of(cat_mode)
 	player.play()
 	impacts_fired += 1
 
@@ -994,6 +1167,9 @@ func _make_player(player_name: String, stream: AudioStreamWAV) -> AudioStreamPla
 	player.name = player_name
 	player.stream = stream
 	player.volume_db = MUTE_DB
+	# CAT-AWARE-1: routed to the cat bus at creation, in cat mode only.
+	if cat_mode:
+		player.bus = CAT_BUS_NAME
 	add_child(player)
 	player.play()
 	return player
@@ -1005,13 +1181,19 @@ func _make_thump_player(player_name: String, stream: AudioStreamWAV) -> AudioStr
 	player.name = player_name
 	player.stream = stream
 	player.volume_db = MUTE_DB
+	if cat_mode:
+		player.bus = CAT_BUS_NAME
 	add_child(player)
 	return player
 
 
-## The mapped state as a dictionary, the tests' determinism pin (twelve
-## values; was-> seven: SOUND-3 added the wind's written volume, the
-## openness, the two trims and the impact intensity).
+## The mapped state as a dictionary, the tests' determinism pin (sixteen
+## values; was-> twelve: CAT-AWARE-1 added the cat mode, the squeal's
+## written pitch and volume under it - the same numbers as skid_pitch /
+## skid_db, which ARE the written ones - and the thump's pitch; the twelve
+## earlier values unchanged with FD_CAT off; was-> seven: SOUND-3 added the
+## wind's written volume, the openness, the two trims and the impact
+## intensity).
 func state() -> Dictionary:
 	return {
 		"engine_pitch": engine_pitch, "engine_db": engine_db,
@@ -1019,9 +1201,11 @@ func state() -> Dictionary:
 		"skid_intensity": skid_intensity, "skid_pitch": skid_pitch, "skid_db": skid_db,
 		"wind_db": wind_db, "openness": openness, "wind_offset_db": wind_offset_db, "surface_offset_db": surface_offset_db,
 		"impact_intensity": impact_intensity,
+		"cat_mode": cat_mode, "skid_pitch_cat": skid_pitch, "skid_db_cat": skid_db, "thump_pitch_cat": cat_thump_pitch_of(cat_mode),
 	}
 
 
-## One line for the eye.
+## One line for the eye (was-> ending at the ticks: CAT-AWARE-1 added the
+## cat mix's on / off at the tail).
 func describe() -> String:
-	return "sound: engine %.3f x / %.1f dB (%.0f rpm, throttle %.2f), surface %.3f x / %.1f dB (drag %.2f, grip %.2f / %.2f, %.1f m/s), skid %.3f x / %.1f dB (intensity %.3f), wind %.1f dB, openness %.3f (nearest shell %.1f m, trims %.2f / %+.2f dB), %d thumps (last %.3f at %.1f dB), %d ticks" % [engine_pitch, engine_db, last_rpm, last_throttle, surface_pitch, surface_db, last_drag, last_grip_front, last_grip_rear, last_speed, skid_pitch, skid_db, skid_intensity, wind_db, openness, nearest_shell_m, wind_offset_db, surface_offset_db, impacts_fired, thump_intensity, thump_db, ticks]
+	return "sound: engine %.3f x / %.1f dB (%.0f rpm, throttle %.2f), surface %.3f x / %.1f dB (drag %.2f, grip %.2f / %.2f, %.1f m/s), skid %.3f x / %.1f dB (intensity %.3f), wind %.1f dB, openness %.3f (nearest shell %.1f m, trims %.2f / %+.2f dB), %d thumps (last %.3f at %.1f dB), %d ticks, cat mix %s" % [engine_pitch, engine_db, last_rpm, last_throttle, surface_pitch, surface_db, last_drag, last_grip_front, last_grip_rear, last_speed, skid_pitch, skid_db, skid_intensity, wind_db, openness, nearest_shell_m, wind_offset_db, surface_offset_db, impacts_fired, thump_intensity, thump_db, ticks, "on" if cat_mode else "off"]

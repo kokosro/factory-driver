@@ -31,4 +31,12 @@ elif [ ! -f "$CLASS_CACHE" ] || [ -n "$(find "$ROOT/scripts" -name '*.gd' -newer
 	"$GODOT" --headless --path "$ROOT" --import
 fi
 
+# CAT-AWARE-1 (the driver's ruling, 2026-10-01: "the tire squeke is still
+# scaring my cat. can we try to do all sounds with cat awareness / wellbeing
+# in mind."): the household default is the cat-aware mix - the squeal pitched
+# below the cat's peak-hearing band, impacts softened. FD_CAT=0 ./run.sh
+# gives the SOUND-2/3 realistic mix to the bit (a value the caller set wins;
+# only an unset or empty FD_CAT becomes 1). The test suite never reads run.sh.
+export FD_CAT="${FD_CAT:-1}"
+
 exec "$GODOT" --path "$ROOT" "$@"
