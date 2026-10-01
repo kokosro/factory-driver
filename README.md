@@ -919,8 +919,81 @@ at four) - so the async load takes about what the synchronous one did, 16.4-16.6
 headless here; the gain is the canon's: the main thread's longest frame during the load
 is 53-55 ms (the loading scene's own count) and 96-98 ms for the handover's frame (13 579
 nodes entering the tree), against 17 s held before. The frame-delta log of the sanctioned
-windowed run is under `.scratch/loading-1/` (untracked). What is NOT this pass: the
-world-around-the-car streaming (L2) - the whole Ring is built, once, off the main thread.
+windowed run is under `.scratch/loading-1/` (untracked). LOADING-1 built the whole Ring
+behind the bar; since L2-STREAMING-1 the bar covers the resident base and the car's
+vicinity and the rest streams behind the driving car - the next section.
+
+### The thin handover and the streaming tail (L2-STREAMING-1)
+
+The canon's second half (decisions.org C07BE6F1: "world-around-the-car streaming") under
+the driver's ruling FD79B028 of 2026-10-01 on `docs/design/l2-streaming-design.md`: about
+2 km of dressed vicinity is enough, the loading screen vanishes the moment the car can
+roll, the tail streams with no bar, and every road's mesh stays resident. This landing is
+the design's slices 1 and 2; nothing built is ever retired yet (slices 3 and 4), and the
+screen itself is as it was (slice 5).
+
+THE SCHEDULER (`scripts/streaming_scheduler.gd`, class `StreamingScheduler`, the autoload
+`Streaming`, registered after every other autoload) follows the ShellsWatch / MarksWatch
+pattern: it watches the tree's `node_added`, no builder is edited for it and no scene file
+names it. The loading scene claims its Ring there while the Ring is still outside the tree
+(`claim()`: only a scene outside the tree whose four builders are `build_deferred` is
+taken, so a Ring instanced the ordinary way - every suite scene, the fallback - and the
+pad never stream) and hands each of the three dressing lists through `split()` as its
+group stage is submitted. Back come, in CHUNK_ORDER, the RESIDENT jobs - the terrain's
+Mid, Far, Water, every road's `Band_` apron and the four continuation bands; the forest's
+trunk bodies; the buildings' rail and solid bodies (both physics bubbles take their whole
+body set once, in `finish_build`, as ever) - and the VICINITY: the 1 km chunks
+(`Near_<row>_<col>`, `Walls_` / `Trees_<x>_<z>`, a buildings mesh `<element>_<x>_<z>`)
+whose box is within `R_HANDOVER_M` = 2 000 m of the car's start position, the distance to
+the box as the bubble measures it. The thirteen stages are the same thirteen; the three
+group stages and their node stages count what came back, so the bar reads 100 % and the
+handover happens when the base and the vicinity stand. The road's stages are untouched:
+the profile, every strip, every collider and the floor slab are in before the car is.
+
+THE TAIL is the scheduler's. When the claimed Ring enters the tree it streams the other
+chunks: each chunk's data stage on a `WorkerThreadPool` task, four in flight at most, each
+chunk's node stage on the main thread under the same 8 ms a frame - the loading scene's
+seam and its two numbers, so nothing new runs on the main thread un-budgeted. The next
+chunk is always the pending one with the smallest (band, builder, CHUNK_ORDER index) -
+the band the chunk's box distance from where the car is NOW in whole kilometres, the
+builders in the order Terrain, Forest, Buildings - and the chunks are added in the order
+they were dispatched, never in the order the workers finished: for a standing car the
+arrival order is a pure function of its position, and the tests pin it. No RNG; the wall
+clock is read for the frame budget and the probe line only. A streamed chunk is the
+one-shot build's to the byte (each job is a pure function of the checked-in files). When
+the Ring leaves the tree (Esc to the pad, a scene change, the window closed) the tasks in
+flight are waited for and everything is dropped; a Ring abandoned before the handover is
+released by the loading scene. `FD_LOADING_FRAMES=1` adds one line per streamed chunk and
+a summary (never in the suite's lines).
+
+WHAT THE CAR STANDS ON never streams: the car reads `WorldRoadProfile.sample_height` and
+the floor slab, both resident; every streamed chunk is a picture (the terrain is visuals
+only, a wall card and a crown carry no shape, a shell's mesh none either). A chunk not
+yet there shows a hole and changes no physics read: `tests/streaming_test.gd` drives the
+ring drive test's 2 km from Döttinger Höhe - 2.8 km from the pit, ground whose dressing
+was absent at the handover - once on a one-shot build and once starting at the handover
+with the tail still streaming, and lands on the same odometer and position to the bit.
+A builder's `counts` and `describe()` are session totals merged per add: at the handover
+they read the base plus the vicinity and reach the one-shot build's values to the integer
+when the tail completes; the scheduler's own counters (`chunks_total`,
+`chunks_at_handover`, `chunks_streamed`) are new and additive.
+
+MEASURED (this machine, 2026-10-01, headless, `.scratch/streaming-1/`, untracked): of 353
+streamable chunks 94 stand at the handover from the pit anchor and 259 stream after it,
+in 1.2-1.3 s, the tail's longest frame 12-20 ms. THE HONEST SIZE OF THE GAIN: the handover
+itself barely moved - 43.7-45.6 s over four runs against 43.9-47.8 s over four before,
+inside the run-to-run spread (the frame after the handover 146 ms against 139-141) -
+because the streamable chunks are a small part of the build. One thread's data stage,
+measured per job kind: the 42 near chunks 0.7 s, the forest's walls and trees 0.5 s, the
+buildings' meshes about as much, against 30.0 s for the 3 304 `Band_` aprons (one per
+covered road: the platform strips, the carve and the caps since ROAD-3..7) and 1.3 s for
+the continuation - the design's weights (loading.gd's table, 6.5 s for all terrain
+meshes) predate the road widening. The aprons are resident by the ruling and the design
+(the coarse fill, the ground beside every road), so the time to the first metre is
+theirs; streaming them by proximity is the lever that would move the handover and needs
+its own ruling. What this landing gives is the mechanism - the scheduler, the per-chunk
+byte pins, the thin handover's contract - with every pin that had to move moved in the
+open (`tests/async_build_test.gd`'s header, THE MOVED PINS).
 
 ### The road body and the carve (ROAD-3)
 
@@ -1448,22 +1521,46 @@ back at 1.0 / 1.0 / 0.0 within two ticks; and two scenes instanced fresh driven 
 bit, the continuation the same at 2 812 points outside the box to the bit. Then
 `tests/async_build_test.gd`: the async load (LOADING-1; *The async load* above): the Ring
 built once the way every test loads it (the reference) and once through
-`scenes/loading.tscn` under the root - (a) the three `describe()` lines, the counts, the
-element tallies and the road's seven counters equal, the children under Road (6 609),
-Terrain (3 352) and Forest (127) the same names in the same order, and a SHA-256 over
-every surface array and every collider's faces equal per builder (the digests' first
-sixteen hex characters printed as the pin); (b) every stage's chunks counted - the sweep
-and the road node stage 3 304 roads, the terrain's two stages 3 353 jobs, the forest's two
-126 - every stage done to its total, the bar never falling and at 100 % at the handover;
+`scenes/loading.tscn` under the root - (a), re-scoped by L2-STREAMING-1 (the moved pins,
+each was -> now, are in the test's header): AT THE HANDOVER the children under Road
+(10 030) the reference's names in the reference's order with its `describe()` line and
+seven counters, and the children under Terrain (3 328 of 3 352), Forest (79 of 127) and
+Buildings (74 of 261) the reference's order held to the resident set and the chunks
+within 2 000 m of the car by the test's own arithmetic, the far chunks absent; AT THE
+TAIL'S COMPLETION the `describe()` lines, the counts and the element tallies equal, the
+children the reference's set name for name, the 259 streamed ones standing after the
+handover's in the pinned (band, builder, CHUNK_ORDER) order, a SHA-256 per child equal
+to the reference's child of the same name, and the SHA-256 per builder over every surface
+array and every collider's faces, the children walked in the reference's order, equal
+(the digests' first sixteen hex characters printed as the pin - the values the old
+child-order walk printed); (b) every stage's chunks counted - the sweep
+and the road node stage 3 304 roads, the terrain's two stages 3 329 jobs, the forest's two
+78, the buildings' 73: the resident jobs plus the vicinity's chunks (was the whole lists:
+3 353, 126, 260) - every stage done to its total, the scheduler's counters the same
+arithmetic (353 streamable, 94 before the handover, 259 after), the bar never falling and
+at 100 % at the handover;
 (c) the main thread never blocked: the longest process frame measured from outside the
-loading scene (the handover's enter-tree included) and the scene's own longest frame both
-under 250 ms (the numbers only on a failure, or with `FD_LOADING_FRAMES=1`); (d) the car
+loading scene (the handover's enter-tree included), the scene's own longest frame and
+every frame of the streaming tail under 250 ms (the numbers only on a failure, or with
+`FD_LOADING_FRAMES=1`); (d) the car
 on the road's profile, the same object, the floor slab under it, the builders still marked
 deferred; (e) the setting true by default, the Ring routed and the pad not, false routing
 nothing; (f) the fallback - a loading scene pointed at `scenes/car.tscn`, which has no
 builders, warns and hands over that scene built the ordinary way; (g) the abandonment - a
 loading scene freed while its stages run waits for its tasks and leaves nothing of the
-Ring under the root. Then
+Ring under the root, its claim at the streaming scheduler released. Beside the suite, a
+standalone (not a step of `run_tests.sh`): `tests/streaming_test.gd` (L2-STREAMING-1;
+*The thin handover and the streaming tail* above) - the scheduler registered last, its
+numbers and pure functions, `claim()` refusing everything but the loading scene's Ring, a
+sync Ring and the pad leaving it idle; the one-shot Ring as the reference with a SHA-256
+per child; the streamed Ring at the pit anchor - the handover with the far chunks absent,
+the ring drive test's own driver over its 2 km begun at the handover with the tail still
+streaming and landing on the one-shot build's odometer and position to the bit, all four
+wheels carried and inside the paved width every tick, then at the tail's completion every
+child byte-equal, the `describe()` lines and counts the one-shot's, the scheduler's
+counters adding up; the streamed Ring with the car put at the Karussell and at Aremberg -
+another vicinity each, the tail in the pinned order for the standing car, every child
+byte-equal; and a Ring unloaded with its tail in flight leaving the scheduler idle. Then
 `tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the

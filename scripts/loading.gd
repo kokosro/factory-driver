@@ -12,9 +12,10 @@ extends Control
 ## come up behind a proper loading screen that keeps drawing). The garage's
 ## drive row for the Ring lands here (Garage._free_drive through go()) and
 ## this scene builds the Ring beside itself, draws a progress bar every
-## frame and hands over when the Ring stands. The world-around-the-car
-## streaming is L2 and not this pass: the whole Ring is built, once, off
-## the main thread.
+## frame and hands over when the Ring stands. Was (LOADING-1) -> the
+## whole Ring built behind the bar; since L2-STREAMING-1 (THE THIN
+## HANDOVER below) the bar covers the resident base and the car's
+## vicinity, and the rest of the dressing streams behind the driving car.
 ##
 ## THE PIPELINE. The Ring scene is instantiated but NOT added to the tree
 ## (instantiation runs no _ready), and its three builders are claimed
@@ -75,6 +76,37 @@ extends Control
 ## and count is the same - tests/async_build_test.gd hashes the two
 ## builds' arrays against each other. No RNG, no wall clock in any
 ## result; only the wall clock's order of thread completion differs.
+## (L2-STREAMING-1: at the handover the children are the base's and the
+## vicinity's, in that order; the tail's chunks follow in the scheduler's
+## own order. The test holds every chunk to the one-shot build's bytes.)
+##
+## THE THIN HANDOVER (L2-STREAMING-1 slices 1+2; the ruling FD79B028 of
+## 2026-10-01: about 2 km of dressed vicinity is enough, the screen
+## vanishes the moment the car can roll, the tail streams with no bar,
+## every road's mesh stays resident; docs/design/l2-streaming-design.md).
+## The Ring is claimed at the StreamingScheduler autoload
+## (scripts/streaming_scheduler.gd) beside its builders, and each of the
+## three dressing lists - the terrain's, the forest's, the buildings'
+## mesh_jobs() - goes through its split() on the main thread as its group
+## stage is submitted: back come, still in CHUNK_ORDER, the resident jobs
+## (the terrain's Mid, Far, Water, every road's Band_ apron and the four
+## Continuation_ bands; the forest's trunk bodies; the buildings' rail and
+## solid bodies - both bubbles get their whole body set in finish_build as
+## ever) and the 1 km chunks whose box is within
+## StreamingScheduler.R_HANDOVER_M (2 000 m) of the car's start position;
+## the other chunks stay with the scheduler. The thirteen stages are the
+## same thirteen; the three group stages and their node stages count what
+## came back, so the bar reads 100 % and the handover happens when the
+## base and the vicinity stand. The road's stages and the five serial
+## stages are untouched: every strip, every collider, the floor and the
+## profile are in before the car is. At the handover the scheduler sees
+## the claimed Ring enter the tree and streams the tail, nearest chunk
+## first, on the same pool under the same node budget - no bar, this
+## scene is gone; the tail is the scheduler's, and it cancels it when the
+## Ring leaves the tree. Where the autoload is not registered or refuses
+## the claim, nothing is split and the whole Ring is built behind the bar,
+## the LOADING-1 way. A Ring abandoned or fallen back from before the
+## handover is released there.
 ##
 ## THREADS, MEASURED (this machine, 2026-09-27; .scratch/loading-1/):
 ## GDScript does not spread across the pool - the sweep took 4 917 ms on
@@ -101,7 +133,9 @@ extends Control
 ## the window closed) cancels the group tasks at their next element,
 ## waits for every task the pool still holds (a serial task runs to its
 ## end: up to the fields' 2.3 s) and frees the partial Ring. A task never
-## outlives this node.
+## outlives this node. (After the handover the streaming tail's tasks are
+## the scheduler's, under its own contract of the same words: THE THIN
+## HANDOVER.)
 ##
 ## FD_LOADING_FRAMES=1 in the environment prints one line per frame with
 ## the frame's wall-clock delta and the stage, and a summary at the
@@ -184,6 +218,9 @@ var road: RoadBuilder
 var terrain: TerrainBuilder
 var forest: ForestWalls
 var buildings: BuildingsShells
+## The streaming scheduler holding this Ring's claim (THE THIN HANDOVER;
+## null where there is none: every chunk is then built here).
+var streaming: StreamingScheduler
 
 ## What the screen reports: the stage names running, the last chunk
 ## counts, the bar's fraction, whether the handover happened, and the
@@ -286,6 +323,9 @@ func _start() -> void:
 	buildings = BuildingsShells.of(ring)
 	buildings.build_deferred = true
 	buildings.warm_catalogue()
+	streaming = StreamingScheduler.of(get_tree())
+	if streaming != null and not streaming.claim(ring):
+		streaming = null
 	_add_stage("road_prepare", "task", [])
 	_add_stage("road_sweep", "group", ["road_prepare"])
 	_add_stage("terrain_fields", "task", ["road_prepare"])
@@ -370,6 +410,11 @@ func _submit(name_of: String, stage: Dictionary) -> void:
 				return
 			stage.id = WorkerThreadPool.add_task(_run_buildings_place, false, name_of)
 		"buildings_meshes":
+			# A new list, never the builder's own (mesh_jobs() hands out
+			# its array itself).
+			var near_buildings: Array[BuildingsShells.MeshJob] = []
+			near_buildings.assign(_vicinity(StreamingScheduler.BUILDINGS, _building_jobs))
+			_building_jobs = near_buildings
 			stage.total = _building_jobs.size()
 			stage.id = WorkerThreadPool.add_group_task(_run_building_job, _building_jobs.size(), DATA_THREADS, false, name_of)
 		"buildings_nodes":
@@ -391,12 +436,18 @@ func _submit(name_of: String, stage: Dictionary) -> void:
 			if not _fields_ok:
 				_fallback("the drape has no terrain lattice")
 				return
+			var near_terrain: Array[TerrainBuilder.MeshJob] = []
+			near_terrain.assign(_vicinity(StreamingScheduler.TERRAIN, _terrain_jobs))
+			_terrain_jobs = near_terrain
 			stage.total = _terrain_jobs.size()
 			stage.id = WorkerThreadPool.add_group_task(_run_terrain_job, _terrain_jobs.size(), DATA_THREADS, false, name_of)
 		"forest_place":
 			forest.prepare(terrain.profile, terrain.landcover, terrain.ribbons)
 			stage.id = WorkerThreadPool.add_task(_run_forest_place, false, name_of)
 		"forest_meshes":
+			var near_forest: Array[ForestWalls.MeshJob] = []
+			near_forest.assign(_vicinity(StreamingScheduler.FOREST, _forest_jobs))
+			_forest_jobs = near_forest
 			stage.total = _forest_jobs.size()
 			stage.id = WorkerThreadPool.add_group_task(_run_forest_job, _forest_jobs.size(), DATA_THREADS, false, name_of)
 		"road_nodes":
@@ -405,6 +456,14 @@ func _submit(name_of: String, stage: Dictionary) -> void:
 			stage.total = _terrain_jobs.size()
 		"forest_nodes":
 			stage.total = _forest_jobs.size()
+
+
+## THE THIN HANDOVER: the jobs of one builder's list this scene builds
+## before the handover (the resident ones and the vicinity's chunks, in
+## CHUNK_ORDER); the scheduler keeps the others for the tail. The whole
+## list where nothing is claimed.
+func _vicinity(builder: int, jobs: Array) -> Array:
+	return streaming.split(builder, jobs) if streaming != null else jobs
 
 
 ## Polls a running task or group; releases it when done.
@@ -577,6 +636,7 @@ func _fallback_build() -> void:
 	# One frame drawn with the message, then the freeze the fallback is.
 	await get_tree().process_frame
 	_wait_for_tasks()
+	_release_claim()
 	if ring != null:
 		ring.free()
 		ring = null
@@ -603,9 +663,18 @@ func _abandon() -> void:
 		return
 	_cancelled = true
 	_wait_for_tasks()
+	_release_claim()
 	if ring != null:
 		ring.free()
 		ring = null
+
+
+## The scheduler's claim on a Ring that never reaches the tree given up:
+## its tail's jobs dropped unrun.
+func _release_claim() -> void:
+	if streaming != null and is_instance_valid(streaming):
+		streaming.release(ring)
+	streaming = null
 
 
 func _wait_for_tasks() -> void:

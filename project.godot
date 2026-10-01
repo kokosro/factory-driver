@@ -27,6 +27,7 @@ MarksWatch="*res://scripts/marks_watch.gd"
 ShellsWatch="*res://scripts/shells_watch.gd"
 SoundWatch="*res://scripts/sound_watch.gd"
 MissionRunner="res://scripts/mission_runner.gd"
+Streaming="*res://scripts/streaming_scheduler.gd"
 
 [display]
 

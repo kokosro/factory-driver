@@ -11,8 +11,12 @@ the environment adds wall-time `perf:` lines to it - the suite never sets it); t
 offroad test builds it twice more and drives 11 s of grass on each, 11 s of the straight and
 the control (OFFROAD-1); the async build test builds it twice more - once in `_ready`, once
 through the loading scene's WorkerThreadPool pipeline - and hashes the two against each other,
-then a fallback and an abandonment (LOADING-1; `FD_LOADING_FRAMES=1` in the environment adds
-per-frame lines - the suite never sets it); the
+then a fallback and an abandonment (LOADING-1; since L2-STREAMING-1 the loading scene hands
+over on the resident base plus the 2 km vicinity and the test waits for the streaming tail:
+the handover's set, the tail's order, a SHA-256 per child and the old per-builder digests
+at completion, the stage totals the vicinity's - every moved pin is named was -> now in the
+test's header; `FD_LOADING_FRAMES=1` in the environment adds per-frame and per-chunk lines -
+the suite never sets it); the
 minimap test builds it once more, the reset test twice more and drives 400 m (the menu
 test's additive LOADING-1 check builds it once more through the loading scene), the telemetry
 watch test once more and drives a second on it, the marks test once more and slides on
@@ -90,7 +94,45 @@ What each test checks is in the main
 the gap share, the feathers, every card's texture window, the wall texture's skyline and
 column gaps - 120 checks since ROAD-3 (the carve and the road body), was 118, was 113; the bubble test's named tree is index 12369, was 12355;
 since LOADING-1 the menu test has one check more,
-its Ring row's route through the loading scene, and the suite has the async build test's 15).
+its Ring row's route through the loading scene, and the suite has the async build test's 15;
+since L2-STREAMING-1 the async build test has 25 checks, was 17: the handover's and the
+completion's pins apart, the per-child digests, the scheduler's counters, the tail's frames
+and the released claim; the menu test's additive check unloads its Ring two frames after the
+handover, the tail in flight - the scheduler's cancel on every suite run).
+
+## The streaming test (L2-STREAMING-1), a standalone
+
+`tests/streaming_test.gd` is not a step of `run_tests.sh`; it is run beside it in the gate:
+
+```
+godot --headless --path . --import
+godot --headless --fixed-fps 60 --path . --script res://tests/streaming_test.gd
+```
+
+About five minutes: it builds the Ring five times (once the ordinary way, four times
+through the loading scene) and drives 2 km twice. It checks the `Streaming` autoload
+(`scripts/streaming_scheduler.gd`: registered after every other autoload, the ruling's
+2 000 m vicinity, the loading scene's four workers and 8 ms node budget, the box distance
+and the band as pure functions, `claim()` refusing a Ring in the tree, a Ring whose builders
+are not deferred and no scene - a sync Ring and the pad leave it idle with every counter
+zero); the one-shot Ring as the reference, a SHA-256 per child under Terrain, Forest and
+Buildings; the streamed Ring at the pit anchor - at the handover the children the
+reference's order held to the resident set and the 94 chunks within 2 000 m by the test's
+own arithmetic on the chunk names, the 259 far chunks absent, the car on the road's profile
+over the floor slab; the ring drive test's own scripted driver (its `LoopDriver` and
+constants read from the frozen script) over its 2 km from Döttinger Höhe, reset at the same
+tick after the Ring enters the tree on both builds, begun on the streamed one with the tail
+still to come and landing on the one-shot build's odometer, position and tick count to the
+bit, all four wheels carried and every wheel inside the paved width every tick; at the
+tail's completion every child byte-equal to the reference's of the same name, the four
+`describe()` lines and every count the one-shot's, the scheduler's three new counters
+adding up; the streamed Ring with the car put at the Karussell and at Aremberg (4.9 km
+apart) before the lists are split - each handover another vicinity than the pit's, the tail
+in the pinned (band, builder, CHUNK_ORDER) order for the standing car, every child
+byte-equal, the car standing on the profile there; and a Ring unloaded in the frame after
+its handover, the tail in flight, leaving the scheduler idle and the root as it was. It
+pins `FD_TELEMETRY=0`, writes nothing anywhere and prints no wall time: the lines are the
+same on every machine (`STREAMING TEST PASSED`).
 
 ## Gating a commit, not a working tree
 
