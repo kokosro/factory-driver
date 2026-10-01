@@ -122,6 +122,29 @@ extends SceneTree
 ## the table's bearing. DETERMINISM: the scene built twice describes
 ## itself the same, places the same cards, the road carries the same
 ## UVs and material, and the trunk bodies carry the same faces and boxes.
+## THE WEATHER (WEATHER-1; SkySet's header): FD_WEATHER is taken off for
+## the clear scenes and set around each weather scene, restored at the
+## end (the sound test's idiom). The three dry states run on the Ring's
+## sky alone (a WorldEnvironment wearing the packed scene's shared
+## Environment, a Sun, the SkySet: no second, third and fourth build of
+## the Ring for states that touch the sun and the plate only); rain
+## loads the Ring, twice. Unset: no weather key, no rain node, no
+## copy of the plate, the dry road, the clear day's sun and ambient
+## pinned to their literals and the describe() and material lines to
+## today's text. Each of overcast / sunset / evening / rain, on a scene
+## of its own: the sun's elevation, colour, energy and disc, the ambient
+## trio, the plate's four colours on the scene's OWN copies (the packed
+## scene's shared plate still the clear one), the haze colour re-read
+## from the new horizon, the curve re-fitted through the state's table
+## (the amounts times its multiplier, all sky at its distance) within
+## FIT_TOLERANCE at the four samples, the amounts at the band ends,
+## describe() naming the weather. Rain: the wet road measured on the
+## strips (the darker tint, the lower roughness scalar, the same three
+## textures), the streak field's node and constants, the field riding
+## with the car, screen-space reflections on the rain's plate only, and
+## two rain scenes describing themselves the same. The clear scene
+## loaded AFTER the weather scenes is the determinism pair's second: a
+## weather that leaked into the shared plate fails it.
 ## No network, no python, no
 ## wall clock in a check. Exits 0 on success, 1 on any fault.
 
@@ -203,11 +226,41 @@ const UV_TOLERANCE := 1e-3
 ## A trunk face vertex against its cylinder [m]: float32 storage at 12 km.
 const FACE_TOLERANCE_M := 0.002
 
+## THE WEATHER (WEATHER-1), the test's own literals: each state's sun
+## (elevation [deg], colour, energy, disc drawn), ambient trio, plate
+## (top, horizon, ground bottom; the ground's horizon is the sky's),
+## haze multiplier and all-sky distance [m].
+const WEATHER := {
+	"overcast": {"elevation": 45.0, "sun": Color(0.8, 0.82, 0.85), "energy": 0.45, "disc": false, "ambient": Color(0.55, 0.56, 0.58), "ambient_energy": 1.0, "sky_share": 0.5, "top": Color(0.56, 0.59, 0.63), "horizon": Color(0.7, 0.72, 0.75), "bottom": Color(0.16, 0.17, 0.19), "haze": 1.2, "all_sky_m": 2350.0},
+	"sunset": {"elevation": 10.0, "sun": Color(1.0, 0.62, 0.36), "energy": 0.8, "disc": true, "ambient": Color(0.42, 0.36, 0.34), "ambient_energy": 0.8, "sky_share": 0.25, "top": Color(0.2, 0.3, 0.52), "horizon": Color(0.9, 0.6, 0.42), "bottom": Color(0.12, 0.11, 0.12), "haze": 1.0, "all_sky_m": 3000.0},
+	"evening": {"elevation": 4.0, "sun": Color(0.55, 0.62, 0.85), "energy": 0.2, "disc": false, "ambient": Color(0.2, 0.24, 0.34), "ambient_energy": 0.8, "sky_share": 0.3, "top": Color(0.05, 0.08, 0.2), "horizon": Color(0.16, 0.22, 0.38), "bottom": Color(0.03, 0.04, 0.07), "haze": 1.0, "all_sky_m": 3000.0},
+	"rain": {"elevation": 45.0, "sun": Color(0.72, 0.75, 0.8), "energy": 0.3, "disc": false, "ambient": Color(0.48, 0.5, 0.53), "ambient_energy": 0.9, "sky_share": 0.5, "top": Color(0.4, 0.43, 0.47), "horizon": Color(0.56, 0.58, 0.61), "bottom": Color(0.12, 0.13, 0.14), "haze": 1.4, "all_sky_m": 1900.0},
+}
+const WEATHER_ORDER := ["overcast", "sunset", "evening", "rain"]
+## The clear day's lines as they stood before WEATHER-1 (HEAD 0f68776).
+const CLEAR_SKY_LINE := "S1 + S5: sun 45° at bearing 210°, ambient (0.45, 0.45, 0.45, 1.0) x 1.00 with 0.15 of the sky, haze begins 100 m, all sky at 3000 m, curve 0.442, colour (0.68, 0.78, 0.88, 1.0)"
+const DRY_ROAD_LINE := "res://assets/textures/road/road_asphalt_1024_basecolor.png res://assets/textures/road/road_asphalt_1024_roughness.png res://assets/textures/road/road_asphalt_1024_normal.png tint (0.55, 0.55, 0.55, 1.0) roughness 1.00 normal true x 2.00 filter 5"
+const WET_ROAD_LINE := "res://assets/textures/road/road_asphalt_1024_basecolor.png res://assets/textures/road/road_asphalt_1024_roughness.png res://assets/textures/road/road_asphalt_1024_normal.png tint (0.34, 0.34, 0.34, 1.0) roughness 0.45 normal true x 2.00 filter 5"
+const CLEAR_HORIZON := Color(0.68, 0.78, 0.88, 1.0)
+const RAIN_STREAKS := 360
+const RAIN_BOX_M := Vector3(40.0, 25.0, 40.0)
+const RAIN_ABOVE_M := 20.0
+const RAIN_SPEED_MPS := 12.0
+
 var _failures := 0
 var _loop: SkeletonLoader.Loop
+## The ring's packed scene, held for the whole run: its sub-resources
+## (the Environment, the Sky, the plate) are then the SAME objects in
+## every scene the test loads - what a leaking weather would write.
+var _packed: PackedScene
+var _weather_before := ""
 
 
 func _initialize() -> void:
+	# WEATHER-1: the clear scenes run with FD_WEATHER off whatever the
+	# shell carries; restored (and the restore checked) at the end.
+	_weather_before = OS.get_environment(SkySet.ENV_VAR)
+	OS.unset_environment(SkySet.ENV_VAR)
 	var landcover: Variant = TerrainBuilder.read_landcover()
 	_check_landcover_file(landcover)
 	_check_region_table()
@@ -233,6 +286,7 @@ func _initialize() -> void:
 		_check_assets(forest)
 		_check_ceiling(terrain, forest)
 		_check_haze(scene, sky)
+		_check_clear_weather(scene, sky, road)
 		_check_elements(terrain, forest, sky)
 		var first := "%s | %s | %s" % [terrain.describe(), forest.describe(), sky.describe()]
 		var first_cards := forest.card_x.size()
@@ -244,8 +298,12 @@ func _initialize() -> void:
 		var first_boxes := forest.trunk_boxes.duplicate()
 		scene.queue_free()
 		await _step(2)
+		# WEATHER-1: the four states between the two clear scenes - the
+		# second clear scene is loaded after every weather has run.
+		await _check_weather()
 		var again := await _load_scene()
 		if again != null:
+			_check_clear_after_weather(again)
 			_ok(first_buildings == again.get_node("Buildings").describe(), "4B-8: second scene describes Buildings identically")
 			var terrain2: TerrainBuilder = again.get_node("Terrain")
 			var forest2: ForestWalls = again.get_node("Forest")
@@ -267,6 +325,9 @@ func _initialize() -> void:
 			_ok(trunks_same and first_boxes == forest2.trunk_boxes and first_boxes.size() == first_trunks.size() * 4, "determinism: the forest built twice carries the same %d trunk bodies with the same %d face vertices and the same boxes (BUBBLE-1)" % [second_trunks.size(), face_count], "bodies %d / %d, faces equal %s, boxes equal %s" % [first_trunks.size(), second_trunks.size(), trunks_same, first_boxes == forest2.trunk_boxes])
 			again.queue_free()
 			await _step(2)
+	if _weather_before != "":
+		OS.set_environment(SkySet.ENV_VAR, _weather_before)
+	_ok(OS.get_environment(SkySet.ENV_VAR) == _weather_before, "WEATHER-1: FD_WEATHER restored to what it was (%s)" % ("unset" if _weather_before == "" else _weather_before))
 	print("DRESSING TEST PASSED" if _failures == 0 else "DRESSING TEST FAILED: %d fault(s)" % _failures)
 	quit(0 if _failures == 0 else 1)
 
@@ -286,7 +347,9 @@ func _step(frames: int) -> void:
 
 
 func _load_scene() -> Node:
-	var packed: PackedScene = load(RING_SCENE)
+	if _packed == null:
+		_packed = load(RING_SCENE)
+	var packed := _packed
 	if packed == null:
 		_ok(false, "", "the ring scene does not load")
 		return null
@@ -1486,6 +1549,249 @@ func _check_haze(scene: Node, sky: SkySet) -> void:
 	var bearing := fmod(rad_to_deg(atan2(-travel.x, travel.z)) + 360.0, 360.0)
 	_ok(suns == 1 and absf(elevation - SUN_ELEVATION_DEG) < 0.01 and absf(bearing - SUN_AZIMUTH_DEG) < 0.01 and sun.shadow_enabled, "one sun (S1: one sun, one sky), at %.1f° elevation (the catalogue's default; was the scene's 50°) from bearing %.0f° (the table's), shadows on" % [elevation, bearing], "suns %d, elevation %.2f, bearing %.2f" % [suns, elevation, bearing])
 	_ok(env.sky != null and env.sky.sky_material is ProceduralSkyMaterial and env.background_mode == Environment.BG_SKY, "one sky: the scene's procedural plate (no new asset: the photographic skybox is a later pass)")
+
+
+# =============================================================================
+#  THE WEATHER (WEATHER-1)
+# =============================================================================
+
+## The sun's elevation above the horizon and its bearing clockwise from
+## north [deg], off the light's transform (as _check_haze measures them).
+func _sun_angles(sun: DirectionalLight3D) -> Vector2:
+	var travel := -sun.global_transform.basis.z
+	return Vector2(rad_to_deg(asin(-travel.y)), fmod(rad_to_deg(atan2(-travel.x, travel.z)) + 360.0, 360.0))
+
+
+## FD_WEATHER unset: the clear day to the letter, and its sun and ambient
+## pinned (nothing held the ambient or the sun's light before WEATHER-1).
+func _check_clear_weather(scene: Node, sky: SkySet, road: RoadBuilder) -> void:
+	var env: Environment = scene.get_node("WorldEnvironment").environment
+	var sun: DirectionalLight3D = scene.get_node("Sun")
+	_ok(SkySet.ENV_VAR == "FD_WEATHER" and OS.get_environment(SkySet.ENV_VAR) == "" and not sky.applied.has("weather") and sky.applied.size() == 14 and not sky.applied.has("haze_multiplier") and not sky.applied.has("sun_colour") and not sky.applied.has("rain_streaks") and not sky.applied.has("wet_strips"), "WEATHER-1 unset: the sky applied carries no weather key - the 14 clear keys and nothing else", "applied: %s" % [sky.applied])
+	_ok(sky.rain == null and sky.get_child_count() == 0 and scene.find_child("Rain", true, false) == null and not road.wet and not env.ssr_enabled, "WEATHER-1 unset: no rain node anywhere in the scene, Sky has no child, the road is not wet, no screen-space reflections", "rain %s, sky children %d, wet %s, ssr %s" % [sky.rain, sky.get_child_count(), road.wet, env.ssr_enabled])
+	_ok(sun.light_color == Color(1.0, 0.965, 0.9, 1.0) and sun.light_energy == 1.0 and sun.sky_mode == DirectionalLight3D.SKY_MODE_LIGHT_AND_SKY and sun.shadow_enabled, "WEATHER-1 unset: the clear sun's light %s x %.2f (\"slightly warm highlights\"), its disc on the plate, shadows on" % [sun.light_color, sun.light_energy], "colour %s energy %s mode %d" % [sun.light_color, sun.light_energy, sun.sky_mode])
+	_ok(env.ambient_light_source == Environment.AMBIENT_SOURCE_SKY and env.ambient_light_color == Color(0.45, 0.45, 0.45, 1.0) and env.ambient_light_energy == 1.0 and is_equal_approx(env.ambient_light_sky_contribution, 0.15), "WEATHER-1 unset: the clear ambient (ATMOS-1) %s x %.2f with %.2f of the sky, its source the sky" % [env.ambient_light_color, env.ambient_light_energy, env.ambient_light_sky_contribution], "colour %s energy %s share %s source %d" % [env.ambient_light_color, env.ambient_light_energy, env.ambient_light_sky_contribution, env.ambient_light_source])
+	var plate := env.sky.sky_material as ProceduralSkyMaterial
+	_ok(plate != null and plate.sky_top_color == Color(0.5, 0.66, 0.85, 1.0) and plate.sky_horizon_color == CLEAR_HORIZON and plate.ground_bottom_color == Color(0.16, 0.17, 0.19, 1.0) and plate.ground_horizon_color == CLEAR_HORIZON, "WEATHER-1 unset: the clear plate's four colours are the scene's (top %s over horizon %s)" % [plate.sky_top_color if plate != null else Color.BLACK, plate.sky_horizon_color if plate != null else Color.BLACK])
+	_ok(sky.describe() == CLEAR_SKY_LINE and _road_material_line(road) == DRY_ROAD_LINE, "WEATHER-1 unset: describe() and the road material line are today's text to the letter (no weather named; tint 0.55, roughness 1.00)", "sky: %s / road: %s" % [sky.describe(), _road_material_line(road)])
+	var names_ok := SkySet.WEATHER_STATES.size() == 4
+	for name: String in WEATHER_ORDER:
+		names_ok = names_ok and SkySet.weather_state(name) == name
+	for other: String in ["", "0", "1", "clear", "Rain", "RAIN", "rain ", "storm"]:
+		names_ok = names_ok and SkySet.weather_state(other) == ""
+	_ok(names_ok, "WEATHER-1: the switch names four states (overcast, sunset, evening, rain), each itself; unset, 0 and anything else (1, clear, Rain, RAIN, a trailing space, storm) is the clear day")
+	var bands := SkySet.haze_bands(ElementCatalogue.entry("S5"))
+	var defaults_ok := SkySet.fitted_curve(bands) == SkySet.fitted_curve(bands, 1.0, SkySet.SKY_COLOURED_FULL_M)
+	for d: int in range(0, 3201, 25):
+		defaults_ok = defaults_ok and SkySet.haze_at(float(d), bands) == SkySet.haze_at(float(d), bands, 1.0, SkySet.SKY_COLOURED_FULL_M)
+	_ok(defaults_ok, "WEATHER-1: the haze table and the fitted exponent without a multiplier are the clear day's to the bit (x 1 to %.0f m, every 25 m to 3 200 m)" % SkySet.SKY_COLOURED_FULL_M)
+
+
+## The four states, a scene each (and rain a second), FD_WEATHER set
+## around every load and taken off after.
+func _check_weather() -> void:
+	var shared_env: Environment = null
+	if _packed != null:
+		var state := _packed.get_state()
+		for n: int in state.get_node_count():
+			if state.get_node_name(n) == "WorldEnvironment":
+				for q: int in state.get_node_property_count(n):
+					if state.get_node_property_name(n, q) == "environment":
+						shared_env = state.get_node_property_value(n, q)
+	_ok(shared_env != null and shared_env.sky != null and shared_env.sky.sky_material is ProceduralSkyMaterial, "WEATHER-1: the packed scene's own Environment and plate are in hand (the objects every instance shares)")
+	if shared_env == null:
+		return
+	for weather: String in WEATHER_ORDER:
+		OS.set_environment(SkySet.ENV_VAR, weather)
+		var scene: Node = await _load_scene() if weather == "rain" else await _load_sky_fixture(shared_env)
+		OS.unset_environment(SkySet.ENV_VAR)
+		if scene == null:
+			continue
+		_check_state(scene, weather, shared_env)
+		if weather == "rain":
+			await _check_rain(scene)
+			var first := _rain_line(scene)
+			scene.queue_free()
+			await _step(2)
+			OS.set_environment(SkySet.ENV_VAR, weather)
+			var again := await _load_scene()
+			OS.unset_environment(SkySet.ENV_VAR)
+			if again != null:
+				var second := _rain_line(again)
+				_ok(first == second and first != "", "WEATHER-1 rain determinism: the rain scene built twice describes its sky, its wet road and its streak field the same (%s)" % second, "first: %s / second: %s" % [first, second])
+				again.queue_free()
+				await _step(2)
+		else:
+			scene.queue_free()
+			await _step(2)
+	await _check_bare_rain()
+	await _step(2)
+
+
+## The dry states' scene: the Ring's sky and nothing else - a
+## WorldEnvironment wearing the packed scene's SHARED Environment (the
+## very object the Ring's wears), a Sun and the SkySet wired to both, as
+## eifel_ring.tscn wires them. overcast, sunset and evening touch the sun
+## and the plate alone, so they are held here without three more builds
+## of the Ring (a minute each); rain, which wets the road, loads the Ring.
+func _load_sky_fixture(shared_env: Environment) -> Node:
+	var scene := Node3D.new()
+	var world := WorldEnvironment.new()
+	world.name = "WorldEnvironment"
+	world.environment = shared_env
+	scene.add_child(world)
+	var sun := DirectionalLight3D.new()
+	sun.name = "Sun"
+	scene.add_child(sun)
+	var sky := SkySet.new()
+	sky.name = "Sky"
+	sky.environment = world
+	sky.sun = sun
+	scene.add_child(sky)
+	await physics_frame
+	root.add_child(scene)
+	await _step(3)
+	return scene
+
+
+## One state's scene against the test's literals.
+func _check_state(scene: Node, weather: String, shared_env: Environment) -> void:
+	var want: Dictionary = WEATHER[weather]
+	var sky: SkySet = scene.get_node("Sky")
+	var env: Environment = scene.get_node("WorldEnvironment").environment
+	var sun: DirectionalLight3D = scene.get_node("Sun")
+	var tag := "WEATHER-1 %s: " % weather
+	_ok(sky.applied.get("weather") == weather and sky.applied.get("sky_set") == "S1" and sky.applied.get("haze") == "S5", tag + "the sky applied names the weather on S1 + S5", "applied: %s" % [sky.applied])
+	# The sun.
+	var angles := _sun_angles(sun)
+	var suns := 0
+	for node: Node in _all_under(scene):
+		if node is DirectionalLight3D:
+			suns += 1
+	var disc_mode := DirectionalLight3D.SKY_MODE_LIGHT_AND_SKY if want.disc else DirectionalLight3D.SKY_MODE_LIGHT_ONLY
+	_ok(suns == 1 and absf(angles.x - want.elevation) < 0.01 and absf(angles.y - SUN_AZIMUTH_DEG) < 0.01 and sun.shadow_enabled and sun.light_color.is_equal_approx(want.sun) and is_equal_approx(sun.light_energy, want.energy) and sun.sky_mode == disc_mode, tag + "one sun at %.1f° elevation from the table's bearing %.0f° (a state never moves the bearing), its light %s x %.2f, shadows on, its disc %s" % [angles.x, angles.y, sun.light_color, sun.light_energy, "on the plate" if want.disc else "not drawn"], "suns %d elevation %.3f bearing %.3f colour %s energy %s mode %d shadows %s" % [suns, angles.x, angles.y, sun.light_color, sun.light_energy, sun.sky_mode, sun.shadow_enabled])
+	# The ambient.
+	_ok(env.ambient_light_source == Environment.AMBIENT_SOURCE_SKY and env.ambient_light_color.is_equal_approx(want.ambient) and is_equal_approx(env.ambient_light_energy, want.ambient_energy) and is_equal_approx(env.ambient_light_sky_contribution, want.sky_share), tag + "the ambient %s x %.2f with %.2f of the sky, its source the sky" % [env.ambient_light_color, env.ambient_light_energy, env.ambient_light_sky_contribution], "colour %s energy %s share %s" % [env.ambient_light_color, env.ambient_light_energy, env.ambient_light_sky_contribution])
+	# The plate: the state's colours on the scene's own copies.
+	var plate := env.sky.sky_material as ProceduralSkyMaterial if env.sky != null else null
+	var shared_plate := shared_env.sky.sky_material as ProceduralSkyMaterial
+	_ok(plate != null and plate.sky_top_color.is_equal_approx(want.top) and plate.sky_horizon_color.is_equal_approx(want.horizon) and plate.ground_bottom_color.is_equal_approx(want.bottom) and plate.ground_horizon_color.is_equal_approx(want.horizon) and env.background_mode == Environment.BG_SKY, tag + "the plate: top %s over horizon %s, the ground %s under the same horizon" % [want.top, want.horizon, want.bottom], "plate %s" % [[plate.sky_top_color, plate.sky_horizon_color, plate.ground_bottom_color, plate.ground_horizon_color] if plate != null else []])
+	_ok(env != shared_env and env.sky != shared_env.sky and plate != shared_plate and shared_plate.sky_horizon_color == CLEAR_HORIZON and shared_plate.sky_top_color == Color(0.5, 0.66, 0.85, 1.0) and not shared_env.ssr_enabled and shared_env.fog_depth_end == SkySet.SKY_COLOURED_FULL_M, tag + "the scene wears its OWN Environment, Sky and plate; the packed scene's shared ones are still the clear day's (horizon %s, all sky at %.0f m)" % [shared_plate.sky_horizon_color, shared_env.fog_depth_end], "own env %s own sky %s own plate %s shared horizon %s shared end %s" % [env != shared_env, env.sky != shared_env.sky, plate != shared_plate, shared_plate.sky_horizon_color, shared_env.fog_depth_end])
+	# The haze.
+	var bands := SkySet.haze_bands(ElementCatalogue.entry("S5"))
+	var horizon := SkySet.horizon_colour(env)
+	_ok(env.fog_light_color == horizon and horizon.is_equal_approx(want.horizon) and sky.applied.get("haze_colour") == horizon, tag + "the haze colour is the NEW plate's horizon %s, read from the material" % [horizon], "fog %s horizon %s" % [env.fog_light_color, horizon])
+	_ok(env.fog_enabled and env.fog_mode == Environment.FOG_MODE_DEPTH and not env.volumetric_fog_enabled and env.fog_depth_begin == BAND_ENDS_M[0] and env.fog_depth_end == want.all_sky_m and env.fog_density == 1.0 and env.fog_sky_affect == 0.0 and is_equal_approx(env.fog_depth_curve, SkySet.fitted_curve(bands, want.haze, want.all_sky_m)) and is_equal_approx(sky.applied.get("haze_multiplier", 0.0), want.haze) and sky.applied.get("fog_depth_end") == want.all_sky_m, tag + "depth fog still (not volumetric), from %.0f m to all sky at %.0f m, the exponent %.3f re-fitted through the table x %.2f" % [env.fog_depth_begin, env.fog_depth_end, env.fog_depth_curve, want.haze], "begin %s end %s curve %s applied %s" % [env.fog_depth_begin, env.fog_depth_end, env.fog_depth_curve, sky.applied])
+	var curve_ok := true
+	var lines := []
+	for k: int in HAZE_SAMPLES_M.size():
+		var d: float = HAZE_SAMPLES_M[k]
+		var table := SkySet.haze_at(d, bands, want.haze, want.all_sky_m)
+		var engine: float = SkySet.depth_fog_at(d, env.fog_depth_begin, env.fog_depth_end, env.fog_depth_curve, env.fog_density)
+		curve_ok = curve_ok and SkySet.band_of(d, bands) == BAND_NAMES[k] and absf(engine - table) <= SkySet.FIT_TOLERANCE
+		lines.append("%.0f m: table %.3f, engine %.3f" % [d, table, engine])
+	var previous := -1.0
+	for d: int in range(0, int(want.all_sky_m) + 1, 50):
+		var value: float = SkySet.depth_fog_at(float(d), env.fog_depth_begin, env.fog_depth_end, env.fog_depth_curve, env.fog_density)
+		curve_ok = curve_ok and value >= previous and value <= 1.0
+		previous = value
+	_ok(curve_ok and previous == 1.0, tag + "the engine's curve is within %.2f of the state's table at 50 / 200 / 500 / 1 000 m and rises monotonically to 1 at %.0f m: %s" % [SkySet.FIT_TOLERANCE, want.all_sky_m, "; ".join(lines)], "; ".join(lines))
+	var slight: float = 0.15 * want.haze
+	var reduced: float = 0.45 * want.haze
+	_ok(SkySet.haze_at(BAND_ENDS_M[0], bands, want.haze, want.all_sky_m) == 0.0 and is_equal_approx(SkySet.haze_at(BAND_ENDS_M[1], bands, want.haze, want.all_sky_m), slight) and is_equal_approx(SkySet.haze_at(BAND_ENDS_M[2], bands, want.haze, want.all_sky_m), reduced) and is_equal_approx(SkySet.haze_at(want.all_sky_m, bands, want.haze, want.all_sky_m), 1.0) and SkySet.haze_at(want.all_sky_m + 500.0, bands, want.haze, want.all_sky_m) == 1.0 and reduced < 1.0, tag + "the table's amounts at the band ends under the multiplier: 0 to %.0f m, %.3f at %.0f m, %.3f at %.0f m, 1 at %.0f m" % [BAND_ENDS_M[0], slight, BAND_ENDS_M[1], reduced, BAND_ENDS_M[2], want.all_sky_m])
+	_ok(sky.describe().begins_with("S1 + S5: sun %.0f° at bearing 210°" % want.elevation) and sky.describe().contains(", weather %s (" % weather) and sky.describe() != CLEAR_SKY_LINE, tag + "describe() names the weather: %s" % sky.describe(), sky.describe())
+	if weather != "rain":
+		_ok(sky.rain == null and sky.get_child_count() == 0 and scene.find_child("Rain", true, false) == null and not env.ssr_enabled and not sky.applied.has("rain_streaks") and not sky.applied.has("wet_strips"), tag + "no rain: no streak field, no road asked to be wet, no screen-space reflections", "rain %s applied %s ssr %s" % [sky.rain, sky.applied, env.ssr_enabled])
+
+
+## Rain's own: the wet road on the strips, the streak field, its ride.
+func _check_rain(scene: Node) -> void:
+	var sky: SkySet = scene.get_node("Sky")
+	var road: RoadBuilder = scene.get_node("Road")
+	var env: Environment = scene.get_node("WorldEnvironment").environment
+	var tag := "WEATHER-1 rain: "
+	# The wet road, measured on the strips.
+	var loop_strip := _loop_strip(road)
+	var other_strip: RoadBuilder.Strip = null
+	var ids := road.strips.keys()
+	ids.sort()
+	for id: String in ids:
+		if not _loop.segments.has(id):
+			other_strip = road.strips[id]
+			break
+	var every := true
+	var first_material: Material = null
+	for id: String in ids:
+		var material: Material = (road.strips[id] as RoadBuilder.Strip).mesh_instance.mesh.surface_get_material(0)
+		if first_material == null:
+			first_material = material
+		every = every and material != null and material == first_material
+	var wet := loop_strip.mesh_instance.mesh.surface_get_material(0) as StandardMaterial3D if loop_strip != null else null
+	_ok(road.wet and every and wet != null and other_strip != null and other_strip.mesh_instance.mesh.surface_get_material(0) == wet and sky.applied.get("wet_strips") == road.strips.size() and road.strips.size() > 0, tag + "the road is wet: every one of the %d strips wears the one wet material (the loop's longest and one off the loop named)" % road.strips.size(), "wet %s every %s applied %s strips %d" % [road.wet, every, sky.applied.get("wet_strips"), road.strips.size()])
+	if wet != null:
+		_ok(wet.albedo_color == Color(0.34, 0.34, 0.34, 1.0) and wet.albedo_color == RoadBuilder.WET_ASPHALT_TINT and wet.albedo_color.r < RoadBuilder.ASPHALT_TINT.r and is_equal_approx(wet.roughness, 0.45) and wet.roughness < 1.0 and wet.metallic == 0.0, tag + "\"darkened asphalt\", \"noticeably more reflective\": the tint %s (was 0.55) and the roughness scalar %.2f (was 1.00; the map multiplies it), no metal" % [wet.albedo_color, wet.roughness], "tint %s roughness %s metallic %s" % [wet.albedo_color, wet.roughness, wet.metallic])
+		_ok(_road_material_line(road) == WET_ROAD_LINE and wet.roughness_texture != null and wet.normal_texture != null and wet.albedo_texture != null and wet.albedo_texture.get_width() == ASPHALT_SIZE and wet.roughness_texture_channel == (road._asphalt_material() as StandardMaterial3D).roughness_texture_channel, tag + "the wet material keeps the dry one's three authored textures, normal scale and filter: %s" % _road_material_line(road), _road_material_line(road))
+	# The reflections.
+	_ok(env.ssr_enabled and env.ssr_max_steps == SkySet.RAIN_SSR_MAX_STEPS, tag + "screen-space reflections on the rain's own Environment (%d steps): the car and its taillights in the wet road" % env.ssr_max_steps, "ssr %s steps %d" % [env.ssr_enabled, env.ssr_max_steps])
+	# The streak field.
+	var rain := sky.rain
+	_ok(rain != null and rain.get_parent() == sky and rain.name == "Rain" and sky.get_child_count() == 1 and sky.applied.get("rain_streaks") == RAIN_STREAKS and _physics_under(sky).is_empty(), tag + "the streak field is one CPUParticles3D \"Rain\" under Sky, built in code, no physics under it", "rain %s" % [rain])
+	if rain == null:
+		return
+	var quad := rain.mesh as QuadMesh
+	var material := quad.material as StandardMaterial3D if quad != null else null
+	_ok(rain.amount == RAIN_STREAKS and rain.emission_shape == CPUParticles3D.EMISSION_SHAPE_BOX and rain.emission_box_extents == Vector3(RAIN_BOX_M.x * 0.5, 0.0, RAIN_BOX_M.z * 0.5) and rain.direction == Vector3.DOWN and rain.spread == 0.0 and rain.gravity == Vector3.ZERO and rain.initial_velocity_min == RAIN_SPEED_MPS and rain.initial_velocity_max == RAIN_SPEED_MPS and is_equal_approx(rain.lifetime, RAIN_BOX_M.y / RAIN_SPEED_MPS) and is_equal_approx(rain.preprocess, rain.lifetime) and rain.local_coords, tag + "%d streaks born on a %.0f x %.0f m plane, falling straight down (no wind, no spread, no gravity) at %.0f m/s for %.3f s - the %.0f m box - and the box full from the first frame" % [rain.amount, RAIN_BOX_M.x, RAIN_BOX_M.z, rain.initial_velocity_min, rain.lifetime, RAIN_BOX_M.y], "amount %d extents %s dir %s speed %s..%s lifetime %s" % [rain.amount, rain.emission_box_extents, rain.direction, rain.initial_velocity_min, rain.initial_velocity_max, rain.lifetime])
+	_ok(rain.use_fixed_seed and rain.seed == SkySet.RAIN_SEED and rain.randomness == 0.0 and rain.lifetime_randomness == 0.0 and rain.explosiveness == 0.0 and rain.flatness == 0.0 and not rain.one_shot, tag + "no unseeded random: the emitter's seed fixed (%d), every randomness parameter 0" % rain.seed, "fixed %s seed %d randomness %s lifetime randomness %s" % [rain.use_fixed_seed, rain.seed, rain.randomness, rain.lifetime_randomness])
+	_ok(quad != null and quad.size == Vector2(0.02, 0.5) and material != null and material.shading_mode == BaseMaterial3D.SHADING_MODE_UNSHADED and material.transparency == BaseMaterial3D.TRANSPARENCY_ALPHA and material.albedo_texture == null and material.albedo_color.a < 0.5 and material.billboard_mode == BaseMaterial3D.BILLBOARD_FIXED_Y and rain.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, tag + "\"simple rain streaks\": a %.2f x %.2f m upright quad, unshaded, no texture, %.0f %% opaque, casting no shadow" % [quad.size.x if quad != null else 0.0, quad.size.y if quad != null else 0.0, 100.0 * (material.albedo_color.a if material != null else 0.0)])
+	# The ride.
+	var car: Node3D = scene.get_node("Car")
+	await _step(2)
+	var over_car := rain.visible and rain.emitting and rain.global_position.is_equal_approx(car.global_position + Vector3(0.0, RAIN_ABOVE_M, 0.0)) and rain.global_transform.basis.is_equal_approx(Basis.IDENTITY)
+	var elsewhere := Node3D.new()
+	scene.add_child(elsewhere)
+	elsewhere.global_position = car.global_position + Vector3(300.0, 10.0, -200.0)
+	sky.rain_anchor = elsewhere
+	await _step(2)
+	var over_anchor := rain.global_position.is_equal_approx(elsewhere.global_position + Vector3(0.0, RAIN_ABOVE_M, 0.0))
+	elsewhere.free()
+	await _step(2)
+	var back := rain.visible and rain.global_position.is_equal_approx(car.global_position + Vector3(0.0, RAIN_ABOVE_M, 0.0))
+	_ok(over_car and over_anchor and back, tag + "the field rides with the car - its birth plane %.0f m over it, position only, each physics tick - with a named anchor while one stands, and with the car again once the anchor is freed" % RAIN_ABOVE_M, "over car %s, over anchor %s, back %s (rain %s car %s)" % [over_car, over_anchor, back, rain.global_position, car.global_position])
+
+
+## The rain scene's line for the determinism pair: the sky, the wet road,
+## the streak field's numbers and where it stands over the car.
+func _rain_line(scene: Node) -> String:
+	var sky: SkySet = scene.get_node("Sky")
+	var rain := sky.rain
+	if rain == null:
+		return ""
+	var car: Node3D = scene.get_node("Car")
+	return "%s | %s | %d streaks, %s, %.4f s, seed %d, %s over the car" % [sky.describe(), _road_material_line(scene.get_node("Road")), rain.amount, rain.emission_box_extents, rain.lifetime, rain.seed, (rain.global_position - car.global_position).snapped(Vector3(0.001, 0.001, 0.001))]
+
+
+## A bare SkySet under rain - no environment, no sun, no Road, no car:
+## nothing to wet, nothing to ride with, the field hidden and idle.
+func _check_bare_rain() -> void:
+	OS.set_environment(SkySet.ENV_VAR, "rain")
+	var holder := Node3D.new()
+	var sky := SkySet.new()
+	holder.add_child(sky)
+	root.add_child(holder)
+	OS.unset_environment(SkySet.ENV_VAR)
+	await _step(3)
+	_ok(sky.applied.get("weather") == "rain" and sky.rain != null and not sky.rain.visible and not sky.rain.emitting and sky.applied.get("wet_strips") == 0, "WEATHER-1 rain on a bare scene (no Road, no car): no strip wetted, quietly, and the streak field hidden and idle - no car, no rain", "applied %s rain %s" % [sky.applied, sky.rain])
+	holder.queue_free()
+
+
+## The clear scene loaded after every weather: nothing leaked.
+func _check_clear_after_weather(scene: Node) -> void:
+	var sky: SkySet = scene.get_node("Sky")
+	var road: RoadBuilder = scene.get_node("Road")
+	var env: Environment = scene.get_node("WorldEnvironment").environment
+	var sun: DirectionalLight3D = scene.get_node("Sun")
+	var plate := env.sky.sky_material as ProceduralSkyMaterial
+	_ok(not sky.applied.has("weather") and sky.describe() == CLEAR_SKY_LINE and _road_material_line(road) == DRY_ROAD_LINE and not road.wet and sky.rain == null and plate.sky_horizon_color == CLEAR_HORIZON and plate.sky_top_color == Color(0.5, 0.66, 0.85, 1.0) and env.fog_light_color == CLEAR_HORIZON and env.fog_depth_end == SkySet.SKY_COLOURED_FULL_M and not env.ssr_enabled and sun.light_color == Color(1.0, 0.965, 0.9, 1.0) and sun.light_energy == 1.0 and env.ambient_light_color == Color(0.45, 0.45, 0.45, 1.0) and absf(_sun_angles(sun).x - SUN_ELEVATION_DEG) < 0.01, "WEATHER-1: the clear scene loaded after the four weathers is the clear day - no weather key, today's sky and road lines, the clear plate, haze, sun and ambient (nothing leaked through the shared plate)", "sky: %s / road: %s / horizon %s" % [sky.describe(), _road_material_line(road), plate.sky_horizon_color])
 
 
 func _all_under(node: Node) -> Array[Node]:

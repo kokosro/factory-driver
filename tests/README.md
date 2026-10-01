@@ -36,6 +36,17 @@ into the pad's shed 0 that fires a thump; `FD_SOUND` is unset in the suite, whic
 headless, so no other test sees a node or an audio player), the first run test once more for the
 dealership and sits the L0 exam twice on the pad; since 4B-7 every Ring scene load also
 builds the terrain, the forest walls and the sky, about nine seconds more each; since
+WEATHER-1 the dressing test builds the Ring four times - the clear day, rain twice, the
+clear day again - and holds the weather (211 checks, was 146): `FD_WEATHER` unset is the
+clear day to the letter (no weather key, no rain node, the dry road, the clear sun and
+ambient pinned to their literals); each of overcast / sunset / evening / rain pins its sun,
+its ambient, its plate on the scene's own copies (the packed scene's shared plate still
+clear), the haze colour re-read from the new horizon and the curve re-fitted through the
+state's table; rain also the wet road on every strip, the streak field's constants and its
+ride with the car, and two rain scenes describing themselves the same; the three dry states
+run on the Ring's sky alone - the shared Environment, a Sun and the SkySet - not on three
+more builds of the Ring; the test takes `FD_WEATHER` off for its clear scenes and restores
+it, and the suite runs with it unset; since
 BUBBLE-1 the forest build also writes the trunk bodies, a few hundred milliseconds; since
 OFFROAD-1 the terrain build also writes the continuation skirt, about a second).
 `tests/run_tests.sh --parallel` runs the thirty-four tests side by side after the import and

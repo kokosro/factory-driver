@@ -296,6 +296,21 @@ const ASPHALT_NORMAL := ASPHALT_DIR + "road_asphalt_1024_normal.png"
 const ASPHALT_TINT := Color(0.55, 0.55, 0.55, 1.0)
 const TILE_ALONG_M := 8.0
 const NORMAL_SCALE := 2.0
+## THE WET ROAD (WEATHER-1; docs/art-direction.md, Weather: "darkened
+## asphalt ... car reflections on road, taillight reflections ... The wet
+## road should become noticeably more reflective. That alone gives you a
+## huge amount of the period look."): wet_road() puts a copy of the
+## asphalt material on every strip with the tint darkened (was 0.55 ->
+## 0.34: wet asphalt drinks the light) and the roughness scalar lowered
+## (was 1.0 -> 0.45). The roughness MAP stays and the scalar multiplies
+## it: the polished ruts' 0.58 becomes 0.26 against the lane centres'
+## 0.84 -> 0.38 - the water stands in the ruts, where a wet road shines
+## first. No metallic (water is a dielectric), the specular the engine's
+## default; the same three textures, normal scale and filter. Only the
+## rain state of SkySet calls it (FD_WEATHER=rain); the dry material and
+## every dry path are untouched. Visual only: no grip, no surface class.
+const WET_ASPHALT_TINT := Color(0.34, 0.34, 0.34, 1.0)
+const WET_ROUGHNESS := 0.45
 
 ## THE ROAD BODY (ROAD-3, the driver's flat surface: the road read as a
 ## sheet laid on the grass, the verge on the very same plane at its
@@ -372,6 +387,8 @@ var skirt_vertex_count := 0
 var skirt_triangle_count := 0
 
 var _material: StandardMaterial3D
+## True once wet_road() ran (WEATHER-1): `_material` is then the wet copy.
+var wet := false
 ## ROAD-5 counters are separate from the certified paved-platform census.
 var rumble_mesh_count := 0
 var rumble_vertex_count := 0
@@ -641,6 +658,29 @@ func add_strip(strip: Strip) -> void:
 func finish_build(started: int) -> void:
 	_add_floor()
 	build_ms = Time.get_ticks_msec() - started
+
+
+## WEATHER-1, the wet road (see WET_ASPHALT_TINT): a copy of the asphalt
+## material, darker and smoother, set on every strip's surface 0 exactly
+## as _add_nodes set the dry one, and kept as `_material` so a strip
+## added later (the loading scene's node stage) wears it too. Returns the
+## number of strips re-dressed; 0, and nothing changed, before the
+## material exists or when the road is already wet.
+func wet_road() -> int:
+	if wet or _material == null:
+		return 0
+	var material: StandardMaterial3D = _material.duplicate()
+	material.albedo_color = WET_ASPHALT_TINT
+	material.roughness = WET_ROUGHNESS
+	_material = material
+	wet = true
+	var dressed := 0
+	for id: String in strips:
+		var built: Strip = strips[id]
+		if built.mesh_instance != null and built.mesh_instance.mesh != null:
+			built.mesh_instance.mesh.surface_set_material(0, material)
+			dressed += 1
+	return dressed
 
 
 ## The strip of the road with this id, or null.

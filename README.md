@@ -2721,6 +2721,64 @@ not-yet-existing rather than faked.
 `1` on even with no window, unset on in the game and off headless - so the test suite sees
 no node unless a test asks (`tests/sound_test.gd` does, for its own scenes, and restores).
 
+### Weather (WEATHER-1)
+
+The Ring has four skies and rain (`scripts/sky_set.gd`; the canon, docs/art-direction.md,
+Weather and Sky: "Rain is particularly useful for this aesthetic. Don't turn it into a
+modern weather showcase. Use: darkened asphalt, simple rain streaks, grey sky, slightly
+reduced visibility, car reflections on road, taillight reflections, occasional spray. The
+wet road should become noticeably more reflective." and "Blue sky with soft clouds. Grey
+overcast. Orange sunset. Dark blue evening."). `FD_WEATHER` in the environment picks one,
+read once when the Ring's sky is applied:
+
+```sh
+FD_WEATHER=rain /opt/homebrew/bin/godot --path .
+```
+
+| `FD_WEATHER` | what to expect |
+|---|---|
+| unset or `0` | the clear day - today's look to the bit: nothing copied, nothing added, `SkySet.applied` without a `weather` key, `describe()` the same line |
+| `overcast` | a grey plate (horizon 0.70 / 0.72 / 0.75), the sun a weak cool-grey light at its 45° (energy 0.45, no disc on the plate), a flatter, brighter ambient with half of it the sky's, the haze table x 1.2 reaching the sky at 2 350 m |
+| `sunset` | the sun 10° up and warm orange (1.0 / 0.62 / 0.36, energy 0.8), long shadows, a warm dim ambient, an orange horizon (0.90 / 0.60 / 0.42) under a deep blue top, the haze tending to the orange horizon; the clear day's haze table |
+| `evening` | the sun all but set (4°, energy 0.2, cool), a dim bluish ambient, a dark blue plate (top 0.05 / 0.08 / 0.20, horizon 0.16 / 0.22 / 0.38); the clear day's haze table |
+| `rain` | the overcast plate darker and greyer (horizon 0.56 / 0.58 / 0.61, sun energy 0.3), "slightly reduced visibility" (the haze table x 1.4, all sky at 1 900 m - still nearly two kilometres of landscape, never a fog wall), the wet road, the rain streaks and the reflections |
+
+Anything else is refused with an error naming the value and the day stays clear. The
+sun's bearing is the region table's 210° in every state (a sunset sets where the sun
+stands) and the shadows stay on. A state runs on top of the clear path: the sun's
+elevation, colour and energy, the ambient trio, the plate's four colours. The plate is
+never written in place - the scene's Environment, Sky and sky material are shared by every
+instance of the packed scene, so a state takes its own copies; a clear scene loaded after a
+weather scene is the clear day. The haze keeps its mechanism: its colour is re-read from
+the new plate's horizon (it greys under cloud and warms at sunset by itself) and the
+engine's one exponent is re-fitted, by the same `fitted_curve`, through the state's table -
+the clear amounts (0.15 at 300 m, 0.45 at 800 m) times the state's multiplier. One exponent
+can only follow a table whose amounts grew if the table's end came in, so a state names
+both (x 1.2 with 2 350 m, x 1.4 with 1 900 m: each within the clear day's 0.03 fit
+tolerance at 50 / 200 / 500 / 1 000 m), and the nearer end is the reduced visibility.
+
+Rain adds three things. **The wet road** (`RoadBuilder.wet_road()`, called by the sky one
+deferred call after it is applied; a scene without a `Road` is skipped): a copy of the
+asphalt material on every strip with the tint darkened (0.55 -> 0.34) and the roughness
+scalar lowered (1.0 -> 0.45). The roughness map stays and the scalar multiplies it, so the
+polished ruts (0.58 -> 0.26) shine before the lane centres (0.84 -> 0.38) - the water
+stands in the ruts. **The streaks**: 360 thin upright quads (0.02 x 0.5 m, unshaded,
+half-transparent, no texture) in one code-built `CPUParticles3D` under the `Sky` node,
+born on a 40 x 40 m plane 20 m over the car and falling 25 m straight down at 12 m/s; the
+field rides with the car, position only, each physics tick, and hides when there is no car.
+No unseeded random: the emitter's seed is fixed and every randomness parameter is 0.
+**The reflections**: the rain's own Environment copy turns on the engine's screen-space
+reflections, so what is on screen - the car, its taillights, the tree line - is mirrored in
+the wet road; the sky plate and the sun mirror through the lowered roughness alone.
+
+Not in v1, parked: **wet grip** - the road is as grippy wet as dry. `scripts/surfaces.gd`
+and `data/regions/eifel_ring/surfaces.json` are frozen, and a wet surface class needs a
+freeze ruling of its own. No puddle geometry, no drips on the camera, no wind-driven rain
+(the streaks fall straight down), no spray. Nothing in any state touches the car or the
+physics; the pad (`scenes/main.tscn`) has no `Sky` node and no weather. The test suite
+runs with `FD_WEATHER` unset; `tests/dressing_test.gd` takes it off for its clear scenes,
+sets it around each weather scene and restores it.
+
 ### Odometer
 
 The car counts its metres (`odometer_m` on the car, `ODO 12.3 km` over the aid lamps on
