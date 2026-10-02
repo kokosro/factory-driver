@@ -3182,7 +3182,71 @@ consumed by no system yet; `reward_credits` stays in the job configs, still vali
 and still what marks a job as paid work, but it is inert — nothing displays or pays it
 (the job briefings still close with their old "Pay on delivery: <n> credits" sentence,
 authored text this slice did not rewrite); nothing redeems an obligation yet. Credits
-remain live only where they are still spent: the dealership (slice 3 pending) and paid
-fuel (slice 4 pending) — with no job paying credits any more, a fresh driver has none
-to spend there until those slices land. `obligations.json` is seeded with the rest of
-the data folder (`DataDir.SEEDED_FILES`, closing slice 1's gap).
+remain live only where they are still spent: paid fuel (slice 4 pending; was: the
+dealership too, until slice 3 landed its barter, below) — with no job paying credits
+any more, a fresh driver has none to spend there until that slice lands.
+`obligations.json` is seeded with the rest of the data folder (`DataDir.SEEDED_FILES`,
+closing slice 1's gap).
+
+### The dealership barters (TROC-1 slice 3)
+
+The CAR page's dealership trades by barter against authored exchange-terms per car (was:
+ECON-3's price table, a `DEALERSHIP  —  CREDITS: <balance>` heading and a `BUY — <car> —
+<n> credits` row per car). The design's mapping row (`docs/design/troc-redesign.md` §3):
+"`Dealership` price table (... `price_credits` per car, all `basis: AUTHORED`) ->
+EXCHANGE-TERMS per car: what the dealer accepts". Each entry of `configs/dealership.json`
+gains `dealer` (the desk's opaque counterparty id) and `terms` (a non-empty menu of what
+the desk accepts: `accepts`, the desk's own words; `settle`, how the garage settles it;
+an optional whole `count` of 1 or more, absent meaning 1). The terms as landed:
+
+| car | desk | accepts | settle | count |
+|---|---|---|---|---|
+| `fd_1073` | `DEALER-EIFEL-01` | "one held obligation" | `obligation` | 1 (absent) |
+| `boxster_986` | `DEALER-EIFEL-02` | "one held obligation" | `obligation` | 1 (absent) |
+| `fd_2000` | `DEALER-EIFEL-03` | "two held obligations" | `obligation` | 2 |
+
+Every term and every desk id is AUTHORED (the source docs carry no exchange-terms; each
+`basis` says so). A count is how many records the desk asks for, not a price: no
+obligation is worth a number and nothing is summed. `scripts/dealership.gd` stays a
+strict reader (a missing or empty `dealer`, `terms` that are no list or empty, a term
+that is no object, has no `accepts`, an unknown `settle`, a `count` that is not a whole
+number of 1 or more, or an unknown key — each refuses the entry and is reported); the
+table's version stays 1 (config and reader move together; an older build refuses every
+entry on the unknown keys, sells nothing and writes nothing).
+
+The BARTER row (`BARTER — <car> — for <the desk's words>`) is live where a world record
+exists and the driver holds, as creditor, at least the open obligations the binding term
+asks for (the term settled by `obligation` asking for the fewest; an obligation the desk
+itself owes the driver is not counted — the ledger never hands a debt to its own debtor).
+Its hint reads "The dealer accepts: <terms>." and what is held ("You hold 2 open
+obligations.", "…: 1 more needed.", "You hold no obligations the desk accepts."). Enter
+runs `Garage.barter_car`: the first N held obligations in the log's order are transferred
+to the desk (`ObligationsLedger.transfer`, origin `dealership:<car_id>`), then the
+ownership write is exactly the credits path's (a fresh entry in `cars.json` where the
+store is kept, `active_car` in `world.json`, a rental ended). If a transfer is refused
+mid-trade, or the store's side fails after the transfers, every committed transfer is
+handed back (origin `dealership:<car_id>:reverse`) and the trade is refused; the log is
+append-only, both transfers stay in the record's history. Ownership by trade is read from
+the log (`Garage.traded`: a transfer to the car's desk with that origin on a record the
+desk currently holds); the page then shows `OWNED … traded here for <terms>` and
+`SELECTED … traded at the dealership`. With `FD_TELEMETRY=0` (no obligations ledger) the
+terms are listed as text and nothing can be traded.
+
+The credits BUY row is DORMANT, not deleted (ruling `16036083`, slice 3's point: the
+credits path goes dormant behind a flag; it overrules the design doc's proposed retire,
+which itself noted "The driver may prefer dormancy; it is one flag either way"):
+`Garage.CREDITS_BUY_ENABLED` is `false`, so the heading carries no balance and no BUY row
+renders; `buy_car`, `price_credits` and the credits-log ownership scan are intact,
+tested by direct calls, and a car owned by trade is refused there as "already owned".
+
+Honest scope: the fresh-driver credits gap is NARROWED, not closed — barter with held
+obligations is now the earn-to-own path (deliver a job -> hold the poster's obligation
+-> trade it for a car), while paid fuel still charges credits until slice 4. The trade
+takes the oldest held obligations; the driver does not choose which. The transferred
+obligation stays open with the desk as its creditor (the poster now owes the desk):
+nothing redeems it yet. `voucher` is validated settle vocabulary that NO shipped term
+uses and the garage does not settle: nothing grants dealership vouchers yet (the job
+board's "one dealership voucher" tips are display-only, and the first-run voucher is the
+`fd_1001` car voucher honoured at E4.1) — deferred to slice 4. The job briefings still
+close with their authored "Pay on delivery: <n> credits" sentence. A bought or traded
+car is selected in the records only; live vehicle swapping is still pending.

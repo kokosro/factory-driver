@@ -4,6 +4,11 @@ extends SceneTree
 ## poster's obligation to the player, once per episode, and the JOBS page's
 ## view shows it. The slice-1 seed gap is closed in slice 2: obligations.json
 ## is in DataDir.SEEDED_FILES (the pin at the end of the failed write flipped).
+## TROC-1 slice 3 adds the barter corner: the CAR page's dealership trades a
+## car for the obligations the driver holds (Garage.barter_car, the BARTER
+## rows) - the fresh-driver arc from a delivered job to an owned car, the
+## empty boot, the count, the reversal, and the dormant credits buy_car
+## refusing a traded car.
 ## Run via tests/run_tests.sh, or:
 ##
 ##   godot --headless --path . --import
@@ -15,7 +20,8 @@ extends SceneTree
 ## redemption, the cancellation, the creditor transfers, the derived open
 ## views, the round trip, the versions, the determinism, the corruption
 ## tolerance and the failed write; then the runner on the pad, a posted
-## fixture of this test's own passed by ticks.
+## fixture of this test's own passed by ticks; then the garage on the pad
+## over a world record, a cars file and a campaign file of the test's own.
 var failures := 0
 var checks := 0
 var test_dir := (OS.get_environment("TMPDIR") if not OS.get_environment("TMPDIR").is_empty() else "/tmp").path_join("factory-driver-obligations-%d" % OS.get_process_id())
@@ -97,6 +103,8 @@ func _run() -> void:
 	_failed_write()
 	print("-- the runner creates the poster's obligation (slice 2)")
 	await _runner()
+	print("-- the dealership barter (slice 3)")
+	await _barter()
 	print("-- nothing of the driver's was touched")
 	ObligationsLedger.path_override = ""
 	ok(stamp(real_path) == real_before, "the driver's own obligations.json is as it was before the test (override isolation)")
@@ -475,6 +483,181 @@ func _runner() -> void:
 	ok(garage.page_text().contains("Owed to you by DISPATCH-TEST: one test delivery: across the pad") and not garage.page_text().contains("You owe") and not garage.page_text().contains("CREDITS:") and read_text(ledger_path) == bytes, "the JOBS page shows it as owed to the driver, reads TROC, and its read wrote nothing")
 	ok(_pass_by_ticks(runner, job) and runner.last_result.obligation.id == "OBL-0002" and runner.last_result.obligation.origin == "job:POSTED-PROOF/episode-%d" % (episode + 2) and on_disk().records.size() == 2, "passing the job again is a new episode and a new obligation: the second record, its own episode in the origin")
 	CampaignStore.path_override = ""
+	runner.load_catalog()
+	runner.campaign.load_state()
+	scene.queue_free()
+	await process_frame
+
+# =============================================================================
+#  The dealership barter (TROC-1 slice 3)
+# =============================================================================
+
+## The posted fixture of _runner, as a catalog entry.
+func _posted() -> Dictionary:
+	var job: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://tests/ml1_proof.json"))
+	job.id = "POSTED-PROOF"
+	job.title = "Posted proof"
+	job.job_kind = "courier"
+	job.reward_credits = 95
+	job.poster = "DISPATCH-TEST"
+	job.poster_owed = "one test delivery: across the pad"
+	return job
+
+## The CAR page's BARTER row for `car_id` as it stands; {} when the page
+## carries none.
+func _barter_row(garage: Garage, car_id: String) -> Dictionary:
+	garage.show_page(Garage.Page.CAR)
+	for row: Dictionary in garage.page_rows():
+		if row.kind == "barter_car" and row.id == car_id:
+			return row
+	return {}
+
+## The record `id` as the file holds it; {} for none.
+func _stored(id: String) -> Dictionary:
+	for entry: Dictionary in on_disk().records:
+		if entry.id == id:
+			return entry
+	return {}
+
+## credits_test's CAR-page fixture: the pad's garage over a world record, a
+## cars file, a campaign file and the ledgers of this test's own (the
+## credits one named and never written: the dormant path's guard needs a
+## wired ledger to be reached). The fresh-driver arc, the boot that holds
+## nothing, the count, the reversal, the row itself.
+func _barter() -> void:
+	var runner := MissionRunner.of(self)
+	var world_path := test_dir.path_join("world.json")
+	var store_path := test_dir.path_join("cars.json")
+	var campaign_path := test_dir.path_join("campaign.json")
+	var credits_path := test_dir.path_join("credits.json")
+	DirAccess.remove_absolute(ledger_path)
+	DirAccess.remove_absolute(campaign_path)
+	CampaignStore.path_override = campaign_path
+	CreditsLedger.path_override = credits_path
+	# The world record BEFORE the pad loads (credits_test's rule: a path
+	# without a record forces the first-run map open).
+	WorldStore.set_spawn("eifel_ring", "E8.1", world_path)
+	WorldStore.path_override = world_path
+	var scene: Node = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	await process_frame
+	var car: ArcadeCar = scene.get_node("Car")
+	var garage: Garage = scene.get_node("Garage")
+	runner.campaign.state = CampaignStore.defaults()
+	runner.campaign.reconcile(LicenceExams.LICENCE_L1)
+	runner.configure(car, scene.get_node("HUD"))
+	var job := _posted()
+	runner.catalog.clear()
+	runner.catalog[job.id] = job
+	var ledger := ObligationsLedger.new()
+	var table := Dealership.read()
+	ok(Garage.CREDITS_BUY_ENABLED == false and Dealership.dealer_of(Dealership.entry_of(table, "boxster_986")) == "DEALER-EIFEL-02" and Garage.binding_term(Dealership.entry_of(table, "boxster_986")) == {"accepts": "one held obligation", "settle": "obligation"} and Garage.term_count(Garage.binding_term(Dealership.entry_of(table, "fd_2000"))) == 2 and Garage.terms_text_of(Dealership.entry_of(table, "fd_2000")) == "two held obligations", "the shipped state: the credits BUY row dormant, the Boxster's desk DEALER-EIFEL-02 accepting one held obligation, the FD-2000's two")
+	var menu := {"terms": [{"accepts": "one dealership voucher", "settle": "voucher"}, {"accepts": "three held obligations", "settle": "obligation", "count": 3}, {"accepts": "two held obligations", "settle": "obligation", "count": 2}, {"accepts": "a pair of held obligations", "settle": "obligation", "count": 2}]}
+	ok(Garage.binding_term(menu) == menu.terms[2] and Garage.terms_text_of(menu) == "two held obligations" and Garage.binding_term({"terms": [menu.terms[0]]}).is_empty() and Garage.terms_text_of({"terms": [menu.terms[0]]}) == "one dealership voucher" and Garage.binding_term({}).is_empty() and Garage.term_count({}) == 1, "the terms are a menu: the binding term is the obligation term asking for the fewest, the first among equals; a voucher term binds nothing in this build (slice 4's)")
+
+	# THE INSUFFICIENT BOOT: nothing held, nothing traded, nothing written.
+	var row := _barter_row(garage, "boxster_986")
+	ok(garage.page_rows().size() == 3 and not row.is_empty() and not row.enabled and row.label == "BARTER — 1997 Boxster 986 — for one held obligation" and row.hint == "The dealer accepts: one held obligation. You hold no obligations the desk accepts.", "a driver who holds nothing: the three BARTER rows, greyed, the desk's words on the label and what is held in the hint")
+	var refused := garage.barter_car("boxster_986", world_path, store_path, true, car)
+	ok(not refused.bought and refused.reason == "the dealer accepts one held obligation: 1 more needed (0 of 1 held)" and refused.summary == "1997 Boxster 986 not traded: " + refused.reason + "." and refused.traded.is_empty() and refused.reversed.is_empty() and refused.entry.is_empty(), "barter_car with nothing held is refused, the terms and the shortfall in its reason")
+	ok(not FileAccess.file_exists(ledger_path) and not FileAccess.file_exists(store_path) and WorldStore.load_driver(world_path).active_car == "", "refused before any write: no obligations file, no cars file, nothing selected")
+	var owing := ledger.create("DISPATCH-TEST", "player", "a favor: a job for me", "favor", "trade:test")
+	var bytes := read_text(ledger_path)
+	row = _barter_row(garage, "boxster_986")
+	refused = garage.barter_car("boxster_986", world_path, store_path, true, car)
+	ok(owing.id == "OBL-0001" and not row.enabled and row.hint.ends_with("You hold no obligations the desk accepts.") and not refused.bought and read_text(ledger_path) == bytes and not FileAccess.file_exists(store_path), "an obligation the driver OWES is nothing held: still greyed, still refused, the obligations file byte-identical, the store untouched")
+	ok(garage.barter_car("fd_1001", world_path, store_path, true, car).reason.contains("does not sell") and garage.barter_car("boxster_986", "", store_path, true, car).reason == "no world record this run" and read_text(ledger_path) == bytes, "a car the table does not trade, and no world record: refused, nothing written")
+
+	# THE FRESH-DRIVER ARC: deliver a job, hold the poster's obligation,
+	# trade it for a car (service for voucher for a car, by obligations as
+	# payment: the driver's own line, ruling 16036083).
+	var episode := runner._episode + 1
+	ok(_pass_by_ticks(runner, job) and runner.last_result.passed and runner.last_result.obligation.id == "OBL-0002", "the fresh driver delivers a job")
+	ledger.load_state()
+	var held := ledger.open_view("player")
+	ok(held.size() == 1 and held[0].debtor == "DISPATCH-TEST" and held[0].owed == "one test delivery: across the pad" and held[0].origin == "job:POSTED-PROOF/episode-%d" % episode and held[0].transfers.is_empty(), "and holds the poster's obligation: open_view(player) is the one record")
+	row = _barter_row(garage, "boxster_986")
+	var dear := _barter_row(garage, "fd_2000")
+	ok(row.enabled and row.hint == "The dealer accepts: one held obligation. You hold 1 open obligations." and _barter_row(garage, "fd_1073").enabled and not dear.enabled and dear.label == "BARTER — FD-2000 — for two held obligations" and dear.hint == "The dealer accepts: two held obligations. You hold 1 open obligations: 1 more needed.", "one obligation held: the two one-obligation rows are live, the FD-2000's greyed, saying 1 more needed")
+	bytes = read_text(ledger_path)
+	refused = garage.barter_car("fd_2000", world_path, store_path, true, car)
+	ok(not refused.bought and refused.reason == "the dealer accepts two held obligations: 1 more needed (1 of 2 held)" and read_text(ledger_path) == bytes and not FileAccess.file_exists(store_path), "THE COUNT: the FD-2000 with one held obligation is refused, nothing written")
+	var moved := {"from": "player", "to": "DEALER-EIFEL-02", "origin": "dealership:boxster_986"}
+	var bought := garage.barter_car("boxster_986", world_path, store_path, true, car)
+	ok(bought.bought and bought.reason == "" and bought.summary == "1997 Boxster 986 traded for one held obligation." and bought.traded.size() == 1 and bought.reversed.is_empty(), "the trade: the Boxster for the one held obligation")
+	var record_now := _stored("OBL-0002")
+	ok(record_now.creditor == "DEALER-EIFEL-02" and record_now.debtor == "DISPATCH-TEST" and record_now.status == "open" and record_now.transfers.size() == 1 and record_now.transfers[0] == moved and bought.traded[0] == record_now and record_now.redemptions.is_empty(), "on disk the obligation is the desk's now: creditor DEALER-EIFEL-02, transfers[0] player to the desk with origin dealership:boxster_986, still open (the poster owes the desk), nothing redeemed")
+	ok(on_disk().records.size() == 2 and _stored("OBL-0001") == owing and not FileAccess.file_exists(ledger_path + ".tmp"), "no record was added and the other is as it was: a trade moves a creditor, it creates nothing")
+	var stored_car: Dictionary = OdometerStore._cars(OdometerStore._read(store_path)).get("boxster_986", {})
+	ok(bought.entry == FirstCar.default_entry() and stored_car.get("odometer_m") == 0.0 and stored_car.get("fuel_l") == 64.0 and OdometerStore.load_licence("boxster_986", store_path).level == LicenceExams.LICENCE_NONE, "the ownership write as buy_car's: a new car's entry in the test's cars.json, 0 m, the tank its config's 64 L, unlicensed")
+	ok(WorldStore.load_driver(world_path).active_car == "boxster_986", "active_car set in the test's world record")
+	ledger.load_state()
+	ok(Garage.traded(ledger.records(), "boxster_986") and not Garage.traded(ledger.records(), "fd_1073") and not Garage.traded(ledger.records(), "fd_2000") and not Garage.traded([], "boxster_986") and not Garage.traded(ledger.records(), "fd_1001") and not runner.campaign.owns_car("boxster_986") and not FileAccess.file_exists(credits_path), "owned by the trade in the obligations log: traded() is true for the Boxster alone - not by the ladder, not by a credits file (none exists)")
+	garage.show_page(Garage.Page.CAR)
+	var text := garage.page_text()
+	ok(text.contains("OWNED  1997 Boxster 986 (boxster_986): traded here for one held obligation.") and text.contains("SELECTED  1997 Boxster 986 (boxster_986): traded at the dealership") and _barter_row(garage, "boxster_986").is_empty() and garage.page_rows().size() == 2 and not text.contains("CREDITS:"), "the CAR page: the OWNED and SELECTED trade lines, no BARTER row for the Boxster, the other two still on offer, no credits balance")
+	garage.show_page(Garage.Page.JOBS)
+	ok(not garage.page_text().contains("Owed to you by") and garage.page_text().contains("You owe DISPATCH-TEST: a favor: a job for me"), "the JOBS page no longer lists the traded obligation as owed to the driver: it is the desk's")
+	bytes = read_text(ledger_path)
+	var store_bytes := read_text(store_path)
+	ok(garage.barter_car("boxster_986", world_path, store_path, true, car).reason == "already owned" and read_text(ledger_path) == bytes and read_text(store_path) == store_bytes, "trading for it again is refused: already owned, nothing written")
+	var dormant := garage.buy_car("boxster_986", world_path, store_path, true, car)
+	ok(CreditsLedger.active_path() == credits_path and not dormant.bought and dormant.reason == "already owned" and dormant.transaction.is_empty() and not FileAccess.file_exists(credits_path) and read_text(ledger_path) == bytes, "the dormant credits path refuses the barter-bought car too: buy_car says already owned before any spend, no credits file written")
+
+	# THE COUNT: two held obligations for the FD-2000.
+	ok(not _barter_row(garage, "fd_2000").enabled and _barter_row(garage, "fd_2000").hint.ends_with("You hold no obligations the desk accepts.") and _pass_by_ticks(runner, job) and runner.last_result.obligation.id == "OBL-0003", "after the trade the driver holds nothing again; a second job delivered")
+	dear = _barter_row(garage, "fd_2000")
+	bytes = read_text(ledger_path)
+	ok(not dear.enabled and dear.hint.ends_with("You hold 1 open obligations: 1 more needed.") and not garage.barter_car("fd_2000", world_path, store_path, true, car).bought and read_text(ledger_path) == bytes, "one held, two asked: greyed, 1 more needed, refused, the bytes identical")
+	ok(_pass_by_ticks(runner, job) and runner.last_result.obligation.id == "OBL-0004", "a third job delivered: two held")
+	dear = _barter_row(garage, "fd_2000")
+	ok(dear.enabled and dear.hint == "The dealer accepts: two held obligations. You hold 2 open obligations.", "two held: the FD-2000's row is live")
+	bought = garage.barter_car("fd_2000", world_path, store_path, true, car)
+	var two := {"from": "player", "to": "DEALER-EIFEL-03", "origin": "dealership:fd_2000"}
+	ok(bought.bought and bought.summary == "FD-2000 traded for two held obligations." and bought.traded.size() == 2 and bought.traded[0].id == "OBL-0003" and bought.traded[1].id == "OBL-0004" and _stored("OBL-0003").creditor == "DEALER-EIFEL-03" and _stored("OBL-0004").creditor == "DEALER-EIFEL-03" and _stored("OBL-0003").transfers == [two] and _stored("OBL-0004").transfers == [two] and _stored("OBL-0002").creditor == "DEALER-EIFEL-02", "bought: two transfers recorded, the two held obligations in the log's order, each to DEALER-EIFEL-03 with origin dealership:fd_2000; the Boxster's desk keeps its own")
+	ledger.load_state()
+	ok(WorldStore.load_driver(world_path).active_car == "fd_2000" and OdometerStore._cars(OdometerStore._read(store_path)).has("fd_2000") and Garage.traded(ledger.records(), "fd_2000") and Garage.traded(ledger.records(), "boxster_986") and ledger.open_view("player").is_empty() and on_disk().records.size() == 4, "the FD-2000 selected and in the cars file, both cars owned by trade, nothing held, four records and no fifth")
+
+	# What the desk itself owes is not payment at that desk.
+	var desk_owes := ledger.create("player", "DEALER-EIFEL-01", "a set of floor mats", "car-part", "trade:test")
+	row = _barter_row(garage, "fd_1073")
+	bytes = read_text(ledger_path)
+	refused = garage.barter_car("fd_1073", world_path, store_path, true, car)
+	ok(desk_owes.id == "OBL-0005" and ledger.open_view("player").size() == 1 and Garage.offerable(ledger.open_view("player"), "DEALER-EIFEL-01").is_empty() and Garage.offerable(ledger.open_view("player"), "DEALER-EIFEL-02").size() == 1 and not row.enabled and row.hint.ends_with("You hold no obligations the desk accepts.") and refused.reason.contains("1 more needed (0 of 1 held)") and read_text(ledger_path) == bytes, "an obligation the desk itself owes the driver cannot be handed to that desk (the ledger never makes the two sides one id): the row greyed, the trade refused, the bytes identical")
+
+	# THE REVERSAL: the store's side fails after the transfer committed.
+	ok(_pass_by_ticks(runner, job) and runner.last_result.obligation.id == "OBL-0006" and _barter_row(garage, "fd_1073").enabled, "a fourth job delivered: the FD-1073's row is live")
+	var bad_store := test_dir.path_join("cars_dir")
+	DirAccess.make_dir_recursive_absolute(bad_store)
+	var failed := garage.barter_car("fd_1073", world_path, bad_store, true, car)
+	var there := {"from": "player", "to": "DEALER-EIFEL-01", "origin": "dealership:fd_1073"}
+	var back := {"from": "DEALER-EIFEL-01", "to": "player", "origin": "dealership:fd_1073:reverse"}
+	ok(not failed.bought and failed.reason == "the car's entry could not be written to cars.json, the obligation handed back" and failed.traded.size() == 1 and failed.traded[0].creditor == "DEALER-EIFEL-01" and failed.reversed.size() == 1 and failed.reversed[0].creditor == "player" and failed.entry.is_empty(), "a store path that cannot be written: the transfer committed, then reversed; not bought, the failure and the hand-back in the reason")
+	ok(_stored("OBL-0006").creditor == "player" and _stored("OBL-0006").status == "open" and _stored("OBL-0006").transfers == [there, back] and _stored("OBL-0005") == desk_owes, "on disk the record's creditor is back to player and transfers carries both, origins dealership:fd_1073 and dealership:fd_1073:reverse (the log is append-only: nothing erased); the desk's own debt untouched")
+	ledger.load_state()
+	ok(not Garage.traded(ledger.records(), "fd_1073") and WorldStore.load_driver(world_path).active_car == "fd_2000" and not OdometerStore._cars(OdometerStore._read(store_path)).has("fd_1073") and DirAccess.get_files_at(bad_store).is_empty(), "nothing owned: a reversed trade does not count (the current creditor is the driver), the selection and the cars file as they were")
+	DirAccess.remove_absolute(bad_store)
+	row = _barter_row(garage, "fd_1073")
+	ok(row.enabled and not garage.page_text().contains("OWNED  " + Dealership.car_name("fd_1073")), "the row is live again after the reversal")
+
+	# The row itself: _barter_car through activate_row (the store off
+	# headless: no entry, the rest of the flow), on the reversed obligation.
+	var index := garage.page_rows().find_custom(func(r: Dictionary): return r.kind == "barter_car" and r.id == "fd_1073")
+	ok(index >= 0 and garage.activate_row(index) and garage.last_barter_result.bought and garage.last_barter_result.entry.is_empty() and garage.last_barter_result.traded.size() == 1 and garage.last_barter_result.traded[0].id == "OBL-0006", "Enter on the live row trades: the obligation handed over, no entry (the store is off headless: cars.json in the data folder untouched)")
+	ok(_stored("OBL-0006").creditor == "DEALER-EIFEL-01" and _stored("OBL-0006").transfers == [there, back, there] and _stored("OBL-0005").creditor == "player" and _stored("OBL-0005").transfers.is_empty() and WorldStore.load_driver(world_path).active_car == "fd_1073", "traded after a reversal: the history reads there, back, there; the desk's own debt was never offered; active_car fd_1073")
+	text = garage.page_text()
+	ok(garage.page == Garage.Page.CAR and text.contains("Last trade: %s traded for one held obligation." % Dealership.car_name("fd_1073")) and text.contains("OWNED  %s (fd_1073): traded here for one held obligation." % Dealership.car_name("fd_1073")) and garage.page_rows().is_empty() and not text.contains("Last purchase"), "the page rebuilt: the last trade named, every car owned by trade, no row left")
+	ok(not files().has("credits.json") and on_disk().records.size() == 6 and on_disk().keys().size() == 2, "three cars traded for and no credits file was ever written; the obligations file is version and six records, no total")
+
+	# Gated: the terms as text, nothing traded.
+	bytes = read_text(ledger_path)
+	ObligationsLedger.path_override = ""
+	garage.show_page(Garage.Page.CAR)
+	ok(garage.page_rows().is_empty() and garage.page_text().contains("No obligations ledger this run (the store is off): the terms are listed, nothing can be traded.") and garage.page_text().contains("FD-2000 (fd_2000): the dealer accepts two held obligations.") and garage.barter_car("fd_2000", world_path, store_path, true, car).reason == "no obligations ledger this run (the store is off)" and read_text(ledger_path) == bytes and stamp(real_path) == real_before, "gated (no override) the page reads no trade and lists the terms as text; barter_car refuses before any write")
+	ObligationsLedger.path_override = ledger_path
+	CampaignStore.path_override = ""
+	CreditsLedger.path_override = ""
+	WorldStore.path_override = ""
 	runner.load_catalog()
 	runner.campaign.load_state()
 	scene.queue_free()

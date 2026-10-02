@@ -15,6 +15,12 @@ extends SceneTree
 ## no longer credits: the payment pins moved to the obligation, each saying
 ## what it was; the credits ledger stays under test for the dealership and
 ## paid fuel, which stake their own credits here.
+## TROC-1 slice 3: the dealership trades by barter. The table's pins gain
+## the desk and its exchange-terms, the CAR page's pins moved to the BARTER
+## shape (each saying what it was), and the credits BUY path is DORMANT
+## (Garage.CREDITS_BUY_ENABLED false): buy_car is intact and still driven
+## here by direct calls, the refund round trip included. The barter itself
+## is proven in tests/obligations_test.gd.
 var failures := 0
 var checks := 0
 var heard: Array = []
@@ -50,7 +56,16 @@ const PROOF_OFFERS := "a tip for a clean run: one proof"
 ## ECON-3: the prices as documented (docs/econ3-implementation.md), the
 ## station the paid fill is driven at (the refuel test's E2.4) and the tank
 ## the fills start from [L].
+## TROC-1 slice 3: PRICES is the DORMANT credits path's data now (was: the
+## buying prices); DEALERS and TERMS are each car's desk and what it
+## accepts, as authored in configs/dealership.json.
 const PRICES := {"fd_1073": 60000, "boxster_986": 44000, "fd_2000": 100000}
+const DEALERS := {"fd_1073": "DEALER-EIFEL-01", "boxster_986": "DEALER-EIFEL-02", "fd_2000": "DEALER-EIFEL-03"}
+const TERMS := {
+	"fd_1073": [{"accepts": "one held obligation", "settle": "obligation"}],
+	"boxster_986": [{"accepts": "one held obligation", "settle": "obligation"}],
+	"fd_2000": [{"accepts": "two held obligations", "settle": "obligation", "count": 2}],
+}
 const FUEL_STATION_ID := "E2.4"
 const PART_TANK_L := 20.0
 
@@ -96,13 +111,13 @@ func _run() -> void:
 	_spend()
 	print("-- the schema")
 	_schema()
-	print("-- the dealership's price table (ECON-3)")
+	print("-- the dealership's exchange-terms table (TROC-1 slice 3; was the price table, ECON-3)")
 	_dealership()
 	print("-- the job board's configs")
 	_jobs()
 	print("-- the runner pays")
 	await _payment()
-	print("-- the purchase (ECON-3)")
+	print("-- the CAR page barters, the credits purchase dormant (TROC-1 slice 3; was the purchase, ECON-3)")
 	await _purchase()
 	print("-- the Ring: the board, a real pass, a real failure, paid fuel")
 	await _ring()
@@ -400,8 +415,19 @@ func _schema() -> void:
 	ok(MissionSchema.catalog_errors([unposted]).has(fixture.id) and MissionSchema.catalog_errors([_paid(fixture.id, 95)]).is_empty(), "a paid job without its poster stays out of the catalog; the posted one is in")
 
 # =============================================================================
-#  The dealership's price table (ECON-3)
+#  The dealership's exchange-terms table (TROC-1 slice 3; was ECON-3's
+#  price table)
 # =============================================================================
+
+## A table entry of the test's own, well-formed, with `changes` laid over it
+## and the keys in `without` taken away.
+func _entry(changes := {}, without := []) -> Dictionary:
+	var made := {"car_id": "fd_1073", "price_credits": 60000, "basis": "b", "dealer": "DESK-TEST", "terms": [{"accepts": "one held obligation", "settle": "obligation"}]}
+	for key: String in changes:
+		made[key] = changes[key]
+	for key: String in without:
+		made.erase(key)
+	return made
 
 func _dealership() -> void:
 	var shipped := FileAccess.get_file_as_string(Dealership.PATH)
@@ -410,10 +436,26 @@ func _dealership() -> void:
 	var ids: Array = []
 	for entry: Dictionary in table.cars:
 		ids.append(entry.car_id)
-		ok(entry.price_credits == PRICES.get(entry.car_id, -1) and entry.price_credits is int, entry.car_id + " is priced as documented: %d credits" % entry.price_credits)
-		ok(entry.basis is String and entry.basis.length() > 40 and entry.basis.contains("AUTHORED") and entry.basis.contains("no source price"), entry.car_id + "'s basis says the price is authored and why")
+		# was "is priced as documented: %d credits", the buying price -> the
+		# number stays in the table as the dormant credits path's data.
+		ok(entry.price_credits == PRICES.get(entry.car_id, -1) and entry.price_credits is int, entry.car_id + " keeps price_credits %d: the DORMANT credits path's data, charged by nothing on the page (was: the buying price)" % entry.price_credits)
+		# was `contains("AUTHORED") and contains("no source price")`, "the basis
+		# says the price is authored and why" -> the terms' provenance beside it.
+		ok(entry.basis is String and entry.basis.length() > 40 and entry.basis.contains("AUTHORED") and entry.basis.contains("no source price") and entry.basis.contains("no source exchange-terms") and entry.basis.contains("docs/design/troc-redesign.md §3") and entry.basis.contains("DORMANT") and entry.basis.contains("16036083") and entry.basis.contains("not a price") and entry.basis.contains("voucher term is deferred to slice 4"), entry.car_id + "'s basis says the terms and the price are authored, the price dormant by the ruling, a count no price, the voucher term deferred (was: the price authored and why)")
+		ok(entry.dealer == DEALERS.get(entry.car_id, "") and entry.terms == TERMS.get(entry.car_id, []) and Dealership.dealer_of(entry) == entry.dealer and Dealership.terms_of(entry) == entry.terms, entry.car_id + " is traded by its own desk %s, which accepts: %s" % [entry.dealer, entry.terms[0].accepts])
 		ok(FileAccess.file_exists(Dealership.config_path(entry.car_id)) and Dealership.car_name(entry.car_id) != entry.car_id, entry.car_id + " has a config and a name of its own (" + Dealership.car_name(entry.car_id) + ")")
 	ok(ids == ["fd_1073", "boxster_986", "fd_2000"], "the three reward cars in file order")
+	var no_voucher := true
+	var numbers_free := true
+	for entry: Dictionary in table.cars:
+		for term: Dictionary in entry.terms:
+			no_voucher = no_voucher and term.settle == "obligation"
+			numbers_free = numbers_free and term.keys().all(func(key: String): return key in ["accepts", "settle", "count"]) and (not term.has("count") or term.count is int)
+	ok(no_voucher and numbers_free and Dealership.TERMS_SETTLES == ["obligation", "voucher"] and DEALERS.values().size() == 3 and DEALERS["fd_1073"] != DEALERS["boxster_986"] and DEALERS["boxster_986"] != DEALERS["fd_2000"] and DEALERS["fd_1073"] != DEALERS["fd_2000"], "v1 terms are held obligations only: no shipped term is settled by a voucher (the word is validated vocabulary, slice 4's), a term carries its words, its settle and a count of things, no number of value; three desks, three ids")
+	var copied := Dealership.terms_of(table.cars[2])
+	copied[0].count = 99
+	copied.append({})
+	ok(Dealership.terms_of(table.cars[2]) == TERMS["fd_2000"] and table.cars[2].terms == TERMS["fd_2000"] and Dealership.terms_of({}).is_empty() and Dealership.dealer_of({}) == "" and Dealership.ENTRY_KEYS == ["car_id", "price_credits", "basis", "dealer", "terms"], "terms_of hands out a deep copy; {} has no terms and no dealer; an entry carries exactly the five keys (was three: car_id, price_credits, basis)")
 	var configs := PackedStringArray()
 	for file in DirAccess.get_files_at(Dealership.CARS_DIR):
 		if file.ends_with(".json"):
@@ -435,12 +477,15 @@ func _dealership() -> void:
 
 	# The validation battery on tables of the test's own.
 	var table_path := test_dir.path_join("dealership.json")
-	var good := {"car_id": "fd_1073", "price_credits": 60000, "basis": "authored"}
-	var second := {"car_id": "boxster_986", "price_credits": 44000, "basis": "authored"}
+	# was {car_id, price_credits, basis} alone: an entry carries its desk and
+	# its terms now, and one without them is refused (pinned below).
+	var good := _entry({"basis": "authored"})
+	var second := _entry({"car_id": "boxster_986", "price_credits": 44000, "basis": "authored", "dealer": "DESK-TWO", "terms": [{"accepts": "one dealership voucher", "settle": "voucher"}, {"accepts": "three held obligations", "settle": "obligation", "count": 3}]})
 	write_json(table_path, {"version": 1, "cars": [good, second]})
 	var read := Dealership.read(table_path)
-	ok(read.usable and read.problems.is_empty() and read.cars.size() == 2 and read.cars[0] == good and read.cars[1] == second, "a good table of the test's own loads: the entries as kept")
-	write_json(table_path, {"version": 1, "cars": [{"car_id": "fd_1073", "price_credits": 60000.0, "basis": "authored"}]})
+	ok(read.usable and read.problems.is_empty() and read.cars.size() == 2 and read.cars[0] == good and read.cars[1] == second, "a good table of the test's own loads: the entries as kept, the desk and the terms carried through - a voucher term among them (validated vocabulary, read; nothing settles it yet)")
+	ok(read.cars[1].terms[1].count is int and read.cars[1].terms[1].count == 3 and not read.cars[1].terms[0].has("count") and not read.cars[0].terms[0].has("count") and Garage.term_count(read.cars[0].terms[0]) == 1, "a term's count read from JSON is kept as int; an absent count stays absent and means 1 (nothing invented)")
+	write_json(table_path, {"version": 1, "cars": [_entry({"price_credits": 60000.0})]})
 	read = Dealership.read(table_path)
 	ok(read.cars.size() == 1 and read.cars[0].price_credits == 60000 and read.cars[0].price_credits is int, "a whole number read from JSON as a float is a whole number, kept as int")
 	for bad in [2, 99]:
@@ -472,31 +517,60 @@ func _dealership() -> void:
 	ok(read.usable and read.cars.size() == 1 and read.problems.size() == 1 and read.problems[0].contains("unknown key extra"), "an unknown top-level key is reported and ignored")
 	var bad_entries := [
 		[null, "is not an object"], [3, "is not an object"], ["fd_1073", "is not an object"], [[], "is not an object"], [{}, "has no car_id"],
-		[{"car_id": "fd_1073", "price_credits": 60000}, "has no basis"],
-		[{"car_id": "fd_1073", "basis": "b"}, "has no price_credits"],
-		[{"price_credits": 60000, "basis": "b"}, "has no car_id"],
-		[{"car_id": "fd_1073", "price_credits": 60000, "basis": "b", "name": "x"}, "unknown key (name)"],
-		[{"car_id": "", "price_credits": 60000, "basis": "b"}, "car_id is not a nonempty string"],
-		[{"car_id": "  ", "price_credits": 60000, "basis": "b"}, "car_id is not a nonempty string"],
-		[{"car_id": 7, "price_credits": 60000, "basis": "b"}, "car_id is not a nonempty string"],
-		[{"car_id": "no_such_car", "price_credits": 60000, "basis": "b"}, "has no config"],
-		[{"car_id": "fd_1073", "price_credits": 0, "basis": "b"}, "not a whole number above zero"],
-		[{"car_id": "fd_1073", "price_credits": -5, "basis": "b"}, "not a whole number above zero"],
-		[{"car_id": "fd_1073", "price_credits": 1.5, "basis": "b"}, "not a whole number above zero"],
-		[{"car_id": "fd_1073", "price_credits": "60000", "basis": "b"}, "not a whole number above zero"],
-		[{"car_id": "fd_1073", "price_credits": null, "basis": "b"}, "not a whole number above zero"],
-		[{"car_id": "fd_1073", "price_credits": 60000, "basis": ""}, "basis is not a nonempty string"],
-		[{"car_id": "fd_1073", "price_credits": 60000, "basis": "  "}, "basis is not a nonempty string"],
-		[{"car_id": "fd_1073", "price_credits": 60000, "basis": 3}, "basis is not a nonempty string"],
+		# was bare {car_id, price_credits, basis} fixtures -> each carries the
+		# desk and the terms, so the refusal is the pinned field's own.
+		[_entry({}, ["basis"]), "has no basis"],
+		[_entry({}, ["price_credits"]), "has no price_credits"],
+		[_entry({}, ["car_id"]), "has no car_id"],
+		[_entry({"name": "x"}), "unknown key (name)"],
+		[_entry({"car_id": ""}), "car_id is not a nonempty string"],
+		[_entry({"car_id": "  "}), "car_id is not a nonempty string"],
+		[_entry({"car_id": 7}), "car_id is not a nonempty string"],
+		[_entry({"car_id": "no_such_car"}), "has no config"],
+		[_entry({"price_credits": 0}), "not a whole number above zero"],
+		[_entry({"price_credits": -5}), "not a whole number above zero"],
+		[_entry({"price_credits": 1.5}), "not a whole number above zero"],
+		[_entry({"price_credits": "60000"}), "not a whole number above zero"],
+		[_entry({"price_credits": null}), "not a whole number above zero"],
+		[_entry({"basis": ""}), "basis is not a nonempty string"],
+		[_entry({"basis": "  "}), "basis is not a nonempty string"],
+		[_entry({"basis": 3}), "basis is not a nonempty string"],
+		# TROC-1 slice 3: the desk and the terms. The first is ECON-3's own
+		# entry shape: a table of the old build's is refused whole.
+		[{"car_id": "fd_1073", "price_credits": 60000, "basis": "b"}, "has no dealer"],
+		[_entry({}, ["dealer"]), "has no dealer"],
+		[_entry({"dealer": ""}), "dealer is not a nonempty string"],
+		[_entry({"dealer": "  "}), "dealer is not a nonempty string"],
+		[_entry({"dealer": 7}), "dealer is not a nonempty string"],
+		[_entry({"dealer": null}), "dealer is not a nonempty string"],
+		[_entry({}, ["terms"]), "has no terms"],
+		[_entry({"terms": "one held obligation"}), "terms is not a list"],
+		[_entry({"terms": {"accepts": "one held obligation", "settle": "obligation"}}), "terms is not a list"],
+		[_entry({"terms": null}), "terms is not a list"],
+		[_entry({"terms": []}), "terms is an empty list"],
+		[_entry({"terms": [3]}), "terms[0] is not an object"],
+		[_entry({"terms": ["one held obligation"]}), "terms[0] is not an object"],
+		[_entry({"terms": [{"settle": "obligation"}]}), "terms[0] has no accepts"],
+		[_entry({"terms": [{"accepts": "", "settle": "obligation"}]}), "terms[0] accepts is not a nonempty string"],
+		[_entry({"terms": [{"accepts": 3, "settle": "obligation"}]}), "terms[0] accepts is not a nonempty string"],
+		[_entry({"terms": [{"accepts": "one held obligation"}]}), "terms[0] has no settle"],
+		[_entry({"terms": [{"accepts": "44000 credits", "settle": "credits"}]}), "terms[0] has an unknown settle (credits)"],
+		[_entry({"terms": [{"accepts": "one held obligation", "settle": null}]}), "terms[0] has an unknown settle"],
+		[_entry({"terms": [{"accepts": "none", "settle": "obligation", "count": 0}]}), "terms[0] count is not a whole number of 1 or more"],
+		[_entry({"terms": [{"accepts": "some", "settle": "obligation", "count": 1.5}]}), "terms[0] count is not a whole number of 1 or more"],
+		[_entry({"terms": [{"accepts": "two", "settle": "obligation", "count": "2"}]}), "terms[0] count is not a whole number of 1 or more"],
+		[_entry({"terms": [{"accepts": "owed", "settle": "obligation", "count": -1}]}), "terms[0] count is not a whole number of 1 or more"],
+		[_entry({"terms": [{"accepts": "one held obligation", "settle": "obligation", "price_credits": 5}]}), "terms[0] has an unknown key (price_credits)"],
+		[_entry({"terms": [{"accepts": "one held obligation", "settle": "obligation"}, {"accepts": "cash", "settle": "cash"}]}), "terms[1] has an unknown settle (cash)"],
 	]
 	for pair in bad_entries:
 		write_json(table_path, {"version": 1, "cars": [second, pair[0], good]})
 		read = Dealership.read(table_path)
 		ok(read.usable and read.cars.size() == 2 and read.cars[0].car_id == "boxster_986" and read.cars[1].car_id == "fd_1073" and read.problems.size() == 1 and read.problems[0].contains("cars[1]") and read.problems[0].contains(pair[1]) and read.problems[0].contains("left out"), "entry refused and reported, the rest kept in order: " + str(pair[0]))
-	write_json(table_path, {"version": 1, "cars": [good, second, {"car_id": "fd_1073", "price_credits": 1, "basis": "cheap"}]})
+	write_json(table_path, {"version": 1, "cars": [good, second, _entry({"price_credits": 1, "basis": "cheap"})]})
 	read = Dealership.read(table_path)
 	ok(read.cars.size() == 2 and read.cars[0].price_credits == 60000 and read.problems.size() == 1 and read.problems[0].contains("cars[2]") and read.problems[0].contains("again"), "a duplicated car_id is refused: the first listing stands, the second reported")
-	write_json(table_path, {"version": 1, "cars": [null, {"car_id": "nobody", "price_credits": 1, "basis": "b"}]})
+	write_json(table_path, {"version": 1, "cars": [null, _entry({"car_id": "nobody"})]})
 	read = Dealership.read(table_path)
 	ok(read.usable and read.cars.is_empty() and read.problems.size() == 3, "a table whose every entry is refused sells nothing: each refusal and the empty result reported")
 	ok(FileAccess.get_file_as_string(Dealership.PATH) == shipped and JSON.parse_string(shipped).cars.size() == 3, "the shipped table was never written by the reader")
@@ -772,13 +846,17 @@ func _payment() -> void:
 	DirAccess.remove_absolute(campaign_path)
 
 # =============================================================================
-#  The purchase (ECON-3)
+#  The CAR page barters; the credits purchase is dormant (TROC-1 slice 3;
+#  was: the purchase, ECON-3)
 # =============================================================================
 
-## The CAR page's dealership on the pad, wired to the test's own ledger,
-## world record and cars file: the greyed rows, the refusals, the forced
-## store failure and its refund, the round trip, persistence, the rank
-## grant, the shipped row, and the gated page.
+## The CAR page's dealership on the pad, wired to the test's own credits
+## ledger, world record and cars file, and to an obligations file of the
+## test's own that holds nothing (the two wirings are independent): the
+## page's BARTER shape and the dormancy (was: the greyed BUY rows), then
+## the dormant path's machinery by direct calls, intact - the refusals, the
+## forced store failure and its refund, the round trip, persistence, the
+## rank grant, the dormant row's own callable, and the gated page.
 func _purchase() -> void:
 	var runner := MissionRunner.of(self)
 	var world_path := test_dir.path_join("world.json")
@@ -809,30 +887,50 @@ func _purchase() -> void:
 	runner.credits.spent.connect(on_spent)
 	runner.credits.earned.connect(on_earned)
 
-	# Broke: the three listed, every row greyed with the price and the shortfall.
+	# The dormancy flag, and the page before any obligations ledger is wired
+	# (the credits ledger alone): no BUY row, the terms as text.
+	# was "DEALERSHIP  —  CREDITS: 0 ... wired to the test's ledger" and "one
+	# BUY row per table entry in file order".
+	ok(Garage.CREDITS_BUY_ENABLED == false, "the dormancy flag: Garage.CREDITS_BUY_ENABLED is false, the shipped state (ruling 16036083: the credits BUY row dormant, not deleted)")
+	ok(ObligationsLedger.path_override == "" and ObligationsLedger.active_path() == "", "the obligations ledger is gated here; the credits one is wired - the two wirings are independent")
 	garage.show_page(Garage.Page.CAR)
 	var rows := garage.page_rows()
 	var text := garage.page_text()
-	ok(text.contains("DEALERSHIP  —  CREDITS: 0") and text.contains("general dealership E4.1") and not text.contains("No ledger this run") and not text.contains("Last purchase"), "the CAR page carries the dealership with the balance, wired to the test's ledger, no purchase yet")
-	ok(rows.size() == 3 and rows[0].id == "fd_1073" and rows[1].id == "boxster_986" and rows[2].id == "fd_2000", "one BUY row per table entry in file order")
+	ok(text.contains("DEALERSHIP") and not text.contains("CREDITS:") and text.contains("trades by TROC: barter, not debit") and text.contains("The credits BUY row is dormant") and text.contains("general dealership E4.1") and not text.contains("Last purchase") and not text.contains("Last trade"), "the CAR page carries the dealership WITHOUT a credits balance, in TROC words, no purchase or trade yet (was: DEALERSHIP  —  CREDITS: 0)")
+	var listed := rows.is_empty() and text.contains("No obligations ledger this run (the store is off): the terms are listed, nothing can be traded.") and not text.contains("the prices are listed")
+	for entry: Dictionary in table.cars:
+		listed = listed and text.contains("%s (%s): the dealer accepts %s." % [Dealership.car_name(entry.car_id), entry.car_id, entry.terms[0].accepts]) and not text.contains("%d credits" % entry.price_credits)
+	ok(listed, "with a credits ledger wired and no obligations ledger: no row at all, the terms listed as text, no price anywhere (was: one BUY row per table entry)")
+
+	# The obligations ledger wired, holding nothing: the BARTER rows, greyed.
+	ObligationsLedger.path_override = obligations_path
+	garage.show_page(Garage.Page.CAR)
+	rows = garage.page_rows()
+	text = garage.page_text()
+	ok(rows.size() == 3 and rows[0].id == "fd_1073" and rows[1].id == "boxster_986" and rows[2].id == "fd_2000" and not text.contains("No obligations ledger this run") and not text.contains("CREDITS:"), "one BARTER row per table entry in file order (was: one BUY row)")
 	var greyed := rows.size() == 3
 	for i in mini(rows.size(), 3):
 		var entry: Dictionary = table.cars[i]
-		greyed = greyed and rows[i].kind == "buy_car" and not rows[i].enabled and rows[i].label == "BUY — %s — %d credits" % [Dealership.car_name(entry.car_id), entry.price_credits] and rows[i].hint.contains(entry.basis) and rows[i].hint.contains("You hold 0 credits: %d short" % entry.price_credits)
-	ok(greyed, "with no credits every row is greyed: the price on the label, the basis and the shortfall in the hint")
-	ok(not garage.activate_row(1) and not FileAccess.file_exists(ledger_path), "a greyed row does nothing")
+		# was label "BUY — <name> — <n> credits", the hint the basis and "You
+		# hold 0 credits: <n> short".
+		greyed = greyed and rows[i].kind == "barter_car" and not rows[i].enabled and rows[i].label == "BARTER — %s — for %s" % [Dealership.car_name(entry.car_id), entry.terms[0].accepts] and rows[i].hint == "The dealer accepts: %s. You hold no obligations the desk accepts." % entry.terms[0].accepts and not rows[i].hint.contains(entry.basis) and not rows[i].hint.contains("credits")
+	ok(greyed, "with no held obligation every row is greyed: the desk's own words on the label, the terms and what is held in the hint - not the basis, no price (was: the price on the label, the basis and the shortfall in the hint)")
+	ok(not garage.activate_row(1) and not FileAccess.file_exists(ledger_path) and not FileAccess.file_exists(obligations_path) and garage.last_barter_result.is_empty(), "a greyed row does nothing: no file of either ledger")
 	var direct := garage.buy_car("boxster_986", world_path, store_path, true, car)
-	ok(not direct.bought and direct.reason.contains("short") and direct.transaction.is_empty() and direct.summary.begins_with("1997 Boxster 986 not bought:") and not FileAccess.file_exists(ledger_path) and not FileAccess.file_exists(store_path), "buy_car called directly re-checks: refused short of credits, nothing written")
+	ok(not direct.bought and direct.reason.contains("short") and direct.transaction.is_empty() and direct.summary.begins_with("1997 Boxster 986 not bought:") and not FileAccess.file_exists(ledger_path) and not FileAccess.file_exists(store_path), "buy_car called directly re-checks: refused short of credits, nothing written (the dormant path's code, intact)")
 
-	# One short: greyed; exactly the price: live.
+	# One short: refused; exactly the price: still no BUY row (dormant).
 	ledger.earn(price - 1, "job:test")
-	garage.show_page(Garage.Page.CAR)
-	rows = garage.page_rows()
-	ok(garage.page_text().contains("CREDITS: %d" % (price - 1)) and not rows[1].enabled and rows[1].hint.contains("1 short"), "one credit short: the row is greyed and says 1 short")
+	# was `page_text().contains("CREDITS: <price - 1>") and not rows[1].enabled
+	# and rows[1].hint.contains("1 short")`: the greyed row's guard is asked
+	# of buy_car itself, the page shows no balance.
+	ok(garage.buy_car("boxster_986", world_path, store_path, true, car).reason == "1 credits short (%d of %d)" % [price - 1, price], "one credit short: buy_car refuses and says 1 short (was: the BUY row greyed, saying 1 short)")
 	ledger.earn(1, "job:test")
 	garage.show_page(Garage.Page.CAR)
 	rows = garage.page_rows()
-	ok(rows[1].enabled and rows[1].hint.contains("You hold %d credits." % price) and not rows[0].enabled and not rows[2].enabled, "exactly the price: the Boxster's row is live, the dearer two greyed")
+	# was `rows[1].enabled and hint.contains("You hold <price> credits.")`,
+	# "exactly the price: the Boxster's row is live".
+	ok(rows.size() == 3 and rows.all(func(r: Dictionary): return r.kind == "barter_car" and not r.enabled) and not garage.page_text().contains("CREDITS:") and not garage.page_text().contains("%d credits" % price), "exactly the price on hand and DORMANT: no BUY row appears, the BARTER rows stay greyed, the balance shown nowhere (was: the Boxster's BUY row live)")
 
 	# Refusals before any write.
 	ok(garage.buy_car("fd_1001", world_path, store_path, true, car).reason.contains("does not sell") and garage.buy_car("nobody", world_path, store_path, true, car).reason.contains("does not sell"), "a car the table does not sell (fd_1001, an unknown id) is refused")
@@ -850,7 +948,9 @@ func _purchase() -> void:
 	ok(ledger.balance() == price and ledger.transactions().size() == 4 and spends.size() == 1 and refunds.size() == 1 and not Dealership.purchased(ledger.transactions(), "boxster_986"), "the ledger sums back: the balance as before, four entries, one spent and one earned signal, the car not owned")
 	ok(WorldStore.load_driver(world_path).active_car == "" and not FileAccess.file_exists(store_path), "nothing selected, no entry")
 	garage.show_page(Garage.Page.CAR)
-	ok(garage.page_rows()[1].enabled and garage.page_rows()[1].kind == "buy_car" and garage.page_text().contains("CREDITS: %d" % price), "the row is live again after the refund")
+	# was `page_rows()[1].enabled and kind == "buy_car" and
+	# contains("CREDITS: <price>")`, "the row is live again after the refund".
+	ok(garage.page_rows().size() == 3 and garage.page_rows()[1].id == "boxster_986" and garage.page_rows()[1].kind == "barter_car" and not garage.page_text().contains("OWNED  1997 Boxster 986") and ledger.balance() == price, "after the refund the car is not owned: its row is back on the page, the BARTER row (was: the BUY row live again, the balance on the heading)")
 	DirAccess.remove_absolute(bad_store)
 
 	# The round trip through the store: buy_car with the test's paths, the
@@ -872,7 +972,7 @@ func _purchase() -> void:
 	garage.show_page(Garage.Page.CAR)
 	rows = garage.page_rows()
 	text = garage.page_text()
-	ok(rows.size() == 2 and rows[0].id == "fd_1073" and rows[1].id == "fd_2000" and text.contains("OWNED  1997 Boxster 986 (boxster_986): bought here for %d credits." % price) and text.contains("SELECTED  1997 Boxster 986 (boxster_986): bought at the dealership") and text.contains("CREDITS: 0"), "the CAR page: OWNED and SELECTED lines, no BUY row for it, the other two still for sale")
+	ok(rows.size() == 2 and rows[0].id == "fd_1073" and rows[1].id == "fd_2000" and text.contains("OWNED  1997 Boxster 986 (boxster_986): bought here for %d credits." % price) and text.contains("SELECTED  1997 Boxster 986 (boxster_986): bought at the dealership") and not text.contains("CREDITS:") and rows.all(func(r: Dictionary): return r.kind == "barter_car"), "the CAR page: OWNED and SELECTED lines by the credits log (the dormant path's semantics kept), no row for it, the other two still on offer as BARTER rows (was: BUY rows, CREDITS: 0)")
 	ok(garage.buy_car("boxster_986", world_path, store_path, true, car).reason == "already owned" and ledger.transactions().size() == 5, "buying it again is refused: already owned, nothing written")
 	var bytes := read_text(store_path)
 	ok(garage.buy_car("boxster_986", world_path, store_path, true, car).transaction.is_empty() and read_text(store_path) == bytes, "and the entry is not touched")
@@ -888,28 +988,42 @@ func _purchase() -> void:
 	runner.campaign.state.rewards["test_driver"] = true
 	garage.show_page(Garage.Page.CAR)
 	rows = garage.page_rows()
-	var buy_rows: Array = rows.filter(func(r: Dictionary): return r.kind == "buy_car")
+	# was `kind == "buy_car"`, "... and no BUY row"; the OWNED line said
+	# "listed at <n> credits, not for sale to its owner".
+	var buy_rows: Array = rows.filter(func(r: Dictionary): return r.kind == "barter_car")
 	var take_rows: Array = rows.filter(func(r: Dictionary): return r.kind == "take_reward")
-	ok(buy_rows.size() == 1 and buy_rows[0].id == "fd_2000" and take_rows.size() == 1 and take_rows[0].id == "fd_1073" and garage.page_text().contains("OWNED  Customised 1973 Porsche 911 Carrera RS 2.7 Coupe (fd_1073): granted at promotion"), "a rank-granted car shows OWNED by promotion (its TAKE row as before) and no BUY row")
+	ok(buy_rows.size() == 1 and buy_rows[0].id == "fd_2000" and take_rows.size() == 1 and take_rows[0].id == "fd_1073" and garage.page_text().contains("OWNED  Customised 1973 Porsche 911 Carrera RS 2.7 Coupe (fd_1073): granted at promotion; not for trade to its owner.") and not garage.page_text().contains("listed at"), "a rank-granted car shows OWNED by promotion (its TAKE row as before) and no BARTER row, no price on its line (was: no BUY row, listed at 60000 credits)")
 	ok(garage.buy_car("fd_1073", world_path, store_path, true, car).reason == "already owned", "and cannot be bought")
 	runner.campaign.state.rewards["test_driver"] = false
 
-	# The shipped row: _buy_car through activate_row (the store off headless:
-	# no entry, the rest of the flow).
+	# The dormant row's own callable: _buy_car, called as the BUY row would
+	# (the store off headless: no entry, the rest of the flow).
+	# was: the shipped row driven through activate_row - no row reaches it
+	# while CREDITS_BUY_ENABLED is false.
 	ledger.earn(Dealership.price_of(table, "fd_2000"), "job:big")
 	garage.show_page(Garage.Page.CAR)
 	rows = garage.page_rows()
-	var index := rows.find_custom(func(r: Dictionary): return r.id == "fd_2000")
-	ok(index >= 0 and rows[index].enabled and garage.activate_row(index), "the FD-2000 row live with the price on hand: Enter buys")
+	var index := rows.find_custom(func(r: Dictionary): return r.kind == "buy_car")
+	garage._buy_car("fd_2000")
+	ok(index == -1, "the FD-2000's price on hand and no BUY row to press: _buy_car is called directly, the dormant row's callable (was: the row live, Enter buys)")
 	ledger.load_state()
-	ok(garage.last_purchase_result.bought and garage.last_purchase_result.entry.is_empty() and ledger.balance() == 0 and ledger.transactions()[-1] == {"seq": 7, "kind": "spend", "amount": 100000, "reason": "car:fd_2000"} and WorldStore.load_driver(world_path).active_car == "fd_2000", "the row's purchase: the spend committed, active_car fd_2000, no entry (the store is off headless: cars.json in the data folder untouched)")
-	ok(garage.page == Garage.Page.CAR and garage.page_text().contains("Last purchase: FD-2000 bought for 100000 credits.") and garage.page_text().contains("OWNED  FD-2000 (fd_2000): bought here") and garage.page_text().contains("SELECTED  FD-2000 (fd_2000)") and garage.page_rows().size() == 1 and garage.page_rows()[0].id == "fd_1073", "the page rebuilt: the last purchase named, FD-2000 owned and selected, one car left for sale")
+	ok(garage.last_purchase_result.bought and garage.last_purchase_result.entry.is_empty() and ledger.balance() == 0 and ledger.transactions()[-1] == {"seq": 7, "kind": "spend", "amount": 100000, "reason": "car:fd_2000"} and WorldStore.load_driver(world_path).active_car == "fd_2000", "the dormant row's purchase (was: the row's): the spend committed, active_car fd_2000, no entry (the store is off headless: cars.json in the data folder untouched)")
+	ok(garage.page == Garage.Page.CAR and garage.page_text().contains("Last purchase: FD-2000 bought for 100000 credits.") and garage.page_text().contains("OWNED  FD-2000 (fd_2000): bought here") and garage.page_text().contains("SELECTED  FD-2000 (fd_2000)") and garage.page_rows().size() == 1 and garage.page_rows()[0].id == "fd_1073" and garage.page_rows()[0].kind == "barter_car", "the page rebuilt: the last purchase named, FD-2000 owned and selected, one car left on offer, a BARTER row (was: for sale)")
 	ok(stamp(real_path) == real_before, "the driver's own credits.json is as it was")
 
-	# Gated: no rows, the prices as text (menu_test's rowless CAR page).
+	# The credits ledger gated, the obligations one still wired: the BARTER
+	# rows stand on their own wiring (the dormant log's purchases unread).
 	CreditsLedger.path_override = ""
 	garage.show_page(Garage.Page.CAR)
-	ok(garage.page_rows().is_empty() and garage.page_text().contains("No ledger this run") and garage.page_text().contains("FD-2000 (fd_2000): 100000 credits.") and garage.page_text().contains("CREDITS: 0"), "gated (the store off, no override): the prices listed as text, no BUY row")
+	ok(garage.page_rows().size() == 3 and garage.page_rows().all(func(r: Dictionary): return r.kind == "barter_car" and not r.enabled) and not garage.page_text().contains("bought here") and not garage.page_text().contains("No obligations ledger this run"), "the credits ledger gated and the obligations ledger wired: three greyed BARTER rows, no purchase read - the two wirings are independent")
+	ok(garage.barter_car("boxster_986", world_path, store_path, true, car).reason == "the dealer accepts one held obligation: 1 more needed (0 of 1 held)" and garage.barter_car("fd_2000", world_path, store_path, true, car).reason == "the dealer accepts two held obligations: 2 more needed (0 of 2 held)" and not FileAccess.file_exists(obligations_path), "barter_car called directly re-checks: refused with nothing held, nothing written")
+	# Gated: no rows, the terms as text (menu_test's rowless CAR page).
+	# was `contains("No ledger this run") and contains("FD-2000 (fd_2000):
+	# 100000 credits.") and contains("CREDITS: 0")`, the prices as text.
+	ObligationsLedger.path_override = ""
+	garage.show_page(Garage.Page.CAR)
+	ok(garage.page_rows().is_empty() and garage.page_text().contains("No obligations ledger this run (the store is off): the terms are listed, nothing can be traded.") and garage.page_text().contains("FD-2000 (fd_2000): the dealer accepts two held obligations.") and garage.page_text().contains("1997 Boxster 986 (boxster_986): the dealer accepts one held obligation.") and not garage.page_text().contains("CREDITS:") and not garage.page_text().contains("FD-2000 (fd_2000): 100000 credits."), "gated (the stores off, no override): the terms listed as text, no row, no price line (was: the prices listed as text, no BUY row)")
+	ok(garage.barter_car("fd_1073", world_path, store_path, true, car).reason == "no obligations ledger this run (the store is off)" and stamp(real_obligations_path) == real_obligations_before and not FileAccess.file_exists(obligations_path), "gated, barter_car refuses before any write; this section never wrote an obligations file")
 	ok(garage.buy_car("fd_1073", world_path, store_path, true, car).reason.contains("no ledger") and stamp(real_path) == real_before, "gated, buy_car refuses before any write")
 	CreditsLedger.path_override = ledger_path
 	runner.credits.spent.disconnect(on_spent)

@@ -28,12 +28,16 @@ extends CanvasLayer
 ##              battery, the wear of every component as a bar, the dashboard
 ##              - the same fields the store keeps per car (condition_text
 ##              reads a store-shaped entry: the live car's or a file's); the
-##              cars owned and selected; and the DEALERSHIP (ECON-3): the
-##              price table's cars (scripts/dealership.gd,
-##              configs/dealership.json), an OWNED line or a BUY row each,
-##              the row live where the credits cover the price (buy_car:
-##              the ledger's spend first, then the store's side as
-##              CampaignStore.take_car writes it, a refund where that fails),
+##              cars owned and selected; and the DEALERSHIP (TROC-1 slice
+##              3; was ECON-3's price table and BUY rows): the exchange-terms
+##              table's cars (scripts/dealership.gd,
+##              configs/dealership.json), an OWNED line or a BARTER row
+##              each, the row live where the driver holds what the desk's
+##              terms accept (barter_car: the held obligations transferred
+##              to the desk first, then the store's side as
+##              CampaignStore.take_car writes it, every transfer reversed
+##              where that fails). The credits BUY row is DORMANT behind
+##              CREDITS_BUY_ENABLED (buy_car intact, unreached),
 ##   LICENCE    the licence held, what is passed, what the next level still
 ##              takes, and the licence book's own text (LicenceManager),
 ##   SETTINGS   the data folder (DataDir: where it is, choose another, back
@@ -85,6 +89,24 @@ const WORLD_MAP_SCENE := "res://scenes/world_map.tscn"
 ## position is the building's centre, the forecourt is around it.
 const DEALERSHIP_ID := VoucherLedger.DEALERSHIP
 const DEALERSHIP_RADIUS_M := 60.0
+
+## THE DORMANCY FLAG (ruling 16036083, slice 3's point: the credits BUY row
+## goes DORMANT behind a flag - dormant, NOT deleted; it overrules the
+## design doc §5 item 3's proposed retire). false, the shipped state: the
+## CAR page's dealership trades by barter (the BARTER rows, barter_car), its
+## heading carries no credits balance, and buy_car/_buy_car stay intact and
+## unreached from the page. true: the credits BUY row and the heading's
+## balance render exactly as ECON-3 shipped them wherever a credits ledger
+## is wired, the BARTER row only where none is.
+## was: no flag - the BUY row was the CAR page's only buy path, keyed on
+## the credits balance.
+const CREDITS_BUY_ENABLED := false
+
+## The origins a barter trade's transfers are written under in the
+## obligations log: "dealership:<car_id>" for the trade,
+## "dealership:<car_id>:reverse" for a transfer handed back.
+const TRADE_PREFIX := "dealership:"
+const TRADE_REVERSE_SUFFIX := ":reverse"
 
 ## The road data's attribution, shown on the SETTINGS page as OpenStreetMap
 ## requires (docs/design/4b/data-pipeline.md §8: the exact string).
@@ -164,6 +186,10 @@ var last_dealership_result: Dictionary = {}
 ## What the CAR page's last BUY row did (buy_car's dictionary; {} before
 ## any), shown on the page and read by tests.
 var last_purchase_result: Dictionary = {}
+
+## What the CAR page's last BARTER row did (barter_car's dictionary; {}
+## before any), shown on the page and read by tests.
+var last_barter_result: Dictionary = {}
 
 ## The first-run map layer beside this one, found or made on demand.
 var _world_map: WorldMap
@@ -570,6 +596,13 @@ func _build_car_page() -> void:
 	if wired:
 		runner.credits.load_state()
 	var purchases: Array = runner.credits.transactions() if wired else []
+	# TROC-1 slice 3: the obligations ledger read the same way, its own
+	# wiring (the two stores are gated independently), for the traded lines
+	# and the BARTER rows.
+	var bartering := runner != null and ObligationsLedger.active_path() != ""
+	if bartering:
+		runner.obligations.load_state()
+	var records: Array = runner.obligations.records() if bartering else []
 	if runner and runner.campaign.owns_car("fd_1073"):
 		_add_text("OWNED  " + CampaignStore.REWARDS.test_driver + " (fd_1073): granted at promotion.", COLOR_TITLE)
 		_add_row("TAKE — " + CampaignStore.REWARDS.test_driver, "Select your reward car. Live vehicle swapping is pending; driving still uses the Boxster.", "take_reward", _take_reward_car.bind("fd_1073"), world_path != "", "fd_1073")
@@ -589,41 +622,68 @@ func _build_car_page() -> void:
 			_add_text("SELECTED  " + CampaignStore.REWARDS.ace, COLOR_TITLE)
 		elif owned != "" and Dealership.purchased(purchases, owned):
 			_add_text("SELECTED  %s (%s): bought at the dealership; its entry rides cars.json. It becomes the car in the scene when the car swap lands (deferred: scripts/first_car.gd)." % [Dealership.car_name(owned), owned], COLOR_TITLE)
+		elif owned != "" and traded(records, owned):
+			_add_text("SELECTED  %s (%s): traded at the dealership; its entry rides cars.json. It becomes the car in the scene when the car swap lands (deferred: scripts/first_car.gd)." % [Dealership.car_name(owned), owned], COLOR_TITLE)
 		elif owned != "":
 			_add_text("OWNED  %s (%s): taken at the dealership on the voucher; its entry rides cars.json. It becomes the car in the scene when the car swap lands (deferred: scripts/first_car.gd)." % [FirstCar.car_name() if owned == FirstCar.CAR_ID else owned, owned], COLOR_TITLE)
-	_build_dealership(runner, wired, world_path, purchases)
+	_build_dealership(runner, wired, world_path, purchases, bartering, records)
 	var kept := "kept in %s" % DataDir.root_on_disk().path_join(OdometerStore.PATH.trim_prefix("user://")) if OdometerStore.enabled() else "not kept in this run (no window: the store is off)"
 	_add_text("The car's file: %s. Saved every %.0f s of driving and when the game closes." % [kept, ArcadeCar.ODOMETER_SAVE_INTERVAL], COLOR_DIM_TEXT)
 
 
-## The dealership (ECON-3): the price table's cars in file order, an OWNED
-## line for a car the driver holds (by promotion or by purchase), a BUY
-## row for one they do not, live where the balance covers the price and a
-## world record exists; a greyed row shows the price and the shortfall.
-## Rows only where a ledger is wired (the runner's, its store on): gated
-## (headless, no override) a row could pay nothing and write nothing, so
-## the table is listed as text alone and the page says why. The table's
-## faults are listed as the JOBS page lists the ledger's.
-func _build_dealership(runner: MissionRunner, wired: bool, world_path: String, purchases: Array) -> void:
+## The dealership (TROC-1 slice 3; was ECON-3's price table): the
+## exchange-terms table's cars in file order, an OWNED line for a car the
+## driver holds (by promotion, by a purchase in the dormant credits log, or
+## by trade), a BARTER row for one they do not, live where the driver holds
+## the open obligations the desk's binding term asks for and a world record
+## exists; a greyed row says what is held and how many more are needed. The
+## terms are shown verbatim: they are the counterparty's words. Rows only
+## where an obligations ledger is wired (`bartering`: the runner's, its
+## store on): gated (headless, no override) a row could trade nothing and
+## write nothing, so the terms are listed as text alone and the page says
+## why. `wired` is the credits ledger's own wiring, independent of it: it
+## feeds the OWNED-by-purchase scan (`purchases`) and the dormant BUY
+## branch, reached only with CREDITS_BUY_ENABLED. The table's faults are
+## listed as the JOBS page lists the ledger's.
+## was: the heading "DEALERSHIP  —  CREDITS: %d", a BUY row per car keyed
+## on the balance, its hint the basis and the price's shortfall, the prices
+## as text where gated -> the heading without a balance (the retired
+## credits surface, design doc §4), the BARTER row, its hint the desk's
+## terms and what the driver holds (the basis is provenance, not a hint),
+## the terms as text where gated.
+func _build_dealership(runner: MissionRunner, wired: bool, world_path: String, purchases: Array, bartering: bool, records: Array) -> void:
 	var table := Dealership.read()
 	var balance: int = runner.credits.balance() if wired else 0
-	_add_heading("DEALERSHIP  —  CREDITS: %d" % balance)
-	_add_text("The garage's car shop: the cars the dealership sells and their credit prices, the promotion ladder's reward cars among them (a price buys one early; the ladder still grants it). The Ring's general dealership %s in Adenau honours the voucher from the DRIVE page; this shop is a page of the garage, no building to drive to. A bought car's entry starts fresh in cars.json and it is selected; live vehicle swapping is pending, driving still uses the Boxster." % DEALERSHIP_ID, COLOR_DIM_TEXT)
-	if not wired:
+	_add_heading("DEALERSHIP  —  CREDITS: %d" % balance if CREDITS_BUY_ENABLED else "DEALERSHIP")
+	_add_text("The garage's car shop trades by TROC: barter, not debit. Each car's desk names what it accepts, in its own words; where you hold it, the BARTER row hands it over - the open obligations owed to you, the oldest first, transferred to the desk - and the car is yours. Nothing is priced and nothing is summed. The credits BUY row is dormant (Garage.CREDITS_BUY_ENABLED). The promotion ladder's reward cars are among them (a trade takes one early; the ladder still grants it). The Ring's general dealership %s in Adenau honours the voucher from the DRIVE page; this shop is a page of the garage, no building to drive to. A traded car's entry starts fresh in cars.json and it is selected; live vehicle swapping is pending, driving still uses the Boxster." % DEALERSHIP_ID, COLOR_DIM_TEXT)
+	if CREDITS_BUY_ENABLED and not wired:
 		_add_text("No ledger this run (the store is off): the prices are listed, nothing can be bought.", COLOR_DIM_TEXT)
+	if not bartering:
+		_add_text("No obligations ledger this run (the store is off): the terms are listed, nothing can be traded.", COLOR_DIM_TEXT)
 	if last_purchase_result.get("summary", "") != "":
 		_add_text("Last purchase: " + last_purchase_result.summary, COLOR_TEXT)
+	if last_barter_result.get("summary", "") != "":
+		_add_text("Last trade: " + last_barter_result.summary, COLOR_TEXT)
 	for problem: String in table.problems:
 		_add_text("Dealership: " + problem, COLOR_DIM_TEXT)
+	var holding: Array = runner.obligations.open_view("player") if bartering else []
 	for entry: Dictionary in table.cars:
 		var car_id: String = entry.car_id
 		var price: int = entry.price_credits
 		var label := Dealership.car_name(car_id)
+		var term := binding_term(entry)
+		var terms_text := terms_text_of(entry)
+		var held := offerable(holding, Dealership.dealer_of(entry)).size()
 		if runner and runner.campaign.owns_car(car_id):
-			_add_text("OWNED  %s (%s): granted at promotion; listed at %d credits, not for sale to its owner." % [label, car_id, price], COLOR_TITLE)
+			if CREDITS_BUY_ENABLED:
+				_add_text("OWNED  %s (%s): granted at promotion; listed at %d credits, not for sale to its owner." % [label, car_id, price], COLOR_TITLE)
+			else:
+				_add_text("OWNED  %s (%s): granted at promotion; not for trade to its owner." % [label, car_id], COLOR_TITLE)
 		elif Dealership.purchased(purchases, car_id):
 			_add_text("OWNED  %s (%s): bought here for %d credits." % [label, car_id, price], COLOR_TITLE)
-		elif wired:
+		elif _traded_to(records, Dealership.dealer_of(entry), car_id):
+			_add_text("OWNED  %s (%s): traded here for %s." % [label, car_id, terms_text], COLOR_TITLE)
+		elif CREDITS_BUY_ENABLED and wired:
 			var hint: String = entry.basis
 			if world_path == "":
 				hint += "  No world record this run: nothing can be bought."
@@ -632,8 +692,222 @@ func _build_dealership(runner: MissionRunner, wired: bool, world_path: String, p
 			else:
 				hint += "  You hold %d credits: %d short." % [balance, price - balance]
 			_add_row("BUY — %s — %d credits" % [label, price], hint, "buy_car", _buy_car.bind(car_id), world_path != "" and balance >= price, car_id)
+		elif bartering:
+			var needed := term_count(term)
+			var satisfiable := not term.is_empty() and held >= needed
+			var hint := "The dealer accepts: %s. " % terms_text
+			if world_path == "":
+				hint += "No world record this run: nothing can be traded."
+			elif satisfiable:
+				hint += "You hold %d open obligations." % held
+			elif held == 0 or term.is_empty():
+				hint += "You hold no obligations the desk accepts."
+			else:
+				hint += "You hold %d open obligations: %d more needed." % [held, needed - held]
+			_add_row("BARTER — %s — for %s" % [label, terms_text], hint, "barter_car", _barter_car.bind(car_id), world_path != "" and satisfiable, car_id)
 		else:
-			_add_text("%s (%s): %d credits." % [label, car_id, price], COLOR_TEXT)
+			if CREDITS_BUY_ENABLED:
+				_add_text("%s (%s): %d credits." % [label, car_id, price], COLOR_TEXT)
+			_add_text("%s (%s): the dealer accepts %s." % [label, car_id, terms_text], COLOR_TEXT)
+
+
+## The term of `entry` (Dealership.read's kept entry) a barter settles: of
+## the terms settled by "obligation", the one asking for the fewest (the
+## first in file order among equals) - the terms are a menu, and the least
+## the desk will take is what the row requires. {} where no term is settled
+## by an obligation (a "voucher" term is slice 4's: validated by the
+## reader, settled by nothing in this build). No value is compared: a count
+## is how many records the desk asks for.
+static func binding_term(entry: Dictionary) -> Dictionary:
+	var binding := {}
+	for term: Dictionary in Dealership.terms_of(entry):
+		if term.settle != "obligation":
+			continue
+		if binding.is_empty() or term_count(term) < term_count(binding):
+			binding = term
+	return binding
+
+
+## How many things `term` asks for: its count, 1 where it carries none (and
+## for {}).
+static func term_count(term: Dictionary) -> int:
+	return int(term.get("count", 1))
+
+
+## What the desk accepts for `entry`, in the desk's own words: the binding
+## term's accepts; where no term binds, every term's joined by " or ".
+static func terms_text_of(entry: Dictionary) -> String:
+	var term := binding_term(entry)
+	if not term.is_empty():
+		return str(term.accepts)
+	var words := PackedStringArray()
+	for other: Dictionary in Dealership.terms_of(entry):
+		words.append(str(other.accepts))
+	return " or ".join(words)
+
+
+## Of `holding` (the driver's open held obligations, the ledger's
+## open_view("player")), the ones that can be handed to the desk
+## `dealer_id`, in the log's order: every one the desk does not itself owe.
+## The ledger refuses a transfer to a record's own debtor (the two sides
+## are never one id), so what the desk owes the driver is not payment at
+## that desk - settling it is a redemption, slice 4's vocabulary.
+static func offerable(holding: Array, dealer_id: String) -> Array:
+	return holding.filter(func(record: Dictionary) -> bool: return record.get("debtor") != dealer_id)
+
+
+static func trade_origin(car_id: String) -> String:
+	return TRADE_PREFIX + car_id
+
+
+static func trade_reverse_origin(car_id: String) -> String:
+	return TRADE_PREFIX + car_id + TRADE_REVERSE_SUFFIX
+
+
+## Ownership by trade: whether the obligations log `records`
+## (ObligationsLedger.records()) holds a committed barter of `car_id` - a
+## record whose transfers carry {"to": the car's desk, "origin":
+## "dealership:<car_id>"} AND whose CURRENT creditor is that desk. A
+## reversed trade's record is back with "player" and does not count; the
+## transfer stays in its history (the log is append-only). The desk's id is
+## the table's (Dealership.read: a res:// read, nothing written); a car the
+## table does not trade was never traded.
+static func traded(records: Array, car_id: String) -> bool:
+	return _traded_to(records, Dealership.dealer_of(Dealership.entry_of(Dealership.read(), car_id)), car_id)
+
+
+## traded's scan, the desk's id given (the page holds the table already).
+static func _traded_to(records: Array, dealer_id: String, car_id: String) -> bool:
+	if dealer_id == "":
+		return false
+	for record: Variant in records:
+		if not record is Dictionary or record.get("creditor") != dealer_id or not record.get("transfers") is Array:
+			continue
+		for transfer: Variant in record.transfers:
+			if transfer is Dictionary and transfer.get("to") == dealer_id and transfer.get("origin") == trade_origin(car_id):
+				return true
+	return false
+
+
+## The BARTER row: barter_car with the run's own paths (the store where it
+## is on), the page built anew so the row becomes OWNED or the refusal
+## shows.
+func _barter_car(car_id: String) -> void:
+	last_barter_result = barter_car(car_id, WorldStore.active_path(), OdometerStore.PATH, OdometerStore.enabled(), car)
+	show_page(Page.CAR)
+
+
+## Trades for `car_id` on the desk's exchange-terms (TROC-1 slice 3), in
+## this order: the obligations FIRST - the first N open obligations the
+## driver holds as creditor (offerable: the desk's own debts to the driver
+## left out), in the log's order, each transferred to the car's desk (ObligationsLedger.transfer, origin "dealership:<car_id>"; N
+## the binding term's count) - then the store's side exactly as buy_car
+## writes it: the entry with a new car's defaults (FirstCar.default_entry,
+## the tank its config's) where the store is kept (`store_kept`, the
+## running game; an entry the file already holds is kept as it is),
+## "active_car" in the world record at `world_path`, a rental on
+## `target_car` ended. A transfer refused mid-trade refuses the WHOLE
+## trade; so does the store's side failing AFTER the transfers: every
+## committed transfer is reversed (transferred back to "player", origin
+## "dealership:<car_id>:reverse") and the failure reported. A reversal that
+## itself fails is said so: that obligation sits with the desk - the log is
+## the ledger, append-only, nothing is erased. Refused before any write: no
+## runner or obligations ledger this run, no world record, a car the table
+## does not trade, a car already owned (by promotion, by a purchase in the
+## credits log, or by trade), a config the validation refuses, an
+## obligations file of a later build's, terms the driver's held obligations
+## do not meet (the greyed row's guard, checked again here). Returns
+##   {"bought": bool, "reason": "" or why not, "summary": one line for
+##    the page, "traded": the transferred records as written, "reversed":
+##    the handed-back records as written, "entry": the entry written or {}}
+func barter_car(car_id: String, world_path: String, store_path := OdometerStore.PATH, store_kept := false, target_car: ArcadeCar = null) -> Dictionary:
+	var result := {"bought": false, "reason": "", "summary": "", "traded": [], "reversed": [], "entry": {}}
+	var label := Dealership.car_name(car_id)
+	var runner := MissionRunner.of(get_tree())
+	if runner == null or ObligationsLedger.active_path() == "":
+		return _trade_refused(result, label, "no obligations ledger this run (the store is off)")
+	if world_path == "":
+		return _trade_refused(result, label, "no world record this run")
+	var entry := Dealership.entry_of(Dealership.read(), car_id)
+	if entry.is_empty():
+		return _trade_refused(result, label, "the dealership does not sell %s" % car_id)
+	var dealer_id := Dealership.dealer_of(entry)
+	var ledger: ObligationsLedger = runner.obligations
+	ledger.load_state()
+	var purchases: Array = []
+	if CreditsLedger.active_path() != "":
+		runner.credits.load_state()
+		purchases = runner.credits.transactions()
+	if runner.campaign.owns_car(car_id) or Dealership.purchased(purchases, car_id) or _traded_to(ledger.records(), dealer_id, car_id):
+		return _trade_refused(result, label, "already owned")
+	var config: Variant = JSON.parse_string(FileAccess.get_file_as_string(Dealership.config_path(car_id)))
+	if not config is Dictionary or not CarConfigValidation.validate(config, car_id).is_empty():
+		return _trade_refused(result, label, "its config is refused by the validation")
+	if ledger.newer_file:
+		return _trade_refused(result, label, "the obligations file is a later build's")
+	var term := binding_term(entry)
+	var terms_text := terms_text_of(entry)
+	if term.is_empty():
+		return _trade_refused(result, label, "the dealer accepts %s, which nothing settles in this build" % terms_text)
+	var needed := term_count(term)
+	var held := offerable(ledger.open_view("player"), dealer_id)
+	if held.size() < needed:
+		return _trade_refused(result, label, "the dealer accepts %s: %d more needed (%d of %d held)" % [terms_text, needed - held.size(), held.size(), needed])
+	for i: int in needed:
+		var moved := ledger.transfer(held[i].id, "player", dealer_id, trade_origin(car_id))
+		if moved.is_empty():
+			return _trade_refused(result, label, "the ledger refused the transfer of %s" % held[i].id + _reverse_trade(result, ledger, dealer_id, car_id))
+		result.traded.append(moved)
+	var failure := ""
+	if store_kept and not OdometerStore._cars(OdometerStore._read(store_path)).has(car_id):
+		var fresh := FirstCar.default_entry()
+		fresh.fuel_l = config.fuel.tank_capacity_l
+		OdometerStore.save_car(car_id, fresh.odometer_m, fresh.fuel_l, store_path, fresh.driver, fresh.battery, fresh.wear)
+		OdometerStore.save_licence(car_id, fresh.licence, store_path)
+		if OdometerStore._cars(OdometerStore._read(store_path)).has(car_id):
+			result.entry = fresh
+		else:
+			failure = "the car's entry could not be written to cars.json"
+	if failure == "":
+		WorldStore.set_active_car(car_id, world_path)
+		if WorldStore.load_driver(world_path).active_car != car_id:
+			failure = "the world record could not be written"
+	if failure != "":
+		return _trade_refused(result, label, failure + _reverse_trade(result, ledger, dealer_id, car_id))
+	var rental := RentalGate.active_on(target_car)
+	if rental:
+		rental.end()
+	elif WorldStore.rental_active(world_path):
+		WorldStore.clear_rental(world_path)
+	result.bought = true
+	result.summary = "%s traded for %s." % [label, terms_text]
+	return result
+
+
+## Hands every transfer in `result.traded` back to "player" (origin
+## "dealership:<car_id>:reverse"), the handed-back records appended to
+## `result.reversed`, and returns the clause the refusal ends with: what
+## was handed back, or - honestly - which obligation a failed reversal
+## left with the desk. "" where nothing had been transferred.
+static func _reverse_trade(result: Dictionary, ledger: ObligationsLedger, dealer_id: String, car_id: String) -> String:
+	var stuck := PackedStringArray()
+	for moved: Dictionary in result.traded:
+		var back := ledger.transfer(moved.id, dealer_id, "player", trade_reverse_origin(car_id))
+		if back.is_empty():
+			stuck.append(str(moved.id))
+		else:
+			result.reversed.append(back)
+	if not stuck.is_empty():
+		return ", AND the reversal failed: %s sits with the dealer (the log is the ledger, nothing is erased)" % ", ".join(stuck)
+	if result.traded.is_empty():
+		return ""
+	return ", the %d obligations handed back" % result.traded.size() if result.traded.size() != 1 else ", the obligation handed back"
+
+
+static func _trade_refused(result: Dictionary, label: String, reason: String) -> Dictionary:
+	result.reason = reason
+	result.summary = "%s not traded: %s." % [label, reason]
+	return result
 
 
 ## The BUY row: buy_car with the run's own paths (the store where it is
@@ -656,7 +930,10 @@ func _buy_car(car_id: String) -> void:
 ## run, no world record, a car the table does not sell, a car already
 ## owned (by promotion or by purchase), a config the validation refuses,
 ## a credits file of a later build's, a balance the price exceeds (the
-## greyed row's guard, checked again here). Returns
+## greyed row's guard, checked again here). TROC-1 slice 3: DORMANT - no
+## row reaches it while CREDITS_BUY_ENABLED is false - and a car owned by
+## trade (traded: the barter's committed transfer in the obligations log)
+## is already owned here too, never re-bought on the dormant path. Returns
 ##   {"bought": bool, "reason": "" or why not, "summary": one line for
 ##    the page, "transaction": the spend as written or {}, "refund": the
 ##    refund as written or {}, "entry": the entry written or {}}
@@ -673,7 +950,8 @@ func buy_car(car_id: String, world_path: String, store_path := OdometerStore.PAT
 		return _purchase_refused(result, label, "the dealership does not sell %s" % car_id)
 	var ledger: CreditsLedger = runner.credits
 	ledger.load_state()
-	if runner.campaign.owns_car(car_id) or Dealership.purchased(ledger.transactions(), car_id):
+	runner.obligations.load_state()
+	if runner.campaign.owns_car(car_id) or Dealership.purchased(ledger.transactions(), car_id) or traded(runner.obligations.records(), car_id):
 		return _purchase_refused(result, label, "already owned")
 	var config: Variant = JSON.parse_string(FileAccess.get_file_as_string(Dealership.config_path(car_id)))
 	if not config is Dictionary or not CarConfigValidation.validate(config, car_id).is_empty():

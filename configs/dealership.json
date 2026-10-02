@@ -4,17 +4,29 @@
     {
       "car_id": "fd_1073",
       "price_credits": 60000,
-      "basis": "AUTHORED (no source price: docs/mission-ladder-source.md and the design docs carry none). The Test Driver reward car, priced as a long-horizon sink: at the job board's 95-150 credits a job this is hundreds of jobs, or a rank-early splurge for a driver who will not wait for FD-12. The ladder stays the primary way to it; the price mirrors how a real RS 2.7 dwarfed a junior driver's income."
+      "dealer": "DEALER-EIFEL-01",
+      "terms": [
+        {"accepts": "one held obligation", "settle": "obligation"}
+      ],
+      "basis": "AUTHORED (no source price and no source exchange-terms: docs/mission-ladder-source.md and the design docs carry none; the terms' shape is docs/design/troc-redesign.md §3). The Test Driver reward car at the Adenau dealership page's first desk. The desk accepts one obligation the driver holds as creditor, transferred to the desk: a held delivery obligation is what a driver accumulates by the TROC economy (deliver a job, the poster owes you), and an obligation can itself be payment (ruling 16036083). The count of obligations is not a price: no obligation is worth a number, the desk names what it takes and the ledger never judges value. The ladder's FD-12 grant stays the other road to the car. price_credits is the DORMANT credits path's data (ruling 16036083: dormant behind a flag, not deleted), read and validated, charged by nothing while Garage.CREDITS_BUY_ENABLED is false. A voucher term is deferred to slice 4: no system grants dealership vouchers yet, and the first-run voucher is the fd_1001 car voucher, honoured at E4.1 and not here."
     },
     {
       "car_id": "boxster_986",
       "price_credits": 44000,
-      "basis": "AUTHORED (no source price). The Chief reward car, the pad Boxster's own config: the cheapest of the three because it is the youngest and the least exotic of them, still hundreds of courier jobs at the board's pay so the ladder's FD-22 grant stays the ordinary road to it."
+      "dealer": "DEALER-EIFEL-02",
+      "terms": [
+        {"accepts": "one held obligation", "settle": "obligation"}
+      ],
+      "basis": "AUTHORED (no source price and no source exchange-terms; docs/design/troc-redesign.md §3). The Chief reward car, the pad Boxster's own config, at the dealership page's second desk. The desk accepts one obligation the driver holds as creditor, transferred to the desk: the fresh driver's earn-to-own path - deliver one job, hold the poster's obligation, trade it here. The count of obligations is not a price: the desk names what it takes, nothing is valued in a number. The ladder's FD-22 grant stays the other road to the car. price_credits is the DORMANT credits path's data (ruling 16036083: dormant, not deleted), charged by nothing while Garage.CREDITS_BUY_ENABLED is false. A voucher term is deferred to slice 4 (no granting system yet; the first-run voucher is the fd_1001 car voucher)."
     },
     {
       "car_id": "fd_2000",
       "price_credits": 100000,
-      "basis": "AUTHORED (no source price). The Ace reward car, the top of the table: the config-only FD-2000 stand-in for the customised 996 Turbo, priced at the far horizon (a thousand of the board's best jobs) so that buying it early is a splurge and the FD-33 promotion remains the way most drivers get it."
+      "dealer": "DEALER-EIFEL-03",
+      "terms": [
+        {"accepts": "two held obligations", "settle": "obligation", "count": 2}
+      ],
+      "basis": "AUTHORED (no source price and no source exchange-terms; docs/design/troc-redesign.md §3). The Ace reward car, the config-only FD-2000 stand-in for the customised 996 Turbo, at the dealership page's third desk. The desk accepts two obligations the driver holds as creditor, both transferred to the desk - many things for one thing, the driver's own line (\"multiple things can be exchanged for one thing\"). The count is how many records the desk asks for, not a price: no obligation is worth a number and the two are never summed into one. The ladder's FD-33 promotion stays the other road to the car. price_credits is the DORMANT credits path's data (ruling 16036083: dormant, not deleted), charged by nothing while Garage.CREDITS_BUY_ENABLED is false. A voucher term is deferred to slice 4 (no granting system yet; the first-run voucher is the fd_1001 car voucher)."
     }
   ]
 }

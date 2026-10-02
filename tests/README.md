@@ -59,7 +59,8 @@ BUBBLE-1 the forest build also writes the trunk bodies, a few hundred millisecon
 OFFROAD-1 the terrain build also writes the continuation skirt, about a second).
 `tests/run_tests.sh --parallel` runs the thirty-five tests side by side after the import and
 prints the same lines in the same order (was thirty-one -> the ML-1 mission ladder test; was thirty-two -> the credits test, ECON-1; was thirty-three -> the sound test, SOUND-1; was thirty-four -> the obligations test, TROC-1 slice 1; 37 markers including import and the final verdict, was 36 -> the obligations test, TROC-1 slice 1; was 35 -> the sound test, SOUND-1).
-The obligations test adds 89 checks (`OBLIGATIONS TEST PASSED`), measured on the host (was
+The obligations test adds 127 checks (`OBLIGATIONS TEST PASSED`), measured on the host (was
+89 -> TROC-1 slice 3's barter corner, thirty-eight; was
 79 -> TROC-1 slice 2's runner corner, ten, and the seed-gap pin flipped: obligations.json IS
 in the data folder's seed now): the ObligationsLedger store (TROC-1 slice 1) — the record
 shape, the one-shot redemption, the creditor transfers, the derived open views, the versions
@@ -67,16 +68,40 @@ and the corruption tolerance, on a file of the test's own — then the mission r
 pad with a posted fixture of the test's own: gated it creates nothing, a pass creates the
 poster's obligation to the player once (creditor, debtor, owed, kind delivery, origin
 `job:<id>/episode-<n>`, open), a retry and a failure leave the bytes identical, and the JOBS
-page's `open_view("player")` shows the record.
-The credits test has 427 checks (`CREDITS TEST PASSED`), measured on the host, since TROC-1
-slice 2: its job-pay pins moved from credits to the poster's obligation, each label saying
+page's `open_view("player")` shows the record. Then the barter corner (TROC-1 slice 3), the
+garage on the pad over a world record, a cars file, a campaign file and ledgers of the
+test's own: the fresh-driver arc (a delivered job -> the poster's obligation held ->
+`Garage.barter_car("boxster_986")` -> the record's creditor `DEALER-EIFEL-02`, its
+`transfers[0]` player to the desk with origin `dealership:boxster_986`, the car's entry
+written, `active_car` set, `Garage.traded` true, the OWNED/SELECTED trade lines and no
+BARTER row); the insufficient boot (nothing held: greyed, refused before any write, the
+bytes identical); the count (the FD-2000 with one held obligation greyed and refused, with
+two bought and two transfers recorded); an obligation the desk itself owes not counted at
+that desk; the reversal (a cars path that cannot be written: the transfer committed, then
+handed back, both in the record's history, nothing owned); the dormant `buy_car` refusing
+a traded car as "already owned"; the row itself through `activate_row`; and the gated
+page. Not forced by any test: a transfer refused mid-trade and a reversal that itself
+fails (neither can be provoked between two ledger writes from outside; the code paths
+are `barter_car`'s and `_reverse_trade`'s).
+The credits test has 464 checks (`CREDITS TEST PASSED`), measured on the host, since TROC-1
+slice 3 (was 427 -> the exchange-terms pins and fault rows, thirty-seven): the dealership
+table's pins gained each car's desk and terms and the new faults (no dealer, an empty or
+non-text dealer, terms no list or empty, a term no object, no accepts, an unknown settle,
+count 0 / 1.5 / "2" / -1, an unknown key inside a term), the prices kept and relabelled as
+the DORMANT credits path's data (was: the buying price); the CAR-page pins moved to the
+barter shape, each label saying what it was (the heading without `CREDITS:`, the greyed
+BARTER rows for the greyed BUY rows, the terms as text for the prices as text where gated,
+`Garage.CREDITS_BUY_ENABLED == false` pinned as the shipped state), while `buy_car`'s
+machinery - the refusals, the refund round trip, the re-buy "already owned" - stays pinned
+by direct calls (was: partly through the BUY row; `_buy_car` is called directly now).
+Since TROC-1 slice 2 its job-pay pins moved from credits to the poster's obligation, each label saying
 what it was (the result's `obligation` record for `credits`, the obligations file's bytes
 for the credits ledger's, the owed-by line for "paid 95 credits", the TROC board for
 `CREDITS:`/"Payments received"), the earned-signal pins became "no credit is earned, no
 credits.json is written by a job", the schema and the four job configs gained the
 `poster`/`poster_owed`/`poster_offers` pins, and the paid-fuel section stakes its own 95
-credits (was funded by JOB-01's pay) so its arithmetic stays bit-exact. The credits ledger,
-the dealership and paid fuel are pinned as before.
+credits (was funded by JOB-01's pay) so its arithmetic stays bit-exact. The credits ledger
+and paid fuel are pinned as before.
 The sound test adds 92 checks (`SOUND TEST PASSED`), measured on the
 host (was 91 -> SOUND-4's one measured check on the built PCM, the band ceiling: the
 squeal's RMS over 2000..4000 Hz at 0.000023 of its RMS over 300..1800 Hz, 0.1 at most - the
