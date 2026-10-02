@@ -29,8 +29,12 @@ without it; `FD_MARKS` is unset in the suite, which is off headless, so no other
 a layer), the sound test builds no Ring (SOUND-1: the `SoundWatch` autoload's node on bare
 cars under the root and on the shipped pad in front of the recorder, the three procedural
 loops built in code - since SOUND-2 the flat-6 order stack, the body-plus-noise rumble and
-the 2 kHz modulated squeal, their partial tables, zero-crossing rates and the baked
-amplitude modulation pinned on the built PCM - the engine / surface / skid mapping pinned at its corners and on the
+the modulated squeal (since SOUND-4 a band of friction noise, 300..1300 Hz in the buffer
+and heard at 450..1950 Hz at solid, no tone in it; was the 2 kHz tone the driver rejected
+twice), their partial tables,
+zero-crossing rates and the baked amplitude modulation pinned on the built PCM, and since
+SOUND-4 the squeal's band ceiling too (the RMS over 2000..4000 Hz against the RMS over
+300..1800 Hz, and that band against the buffer's whole energy) - the engine / surface / skid mapping pinned at its corners and on the
 car's own public fields written straight, two nodes fed the same reads mapping the same
 values to the bit, the `FD_SOUND` switch, and a second pad's recorder samples of the same
 slide byte-identical with `FD_SOUND=0`; since SOUND-3 also the wind loop and the thump burst,
@@ -59,10 +63,16 @@ The obligations test adds 79 checks (`OBLIGATIONS TEST PASSED`), measured on the
 ObligationsLedger store (TROC-1 slice 1) — the record shape, the one-shot redemption, the
 creditor transfers, the derived open views, the versions and the corruption tolerance, on a
 file of the test's own.
-The sound test adds 91 checks (`SOUND TEST PASSED`), measured on the
-host (was 73 -> CAT-AWARE-1's cat battery, eighteen: with `FD_CAT=1` the one shared `Cat` audio
+The sound test adds 92 checks (`SOUND TEST PASSED`), measured on the
+host (was 91 -> SOUND-4's one measured check on the built PCM, the band ceiling: the
+squeal's RMS over 2000..4000 Hz at 0.000023 of its RMS over 300..1800 Hz, 0.1 at most - the
+pin is on an absence - and the 300..1800 Hz band 99.95% of the buffer's energy - with the
+table (46 partials over 300..1300 Hz, no two closer than 25 cycles), zero-crossing (1802 a
+second, pinned 1300..2400, still over the rumble's 792) and cat
+solid-volume pins moved to the friction-noise squeal and its -12 dB ceiling inside their
+existing checks; was 73 -> CAT-AWARE-1's cat battery, eighteen: with `FD_CAT=1` the one shared `Cat` audio
 bus and its 3000 Hz low-pass, all eight players routed to it, the squeal written at x0.6 pitch and
--6 dB, the thump at x0.8 pitch and -8 dB, the other channels untouched, the bus made by the first
+-6 dB (-18 dB at solid since SOUND-4, was -10), the thump at x0.8 pitch and -8 dB, the other channels untouched, the bus made by the first
 cat node and removed with the last, the determinism of two cat cars over the sixteen-value state,
 `FD_SOUND=0` winning over `FD_CAT=1`, the realistic mix to the bit once `FD_CAT` is off again, and
 the `FD_CAT` restore pin; was 53 -> SOUND-3's

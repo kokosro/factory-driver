@@ -2701,7 +2701,7 @@ records to the bit.
 even with no window, unset on in the game and off headless - so the test suite sees no
 layer unless a test asks (`tests/marks_test.gd` does, for its own scenes, and restores).
 
-### Sound (SOUND-1, SOUND-2, SOUND-3)
+### Sound (SOUND-1, SOUND-2, SOUND-3, SOUND-4)
 
 The game was silent (backlog U-1). The first sound goes everywhere the car goes, the way the
 marks do: the `SoundWatch` autoload (`scripts/sound_watch.gd`, registered in `project.godot`
@@ -2722,15 +2722,33 @@ exhaust paths (was 56 Hz and its first harmonics: a single cylinder's stack), th
 body layer of twenty prime-spaced partials (62..226 Hz, the structure-borne band the cabin
 hears) under a broadband noise layer of 61 partials every 25 Hz over 500..2000 Hz, the
 tread-impact band of rolling noise, both with spread phases (was the primes alone), the
-skid one self-excited tone at 2000 Hz with an inharmonic 2800 Hz overtone, band-limited
-grit of 51 partials over 1500..4000 Hz and a baked-in 9 Hz amplitude modulation of 0.3 -
-the tread blocks through the contact patch at the wheel's rate (was a steady chord around
-800 Hz, an octave under where a squeal lives: a howl); every partial a whole number of
-cycles over the buffer, so the loops are seamless, and sums of sines only: the same bytes
-every build. SOUND-2 re-tuned the three buffers against `scratch/sound-2-references.md`
-(real recordings, the engine order analysis, the tyre-noise and squeal literature) after
-the driver's verdict on the first drive - "The tires sound is unbearable, very high...
-otherwise the game is unplayable" - and touched nothing else. Every physics
+skid (SOUND-4) friction noise and no tone - a band of sliding-rubber hiss, 46 partials over
+300..1300 Hz in the buffer, twice as dense over 700..1300 Hz as under it (the tilt toward
+where rubber hisses), placed off any even grid (no two closer than 13 Hz) and stored in a
+shuffled order so the spread phases make a hiss and not a click train (the band holds
+99.95% of the buffer's energy and 2000..4000 Hz holds nothing over the 16-bit rounding's
+floor, both measured) - with the baked-in 9 Hz amplitude modulation of 0.3,
+kept - the tread blocks through the contact patch at the wheel's rate (was, SOUND-2: one
+self-excited tone at 2000 Hz with the 2800 Hz overtone at 1.0 / 0.25, band-limited grit of
+51 partials over 1500..4000 Hz at an RMS of 0.15 and the same modulation - the
+literature's squeal; was, SOUND-1: a steady chord around 800 Hz, a howl); every partial a
+whole number of cycles over the buffer, so the loops are seamless, and sums of sines only:
+the same bytes every build. SOUND-2 re-tuned the three buffers against
+`scratch/sound-2-references.md` (real recordings, the engine order analysis, the
+tyre-noise and squeal literature) after the driver's verdict on the first drive - "The
+tires sound is unbearable, very high... otherwise the game is unplayable" - and touched
+nothing else. SOUND-4 is the squeal's hotfix after the driver's second verdict - "tire
+squick is still very unnatural and extremely high, cat very scared": two tonal squeals
+landed and both were rejected, and the driver's ear outranks the literature, so the squeal
+stopped being a tone; only the skid buffer's tables and its ceiling changed, the mapping
+functions, the other buffers and every other channel are what they were. The ruled target
+- a band around 400..1800 Hz, no dominant 2-4 kHz content - names the band as HEARD at a
+solid slide, and the kept pitch mapping multiplies whatever the buffer holds, so the buffer
+is authored one register below it (the first draft's 400..1800 Hz buffer band would have
+been heard at 600..2700 Hz at solid); and the old 2000 / 2800 Hz tone pair, which that
+draft kept as a faint 0.12 / 0.03 trace, is removed entirely - at the mapped pitch its
+residue would have been heard at 3000 / 4200 Hz at solid, inside the screech band the
+driver rejected twice. Every physics
 tick (priority -1, before the car's own tick, one state) the node reads the car's public
 fields and maps them, every value snapped to 0.001: **engine** - `pitch_scale` 1.0 at
 `IDLE_RPM` to 8.0 at `REDLINE_RPM` from `engine_rpm` (the 3rd order's true 8:1 span, 45 Hz
@@ -2744,8 +2762,12 @@ scaled by motion on top (silent at rest on any surface: the rumble is the tyres 
 noise is barely pitched); **skid** - the intensity is
 `MarksLayer`'s own triggers called per axle (never re-declared: a threshold change moves
 marks and squeal together), gated per wheel by the same road-only surface rule, muted at no
-intensity and under 1.5 m/s, -4 dB at solid, the pitch rising 0.85 to 1.5 with it (nearly an
-octave, the real squeal's span; was 0.9 to 1.15). Purely a
+intensity and under 1.5 m/s, -12 dB at solid (SOUND-4; was -4, the loudest thing in the
+mix - a solid slide is now a sound a person can talk over), the pitch rising 0.85 to 1.5
+with it (was 0.9 to 1.15) - since SOUND-4 the playback rate of a noise band, not a note:
+the buffer's 300..1300 Hz friction band is heard at 255..1105 Hz at the onset and brightens
+to 450..1950 Hz at solid, a harder slide a brighter hiss (was "nearly an octave, the real
+squeal's span": SOUND-2's tone swept 1700..3000 Hz). Purely a
 reader: nothing writes the car, the `Surfaces` node, the `Buildings` node or the profile, and
 the car's telemetry samples of the same drive are byte-identical with and without the node.
 
@@ -2833,20 +2855,34 @@ and the last one leaving the tree removes it; no other node, scene or file touch
 bus carries one `AudioEffectLowPassFilter` (`CAT_LOWPASS_HZ`, 3000 Hz), set once at creation
 and never touched per tick, and every one of a cat-mode node's eight players is routed to it
 when it is made. On top of the bus two channels are treated, pure functions over the
-unchanged mapping. The squeal plays at x0.6 pitch - the 2000 Hz fundamental at 1200 Hz
-(1020 to 1800 Hz across the mapped range), below the cat's peak band and still
-unambiguously a slide cue - under a ceiling 6 dB lower (-10 dB at solid, was -4). The thumps
+unchanged mapping. The squeal plays at x0.6 pitch - since SOUND-4 the buffer's 300..1300 Hz
+friction band at 180..780 Hz (153..663 Hz at the onset, 270..1170 Hz at solid), the whole
+band below the cat's peak region at every intensity and still unambiguously a slide cue (was the
+2000 Hz fundamental at 1200 Hz, 1020 to 1800 Hz across the mapped range) - under a ceiling
+6 dB lower (-18 dB at solid against the realistic -12; was -10 against -4, before SOUND-4
+took the ceiling down). Both cat constants were kept through SOUND-4: the landing that
+changed the sound did not also loosen the protection; whether -18 dB is still loud enough
+a slide cue under a full-load engine (-8 dB) is a question for the driver's ear. The thumps
 play under a ceiling 8 dB lower (-10 dB at a full impact, was -2) and the burst at x0.8
 pitch, so the 2 ms attack stretches to 2.5 ms and the transient's edge softens. The engine,
 the rumble and the wind keep their character and their mapping to the bit: their content
 sits under the cutoff (the engine's orders reach 1440 Hz at the redline, the rumble's noise
-layer 2200 Hz at its fastest), and what the low-pass cuts is the top of the squeal's grit.
+layer 2200 Hz at its fastest), and since SOUND-4 so does the squeal's: honestly, the
+3000 Hz low-pass now cuts nothing of it (the cat-pitched friction band tops out at
+1170 Hz and the buffer holds no tone above it) and
+stays as the guard over whatever else would sit above (was: what the low-pass cuts is the
+top of the squeal's grit).
 
 The reasoning is the domestic cat's audiogram (Heffner & Heffner 1985, Hearing Research
 19:85-88): the cat's best hearing sensitivity sits in the low-to-mid kHz region, with
-high-frequency hearing reaching tens of kHz - the 2-8 kHz band the realistic squeal occupies
-(2000 and 2800 Hz tones, 1500..4000 Hz grit) is exactly the region the pitch-down and the
-cut protect, and sudden loud transients startle. Honestly: v1's shape is authored from the
+high-frequency hearing reaching tens of kHz - the 2-8 kHz band SOUND-2's realistic squeal
+occupied (2000 and 2800 Hz tones, 1500..4000 Hz grit, 3000 and 4200 Hz at solid) is exactly
+the region the pitch-down and the cut protect, and sudden loud transients startle. SOUND-4
+re-centered the squeal in the DEFAULT mix too: the realistic friction band is 300..1300 Hz
+in the buffer and the mapped pitch of 1.5 plays it at 450..1950 Hz at a solid slide - under
+that region at every intensity, nothing above 2 kHz in any mode (the buffer is authored one
+register under the heard target for exactly this reason) - while the cat mix (270..1170 Hz
+at solid) sits lower still. Honestly: v1's shape is authored from the
 literature's shape, not measured on a cat; `CAT_LOWPASS_HZ`, `CAT_SKID_PITCH`,
 `CAT_SKID_DB_TRIM`, `CAT_THUMP_PITCH` and `CAT_THUMP_DB_TRIM` in `scripts/sound.gd` are
 one-line knobs. The guarantees: with `FD_CAT` unset the sound is the realistic mix byte for

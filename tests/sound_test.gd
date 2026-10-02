@@ -15,12 +15,15 @@ extends SceneTree
 ## same bytes when built again, normalised to the peak: the engine a flat-6's
 ## order stack from 45 Hz with half-order sidebands (was-> 56 Hz and its
 ## harmonics), the rumble the 62..226 Hz body primes under a 500..2000 Hz
-## noise layer (was-> the primes alone), the squeal a 2000 Hz tone with a
-## 2800 Hz overtone, 1500..4000 Hz grit and a baked 9 Hz amplitude modulation
-## (was-> an 800 Hz chord) - SOUND-2, scratch/sound-2-references.md, after
-## the driver's "unbearable, very high"; every partial whole cycles over the
-## buffer, the engine starting at zero, the zero-crossing rates and the AM
-## measured on the built PCM. THE MAPPING, pure and snapped to 0.001: the
+## noise layer (was-> the primes alone), the squeal a band of friction
+## noise, 300..1300 Hz in the buffer, no tone in it, with a baked 9 Hz
+## amplitude modulation (SOUND-4, below; was-> a 2000 Hz tone with a 2800 Hz
+## overtone, 1500..4000 Hz grit and the same modulation - SOUND-2,
+## scratch/sound-2-references.md, after the driver's "unbearable, very
+## high"; was-> an 800 Hz chord - SOUND-1); every partial whole cycles over
+## the buffer, the engine starting at zero, the zero-crossing rates, the AM
+## and (SOUND-4) the squeal's band ceiling measured on the built PCM. THE
+## MAPPING, pure and snapped to 0.001: the
 ## engine's pitch 1 at idle and 8 at the redline (was-> 2.5; ArcadeCar's own
 ## rpm numbers) and its volume -18 dB at idle with the pedal up
 ## to -8 dB at full load, MUTE_DB with the engine stopped; the rumble silent
@@ -28,7 +31,8 @@ extends SceneTree
 ## grip deficit louder at the same speed, -6 dB at the ceiling; the squeal
 ## MarksLayer's own triggers (called, not re-declared: a locked front, a
 ## spinning driven rear, an undriven front's spin nothing), muted at no
-## intensity and under 1.5 m/s, -4 dB at solid. A BARE CAR under the root
+## intensity and under 1.5 m/s, -12 dB at solid (was-> -4: SOUND-4). A BARE
+## CAR under the root
 ## (FD_SOUND=1): one Sound node under the root with three players on the
 ## shared streams; every public field the node reads written straight on the
 ## car (engine_rpm, throttle_pedal, engine_running, the three surface inputs,
@@ -84,8 +88,9 @@ extends SceneTree
 ## functions (off: the mapped value itself to the bit; a muted channel stays
 ## muted); a bare car's node in cat mode - the one shared "Cat" bus made,
 ## its one AudioEffectLowPassFilter at CAT_LOWPASS_HZ, all eight players
-## routed to it; a solid squeal written at x0.6 pitch (0.9) and -10 dB (was
-## 1.5 and -4 realistic); the engine, the rumble and the wind mapped as
+## routed to it; a solid squeal written at x0.6 pitch (0.9) and -18 dB (was
+## 1.5 and -12 realistic; was-> -10 dB against -4, before SOUND-4 took the
+## ceiling down 8 dB); the engine, the rumble and the wind mapped as
 ## ever; the state dictionary's sixteen values; the thump's write path fired
 ## by hand (pitch 0.8, -10 dB at a full impact, thump_db the mapped base);
 ## the bus removed with the last cat node, made again for the next, ONE bus
@@ -99,6 +104,48 @@ extends SceneTree
 ## audit leaked 22..27 pending playbacks (a WARNING, differing run to run:
 ## two suite logs differing); under --fixed-fps 60 a game-time wait of any
 ## length does not drain, the mix thread runs in real time.
+##
+## SOUND-4 (the tire-squeal hotfix, 2026-10-02; the driver's second verdict,
+## decisions.org 21B8A1EC: "tire squick is still very unnatural and
+## extremely high, cat very scared" - two tonal squeals rejected, the ear
+## the gate): THE SQUEAL IS FRICTION NOISE. THE DRAFT (uncommitted, the
+## first re-synthesis): 46 noise partials over a 400..1800 Hz BUFFER band
+## over the 2000 / 2800 Hz pair kept as a 0.12 / 0.03 trace; its pins - the
+## table (400..1800, the trace a combined 0.15), the zero crossings (2514 a
+## second, pinned 1800..3200), the AM (1.415..1.524) and THE NOISE
+## DOMINATES (the 400..1800 Hz band at 8.5 times the largest partial over
+## 1900..2900 Hz, the 2000 Hz trace; 99% of the energy).
+## SOUND-4, FINAL (one ruling on the draft): the pitch mapping is kept and
+## multiplies the buffer's band, so the draft was HEARD at 600..2700 Hz at
+## solid and its trace at 3000 / 4200 Hz - inside the 2..4 kHz the driver
+## rejected. THE BUFFER BAND MOVED DOWN to 300..1300 Hz (heard at 255..1105
+## Hz at the onset, 450..1950 Hz at solid; the cat mix 270..1170 Hz at
+## solid) and THE TRACE IS REMOVED. Every skid pin re-measured: the table
+## pin (46 partials over 300..1300 Hz, the band's top x the solid pitch
+## under 2000 Hz, every one an even cycle count, distinct, no two closer
+## than 25 cycles - 26 measured - the table shuffled so the band is its
+## least and greatest; the partials' sum lost its "2 +", the tone table
+## gone; was-> 400..1800 with the trace's pins; was-> 51 grit partials over
+## 1500..4000 Hz under a tone at 1.0 / 0.25), the zero-crossing pin (1802 a
+## second measured, pinned 1300..2400; was-> 2514, pinned 1800..3200; was->
+## the tone's own 4000, pinned 3000..5000 - the squeal STILL crosses more
+## often than the rumble's 792, the inequality kept), the AM pin held where
+## it was (1.371..1.606 measured inside the same 1.2..2.0, the depth
+## unchanged; was-> 1.415..1.524 measured), and the draft's dominance pin
+## became THE BAND CEILING, the core of the landing: the built PCM probed
+## bin by bin (_band_of: a Goertzel correlation against every whole-cycle
+## sine on the 1 Hz grid of a band) - the RMS over 2000..4000 Hz at most 0.1
+## of the RMS over 300..1800 Hz (measured: 0.000023 of it, 3.7 millionths
+## of full scale, the 16-bit rounding's floor - the pin is on an absence),
+## the largest bin up there under the hiss's largest partial, the 300..1800
+## Hz band carrying over 95% of the buffer's whole energy (measured:
+## 99.95%) (was-> the noise against the 2000 Hz trace, which the pin needed
+## present; was-> the tone dominated: the 2000 / 2800 Hz pair at amplitude
+## 1.0 / 0.25 against a grit RMS of 0.15 - the alarm the driver rejected
+## twice). The ceiling's pins followed SKID_DB_MAX to -12 dB symbolically;
+## the one literal, the cat mix's solid squeal, moved -10 -> -18 dB; the cat
+## pitch pin's literal (0.9 at solid) stands, its message on the new band.
+## 92 checks (was-> 91; the final ruling moved pins, the count stayed).
 ##
 ## The store pinned off (FD_TELEMETRY=0, the marks test's idiom); FD_SOUND
 ## restored at the end. Exits 0 on success, 1 on any failed check.
@@ -270,8 +317,10 @@ func _check_buffers() -> void:
 	# was-> ENGINE_CYCLES + SURFACE_CYCLES + SKID_CYCLES, three tables (SOUND-2:
 	# seven tables and the AM carrier - the sidebands, the rumble's noise layer
 	# and the squeal's grit joined the whole-cycles rule; SOUND-3: the wind's
-	# table too, eight tables and the carrier).
-	var tables: Array = [SoundNode.ENGINE_CYCLES, SoundNode.ENGINE_SIDEBAND_CYCLES, SoundNode.SURFACE_BODY_CYCLES, SoundNode.SURFACE_NOISE_CYCLES, SoundNode.SKID_TONE_CYCLES, SoundNode.SKID_NOISE_CYCLES, [SoundNode.SKID_AM_CYCLES], SoundNode.WIND_CYCLES]
+	# table too, eight tables and the carrier; SOUND-4: the squeal's tone
+	# table is removed with the tone - was-> SKID_TONE_CYCLES between the
+	# rumble's noise table and the squeal's: seven tables with the carrier).
+	var tables: Array = [SoundNode.ENGINE_CYCLES, SoundNode.ENGINE_SIDEBAND_CYCLES, SoundNode.SURFACE_BODY_CYCLES, SoundNode.SURFACE_NOISE_CYCLES, SoundNode.SKID_NOISE_CYCLES, [SoundNode.SKID_AM_CYCLES], SoundNode.WIND_CYCLES]
 	var whole := true
 	var partials := 0
 	for table: Array in tables:
@@ -287,8 +336,31 @@ func _check_buffers() -> void:
 	var body_hi := SoundNode.SURFACE_BODY_CYCLES[-1] * hz
 	var noise_lo := SoundNode.SURFACE_NOISE_CYCLES[0] * hz
 	var noise_hi := SoundNode.SURFACE_NOISE_CYCLES[-1] * hz
-	var grit_lo := SoundNode.SKID_NOISE_CYCLES[0] * hz
-	var grit_hi := SoundNode.SKID_NOISE_CYCLES[-1] * hz
+	# was-> grit_lo / grit_hi off SKID_NOISE_CYCLES[0] / [-1] (SOUND-4: the
+	# squeal's noise table is stored shuffled on purpose - sorted on an even
+	# grid the golden spread is a click train - so the band is the table's
+	# least and greatest; every entry an even cycle count, no two alike - and,
+	# the spacing discipline, no two closer than 25 cycles, 12.5 Hz: grit_gap
+	# is the least gap between two entries, in cycles).
+	var grit_lo := INF
+	var grit_hi := 0.0
+	var grit_even := true
+	var grit_seen := {}
+	for cycles: int in SoundNode.SKID_NOISE_CYCLES:
+		grit_lo = minf(grit_lo, cycles * hz)
+		grit_hi = maxf(grit_hi, cycles * hz)
+		grit_even = grit_even and cycles % 2 == 0
+		grit_seen[cycles] = true
+	var grit_distinct := grit_seen.size() == SoundNode.SKID_NOISE_CYCLES.size()
+	var grit_sorted := SoundNode.SKID_NOISE_CYCLES.duplicate()
+	grit_sorted.sort()
+	var grit_gap := 1 << 30
+	for k in range(1, grit_sorted.size()):
+		grit_gap = mini(grit_gap, grit_sorted[k] - grit_sorted[k - 1])
+	# The noise layer's RMS by the constants: its equal amplitude x
+	# sqrt(count / 2). was-> also trace_sum, SKID_TONE_AMPLITUDES[0] + [1],
+	# the draft's tonal trace: removed with the constants.
+	var grit_rms := SoundNode.SKID_NOISE_AMPLITUDE * sqrt(SoundNode.SKID_NOISE_CYCLES.size() / 2.0)
 	var wind_lo := SoundNode.WIND_CYCLES[0] * hz
 	var wind_hi := SoundNode.WIND_CYCLES[-1] * hz
 	# was-> the engine's stack from 56.0 Hz, the squeal's from 800.0 Hz, one
@@ -300,7 +372,21 @@ func _check_buffers() -> void:
 	# and the AM carrier are whole cycles over the buffer, so sample N would
 	# equal sample 0 whatever the phases).
 	# was-> partials == 4 + 3 + 20 + 61 + 2 + 51 + 1 (SOUND-3: + 31, the wind's).
-	_check(whole and partials == 4 + 3 + 20 + 61 + 2 + 51 + 1 + 31 and wind_lo >= 100.0 and wind_hi <= 700.0 and SoundNode.WIND_CYCLES.size() >= 16 and absf(hz - 0.5) < 1.0e-9 and orders and engine.data.decode_s16(0) == 0 and absf(SoundNode.ENGINE_CYCLES[0] * hz - 45.0) < 1.0e-9 and absf(SoundNode.ENGINE_SIDEBAND_CYCLES[0] * hz - 22.5) < 1.0e-9 and absf(SoundNode.SKID_TONE_CYCLES[0] * hz - 2000.0) < 1.0e-9 and SoundNode.SKID_TONE_CYCLES[1] * 5 == SoundNode.SKID_TONE_CYCLES[0] * 7 and SoundNode.SKID_TONE_AMPLITUDES[1] < SoundNode.SKID_TONE_AMPLITUDES[0] and body_lo >= 60.0 and body_hi <= 230.0 and SoundNode.SURFACE_BODY_CYCLES.size() >= 16 and noise_lo >= 500.0 and noise_hi <= 2000.0 and SoundNode.SURFACE_NOISE_CYCLES.size() >= 16 and grit_lo >= 1500.0 and grit_hi <= 4000.0 and SoundNode.SKID_NOISE_CYCLES.size() >= 16 and absf(SoundNode.SKID_AM_CYCLES * hz - 9.0) < 1.0e-9 and SoundNode.SKID_AM_DEPTH > 0.0 and SoundNode.SKID_AM_DEPTH < 1.0, "every one of the %d partials over the eight tables (was-> seven) is a whole number of cycles over the buffer (the grid %.1f Hz), the AM carrier among them (%.1f Hz, depth %.2f in (0, 1)): the engine's root at %.1f Hz with its 2nd, 3rd and 4th multiples above and the half-order sidebands from %.1f Hz, weaker than the weakest order; the squeal's tone at %.0f Hz with the 7/5 overtone at %.0f, weaker, its grit %d partials over %.0f..%.0f Hz; the rumble's body %d partials over %.0f..%.0f Hz under %d noise partials over %.0f..%.0f Hz; the wind's %d partials over %.0f..%.0f Hz (SOUND-3); the engine starts at zero (its phases 0), and every loop wraps seamlessly whatever its phases" % [partials, hz, SoundNode.SKID_AM_CYCLES * hz, SoundNode.SKID_AM_DEPTH, SoundNode.ENGINE_CYCLES[0] * hz, SoundNode.ENGINE_SIDEBAND_CYCLES[0] * hz, SoundNode.SKID_TONE_CYCLES[0] * hz, SoundNode.SKID_TONE_CYCLES[1] * hz, SoundNode.SKID_NOISE_CYCLES.size(), grit_lo, grit_hi, SoundNode.SURFACE_BODY_CYCLES.size(), body_lo, body_hi, SoundNode.SURFACE_NOISE_CYCLES.size(), noise_lo, noise_hi, SoundNode.WIND_CYCLES.size(), wind_lo, wind_hi])
+	# was-> partials == 4 + 3 + 20 + 61 + 2 + 51 + 1 + 31, grit_lo >= 1500.0 and
+	# grit_hi <= 4000.0, the message "the squeal's tone at 2000 Hz with the 7/5
+	# overtone at 2800, weaker, its grit 51 partials over 1500..4000 Hz"
+	# (the SOUND-4 draft: 46 noise partials over 400..1800 Hz over the tone
+	# pair kept as a trace).
+	# was-> (the SOUND-4 draft) partials == 4 + 3 + 20 + 61 + 2 + 46 + 1 + 31,
+	# grit_lo >= 400.0 and grit_hi <= 1800.0, the trace's pins (SKID_TONE_CYCLES
+	# at 2000 Hz with the 7/5 overtone, trace_sum <= 0.15, grit_rms >= 1.5 x
+	# the stronger tone) and the message "%.1f times the stronger tone of the
+	# TRACE under it" (SOUND-4, final: the tone is removed - at the mapped
+	# pitch its residue would be heard at 3000 / 4200 Hz at solid - so the sum
+	# loses its "2 +"; the buffer band moved to 300..1300 Hz, heard at
+	# 450..1950 Hz at solid, where the draft's 400..1800 was heard at
+	# 600..2700; the least gap between two partials joins the pin).
+	_check(whole and partials == 4 + 3 + 20 + 61 + 46 + 1 + 31 and wind_lo >= 100.0 and wind_hi <= 700.0 and SoundNode.WIND_CYCLES.size() >= 16 and absf(hz - 0.5) < 1.0e-9 and orders and engine.data.decode_s16(0) == 0 and absf(SoundNode.ENGINE_CYCLES[0] * hz - 45.0) < 1.0e-9 and absf(SoundNode.ENGINE_SIDEBAND_CYCLES[0] * hz - 22.5) < 1.0e-9 and absf(grit_rms - 1.0) < 1.0e-3 and body_lo >= 60.0 and body_hi <= 230.0 and SoundNode.SURFACE_BODY_CYCLES.size() >= 16 and noise_lo >= 500.0 and noise_hi <= 2000.0 and SoundNode.SURFACE_NOISE_CYCLES.size() >= 16 and grit_lo >= 300.0 and grit_hi <= 1300.0 and grit_hi * SoundNode.SKID_PITCH_SOLID <= 2000.0 and grit_even and grit_distinct and grit_gap >= 25 and SoundNode.SKID_NOISE_CYCLES.size() >= 16 and absf(SoundNode.SKID_AM_CYCLES * hz - 9.0) < 1.0e-9 and SoundNode.SKID_AM_DEPTH > 0.0 and SoundNode.SKID_AM_DEPTH < 1.0, "every one of the %d partials over the seven tables (was-> eight: SOUND-4 removed the squeal's tone table) is a whole number of cycles over the buffer (the grid %.1f Hz), the AM carrier among them (%.1f Hz, depth %.2f in (0, 1)): the engine's root at %.1f Hz with its 2nd, 3rd and 4th multiples above and the half-order sidebands from %.1f Hz, weaker than the weakest order; the squeal (SOUND-4) FRICTION NOISE and no tone, %d partials over %.0f..%.0f Hz in the buffer (within 300..1300), heard at %.0f..%.0f Hz at solid (x%.1f: under 2000 - the buffer sits one register under the heard target because the pitch sweep multiplies it), every one an even cycle count, no two alike and no two closer than %d cycles (%.1f Hz; 25 cycles at least), the layer's RMS %.3f by the constants (was-> the draft: 46 partials over 400..1800 Hz, heard at 600..2700 Hz at solid, over a 2000 / 2800 Hz trace at 0.12 / 0.03 - removed: its residue would be heard at 3000 / 4200 Hz at solid; was-> SOUND-2's tone at 2000 Hz with the 7/5 overtone at 2800 at 1.0 / 0.25 over 51 grit partials, 1500..4000 Hz, RMS 0.15 - the tonal squeal the driver rejected twice, \"still very unnatural and extremely high, cat very scared\"); the rumble's body %d partials over %.0f..%.0f Hz under %d noise partials over %.0f..%.0f Hz; the wind's %d partials over %.0f..%.0f Hz (SOUND-3); the engine starts at zero (its phases 0), and every loop wraps seamlessly whatever its phases" % [partials, hz, SoundNode.SKID_AM_CYCLES * hz, SoundNode.SKID_AM_DEPTH, SoundNode.ENGINE_CYCLES[0] * hz, SoundNode.ENGINE_SIDEBAND_CYCLES[0] * hz, SoundNode.SKID_NOISE_CYCLES.size(), grit_lo, grit_hi, grit_lo * SoundNode.SKID_PITCH_SOLID, grit_hi * SoundNode.SKID_PITCH_SOLID, SoundNode.SKID_PITCH_SOLID, grit_gap, grit_gap * hz, grit_rms, SoundNode.SURFACE_BODY_CYCLES.size(), body_lo, body_hi, SoundNode.SURFACE_NOISE_CYCLES.size(), noise_lo, noise_hi, SoundNode.WIND_CYCLES.size(), wind_lo, wind_hi])
 	var rebuilt := SoundNode.build_buffers()
 	# was-> rebuilt.size() == 3 and three buffers distinct (SOUND-3: five, every
 	# pair distinct).
@@ -318,15 +404,51 @@ func _check_buffers() -> void:
 	# second - the old buffers 112.0 / 324.0 / 1600.0 - and a skid crest /
 	# trough ratio over the envelope's periods of 1.454..1.486, the engine's
 	# 0.967..1.034).
+	# was-> skid_zcr >= 3000.0 and skid_zcr <= 5000.0, "the squeal's (the 2000
+	# Hz tone's own 4000, between 3000 and 5000: two and a half times the old
+	# 800 Hz chord's 1600 - the note is where a squeal lives, not a howl)"
+	# (the SOUND-4 draft: a 400..1800 Hz noise band, the build gave 2514.0,
+	# pinned 1800..3200; the tone pin was the lie, the noise band sits where
+	# rubber sits).
+	# was-> (the SOUND-4 draft) skid_zcr >= 1800.0 and skid_zcr <= 3200.0
+	# (SOUND-4, final: the buffer band moved down to 300..1300 Hz, the build
+	# gives 1802.0 - a band of noise crosses at twice its RMS frequency, about
+	# 900 Hz here - pinned 1300..2400. skid_zcr > surface_zcr STILL HOLDS
+	# with the band moved down, 1802 against 792: the rumble's crossings are
+	# held down by its 62..226 Hz body. The AM ratio over the noise:
+	# 1.371..1.606, inside the same 1.2..2.0; the draft's band gave
+	# 1.415..1.524.)
 	var engine_zcr := _zero_crossings_per_second(engine)
 	var surface_zcr := _zero_crossings_per_second(surface)
 	var skid_zcr := _zero_crossings_per_second(skid)
 	var wind_zcr := _zero_crossings_per_second(wind)
-	_check(engine_zcr >= 60.0 and engine_zcr <= 140.0 and surface_zcr >= 400.0 and surface_zcr <= 1600.0 and skid_zcr >= 3000.0 and skid_zcr <= 5000.0 and skid_zcr > surface_zcr and surface_zcr > engine_zcr, "ZERO-CROSSING RATES of the built PCM: the engine's %.1f a second (the 45 Hz root's own 90, between 60 and 140), the rumble's %.1f (the noise layer over the body: between 400 and 1600, the old primes alone gave 324), the squeal's %.1f (the 2000 Hz tone's own 4000, between 3000 and 5000: two and a half times the old 800 Hz chord's 1600 - the note is where a squeal lives, not a howl)" % [engine_zcr, surface_zcr, skid_zcr])
+	_check(engine_zcr >= 60.0 and engine_zcr <= 140.0 and surface_zcr >= 400.0 and surface_zcr <= 1600.0 and skid_zcr >= 1300.0 and skid_zcr <= 2400.0 and skid_zcr > surface_zcr and surface_zcr > engine_zcr, "ZERO-CROSSING RATES of the built PCM: the engine's %.1f a second (the 45 Hz root's own 90, between 60 and 140), the rumble's %.1f (the noise layer over the body: between 400 and 1600, the old primes alone gave 324), the squeal's %.1f (SOUND-4: the buffer's 300..1300 Hz band of friction noise crosses at about twice its RMS frequency, between 1300 and 2400, still over the rumble's with the band moved down, whose low body holds its count down; was-> the draft's 400..1800 Hz buffer band: 2514, pinned 1800..3200; was-> the 2000 Hz tone's own 4000, pinned 3000..5000 - the tonal squeal the driver rejected twice; the 800 Hz chord before it gave 1600)" % [engine_zcr, surface_zcr, skid_zcr])
 	_check(wind_zcr >= 800.0 and wind_zcr <= 2000.0 and wind.data.decode_s16(0) != 0, "the wind's %.1f a second (SOUND-3: 31 equal partials over 100..700 Hz with spread phases - between 800 and 2000, the probe's build gave 1340; its first sample is wherever the spread sum starts, %d, the wrap seamless regardless)" % [wind_zcr, wind.data.decode_s16(0)])
 	var skid_am := _crest_trough_ratios(skid)
 	var engine_am := _crest_trough_ratios(engine)
-	_check(skid_am.min >= 1.2 and skid_am.max <= 2.0 and engine_am.min >= 0.9 and engine_am.max <= 1.1, "THE AM SHOWS IN THE BUFFER: over each of the %d envelope periods the squeal's crest half is louder than its trough half, an RMS ratio of %.3f..%.3f (between 1.2 and 2.0: a depth of %.2f gives about 1.47), while the engine's, built with no envelope, stays %.3f..%.3f (between 0.9 and 1.1) - the squeal breathes at the wheel's rate, the note does not" % [SoundNode.SKID_AM_CYCLES, skid_am.min, skid_am.max, SoundNode.SKID_AM_DEPTH, engine_am.min, engine_am.max])
+	_check(skid_am.min >= 1.2 and skid_am.max <= 2.0 and engine_am.min >= 0.9 and engine_am.max <= 1.1, "THE AM SHOWS IN THE BUFFER: over each of the %d envelope periods the squeal's crest half is louder than its trough half, an RMS ratio of %.3f..%.3f (between 1.2 and 2.0: a depth of %.2f gives about 1.47; SOUND-4 kept the modulation, over friction noise now the ratio wanders wider than the tone's 1.454..1.486 - the build gives 1.371..1.606; was-> the draft's 400..1800 Hz band: 1.415..1.524), while the engine's, built with no envelope, stays %.3f..%.3f (between 0.9 and 1.1) - the squeal breathes at the wheel's rate, the note does not" % [SoundNode.SKID_AM_CYCLES, skid_am.min, skid_am.max, SoundNode.SKID_AM_DEPTH, engine_am.min, engine_am.max])
+	# SOUND-4, THE BAND CEILING - measured on the built PCM's buffer frame,
+	# bin by bin (_band_of): the RMS of everything over 2000..4000 Hz, the
+	# screech band, against the RMS over 300..1800 Hz. It measures next to
+	# nothing - the 16-bit rounding's floor - and that is the point: the pin
+	# is on an ABSENCE. With it, the largest single bin up there under the
+	# hiss's own largest, and the 300..1800 Hz band holding the buffer's
+	# energy (the table's own band plus the modulation's 9 Hz sidebands).
+	# was-> (the SOUND-4 draft) THE NOISE DOMINATES: _band_of over 400..1800
+	# against 1900..2900 Hz - the noise band's RMS >= 1.5 x the largest
+	# partial found there, that partial the 2000 Hz trace (peak_hz pinned at
+	# 2000, peak > 0), the 1900..2900 band's RMS under a quarter of the noise
+	# band's, the noise share >= 95% (measured: 8.5 times, 99%). The trace is
+	# removed, so a pin that NEEDED a tone at 2000 Hz is gone with it: the
+	# pin is now that there is nothing there.
+	# was-> (SOUND-2) nothing measured, and by the constants the tone
+	# dominated: the 2000 / 2800 Hz pair at amplitude 1.0 / 0.25 against a
+	# grit RMS of 0.15 - the alarm the driver rejected twice.
+	var skid_noise := _band_of(skid, 300.0, 1800.0)
+	var skid_high := _band_of(skid, 2000.0, 4000.0)
+	var skid_total := _rms_of(skid, 0, SoundNode.BUFFER_SAMPLES)
+	var noise_share: float = (skid_noise.rms * skid_noise.rms) / (skid_total * skid_total)
+	_check(skid_noise.rms > 0.05 and skid_high.rms <= 0.1 * skid_noise.rms and skid_high.peak < skid_noise.peak and noise_share >= 0.95 and noise_share <= 1.0 + 1.0e-6, "THE BAND CEILING (SOUND-4, measured on the built PCM's buffer frame, every whole-cycle sine on the 1 Hz grid correlated): the RMS over 2000..4000 Hz is %.2f millionths of full scale over %d bins, %.6f of the %.4f over 300..1800 Hz (%d bins; 0.1 at most) - the absence is the pin: the largest single bin up there is %.2f millionths at %.0f Hz (the 16-bit rounding's floor) against the hiss's largest partial, %.4f at %.0f Hz, and the 300..1800 Hz band holds %.2f%% of the buffer's energy (total RMS %.4f; 95%% at least) - friction hiss, no tone, nothing in the screech band (was-> the draft's NOISE DOMINATES pin: the 400..1800 Hz band at 8.5 times the 2000 Hz trace, 1.5 at least, 99%% of the energy - the trace removed, at the mapped pitch its residue would be heard at 3000 / 4200 Hz at solid; was-> SOUND-2, the tone dominated: the 2000 / 2800 Hz pair at amplitude 1.0 / 0.25 against a grit RMS of 0.15 - the alarm the driver rejected twice: \"unbearable, very high\", then \"still very unnatural and extremely high, cat very scared\")" % [skid_high.rms * 1.0e6, skid_high.bins, skid_high.rms / skid_noise.rms, skid_noise.rms, skid_noise.bins, skid_high.peak * 1.0e6, skid_high.peak_hz, skid_noise.peak, skid_noise.peak_hz, noise_share * 100.0, skid_total])
 
 
 # =============================================================================
@@ -821,9 +943,9 @@ func _check_cat() -> void:
 	_check(
 		SoundNode.cat_mode_of("1") and not SoundNode.cat_mode_of("") and not SoundNode.cat_mode_of("0") and not SoundNode.cat_mode_of("true") and not SoundNode.cat_mode_of("2") and SoundNode.CAT_ENV_VAR == "FD_CAT"
 			and SoundNode.cat_skid_pitch_of(solid_pitch, false) == solid_pitch and SoundNode.cat_skid_pitch_of(1.2345, false) == 1.2345 and cat_pitch == _snap(solid_pitch * SoundNode.CAT_SKID_PITCH) and absf(cat_pitch - 0.9) < 1.0e-9
-			and SoundNode.cat_skid_db_of(solid_db, false) == solid_db and SoundNode.cat_skid_db_of(SoundNode.MUTE_DB, false) == SoundNode.MUTE_DB and SoundNode.cat_skid_db_of(SoundNode.MUTE_DB, true) == SoundNode.MUTE_DB and SoundNode.cat_skid_db_of(SoundNode.MUTE_DB + 1.0, true) == SoundNode.MUTE_DB and cat_db == _snap(solid_db + SoundNode.CAT_SKID_DB_TRIM) and absf(cat_db - -10.0) < 1.0e-9
+			and SoundNode.cat_skid_db_of(solid_db, false) == solid_db and SoundNode.cat_skid_db_of(SoundNode.MUTE_DB, false) == SoundNode.MUTE_DB and SoundNode.cat_skid_db_of(SoundNode.MUTE_DB, true) == SoundNode.MUTE_DB and SoundNode.cat_skid_db_of(SoundNode.MUTE_DB + 1.0, true) == SoundNode.MUTE_DB and cat_db == _snap(solid_db + SoundNode.CAT_SKID_DB_TRIM) and absf(cat_db - -18.0) < 1.0e-9
 			and SoundNode.cat_thump_pitch_of(false) == 1.0 and SoundNode.cat_thump_pitch_of(true) == SoundNode.CAT_THUMP_PITCH and SoundNode.cat_thump_db_of(full_thump_db, false) == full_thump_db and SoundNode.cat_thump_db_of(SoundNode.MUTE_DB, true) == SoundNode.MUTE_DB and SoundNode.cat_thump_db_of(SoundNode.MUTE_DB + 1.0, true) == SoundNode.MUTE_DB and cat_thump_db == _snap(full_thump_db + SoundNode.CAT_THUMP_DB_TRIM) and absf(cat_thump_db - -10.0) < 1.0e-9,
-		"FD_CAT, the pure corners of the cat mix: only \"1\" is cat mode (unset, \"0\", anything else off); off, each cat function returns the mapped value itself to the bit; on, the solid squeal's pitch %.3f becomes %.3f (x %.1f, snapped) and its %.1f dB %.1f (%+.0f dB), a full thump's %.1f dB %.1f (%+.0f dB) at pitch %.1f; a muted channel stays muted and nothing goes under %.0f dB" % [solid_pitch, cat_pitch, SoundNode.CAT_SKID_PITCH, solid_db, cat_db, SoundNode.CAT_SKID_DB_TRIM, full_thump_db, cat_thump_db, SoundNode.CAT_THUMP_DB_TRIM, SoundNode.CAT_THUMP_PITCH, SoundNode.MUTE_DB],
+		"FD_CAT, the pure corners of the cat mix: only \"1\" is cat mode (unset, \"0\", anything else off); off, each cat function returns the mapped value itself to the bit; on, the solid squeal's pitch %.3f becomes %.3f (x %.1f, snapped) and its %.1f dB %.1f (%+.0f dB; was-> -4.0 dB -10.0, before SOUND-4 took the squeal's ceiling to -12), a full thump's %.1f dB %.1f (%+.0f dB) at pitch %.1f; a muted channel stays muted and nothing goes under %.0f dB" % [solid_pitch, cat_pitch, SoundNode.CAT_SKID_PITCH, solid_db, cat_db, SoundNode.CAT_SKID_DB_TRIM, full_thump_db, cat_thump_db, SoundNode.CAT_THUMP_DB_TRIM, SoundNode.CAT_THUMP_PITCH, SoundNode.MUTE_DB],
 	)
 
 	# A bare car in cat mode.
@@ -853,7 +975,7 @@ func _check_cat() -> void:
 	# A solid squeal: the rear at 3 peaks of slip angle at 10 m/s.
 	_write_slips(car, 0.0, 0.0, ArcadeCar.REAR_PEAK_SLIP_ANGLE * 3.0, 0.0, 10.0)
 	await physics_frame
-	_check(sound.skid_intensity == 1.0 and sound.last_speed == 10.0 and sound.skid_pitch == cat_pitch and sound.skid_pitch < solid_pitch and absf(sound.skid_player.pitch_scale - cat_pitch) < PLAYER_TOLERANCE, "the cat mix pitches the squeal down: a solid slide (intensity 1) is written at pitch %.3f, the mapped %.3f x CAT_SKID_PITCH %.1f - the 2000 Hz fundamental at %.0f Hz, under the cat's peak band (FD_CAT=1)" % [sound.skid_pitch, solid_pitch, SoundNode.CAT_SKID_PITCH, 2000.0 * sound.skid_pitch])
+	_check(sound.skid_intensity == 1.0 and sound.last_speed == 10.0 and sound.skid_pitch == cat_pitch and sound.skid_pitch < solid_pitch and absf(sound.skid_player.pitch_scale - cat_pitch) < PLAYER_TOLERANCE, "the cat mix pitches the squeal down: a solid slide (intensity 1) is written at pitch %.3f, the mapped %.3f x CAT_SKID_PITCH %.1f - the buffer's 300..1300 Hz friction band heard at %.0f..%.0f Hz, the whole band under the cat's 2..8 kHz peak region (the realistic mix plays it at %.0f..%.0f Hz there; was-> the draft's 400..1800 Hz buffer band at 360..1620 Hz, the realistic mix at 600..2700; was-> the 2000 Hz fundamental at 1800 Hz: SOUND-4 made the squeal a noise band) (FD_CAT=1)" % [sound.skid_pitch, solid_pitch, SoundNode.CAT_SKID_PITCH, 300.0 * sound.skid_pitch, 1300.0 * sound.skid_pitch, 300.0 * solid_pitch, 1300.0 * solid_pitch])
 	_check(sound.skid_db == cat_db and sound.skid_db > SoundNode.MUTE_DB and sound.skid_db < solid_db and absf(sound.skid_player.volume_db - cat_db) < PLAYER_TOLERANCE, "the cat mix trims the squeal's ceiling: the solid slide is written at %.1f dB, the mapped %.1f %+.0f (CAT_SKID_DB_TRIM, FD_CAT=1)" % [sound.skid_db, solid_db, SoundNode.CAT_SKID_DB_TRIM])
 	_check(sound.engine_pitch == SoundNode.engine_pitch_of(sound.last_rpm, idle, limiter) and sound.engine_db == SoundNode.engine_db_of(sound.last_rpm, sound.last_throttle, sound.last_running, idle, limiter) and sound.surface_pitch == SoundNode.surface_pitch_of(10.0) and sound.surface_db == SoundNode.surface_db_of(sound.last_drag, minf(sound.last_grip_front, sound.last_grip_rear), 10.0) and sound.surface_db > SoundNode.MUTE_DB and sound.wind_db == SoundNode.wind_db_of(10.0) and sound.wind_db > SoundNode.MUTE_DB and absf(sound.wind_player.pitch_scale - SoundNode.WIND_PITCH) < PLAYER_TOLERANCE and _players_match(sound), "the cat mix (FD_CAT=1) touches ONLY the squeal and the thumps: the engine's pitch and volume (%.3f / %.1f dB), the rumble's (%.3f / %.1f dB) and the wind's (%.1f / %.1f dB) are the plain mapped values to the bit, the players carrying them" % [sound.engine_pitch, sound.engine_db, sound.surface_pitch, sound.surface_db, SoundNode.WIND_PITCH, sound.wind_db])
 	var cat_state := sound.state()
@@ -1118,6 +1240,47 @@ func _crest_trough_ratios(stream: AudioStreamWAV) -> Dictionary:
 		var ratio := _rms_of(stream, 2 * period * half, half) / _rms_of(stream, (2 * period + 1) * half, half)
 		out.min = minf(out.min, ratio)
 		out.max = maxf(out.max, ratio)
+	return out
+
+
+## SOUND-4: a buffer's content over `lo_hz`..`hi_hz`, measured: the samples
+## correlated (the Goertzel recurrence - a whole-buffer correlation against
+## one whole-cycle sine and its cosine at once) at every even cycle count in
+## the band, the 1 Hz grid. Every partial of the squeal's table and its AM
+## carrier is an even cycle count, so the buffer repeats once a second and
+## its whole spectrum sits on that grid - which the pin's energy share
+## checks rather than assumes. Out: "rms", the band's RMS of full scale
+## (the root of the sum of amplitude^2 / 2 over the bins); "peak", the
+## largest single bin's amplitude, of full scale, and "peak_hz", its
+## frequency; "bins", how many were probed.
+func _band_of(stream: AudioStreamWAV, lo_hz: float, hi_hz: float) -> Dictionary:
+	var count := stream.data.size() / 2
+	var samples := PackedFloat64Array()
+	samples.resize(count)
+	for n in count:
+		samples[n] = float(stream.data.decode_s16(n * 2)) / 32767.0
+	var seconds := float(count) / float(SoundNode.MIX_RATE)
+	var first := ceili(lo_hz * seconds - 1.0e-9)
+	var last := floori(hi_hz * seconds + 1.0e-9)
+	if first % 2 != 0:
+		first += 1
+	var out := {"rms": 0.0, "peak": 0.0, "peak_hz": 0.0, "bins": 0}
+	var energy := 0.0
+	for cycles in range(first, last + 1, 2):
+		var coefficient := 2.0 * cos(TAU * float(cycles) / float(count))
+		var s1 := 0.0
+		var s2 := 0.0
+		for n in count:
+			var s0 := samples[n] + coefficient * s1 - s2
+			s2 = s1
+			s1 = s0
+		var amplitude := 2.0 * sqrt(maxf(s1 * s1 + s2 * s2 - coefficient * s1 * s2, 0.0)) / float(count)
+		energy += amplitude * amplitude * 0.5
+		if amplitude > out.peak:
+			out.peak = amplitude
+			out.peak_hz = float(cycles) / seconds
+		out.bins += 1
+	out.rms = sqrt(energy)
 	return out
 
 

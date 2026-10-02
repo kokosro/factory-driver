@@ -43,24 +43,59 @@ extends Node
 ## (cat_nodes counts them); every player of a cat-mode node is routed to it
 ## at creation. On top of the bus, two channels are treated per tick, pure
 ## functions over the unchanged mapping: the squeal's written pitch is the
-## mapped one x CAT_SKID_PITCH (the 2000 Hz fundamental at 1200 Hz) and its
+## mapped one x CAT_SKID_PITCH (SOUND-4: the friction band, 300..1300 Hz in
+## the buffer, heard at 270..1170 Hz at solid; was-> the 2000 Hz fundamental
+## at 1200 Hz) and its
 ## volume the mapped one + CAT_SKID_DB_TRIM; a thump's volume is the mapped
 ## one + CAT_THUMP_DB_TRIM and the burst plays at CAT_THUMP_PITCH (the 2 ms
 ## attack stretched to 2.5 ms: a softer edge). The engine, the rumble and
 ## the wind keep their mapping to the bit and sit under the cutoff (the
 ## engine's orders reach 1440 Hz at the redline, the rumble's noise 2200
-## Hz); what the low-pass cuts is the top of the squeal's grit.
+## Hz); what the low-pass cuts of the squeal is, since SOUND-4, nothing
+## (the cat-pitched friction band tops out at 1170 Hz at solid and the
+## buffer holds nothing above its band) - it stays as the guard over
+## whatever else would sit above (was-> what the low-pass cuts is the top of
+## the squeal's grit: SOUND-2's 1500..4000 Hz).
 ## THE REASONING: the domestic cat's audiogram (Heffner & Heffner 1985,
 ## Hearing Research 19:85-88) puts the best sensitivity in the low-to-mid
-## kHz with high-frequency hearing reaching tens of kHz; the squeal's 2000 /
-## 2800 Hz tones and 1500..4000 Hz grit sit right in that most sensitive
-## region, and sudden loud transients startle. THE GUARANTEE: with FD_CAT
+## kHz with high-frequency hearing reaching tens of kHz; SOUND-2's squeal -
+## the 2000 / 2800 Hz tones and the 1500..4000 Hz grit - sat right in that
+## most sensitive region (SOUND-4 moved the realistic squeal's energy down
+## to a friction band heard under 2 kHz at every intensity, below), and
+## sudden loud transients startle. THE GUARANTEE: with FD_CAT
 ## unset (or anything but "1") every written value, every state() value the
 ## SOUND-3 pin read, every buffer byte and every player's bus is what it
 ## was - the cat branch of each cat function is dead, no bus is created, no
 ## AudioServer call is made. HONESTY: v1's shape is authored from the
 ## literature's shape, not measured on a cat; the five CAT_ constants are
 ## one-line knobs.
+##
+## SOUND-4 (2026-10-02): the squeal stops being a tone. Two landed attempts
+## at a tonal squeal were both rejected by the driver's ear, which outranks
+## any literature: SOUND-1's 800 Hz chord ("unbearable, very high...
+## otherwise the game is unplayable") and SOUND-2's 2000 / 2800 Hz tone pair
+## with grit (the second verdict, decisions.org 21B8A1EC, 2026-10-01: "tire
+## squick is still very unnatural and extremely high, cat very scared"). The
+## new squeal is FRICTION NOISE and nothing else: a band of sliding-rubber
+## hiss, the baked 9 Hz tread-block modulation kept (it was never the
+## complaint), and the ceiling drops from -4 to -12 dB. THE BAND, BUFFER
+## AGAINST HEARD: the ruled target - about 400..1800 Hz, no dominant 2..4
+## kHz content - names the band AS HEARD at a solid slide, the loudest and
+## most common case, and the kept pitch mapping (0.85..1.5) multiplies
+## whatever the buffer holds; so the buffer is authored one register below,
+## 300..1300 Hz, and is heard at 255..1105 Hz at the onset (x0.85) and
+## 450..1950 Hz at solid (x1.5) - nothing above 2 kHz in any mode (the cat
+## mix, x0.6 on top, hears 270..1170 Hz at solid). was-> (the draft) a
+## 400..1800 Hz BUFFER band, heard at 600..2700 Hz at solid: the target
+## missed exactly where the squeal is loudest. THE TONE IS GONE: was->
+## the 2000 / 2800 Hz tonal core, amplitude 1.0 / 0.25, the alarm the driver
+## rejected twice, kept as a 0.12 / 0.03 trace in the draft - removed: at
+## the mapped pitch its residue would be heard at 3000 / 4200 Hz at solid,
+## inside the screech band. Only the skid buffer's tables and SKID_DB_MAX
+## changed: the mapping functions, the pitch constants, the cat constants,
+## the other four buffers and every other channel are what they were, to
+## the bit; in every mode. The pitch mapping now sweeps a noise band's
+## playback rate, not a note.
 ##
 ## FOUR LOOPING PLAYERS AND A BURST POOL (was-> THREE PLAYERS, THREE LOOPS:
 ## SOUND-3 added the wind loop and the thump pool): the node holds four
@@ -86,11 +121,19 @@ extends Node
 ## tread-impact / air-pumping band of rolling noise, each at
 ## SURFACE_NOISE_AMPLITUDE - the layer's RMS 0.8 of the body's), both with
 ## phases spread by the golden ratio - a deterministic pseudo-noise that
-## repeats only once per buffer, not a click; the squeal is one self-excited
-## tone at 2000 Hz with an inharmonic 2800 Hz overtone (SKID_TONE_CYCLES,
-## ratio 1.4: the friction-mode region), band-limited grit (SKID_NOISE_CYCLES:
-## 51 partials every 50 Hz over 1500..4000 Hz, RMS 0.15 of the tone) and,
-## baked into the buffer, an amplitude modulation at SKID_AM_CYCLES (9 Hz at
+## repeats only once per buffer, not a click; the squeal (SOUND-4) is
+## friction noise alone - SKID_NOISE_CYCLES: 46 partials over 300..1300 Hz
+## in the buffer (heard at 450..1950 Hz at solid: the pitch sweep multiplies
+## the band), the upper 700..1300 Hz twice as dense as the lower 300..700 Hz
+## (the tilt toward where sliding rubber hisses), off any even grid and
+## stored in a shuffled order so the golden spread scatters them into a
+## hiss, the layer's RMS 1, no tone in it (was-> SOUND-2, rejected twice by
+## the driver's ear: one self-excited tone at 2000 Hz with the 2800 Hz
+## overtone at 1.0 / 0.25 over band-limited grit, 51 partials every 50 Hz
+## over 1500..4000 Hz, RMS 0.15 of the tone - the tone dominated, an alarm;
+## the SOUND-4 draft kept the pair as a 0.12 / 0.03 trace - removed) and, as
+## it was, baked into the buffer, an
+## amplitude modulation at SKID_AM_CYCLES (9 Hz at
 ## pitch 1: the tread blocks through the contact patch at the wheel's
 ## rotation rate) of SKID_AM_DEPTH, mean-preserving, whole cycles too; the
 ## wind is broadband pseudo-noise alone (WIND_CYCLES: 31 partials every 20
@@ -139,8 +182,12 @@ extends Node
 ##     intensity the largest wheel's; volume_db = SKID_DB_MAX +
 ##     linear_to_db(intensity), MUTE_DB at 0 and under SKID_SPEED_MIN (no
 ##     squeal standing still); pitch_scale rises with the intensity,
-##     SKID_PITCH_ONSET to SKID_PITCH_SOLID (0.85 to 1.5, nearly an octave -
-##     the real squeal's span; across it the baked AM plays 7.65 to 13.5 Hz,
+##     SKID_PITCH_ONSET to SKID_PITCH_SOLID (0.85 to 1.5, nearly an octave:
+##     since SOUND-4 the playback rate of a noise band, not a note's pitch -
+##     the buffer's 300..1300 Hz friction band is heard at 255..1105 Hz at
+##     the onset and brightens to 450..1950 Hz at solid, a harder slide a
+##     brighter hiss; was-> the real tonal squeal's span, SOUND-2's 2000 Hz tone
+##     swept 1700..3000 Hz; across it the baked AM plays 7.65 to 13.5 Hz,
 ##     inside the real 3..15 Hz wheel-rotation band).
 ##   - WIND (SOUND-3): a level 0..1 from |forward_speed| alone - AUTHORED
 ##     LAW: clamp((speed / WIND_SPEED_FULL)^2, 0, 1), muted under
@@ -301,24 +348,75 @@ const SURFACE_NOISE_CYCLES: Array[int] = [1000, 1050, 1100, 1150, 1200, 1250, 13
 const SURFACE_NOISE_AMPLITUDE := 0.458
 const SURFACE_PHASE_STEP := 0.6180339887498949
 
-## SKID: one self-excited tone at 2000 Hz with an inharmonic overtone at
-## 2800 Hz (ratio 1.4, the friction-mode region), band-limited grit - a
-## partial every 50 Hz over 1500..4000 Hz at SKID_NOISE_AMPLITUDE (0.15 x
-## sqrt(2 / 51) = 0.0297: the layer's RMS 0.15 of the tone's amplitude), the
-## golden spread - and an amplitude modulation baked into the buffer:
+## SKID (SOUND-4): FRICTION NOISE, not a tone - and no tone in it. The one
+## layer is a band of sliding-rubber hiss, SKID_NOISE_CYCLES: 46 partials
+## over 300..1300 Hz (cycles 600..2600 on the 0.5 Hz grid, every one an even
+## whole number of cycles over the buffer), each at SKID_NOISE_AMPLITUDE
+## (sqrt(2 / 46) = 0.2085: the layer's RMS 1; the buffer is normalised to
+## BUFFER_PEAK, so only the relative composition matters), the golden spread
+## of phases. BUFFER AGAINST HEARD: the ruled target - about 400..1800 Hz,
+## no dominant 2..4 kHz content - names the band HEARD at a solid slide, and
+## the playback rate (SKID_PITCH_ONSET..SKID_PITCH_SOLID, kept) multiplies
+## the buffer's band, so the buffer is authored one register below the
+## target: 300..1300 Hz here is heard at 255..1105 Hz at the onset (x0.85)
+## and 450..1950 Hz at solid (x1.5), nothing above 2 kHz in any mode (the
+## cat mix: 270..1170 Hz at solid). was-> (the draft) cycles 800..3600, a
+## 400..1800 Hz buffer band - heard at 600..2700 Hz at solid, the loudest
+## and most common case, over the ruled ceiling. THE TILT is in
+## the density, the amplitudes stay equal: 13 partials over 300..700 Hz
+## (about 32 Hz apart) and 33 over 700..1300 Hz (about 18 Hz apart), twice
+## the energy per Hz in the upper part, where rubber sliding on tarmac
+## hisses. THE PLACING: the draft's table (each partial off its even slot by
+## up to 0.45 of the slot's spacing, the offsets a golden-ratio sequence)
+## re-mapped from 800..3600 to 600..2600 cycles (x 5/7 about the bottom),
+## snapped to an even cycle count, then re-jittered: every gap the mapping
+## left under 26 cycles widened to 26 or 28 (a golden-ratio pick) and the
+## excess taken, 2 cycles at a time, out of the wide gaps - distinct, every
+## pair at least 26 cycles (13 Hz) apart (the draft's least gap was 32
+## cycles, 16 Hz, in its wider band), the gaps of ten different sizes, 26
+## to 104 cycles: no common spacing, so the band has no comb in it (the
+## buffer repeats once a second, nothing shorter). AUTHORED LITERALS: the
+## table below is the result, nothing is drawn at run time. THE ORDER: the
+## table is stored SHUFFLED ON PURPOSE (the sorted
+## band's i-th partial, from 1, sits at the index j where 5^j mod 47 = i).
+## The golden spread is linear in the table's index, so over a table sorted
+## on an even grid it is one time shift: every partial lines up once per
+## spacing period and the "noise" is a click train (measured: a crest
+## factor of 19.5 dB for 29 sorted partials every 50 Hz, 22.6 dB for 57
+## every 25 Hz; this table sorted: kurtosis 6.6); shuffled, the phases are
+## scattered against the frequencies - never monotonic in frequency - and
+## the sum is a hiss (measured: kurtosis 3.5, the crest factor 14.8 dB under
+## the modulation). And, kept exactly, the
+## amplitude modulation baked into the buffer:
 ## SKID_AM_CYCLES (9 Hz at pitch 1, the tread blocks through the contact
 ## patch at the wheel's rotation rate; 7.65..13.5 Hz across the pitch range,
 ## inside the real 3..15 Hz band) at SKID_AM_DEPTH, mean-preserving
-## (1 + depth x sin, 1 exactly at the first sample).
-## was-> SKID_CYCLES [400, 350, 450, 800] with amplitudes [1.0, 0.3, 0.4,
-## 0.2] (an 800 Hz chord with a 700, a 900 and a 1600: a steady "howl" an
-## octave under where a squeal lives, 1500..4000 Hz peaking near 2 kHz - the
-## driver's "unbearable, very high"), no grit, no modulation (a constant
-## alarm - scratch/sound-2-references.md).
-const SKID_TONE_CYCLES: Array[int] = [4000, 5600]
-const SKID_TONE_AMPLITUDES: Array[float] = [1.0, 0.25]
-const SKID_NOISE_CYCLES: Array[int] = [3000, 3100, 3200, 3300, 3400, 3500, 3600, 3700, 3800, 3900, 4000, 4100, 4200, 4300, 4400, 4500, 4600, 4700, 4800, 4900, 5000, 5100, 5200, 5300, 5400, 5500, 5600, 5700, 5800, 5900, 6000, 6100, 6200, 6300, 6400, 6500, 6600, 6700, 6800, 6900, 7000, 7100, 7200, 7300, 7400, 7500, 7600, 7700, 7800, 7900, 8000]
-const SKID_NOISE_AMPLITUDE := 0.0297
+## (1 + depth x sin, 1 exactly at the first sample) - the tread-block rhythm
+## is real and was never the complaint.
+## was-> (the SOUND-4 draft) SKID_TONE_CYCLES [4000, 5600] at
+## SKID_TONE_AMPLITUDES [0.12, 0.03], phase 0, under the noise: the 2000 /
+## 2800 Hz tonal core, amplitude 1.0 / 0.25, the alarm the driver rejected
+## twice, kept as a 0.12 / 0.03 trace in the draft - removed: at the mapped
+## pitch its residue would be heard at 3000 / 4200 Hz at solid, inside the
+## screech band. Both constants are deleted, not emptied: build_buffers()
+## reads the one table.
+## was-> (SOUND-2) SKID_TONE_AMPLITUDES [1.0, 0.25] over SKID_NOISE_CYCLES
+## [3000, 3100, ... 8000] (51 partials every 50 Hz over 1500..4000 Hz) at
+## SKID_NOISE_AMPLITUDE 0.0297 (0.15 x sqrt(2 / 51): the grit's RMS 0.15 of
+## the tone's amplitude): one self-excited tone at 2000 Hz with the 2800 Hz
+## overtone, the grit a garnish - the literature's squeal, and the driver
+## rejected it twice: after SOUND-1 "unbearable, very high", after SOUND-2
+## (decisions.org 21B8A1EC, 2026-10-01) "tire squick is still very unnatural
+## and extremely high, cat very scared". At solid (pitch 1.5) that tone
+## played at 3000 Hz with its overtone at 4200 Hz: an alarm. The driver's
+## ear is the gate; the tone is gone and the friction noise is the sound.
+## was-> (SOUND-1) SKID_CYCLES [400, 350, 450, 800] with amplitudes [1.0,
+## 0.3, 0.4, 0.2] (an 800 Hz chord with a 700, a 900 and a 1600: a steady
+## "howl" an octave under where a tonal squeal lives, 1500..4000 Hz peaking
+## near 2 kHz - the driver's "unbearable, very high"), no grit, no
+## modulation (a constant alarm - scratch/sound-2-references.md).
+const SKID_NOISE_CYCLES: Array[int] = [600, 834, 1838, 2048, 1456, 1762, 1710, 1272, 1082, 2388, 1314, 1358, 1588, 2496, 1914, 2416, 1560, 2312, 644, 1168, 746, 1484, 1942, 2600, 2468, 1736, 1534, 2128, 1810, 1864, 2232, 2338, 980, 2206, 2154, 1994, 790, 1662, 936, 2022, 1126, 2574, 2284, 2522, 2100, 1636]
+const SKID_NOISE_AMPLITUDE := 0.2085
 const SKID_AM_CYCLES := 18
 const SKID_AM_DEPTH := 0.30
 
@@ -386,13 +484,29 @@ const SURFACE_PITCH_FAST := 1.1
 
 ## SKID: the ceiling [dB] at an intensity of 1, the speed gate [m/s] under
 ## which nothing squeals, the pitch at the onset and at solid.
-const SKID_DB_MAX := -4.0
+## was-> SKID_DB_MAX -4.0 (SOUND-4: 8 dB down with the change from a tone to
+## friction noise - the driver's two verdicts were "unbearable" and
+## "extremely high, cat very scared", and a solid slide should be a sound a
+## person can hold a conversation over; -4 dB made the squeal the loudest
+## thing in the mix, over the rumble's -6 and the engine's -8 at full load.
+## The buffers are normalised to the same peak and the hiss carries a
+## higher crest factor than the tone did - measured RMS 0.163 of full scale
+## against the tonal buffer's 0.248 (the draft's 400..1800 Hz band with the
+## trace: 0.185) - so at solid the new squeal's RMS is about 11.6 dB under
+## the old one's, not 8).
+const SKID_DB_MAX := -12.0
 const SKID_SPEED_MIN := 1.5
 ## was-> SKID_PITCH_ONSET 0.9, SKID_PITCH_SOLID 1.15 (SOUND-2: a real squeal
 ## spans nearly an octave as the contact resonance shifts with speed and
 ## load; the pitch stays a function of the intensity alone - the research's
 ## "intensity AND speed" would change the pure function's signature, and in
-## a slide the intensity already runs with the speed).
+## a slide the intensity already runs with the speed). SOUND-4 kept both and
+## the mapping to the letter: the pitch is now the playback rate of the
+## friction band (300..1300 Hz in the buffer: 255..1105 Hz at the onset,
+## 450..1950 Hz at solid - the buffer is authored one register under the
+## heard target because this sweep multiplies it; was-> the draft's
+## 400..1800 Hz buffer band, 600..2700 Hz at solid), a harder slide a
+## brighter hiss, not a higher note.
 const SKID_PITCH_ONSET := 0.85
 const SKID_PITCH_SOLID := 1.5
 
@@ -439,20 +553,41 @@ const CAT_BUS_NAME := "Cat"
 ## cat's audiogram (Heffner & Heffner 1985, Hearing Research 19:85-88) puts
 ## the best sensitivity in the low-to-mid kHz, with high-frequency hearing
 ## reaching tens of kHz (to about 79 kHz measured); the 2..8 kHz band is the
-## peak-sensitivity region, and the squeal's 2000 / 2800 Hz tones and
-## 1500..4000 Hz grit sit right in it. What passes substantially: the
+## peak-sensitivity region, and SOUND-2's squeal - the 2000 / 2800 Hz
+## tones and the 1500..4000 Hz grit - sat right in it (SOUND-4's friction
+## band is heard under it at every intensity: 1950 Hz at the most, the
+## realistic mix at solid). What passes substantially: the
 ## engine's orders (45 / 90 / 135 / 180 Hz at idle, x8 at the redline: 360
 ## .. 1440 Hz - all under the cutoff; the brief's "up to 2880 Hz" was 360 x
 ## 8, the root's redline pitch multiplied twice), the wind (100..700 Hz),
 ## the rumble (the body 62..226 Hz whole, the 500..2000 Hz noise layer, to
-## 2200 Hz at its fastest pitch). What it cuts: the top of the cat-pitched
-## squeal's grit (900..2400 Hz at pitch 1, to 3600 Hz at solid) and
-## whatever else would sit above - a gentle slope, not a wall.
+## 2200 Hz at its fastest pitch) and, since SOUND-4, the cat-pitched squeal
+## whole (its friction band 180..780 Hz at pitch 1, 270..1170 Hz at solid;
+## was-> the draft: 240..1080 / 360..1620 Hz, and the tonal trace's
+## overtone, 2520 Hz at solid, on the slope - the trace is removed). What it
+## cuts: whatever else would sit above - a gentle slope,
+## not a wall; of the squeal, honestly, nothing now (was-> the top
+## of the cat-pitched squeal's grit, 900..2400 Hz at pitch 1, to 3600 Hz at
+## solid - SOUND-2's 1500..4000 Hz grit).
 const CAT_LOWPASS_HZ := 3000.0
-## The squeal's pitch multiplier in cat mode: the 2000 Hz fundamental plays
-## at 1200 Hz at pitch 1 (1020..1800 Hz across the mapped 0.85..1.5), under
-## the cat's peak band, still unambiguously a slide cue. And its ceiling's
-## trim [dB].
+## The squeal's pitch multiplier in cat mode: the buffer's 300..1300 Hz
+## friction band plays at 180..780 Hz at pitch 1 (playback 0.51..0.9 across
+## the mapped range: 153..663 Hz at the onset, 270..1170 Hz at solid - the
+## realistic mix reaches 1950 Hz there; was-> the draft's 400..1800 Hz
+## buffer band, 360..1620 Hz in cat mode at solid),
+## the whole band under the cat's 2..8 kHz peak region at every intensity,
+## a lower, duller hiss, still unambiguously a slide cue (was-> the 2000 Hz
+## fundamental plays at 1200 Hz at pitch 1, 1020..1800 Hz across the mapped
+## 0.85..1.5: SOUND-2's tone). And its ceiling's trim [dB]: -6 on top of
+## SOUND-4's -12 dB ceiling, a solid slide written at -18 dB (was-> -10,
+## under the -4 ceiling). SOUND-4 KEPT BOTH CONSTANTS, judged: the landing
+## that changes the sound does not also reduce the protection, and nothing
+## contradicts the trim - -18 dB is far over MUTE_DB (-60) and the pure
+## functions and their pins hold as they were. The open question is
+## audibility, not safety: at -18 dB the cat squeal sits 10 dB under the
+## engine's full-load -8 and 12 under the rumble's -6 ceiling, so under a
+## loud engine the slide cue may be faint - a v2 call for the driver's ear
+## (the knob is this one line), not a reason to loosen it unheard.
 const CAT_SKID_PITCH := 0.6
 const CAT_SKID_DB_TRIM := -6.0
 ## The thump in cat mode: the burst plays slower (the 2 ms attack stretches
@@ -869,8 +1004,12 @@ static func buffers() -> Dictionary:
 ## three). The engine: the order stack and the sidebands, every phase 0. The
 ## surface: the body layer at 1 and the noise layer at
 ## SURFACE_NOISE_AMPLITUDE, each with its own golden spread of phases. The
-## skid: the two tones at phase 0, the grit at SKID_NOISE_AMPLITUDE with the
-## golden spread, the AM envelope over the sum. The wind (SOUND-3): the
+## skid (SOUND-4): the friction-noise table at SKID_NOISE_AMPLITUDE with
+## the golden spread - the one layer, its shuffled order what scatters the
+## spread into a hiss - under the AM envelope (was-> SOUND-2: the two tones
+## at 1.0 / 0.25 the core, phase 0, and the grit the garnish; the SOUND-4
+## draft: the same code with the pair a 0.12 / 0.03 trace - the tone
+## appends are removed with the constants). The wind (SOUND-3): the
 ## noise table at 1 with the golden spread. The thump (SOUND-3): the burst,
 ## impact_stream().
 static func build_buffers() -> Dictionary:
@@ -889,19 +1028,10 @@ static func build_buffers() -> Dictionary:
 	surface_amplitudes.append_array(level_amplitudes(SURFACE_NOISE_CYCLES.size(), SURFACE_NOISE_AMPLITUDE))
 	surface_phases.append_array(golden_phases(SURFACE_BODY_CYCLES.size()))
 	surface_phases.append_array(golden_phases(SURFACE_NOISE_CYCLES.size()))
-	var skid_cycles: Array[int] = []
-	var skid_amplitudes: Array[float] = []
-	var skid_phases: Array[float] = []
-	skid_cycles.append_array(SKID_TONE_CYCLES)
-	skid_cycles.append_array(SKID_NOISE_CYCLES)
-	skid_amplitudes.append_array(SKID_TONE_AMPLITUDES)
-	skid_amplitudes.append_array(level_amplitudes(SKID_NOISE_CYCLES.size(), SKID_NOISE_AMPLITUDE))
-	skid_phases.append_array(level_amplitudes(SKID_TONE_CYCLES.size(), 0.0))
-	skid_phases.append_array(golden_phases(SKID_NOISE_CYCLES.size()))
 	return {
 		ENGINE_PLAYER: make_stream(engine_cycles, engine_amplitudes, level_amplitudes(engine_cycles.size(), 0.0)),
 		SURFACE_PLAYER: make_stream(surface_cycles, surface_amplitudes, surface_phases),
-		SKID_PLAYER: make_stream(skid_cycles, skid_amplitudes, skid_phases, SKID_AM_CYCLES, SKID_AM_DEPTH),
+		SKID_PLAYER: make_stream(SKID_NOISE_CYCLES, level_amplitudes(SKID_NOISE_CYCLES.size(), SKID_NOISE_AMPLITUDE), golden_phases(SKID_NOISE_CYCLES.size()), SKID_AM_CYCLES, SKID_AM_DEPTH),
 		WIND_PLAYER: make_stream(WIND_CYCLES, level_amplitudes(WIND_CYCLES.size(), 1.0), golden_phases(WIND_CYCLES.size())),
 		THUMP_STREAM: impact_stream(),
 	}
