@@ -1131,23 +1131,20 @@ func _build_missions_page() -> void:
 		else:
 			_add_row(CampaignStore.REWARDS[rank], ("Earned" if record.rewards[rank] else "Requires " + rank.replace("_", " ")) + " — car configuration coming later", "reward", Callable(), false, rank)
 
-## The job board: what the driver holds, then one row per paid job. The
-## ledger is read here and nowhere at idle; gated (headless, no override)
-## it reads nothing and the balance is 0.
+## The job board, TROC (TROC-1 slice 2; was: the credits held, the payments
+## received, then the rows with their pay): one row per posted job naming
+## its poster and what the poster will owe, then the driver's open
+## obligations. The obligations ledger is read here and nowhere at idle;
+## gated (headless, no override) it reads nothing and nothing is owed.
 func _build_jobs_page() -> void:
 	var runner := MissionRunner.of(get_tree())
 	if runner == null:
 		_add_text("Job board unavailable.", COLOR_DIM_TEXT)
 		return
 	runner.configure(car, hud)
-	runner.credits.load_state()
 	var record := runner.campaign.state
-	_add_heading("JOB BOARD  —  CREDITS: %d" % runner.credits.balance())
-	_add_text("Paid work on the Ring's roads: a job done pays its credits on delivery, every time it is done. The promotion ladder pays nothing; credits cannot be spent yet.", COLOR_TEXT)
-	var payments: Array = runner.credits.transactions()
-	_add_text("Payments received: %d%s" % [payments.size(), "  —  last: +%d %s" % [payments[-1].amount, payments[-1].reason] if not payments.is_empty() else ""], COLOR_TEXT)
-	for problem: String in runner.credits.problems:
-		_add_text("Ledger: " + problem, COLOR_DIM_TEXT)
+	_add_heading("JOB BOARD")
+	_add_text("The board trades by TROC: a job done leaves its poster owing you what they promised, every time it is done. No credits, no balances: each row names who posts the job, what they will owe you and the tip they offer; what is owed to you and by you is listed below. The promotion ladder leaves nobody owing.", COLOR_TEXT)
 	var listed := 0
 	for id: String in runner.catalog:
 		var job: Dictionary = runner.catalog[id]
@@ -1162,9 +1159,22 @@ func _build_jobs_page() -> void:
 		var hint: String = job.briefing + ("\nLocked: " + reason if reason != "" else "\nEnter to start — " + job.environment)
 		if not best.is_empty():
 			hint += "\nBest %.3f s — %s — %d attempts" % [best.best_time_s, best.medal if done else "not yet delivered", best.attempts]
-		_add_row("%s%s — %s  —  %s  —  %d credits" % ["DONE — " if done else "", id, job.title, str(job.get("job_kind", "job")), int(job.reward_credits)], hint, "job", _start_episode.bind(id), reason == "", id)
+		if job.has("poster"):
+			hint += "\nPosted by %s — on delivery they owe you: %s" % [job.poster, job.poster_owed]
+			if job.has("poster_offers"):
+				hint += " — tip: " + job.poster_offers
+		_add_row("%s%s — %s  —  %s" % ["DONE — " if done else "", id, job.title, str(job.get("job_kind", "job"))], hint, "job", _start_episode.bind(id), reason == "", id)
 	if listed == 0:
 		_add_text("No jobs posted.", COLOR_DIM_TEXT)
+	runner.obligations.load_state()
+	var owed_to_me: Array = runner.obligations.open_view("player")
+	var owed_by_me: Array = runner.obligations.open_view("", "player")
+	for entry: Dictionary in owed_to_me:
+		_add_text("Owed to you by %s: %s" % [entry.debtor, entry.owed], COLOR_TEXT)
+	for entry: Dictionary in owed_by_me:
+		_add_text("You owe %s: %s" % [entry.creditor, entry.owed], COLOR_TEXT)
+	if owed_to_me.is_empty() and owed_by_me.is_empty():
+		_add_text("Nothing owed to you or by you yet.", COLOR_DIM_TEXT)
 
 func _take_reward_car(car_id: String) -> void:
 	var runner := MissionRunner.of(get_tree())

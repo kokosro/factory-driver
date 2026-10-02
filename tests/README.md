@@ -59,10 +59,24 @@ BUBBLE-1 the forest build also writes the trunk bodies, a few hundred millisecon
 OFFROAD-1 the terrain build also writes the continuation skirt, about a second).
 `tests/run_tests.sh --parallel` runs the thirty-five tests side by side after the import and
 prints the same lines in the same order (was thirty-one -> the ML-1 mission ladder test; was thirty-two -> the credits test, ECON-1; was thirty-three -> the sound test, SOUND-1; was thirty-four -> the obligations test, TROC-1 slice 1; 37 markers including import and the final verdict, was 36 -> the obligations test, TROC-1 slice 1; was 35 -> the sound test, SOUND-1).
-The obligations test adds 79 checks (`OBLIGATIONS TEST PASSED`), measured on the host: the
-ObligationsLedger store (TROC-1 slice 1) — the record shape, the one-shot redemption, the
-creditor transfers, the derived open views, the versions and the corruption tolerance, on a
-file of the test's own.
+The obligations test adds 89 checks (`OBLIGATIONS TEST PASSED`), measured on the host (was
+79 -> TROC-1 slice 2's runner corner, ten, and the seed-gap pin flipped: obligations.json IS
+in the data folder's seed now): the ObligationsLedger store (TROC-1 slice 1) — the record
+shape, the one-shot redemption, the creditor transfers, the derived open views, the versions
+and the corruption tolerance, on a file of the test's own — then the mission runner on the
+pad with a posted fixture of the test's own: gated it creates nothing, a pass creates the
+poster's obligation to the player once (creditor, debtor, owed, kind delivery, origin
+`job:<id>/episode-<n>`, open), a retry and a failure leave the bytes identical, and the JOBS
+page's `open_view("player")` shows the record.
+The credits test has 427 checks (`CREDITS TEST PASSED`), measured on the host, since TROC-1
+slice 2: its job-pay pins moved from credits to the poster's obligation, each label saying
+what it was (the result's `obligation` record for `credits`, the obligations file's bytes
+for the credits ledger's, the owed-by line for "paid 95 credits", the TROC board for
+`CREDITS:`/"Payments received"), the earned-signal pins became "no credit is earned, no
+credits.json is written by a job", the schema and the four job configs gained the
+`poster`/`poster_owed`/`poster_offers` pins, and the paid-fuel section stakes its own 95
+credits (was funded by JOB-01's pay) so its arithmetic stays bit-exact. The credits ledger,
+the dealership and paid fuel are pinned as before.
 The sound test adds 92 checks (`SOUND TEST PASSED`), measured on the
 host (was 91 -> SOUND-4's one measured check on the built PCM, the band ceiling: the
 squeal's RMS over 2000..4000 Hz at 0.000023 of its RMS over 300..1800 Hz, 0.1 at most - the

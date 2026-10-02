@@ -1,5 +1,9 @@
 extends SceneTree
 ## TROC-1 slice 1 proof: the obligations ledger, the store alone (no UI).
+## TROC-1 slice 2 adds the runner corner: a passed posted job creates the
+## poster's obligation to the player, once per episode, and the JOBS page's
+## view shows it. The slice-1 seed gap is closed in slice 2: obligations.json
+## is in DataDir.SEEDED_FILES (the pin at the end of the failed write flipped).
 ## Run via tests/run_tests.sh, or:
 ##
 ##   godot --headless --path . --import
@@ -10,7 +14,8 @@ extends SceneTree
 ## real obligations.json is as it was). The record shape, the one-shot
 ## redemption, the cancellation, the creditor transfers, the derived open
 ## views, the round trip, the versions, the determinism, the corruption
-## tolerance and the failed write.
+## tolerance and the failed write; then the runner on the pad, a posted
+## fixture of this test's own passed by ticks.
 var failures := 0
 var checks := 0
 var test_dir := (OS.get_environment("TMPDIR") if not OS.get_environment("TMPDIR").is_empty() else "/tmp").path_join("factory-driver-obligations-%d" % OS.get_process_id())
@@ -90,6 +95,8 @@ func _run() -> void:
 	_corruption()
 	print("-- the failed write")
 	_failed_write()
+	print("-- the runner creates the poster's obligation (slice 2)")
+	await _runner()
 	print("-- nothing of the driver's was touched")
 	ObligationsLedger.path_override = ""
 	ok(stamp(real_path) == real_before, "the driver's own obligations.json is as it was before the test (override isolation)")
@@ -397,4 +404,78 @@ func _failed_write() -> void:
 	DirAccess.remove_absolute(ledger_path + ".tmp")
 	ok(read_text(ledger_path) == bytes and ledger.state == committed and ledger.problems.is_empty() and files() == PackedStringArray(["obligations.json"]), "the failed writes publish nothing: the file and the state are the last committed")
 	ok(ledger.redeem("OBL-0001", "fuel 64 L", "E2.4", "refuel") == record({"status": "settled", "redemptions": [REDEMPTION]}) and on_disk().records[0].status == "settled", "the retry commits it")
-	ok(not DataDir.SEEDED_FILES.has("obligations.json"), "the known seed gap, pinned: obligations.json is not in the data folder's seed in this slice (flagged for slice 2)")
+	# was `not has("obligations.json")`, slice 1's known seed gap pinned ->
+	# closed (TROC-1 slice 2).
+	ok(DataDir.SEEDED_FILES.has("obligations.json") and DataDir.SEEDED_FILES[-1] == "obligations.json" and DataDir.SEEDED_FILES[-2] == "credits.json", "the data folder's seed carries obligations.json, last after credits.json (was: pinned absent, slice 1's known gap, closed by slice 2)")
+	DirAccess.remove_absolute(ledger_path)
+
+# =============================================================================
+#  The runner creates the poster's obligation (TROC-1 slice 2)
+# =============================================================================
+
+## credits_test's way to a pass without driving: the episode's own gates fed
+## to the runner's tick, one a second.
+func _pass_by_ticks(runner: MissionRunner, mission: Dictionary) -> bool:
+	if not runner.start(mission.id):
+		return false
+	for step: Dictionary in mission.episode:
+		runner.tick(1, Vector3(step.position[0], step.position[1], step.position[2]))
+	return runner.active.is_empty()
+
+## The pad, the shipped runner, a catalog of this test's own: the ML-1 proof
+## fixture posted by a desk of the test's. Gated first, then on the test's
+## file: the record, the single shot, the failure, the JOBS page's view.
+func _runner() -> void:
+	var runner := MissionRunner.of(self)
+	var campaign_path := test_dir.path_join("campaign.json")
+	CampaignStore.path_override = campaign_path
+	var scene: Node = load("res://scenes/main.tscn").instantiate()
+	root.add_child(scene)
+	await process_frame
+	var garage: Garage = scene.get_node("Garage")
+	runner.campaign.load_state()
+	runner.campaign.reconcile(LicenceExams.LICENCE_L1)
+	runner.configure(scene.get_node("Car"), scene.get_node("HUD"))
+	var job: Dictionary = JSON.parse_string(FileAccess.get_file_as_string("res://tests/ml1_proof.json"))
+	job.id = "POSTED-PROOF"
+	job.title = "Posted proof"
+	job.job_kind = "courier"
+	job.reward_credits = 95
+	job.poster = "DISPATCH-TEST"
+	job.poster_owed = "one test delivery: across the pad"
+	runner.catalog.clear()
+	runner.catalog[job.id] = job
+	ok(MissionSchema.validate(job).is_empty() and runner.obligations is ObligationsLedger and runner.obligations.state == ObligationsLedger.defaults() and runner.obligations.problems.is_empty(), "the posted fixture validates; the runner holds an unread obligations ledger at its defaults")
+
+	# Gated: FD_TELEMETRY=0 and no override.
+	ObligationsLedger.path_override = ""
+	ok(_pass_by_ticks(runner, job) and runner.last_result.passed and runner.last_result.obligation == {} and runner.pay_last_result() == {}, "gated (FD_TELEMETRY=0, no override) a passed job creates nothing: {} in the result, {} asked again")
+	ok(runner.obligations.state == ObligationsLedger.defaults() and runner.obligations.open_view("player").is_empty() and not FileAccess.file_exists(ledger_path) and stamp(real_path) == real_before and not runner.result_text().contains("owed by"), "the runner's store is inert: nothing in memory, no file of the test's or the driver's, no owed-by line")
+	ObligationsLedger.path_override = ledger_path
+
+	# A pass creates the obligation, once.
+	var episode := runner._episode + 1
+	var expected := {"id": "OBL-0001", "creditor": "player", "debtor": "DISPATCH-TEST", "owed": "one test delivery: across the pad", "kind": "delivery", "origin": "job:POSTED-PROOF/episode-%d" % episode, "status": "open", "redemptions": [], "transfers": []}
+	ok(_pass_by_ticks(runner, job) and runner._episode == episode and runner.last_result.passed and runner.last_result.obligation == expected, "a passed posted job creates the obligation: creditor player, debtor the poster, owed in the poster's words, kind delivery, origin job:<id>/episode-<n>, open")
+	ok(on_disk().records == [expected] and on_disk().version == 1 and files().has("obligations.json") and not files().has("credits.json") and runner.result_text().ends_with(" — owed by DISPATCH-TEST: one test delivery: across the pad"), "the one record on disk, no credits file beside it; the result text names who owes what")
+	var bytes := read_text(ledger_path)
+	runner.finish(true, "again")
+	ok(runner.pay_last_result() == {} and runner.pay_last_result() == {} and read_text(ledger_path) == bytes, "a retry pays nothing: the payment asked for twice more and a second finish(), the bytes identical")
+
+	# A failure creates nothing.
+	runner.start(job.id)
+	runner.tick(21, Vector3(0, 0.7, 0))
+	ok(runner.last_result.reason == "time limit" and not runner.last_result.passed and runner.last_result.obligation == {} and runner.pay_last_result() == {} and read_text(ledger_path) == bytes, "a failed job creates nothing: the bytes identical")
+
+	# The JOBS page's view.
+	var view := ObligationsLedger.new()
+	view.load_state()
+	ok(view.open_view("player") == [expected] and view.open_view("", "player").is_empty() and view.open_view("", "DISPATCH-TEST") == [expected] and runner.obligations.open_view("player") == [expected], "the JOBS-page-facing views: open_view(creditor player) shows the record, nothing owed by the player")
+	garage.show_page(Garage.Page.JOBS)
+	ok(garage.page_text().contains("Owed to you by DISPATCH-TEST: one test delivery: across the pad") and not garage.page_text().contains("You owe") and not garage.page_text().contains("CREDITS:") and read_text(ledger_path) == bytes, "the JOBS page shows it as owed to the driver, reads TROC, and its read wrote nothing")
+	ok(_pass_by_ticks(runner, job) and runner.last_result.obligation.id == "OBL-0002" and runner.last_result.obligation.origin == "job:POSTED-PROOF/episode-%d" % (episode + 2) and on_disk().records.size() == 2, "passing the job again is a new episode and a new obligation: the second record, its own episode in the origin")
+	CampaignStore.path_override = ""
+	runner.load_catalog()
+	runner.campaign.load_state()
+	scene.queue_free()
+	await process_frame

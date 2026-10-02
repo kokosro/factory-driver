@@ -3155,6 +3155,34 @@ writes nothing). A record is `creditor`, `debtor`, `owed`, an optional `kind` hi
 player one among them. Settlements are one-shot: exactly one redemption closes an
 obligation, a second is refused. A transfer reassigns the creditor and keeps the history.
 There are NO totals anywhere: the log IS the ledger, and the open views are derived,
-never summed. Nothing is visible in the game yet — the store exists and is proven
-(`tests/obligations_test.gd`); slices 2-4 wire the jobs page, the dealership barter and
-the fuel-for-obligation to it.
+never summed. The store is proven by `tests/obligations_test.gd`; slices 2-4 wire the jobs
+page, the dealership barter and the fuel-for-obligation to it.
+
+### Job rewards are obligations (TROC-1 slice 2)
+
+The garage's seventh page, JOBS, reads TROC (was: a `CREDITS: <balance>` heading, a
+"Payments received" line and `<n> credits` on every row). Each of the four courier jobs
+under `configs/jobs/` names its `poster` (the dispatch desk at the job's origin station:
+`DISPATCH-E2.4`, `DISPATCH-E2.2` for two of them, `DISPATCH-E2.3`), its `poster_owed`
+(what the desk will owe the driver on delivery, in the desk's own words) and its
+`poster_offers` (the tip it offers: a rare material, a dealership voucher, tuna); the
+schema requires the first two on every paid job and refuses all three on a ladder
+mission. A PASSED job creates one open record in `obligations.json` — creditor `player`,
+debtor the poster, `owed` the poster's text, kind `delivery`, origin
+`job:<id>/episode-<n>` — once per episode (the runner's single-shot guard, unchanged: a
+retry, a listener or a second finish creates nothing; a refused write may be retried
+once); a failed, timed-out or aborted job creates nothing, and with `FD_TELEMETRY=0`
+nothing is written. The result line ends "owed by <poster>: <owed>". The page lists the
+jobs with the poster, what they will owe and the tip in each row's hint, then the
+driver's open obligations: "Owed to you by <debtor>: <owed>", "You owe <creditor>:
+<owed>", or "Nothing owed to you or by you yet."
+
+What this slice does not do, honestly: `poster_offers` is validated and displayed and
+consumed by no system yet; `reward_credits` stays in the job configs, still validated
+and still what marks a job as paid work, but it is inert — nothing displays or pays it
+(the job briefings still close with their old "Pay on delivery: <n> credits" sentence,
+authored text this slice did not rewrite); nothing redeems an obligation yet. Credits
+remain live only where they are still spent: the dealership (slice 3 pending) and paid
+fuel (slice 4 pending) — with no job paying credits any more, a fresh driver has none
+to spend there until those slices land. `obligations.json` is seeded with the rest of
+the data folder (`DataDir.SEEDED_FILES`, closing slice 1's gap).

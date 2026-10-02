@@ -59,7 +59,11 @@ const MARKER_FILE := ".factory-driver-data"
 # (CreditsLedger.PATH, the credits log; ECON-2 closing ECON-1's known gap):
 # a fresh data folder seeded without it would zero the balance and, with
 # ECON-3, lose every car bought from the log.
-const SEEDED_FILES: Array[String] = ["cars.json", "issues.json", "world.json", "campaign.json", "credits.json"]
+# was five files -> obligations.json follows the driver to a chosen folder
+# (ObligationsLedger.PATH, the obligations log; TROC-1 slice 2 closing
+# slice 1's known gap): a fresh data folder seeded without it would lose
+# every obligation, owed to the driver or by them.
+const SEEDED_FILES: Array[String] = ["cars.json", "issues.json", "world.json", "campaign.json", "credits.json", "obligations.json"]
 const SEEDED_DIRS: Array[String] = ["telemetry"]
 
 ## Where the game kept its data before it had a folder of its own: Godot's

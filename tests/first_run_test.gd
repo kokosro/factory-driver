@@ -238,7 +238,9 @@ func _check_seed() -> void:
 	# was three files -> four: ML-1 campaign progress follows the data folder.
 	# was four -> five: ECON-2 the credits log follows it too (a fresh folder
 	# seeded without it zeroed the balance and lost every car bought from it).
-	_check(DataDir.SEEDED_FILES == ["cars.json", "issues.json", "world.json", "campaign.json", "credits.json"], "DataDir.SEEDED_FILES holds credits.json beside cars.json, issues.json, world.json and campaign.json (was the four)")
+	# was five -> six: TROC-1 slice 2 the obligations log follows it too (a
+	# fresh folder seeded without it lost every obligation).
+	_check(DataDir.SEEDED_FILES == ["cars.json", "issues.json", "world.json", "campaign.json", "credits.json", "obligations.json"], "DataDir.SEEDED_FILES holds obligations.json beside cars.json, issues.json, world.json, campaign.json and credits.json (was the five)")
 	var src := _tmp_dir.path_join("seed_src")
 	var dst := _tmp_dir.path_join("seed_dst")
 	DirAccess.make_dir_recursive_absolute(src)

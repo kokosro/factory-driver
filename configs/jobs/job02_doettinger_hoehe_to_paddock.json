@@ -4,6 +4,9 @@
   "rank": "junior",
   "job_kind": "courier",
   "reward_credits": 100,
+  "poster": "DISPATCH-E2.2",
+  "poster_owed": "one parcel delivery: Döttinger Höhe to Paddock station",
+  "poster_offers": "a tip for a clean run: one dealership voucher",
   "briefing": "Dispatch: collect the parcel at Döttinger Höhe (E2.2, the social station on the B258 at Döttinger Höhe) and deliver it to Paddock station (E2.4, the station inside the Grand Prix paddock). About 10.2 km from the pit area over the Ring's service and public roads; turn round in the pit lane first - the lane ahead only leads onto the Nordschleife. This is paid work, not an exam: the limit is 31 minutes, a calm 50 km/h arrives with time to spare. Pay on delivery: 100 credits.\nGates are ordered drive-throughs within 30 m of each station; cargo, stopping, traffic, police and damage are not simulated.",
   "environment": "ring",
   "episode": [

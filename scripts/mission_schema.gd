@@ -4,7 +4,15 @@ extends RefCounted
 ## Catalog validation is a second pass: missing, invalid and cyclic prerequisites
 ## exclude their dependents too. No production episodes are supplied by ML-1.
 ## ECON-1: reward_credits (a whole number above zero) marks a paid job and
-## job_kind names what kind; absent from every ladder mission.
+## job_kind names what kind; absent from every ladder mission. Since TROC-1
+## slice 2 the number is inert: still validated, still what marks a job,
+## paid by nothing.
+## TROC-1 slice 2: a paid job is a POSTED job. poster (the counterparty who
+## will owe the driver) and poster_owed (what, in the poster's own words) are
+## nonempty text, required together with reward_credits and refused without
+## it; poster_offers (the tip the poster offers) is optional nonempty text,
+## only with reward_credits - validated and displayed, consumed by no system
+## yet.
 const RANKS := ["junior", "test_driver", "chief", "ace"]
 const TYPES := ["waypoint_gate", "zone", "cone_slalom", "flag", "delivery_pickup", "delivery_return", "timed_finish", "lap"]
 const FAILURES := ["skipped_gate", "cone_hit"]
@@ -40,6 +48,21 @@ static func validate(data: Variant) -> PackedStringArray:
 			errors.append("job_kind must be nonempty text")
 		if not data.has("reward_credits"):
 			errors.append("job_kind needs reward_credits")
+	# TROC-1 slice 2: a paid job is posted. The poster and what they will owe
+	# come with the reward and never without it; the offer is optional.
+	for key in ["poster", "poster_owed"]:
+		if data.has(key):
+			if not data[key] is String or data[key].strip_edges().is_empty():
+				errors.append(key + " must be nonempty text")
+			if not data.has("reward_credits"):
+				errors.append(key + " needs reward_credits")
+		elif data.has("reward_credits"):
+			errors.append("reward_credits needs " + key)
+	if data.has("poster_offers"):
+		if not data.poster_offers is String or data.poster_offers.strip_edges().is_empty():
+			errors.append("poster_offers must be nonempty text")
+		if not data.has("reward_credits"):
+			errors.append("poster_offers needs reward_credits")
 	if data.has("surface_override"):
 		var surface: Variant = data.surface_override
 		if not surface is Dictionary:

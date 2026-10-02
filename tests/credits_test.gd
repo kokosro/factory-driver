@@ -10,6 +10,11 @@ extends SceneTree
 ## real credits.json is as it was). The pad carries the payment pins on a
 ## test-only paid fixture; the Ring carries the job board: one job driven
 ## to a real failure and one to a real pass through their shipped controls.
+## TROC-1 slice 2: a job's pay is the poster's obligation to the player
+## (ObligationsLedger, a file of this test's own beside the credits one),
+## no longer credits: the payment pins moved to the obligation, each saying
+## what it was; the credits ledger stays under test for the dealership and
+## paid fuel, which stake their own credits here.
 var failures := 0
 var checks := 0
 var heard: Array = []
@@ -17,8 +22,11 @@ var fixture: Dictionary
 var test_dir := (OS.get_environment("TMPDIR") if not OS.get_environment("TMPDIR").is_empty() else "/tmp").path_join("factory-driver-credits-%d" % OS.get_process_id())
 var ledger_path := test_dir.path_join("credits.json")
 var campaign_path := test_dir.path_join("campaign.json")
+var obligations_path := test_dir.path_join("obligations.json")
 var real_path := ""
 var real_before := ""
+var real_obligations_path := ""
+var real_obligations_before := ""
 
 const JOB_IDS := ["JOB-01", "JOB-02", "JOB-03", "JOB-04"]
 ## Pickup and delivery of each job, as focus.json ids.
@@ -30,6 +38,15 @@ const PASS_JOB := "JOB-01"
 const FAIL_JOB := "JOB-02"
 const FAIL_DEADLINE_S := 45.0
 const RING_SCENE := "res://scenes/eifel_ring.tscn"
+## TROC-1 slice 2: who posts each job (the dispatch desk at its origin
+## station), what they owe on delivery and the tip they offer, as authored.
+const JOB_POSTERS := {"JOB-01": "DISPATCH-E2.4", "JOB-02": "DISPATCH-E2.2", "JOB-03": "DISPATCH-E2.2", "JOB-04": "DISPATCH-E2.3"}
+const JOB_OWED := {"JOB-01": "one parcel delivery: Paddock station to Döttinger Höhe", "JOB-02": "one parcel delivery: Döttinger Höhe to Paddock station", "JOB-03": "one parcel delivery: Döttinger Höhe to Adenau station", "JOB-04": "one parcel delivery: Adenau station to Döttinger Höhe"}
+const JOB_OFFERS := {"JOB-01": "a tip for a clean run: one rare material", "JOB-02": "a tip for a clean run: one dealership voucher", "JOB-03": "a tip for a clean run: some tuna for the cat", "JOB-04": "a tip for a clean run: one dealership voucher"}
+## The paid fixture's poster, what it owes and its tip.
+const PROOF_POSTER := "DISPATCH-PROOF"
+const PROOF_OWED := "one proof delivery: across the pad"
+const PROOF_OFFERS := "a tip for a clean run: one proof"
 ## ECON-3: the prices as documented (docs/econ3-implementation.md), the
 ## station the paid fill is driven at (the refuel test's E2.4) and the tank
 ## the fills start from [L].
@@ -69,6 +86,8 @@ func _run() -> void:
 	fixture = JSON.parse_string(FileAccess.get_file_as_string("res://tests/ml1_proof.json"))
 	real_path = DataDir.resolve(CreditsLedger.PATH)
 	real_before = stamp(real_path)
+	real_obligations_path = DataDir.resolve(ObligationsLedger.PATH)
+	real_obligations_before = stamp(real_obligations_path)
 	print("-- idle and gated")
 	_idle()
 	print("-- the ledger")
@@ -89,8 +108,10 @@ func _run() -> void:
 	await _ring()
 	print("-- nothing of the driver's was touched")
 	CreditsLedger.path_override = ""
+	ObligationsLedger.path_override = ""
 	CampaignStore.path_override = ""
 	ok(stamp(real_path) == real_before, "the driver's own credits.json is as it was before the test (override isolation)")
+	ok(stamp(real_obligations_path) == real_obligations_before, "and the driver's own obligations.json (TROC-1 slice 2: the jobs' pay goes through that store now)")
 	for file in files():
 		DirAccess.remove_absolute(test_dir.path_join(file))
 	DirAccess.remove_absolute(test_dir)
@@ -105,6 +126,7 @@ func _idle() -> void:
 	var runner := MissionRunner.of(self)
 	ok(CreditsLedger.path_override == "" and CreditsLedger.active_path() == "", "telemetry zero gates the ledger: no path without an override")
 	ok(runner != null and runner.credits is CreditsLedger and runner.credits.state == CreditsLedger.defaults() and runner.credits.problems.is_empty(), "the idle runner holds an unread ledger at its defaults")
+	ok(runner.obligations is ObligationsLedger and runner.obligations.state == ObligationsLedger.defaults() and runner.obligations.problems.is_empty() and ObligationsLedger.path_override == "" and ObligationsLedger.active_path() == "", "the idle runner holds an unread obligations ledger at its defaults beside the credits one, gated the same way (TROC-1 slice 2)")
 	ok(runner.get_child_count() == 0 and not runner.is_physics_processing() and not runner.is_processing_input() and runner.active.is_empty(), "idle runner inert")
 	var gated := CreditsLedger.new()
 	gated.earned.connect(func(t: Dictionary): heard.append(t))
@@ -233,7 +255,9 @@ func _ledger() -> void:
 	loaded.load_state()
 	ok(loaded.state == committed, "and the ledger is where it was")
 	# was `not has("credits.json")`, ECON-1's known gap pinned -> closed (ECON-2).
-	ok(DataDir.SEEDED_FILES.has("credits.json") and DataDir.SEEDED_FILES[-1] == "credits.json" and DataDir.SEEDED_FILES[-2] == "campaign.json", "the data folder's seed carries credits.json, last after campaign.json (was ECON-1's known gap)")
+	# was `[-1] == "credits.json" and [-2] == "campaign.json"`, the five files
+	# -> the six: obligations.json follows it (TROC-1 slice 2).
+	ok(DataDir.SEEDED_FILES == ["cars.json", "issues.json", "world.json", "campaign.json", "credits.json", "obligations.json"], "the data folder's seed carries credits.json after campaign.json (was ECON-1's known gap), and obligations.json after it (was the five, credits.json last)")
 	DirAccess.remove_absolute(ledger_path)
 
 # =============================================================================
@@ -324,10 +348,22 @@ func _spend() -> void:
 # =============================================================================
 
 func _schema() -> void:
-	ok(MissionSchema.validate(fixture).is_empty() and not fixture.has("reward_credits") and not fixture.has("job_kind"), "a mission without either field is valid: not a paid mission")
+	ok(MissionSchema.validate(fixture).is_empty() and not fixture.has("reward_credits") and not fixture.has("job_kind") and not fixture.has("poster") and not fixture.has("poster_owed") and not fixture.has("poster_offers"), "a mission without either field is valid: not a paid mission (and none of the poster fields)")
 	var job := fixture.duplicate(true)
 	job.reward_credits = 95
-	ok(MissionSchema.validate(job).is_empty(), "reward_credits alone is valid")
+	# was `validate(job).is_empty()`, "reward_credits alone is valid" -> a paid
+	# job is a posted job (TROC-1 slice 2): the poster and what they owe come
+	# with the reward.
+	ok(MissionSchema.validate(job) == PackedStringArray(["reward_credits needs poster", "reward_credits needs poster_owed"]), "reward_credits alone is refused: it needs its poster and what the poster owes (was valid)")
+	job.poster = PROOF_POSTER
+	ok(MissionSchema.validate(job) == PackedStringArray(["reward_credits needs poster_owed"]), "reward_credits with a poster and nothing owed is refused")
+	job.erase("poster")
+	job.poster_owed = PROOF_OWED
+	ok(MissionSchema.validate(job) == PackedStringArray(["reward_credits needs poster"]), "reward_credits with something owed and no poster is refused")
+	job.poster = PROOF_POSTER
+	ok(MissionSchema.validate(job).is_empty(), "reward_credits with poster and poster_owed is valid: the posted job (was reward_credits alone)")
+	job.poster_offers = PROOF_OFFERS
+	ok(MissionSchema.validate(job).is_empty(), "poster_offers is optional beside them: valid with, valid without")
 	job.job_kind = "courier"
 	ok(MissionSchema.validate(job).is_empty(), "reward_credits with a job_kind is valid")
 	for kind in ["testdrive", "scouting", "anything new"]:
@@ -336,21 +372,32 @@ func _schema() -> void:
 	job.reward_credits = 95.0
 	ok(MissionSchema.validate(job).is_empty(), "a whole number read from JSON is a whole number")
 	for bad in [0, -5, 1.5, 0.5, "95", true, null, [], {}, INF, -INF, NAN]:
-		var m := fixture.duplicate(true)
-		m.job_kind = "courier"
+		# The fixtures below are posted (TROC-1 slice 2), so each refusal is
+		# the pinned field's own and not the missing poster's.
+		var m := _paid(fixture.id, 95)
 		m.reward_credits = bad
-		ok(not MissionSchema.validate(m).is_empty(), "reward_credits refuses " + str(bad))
+		ok(MissionSchema.validate(m) == PackedStringArray(["reward_credits must be a whole number above zero"]), "reward_credits refuses " + str(bad))
 	for bad in ["", "  ", 3, null, [], {}, true]:
-		var m := fixture.duplicate(true)
-		m.reward_credits = 95
+		var m := _paid(fixture.id, 95)
 		m.job_kind = bad
-		ok(not MissionSchema.validate(m).is_empty(), "job_kind refuses " + str(bad))
+		ok(MissionSchema.validate(m) == PackedStringArray(["job_kind must be nonempty text"]), "job_kind refuses " + str(bad))
 	var unpaid := fixture.duplicate(true)
 	unpaid.job_kind = "courier"
 	ok(not MissionSchema.validate(unpaid).is_empty(), "a job_kind without reward_credits is refused")
-	var bad_entry := fixture.duplicate(true)
-	bad_entry.reward_credits = 0
+	var bad_entry := _paid(fixture.id, 0)
 	ok(MissionSchema.catalog_errors([bad_entry]).has(fixture.id), "a bad reward keeps the entry out of the catalog")
+	# TROC-1 slice 2: the poster fields.
+	for field: String in ["poster", "poster_owed", "poster_offers"]:
+		for bad in ["", "  ", 3, null, [], {}, true]:
+			var m := _paid(fixture.id, 95)
+			m[field] = bad
+			ok(MissionSchema.validate(m) == PackedStringArray([field + " must be nonempty text"]), field + " refuses " + str(bad))
+		var lone := fixture.duplicate(true)
+		lone[field] = "text"
+		ok(MissionSchema.validate(lone) == PackedStringArray([field + " needs reward_credits"]), "a " + field + " without reward_credits is refused: the ladder is posted by nobody")
+	var unposted := _paid(fixture.id, 95)
+	unposted.erase("poster")
+	ok(MissionSchema.catalog_errors([unposted]).has(fixture.id) and MissionSchema.catalog_errors([_paid(fixture.id, 95)]).is_empty(), "a paid job without its poster stays out of the catalog; the posted one is in")
 
 # =============================================================================
 #  The dealership's price table (ECON-3)
@@ -508,8 +555,13 @@ func _jobs() -> void:
 		ok(driven > 1000.0 and job.reward_credits == roundf((40.0 + 6.0 * driven / 1000.0) / 5.0) * 5.0 and job.provenance.pay.credits == job.reward_credits and job.reward_credits >= 80 and job.reward_credits <= 150, id + " pays by the driven distance inside the starter spread")
 		ok(job.briefing.contains("%d credits" % int(job.reward_credits)) and job.briefing.contains(JOB_STATIONS[id][0]) and job.briefing.contains(JOB_STATIONS[id][1]) and job.briefing.contains("not simulated"), id + " briefing names its stations, its pay and what is not simulated")
 		ok(job.input_script.steps.size() > 1000 and not job.input_script.has("hold_speed"), id + " ships its recorded trace")
+		ok(job.poster == JOB_POSTERS[id] and job.poster == "DISPATCH-" + JOB_STATIONS[id][0] and job.poster_owed == JOB_OWED[id] and job.poster_offers == JOB_OFFERS[id], id + " is posted by the dispatch desk at its origin station (" + JOB_POSTERS[id] + "), with what the desk owes on delivery and the tip it offers, as authored (TROC-1 slice 2)")
 		pays.append(int(job.reward_credits))
-	ok(pays == [95, 100, 130, 150], "the board pays 95, 100, 130 and 150 credits")
+	# was "the board pays 95, 100, 130 and 150 credits" -> the numbers stay in
+	# the configs, inert: the board neither shows nor pays them (TROC-1 slice 2;
+	# the rows and the pay are pinned in _payment and _ring).
+	ok(pays == [95, 100, 130, 150], "reward_credits is still authored 95, 100, 130 and 150: what marks a paid job, no longer displayed or paid (was: the board pays them)")
+	ok(runner.catalog["JOB-02"].poster == runner.catalog["JOB-03"].poster and runner.catalog["JOB-01"].poster != runner.catalog["JOB-04"].poster, "two jobs, one poster: the Döttinger Höhe desk posts JOB-02 and JOB-03; three desks post the four")
 	for pair in [["JOB-01", "JOB-02"], ["JOB-01", "JOB-03"], ["JOB-01", "JOB-04"], ["JOB-02", "JOB-03"], ["JOB-02", "JOB-04"], ["JOB-03", "JOB-04"]]:
 		var a: Dictionary = runner.catalog[pair[0]]
 		var b: Dictionary = runner.catalog[pair[1]]
@@ -525,7 +577,15 @@ func _paid(id: String, reward: int) -> Dictionary:
 	m.title = "Paid proof"
 	m.job_kind = "courier"
 	m.reward_credits = reward
+	m.poster = PROOF_POSTER
+	m.poster_owed = PROOF_OWED
+	m.poster_offers = PROOF_OFFERS
 	return m
+
+## The open record a pass of the paid fixture writes at the 1-based `place`
+## of the log, in episode `episode`.
+func _proof_record(place: int, episode: int) -> Dictionary:
+	return {"id": "OBL-%04d" % place, "creditor": "player", "debtor": PROOF_POSTER, "owed": PROOF_OWED, "kind": "delivery", "origin": "job:PAID-PROOF/episode-%d" % episode, "status": "open", "redemptions": [], "transfers": []}
 
 func _pass_by_ticks(runner: MissionRunner, mission: Dictionary) -> bool:
 	if not runner.start(mission.id):
@@ -537,6 +597,7 @@ func _pass_by_ticks(runner: MissionRunner, mission: Dictionary) -> bool:
 func _payment() -> void:
 	var runner := MissionRunner.of(self)
 	CreditsLedger.path_override = ledger_path
+	ObligationsLedger.path_override = obligations_path
 	CampaignStore.path_override = campaign_path
 	var scene: Node = load("res://scenes/main.tscn").instantiate()
 	root.add_child(scene)
@@ -550,7 +611,10 @@ func _payment() -> void:
 	var plain := fixture.duplicate(true)
 	runner.catalog[job.id] = job
 	runner.catalog[plain.id] = plain
-	var ledger := CreditsLedger.new()
+	# was `var ledger := CreditsLedger.new()`: the pay is read back from the
+	# obligations file now (TROC-1 slice 2). The credits ledger's earned
+	# signal is still listened to, to pin that no job earns a credit.
+	var owed := ObligationsLedger.new()
 	var results: Array = []
 	var listener := func(result: Dictionary): results.append(result)
 	runner.episode_finished.connect(listener)
@@ -559,72 +623,76 @@ func _payment() -> void:
 	runner.credits.earned.connect(hear)
 
 	# A mission without the field never reaches the ledger.
-	ok(_pass_by_ticks(runner, plain) and runner.last_result.passed and not runner.last_result.has("credits"), "an unpaid mission passes without a credits field in its result")
-	ok(not FileAccess.file_exists(ledger_path) and heard.is_empty() and not runner.result_text().contains("paid"), "and writes no ledger: inert when the field is absent")
+	ok(_pass_by_ticks(runner, plain) and runner.last_result.passed and not runner.last_result.has("obligation") and not runner.last_result.has("credits"), "an unpaid mission passes without an obligation field in its result (was: without a credits field)")
+	ok(not FileAccess.file_exists(obligations_path) and not FileAccess.file_exists(ledger_path) and heard.is_empty() and not runner.result_text().contains("owed by") and not runner.result_text().contains("paid"), "and writes no ledger, obligations or credits: inert when the field is absent")
 
 	# Failed and aborted jobs pay nothing.
 	runner.start(job.id)
 	runner._previous = Vector3(10, 0.7, -18)
 	runner.tick(1, Vector3(0, 0.7, -18))
-	ok(not runner.last_result.passed and runner.last_result.reason == "skipped gate" and runner.last_result.credits == 0, "a failed job reports zero credits")
-	ok(runner.pay_last_result() == 0 and not FileAccess.file_exists(ledger_path), "a failed job pays nothing, asked again or not")
+	ok(not runner.last_result.passed and runner.last_result.reason == "skipped gate" and runner.last_result.obligation == {} and not runner.last_result.has("credits"), "a failed job reports no obligation: {} (was zero credits)")
+	ok(runner.pay_last_result() == {} and not FileAccess.file_exists(obligations_path), "a failed job creates nothing, asked again or not (was: pays nothing)")
 	runner.start(job.id)
 	runner.tick(21, Vector3(0, 0.7, 0))
-	ok(runner.last_result.reason == "time limit" and runner.last_result.credits == 0 and not FileAccess.file_exists(ledger_path), "a job that runs out of time pays nothing")
+	ok(runner.last_result.reason == "time limit" and runner.last_result.obligation == {} and not FileAccess.file_exists(obligations_path), "a job that runs out of time creates nothing (was: pays nothing)")
 	runner.start(job.id)
 	runner.tick(1, Vector3(0, 0.7, -4))
 	runner.abort()
-	ok(runner.last_result.is_empty() and runner.pay_last_result() == 0 and not FileAccess.file_exists(ledger_path) and heard.is_empty(), "an aborted job pays nothing: zero transactions so far")
+	ok(runner.last_result.is_empty() and runner.pay_last_result() == {} and not FileAccess.file_exists(obligations_path) and heard.is_empty(), "an aborted job creates nothing: zero records so far (was: zero transactions)")
 
-	# A pass pays once.
+	# A pass pays once: the poster's obligation to the player.
 	results.clear()
-	ok(_pass_by_ticks(runner, job) and runner.last_result.passed and runner.last_result.credits == 95 and runner.last_result.saved, "a passed job pays its reward")
-	ledger.load_state()
-	ok(ledger.balance() == 95 and ledger.transactions() == [{"seq": 1, "kind": "earn", "amount": 95, "reason": "job:PAID-PROOF"}], "one transaction on disk: the reward, reasoned job:<id>, no wall clock")
-	ok(heard.size() == 1 and results.size() == 1 and results[0].credits == 95 and runner.result_text().contains("paid 95 credits"), "one earned signal, one finished episode, the pay in the result text")
+	var episode := runner._episode + 1
+	var first := _proof_record(1, episode)
+	ok(_pass_by_ticks(runner, job) and runner._episode == episode and runner.last_result.passed and runner.last_result.obligation == first and not runner.last_result.has("credits") and runner.last_result.saved, "a passed job leaves its poster owing: the record in the result (was: pays its reward, credits == 95)")
+	owed.load_state()
+	ok(owed.records() == [first] and owed.problems.is_empty() and JSON.parse_string(read_text(obligations_path)).records.size() == 1, "one record on disk: creditor player, debtor the poster, owed in the poster's words, kind delivery, origin job:<id>/episode-<n>, open, no redemption, no transfer (was: one earn transaction, reasoned job:<id>)")
+	# was `heard.size() == 1 ... contains("paid 95 credits")`: one earned signal
+	# -> none, no credit is earned; the result text names who owes what.
+	ok(heard.is_empty() and not FileAccess.file_exists(ledger_path) and results.size() == 1 and results[0].obligation == first and runner.result_text().ends_with(" — owed by %s: %s" % [PROOF_POSTER, PROOF_OWED]) and not runner.result_text().contains("credits"), "no earned signal and no credits file (was one earned signal), one finished episode, the owed-by line in the result text (was: paid 95 credits)")
 	ok(runner.active.is_empty() and not runner.is_physics_processing() and runner.get_child_count() == 0, "finish returns to inert")
 
-	# No double credit: every retry of the payment is refused.
-	var bytes := read_text(ledger_path)
+	# No double pay: every retry of the payment is refused.
+	var bytes := read_text(obligations_path)
 	runner.finish(true, "course complete")
 	runner.finish(true, "again")
-	ok(runner.pay_last_result() == 0 and runner.pay_last_result() == 0, "the payment asked for again pays nothing")
+	ok(runner.pay_last_result() == {} and runner.pay_last_result() == {}, "the payment asked for again creates nothing (was: pays nothing)")
 	var delivered: Dictionary = runner.last_result.duplicate(true)
 	runner.episode_finished.emit(delivered)
 	runner.episode_finished.emit(delivered)
-	ok(results.size() == 3 and read_text(ledger_path) == bytes and heard.size() == 1, "the same result delivered twice more, a second and third finish(): the ledger's bytes are the same")
+	ok(results.size() == 3 and read_text(obligations_path) == bytes and heard.is_empty(), "the same result delivered twice more, a second and third finish(): the obligations file's bytes are the same (was: the credits ledger's)")
 	var greedy := func(_result: Dictionary): runner.pay_last_result()
 	runner.episode_finished.connect(greedy)
-	ok(_pass_by_ticks(runner, job) and runner.last_result.credits == 95, "passing the job again is new work")
-	ledger.load_state()
-	ok(ledger.balance() == 190 and ledger.state.transactions.size() == 2 and ledger.state.transactions[1] == {"seq": 2, "kind": "earn", "amount": 95, "reason": "job:PAID-PROOF"} and heard.size() == 2, "and new pay, once: a listener that asks for the payment inside the signal gets nothing")
+	ok(_pass_by_ticks(runner, job) and runner.last_result.obligation == _proof_record(2, episode + 1), "passing the job again is new work: a second record, the next episode in its origin")
+	owed.load_state()
+	ok(owed.records() == [first, _proof_record(2, episode + 1)] and owed.open_view("player", PROOF_POSTER).size() == 2 and heard.is_empty(), "and new pay, once: a listener that asks for the payment inside the signal gets nothing (was: balance 190, two transactions)")
 	runner.episode_finished.disconnect(greedy)
 	ok(runner.campaign.state.results[job.id].attempts == 4 and runner.campaign.state.results[job.id].medal == "gold", "the campaign counts the job's attempts and keeps its medal beside the ladder's")
 
 	# The pay does not wait on the campaign record.
 	CampaignStore.path_override = test_dir
-	ok(_pass_by_ticks(runner, job) and not runner.last_result.saved and runner.last_result.credits == 95, "a result that could not be saved is still paid")
+	ok(_pass_by_ticks(runner, job) and not runner.last_result.saved and runner.last_result.obligation == _proof_record(3, episode + 2), "a result that could not be saved still leaves the poster owing (was: is still paid)")
 	DirAccess.remove_absolute(test_dir + ".tmp")
 	CampaignStore.path_override = campaign_path
-	ledger.load_state()
-	ok(ledger.balance() == 285 and runner.result_text().contains("(save failed)") and runner.result_text().contains("paid 95 credits"), "the ledger holds three payments; the text says both")
+	owed.load_state()
+	ok(owed.records().size() == 3 and runner.result_text().contains("(save failed)") and runner.result_text().contains("owed by " + PROOF_POSTER), "the ledger holds three records; the text says both (was: balance 285, paid 95 credits)")
 
 	# A payment the ledger refused is not remembered as paid.
-	bytes = read_text(ledger_path)
-	CreditsLedger.path_override = test_dir
-	ok(_pass_by_ticks(runner, job) and runner.last_result.passed and runner.last_result.credits == 0, "a ledger write that fails pays nothing")
+	bytes = read_text(obligations_path)
+	ObligationsLedger.path_override = test_dir
+	ok(_pass_by_ticks(runner, job) and runner.last_result.passed and runner.last_result.obligation == {}, "an obligations write that fails creates nothing (was: a credits write that fails pays nothing)")
 	DirAccess.remove_absolute(test_dir + ".tmp")
-	CreditsLedger.path_override = ledger_path
-	ok(read_text(ledger_path) == bytes, "and publishes nothing")
-	ok(runner.pay_last_result() == 95 and runner.pay_last_result() == 0, "the retry commits it, once")
-	ledger.load_state()
-	ok(ledger.balance() == 380 and ledger.state.transactions.size() == 4, "four payments, none doubled")
+	ObligationsLedger.path_override = obligations_path
+	ok(read_text(obligations_path) == bytes, "and publishes nothing")
+	ok(runner.pay_last_result() == _proof_record(4, episode + 3) and runner.pay_last_result() == {}, "the retry commits it, once: the record of the episode that passed (was: 95, then 0)")
+	owed.load_state()
+	ok(owed.records().size() == 4 and owed.open_view("player").size() == 4 and owed.problems.is_empty(), "four records, none doubled (was: balance 380, four payments)")
 
 	# Gated, a pass pays nothing and writes nothing.
-	bytes = read_text(ledger_path)
-	CreditsLedger.path_override = ""
-	ok(_pass_by_ticks(runner, job) and runner.last_result.passed and runner.last_result.credits == 0 and read_text(ledger_path) == bytes and stamp(real_path) == real_before, "gated, a passed job pays nothing anywhere")
-	CreditsLedger.path_override = ledger_path
+	bytes = read_text(obligations_path)
+	ObligationsLedger.path_override = ""
+	ok(_pass_by_ticks(runner, job) and runner.last_result.passed and runner.last_result.obligation == {} and read_text(obligations_path) == bytes and stamp(real_obligations_path) == real_obligations_before and stamp(real_path) == real_before, "gated, a passed job creates nothing anywhere (was: pays nothing anywhere)")
+	ObligationsLedger.path_override = obligations_path
 
 	# The pad car, the fixture's own scripted driver.
 	ok(runner.start(job.id, true), "the paid fixture starts scripted on the pad car")
@@ -632,8 +700,10 @@ func _payment() -> void:
 		await physics_frame
 		if runner.active.is_empty():
 			break
-	ledger.load_state()
-	ok(runner.last_result.get("passed", false) and runner.last_result.credits == 95 and ledger.balance() == 475, "a real pad drive to a pass pays")
+	owed.load_state()
+	# was `credits == 95 and ledger.balance() == 475`.
+	ok(runner.last_result.get("passed", false) and runner.last_result.get("obligation") == _proof_record(5, episode + 5) and not runner.last_result.has("credits") and owed.records().size() == 5, "a real pad drive to a pass leaves the poster owing: the fifth record, no credits key (was: credits 95, balance 475)")
+	ok(not FileAccess.file_exists(ledger_path) and heard.is_empty(), "five jobs delivered and the credits ledger was never written: no file, no earned signal (was: five earn transactions)")
 
 	# The JOBS page on the pad.
 	garage.show_page(Garage.Page.JOBS)
@@ -642,8 +712,39 @@ func _payment() -> void:
 	for candidate: Dictionary in rows:
 		if candidate.id == job.id:
 			row = candidate
-	ok(garage.page_text().contains("JOB BOARD") and garage.page_text().contains("CREDITS: 475") and garage.page_text().contains("Payments received: 5") and garage.page_text().contains("+95 job:PAID-PROOF"), "the JOBS page shows the credits held and the last payment")
-	ok(not row.is_empty() and row.kind == "job" and row.enabled and row.label == "DONE — PAID-PROOF — Paid proof  —  courier  —  95 credits" and row.hint.contains(job.briefing) and row.hint.contains("Enter to start — pad") and row.hint.contains("gold"), "a job row: done mark, id, title, kind, pay; the briefing and the best in its hint")
+	# was `contains("CREDITS: 475") and contains("Payments received: 5") and
+	# contains("+95 job:PAID-PROOF")` -> the TROC board.
+	var text := garage.page_text()
+	ok(text.contains("JOB BOARD") and not text.contains("CREDITS:") and not text.contains("Payments received") and text.contains("The board trades by TROC") and text.count("Owed to you by %s: %s" % [PROOF_POSTER, PROOF_OWED]) == 5 and not text.contains("You owe") and not text.contains("Nothing owed"), "the JOBS page reads TROC: no credits heading, no payments line, the five open obligations owed to the driver by the fixture's poster, nothing owed by the driver (was: the credits held and the last payment)")
+	# was label "... —  courier  —  95 credits".
+	ok(not row.is_empty() and row.kind == "job" and row.enabled and row.label == "DONE — PAID-PROOF — Paid proof  —  courier" and row.hint.contains(job.briefing) and row.hint.contains("Enter to start — pad") and row.hint.contains("gold") and row.hint.ends_with("\nPosted by %s — on delivery they owe you: %s — tip: %s" % [PROOF_POSTER, PROOF_OWED, PROOF_OFFERS]), "a job row: done mark, id, title, kind, no pay on the label (was: —  95 credits); the briefing, the best and the poster's offer in its hint")
+	var owing: Dictionary = _proof_record(1, 1)
+	owing.creditor = "DISPATCH-E2.2"
+	owing.debtor = "player"
+	owing.owed = "a favor: a job for me"
+	owing.kind = "favor"
+	owing.origin = "trade:test"
+	ok(ObligationsLedger.new().create(owing.creditor, owing.debtor, owing.owed, owing.kind, owing.origin).id == "OBL-0006", "an obligation the driver owes, written by the test's own ledger")
+	garage.show_page(Garage.Page.JOBS)
+	text = garage.page_text()
+	ok(text.count("Owed to you by") == 5 and text.count("You owe") == 1 and text.contains("You owe DISPATCH-E2.2: a favor: a job for me") and text.find("You owe") > text.rfind("Owed to you by"), "the page lists what the driver owes after what is owed to them: You owe <creditor>: <owed>")
+	var no_tip := job.duplicate(true)
+	no_tip.id = "PAID-NO-TIP"
+	no_tip.erase("poster_offers")
+	runner.catalog[no_tip.id] = no_tip
+	garage.show_page(Garage.Page.JOBS)
+	var plain_hint := ""
+	for candidate: Dictionary in garage.page_rows():
+		if candidate.id == no_tip.id:
+			plain_hint = candidate.hint
+	ok(plain_hint.ends_with("\nPosted by %s — on delivery they owe you: %s" % [PROOF_POSTER, PROOF_OWED]) and not plain_hint.contains("tip:"), "a job posted without an offer shows no tip")
+	runner.catalog.erase(no_tip.id)
+	ObligationsLedger.path_override = ""
+	garage.show_page(Garage.Page.JOBS)
+	ok(garage.page_text().contains("Nothing owed to you or by you yet.") and not garage.page_text().contains("Owed to you by") and not garage.page_text().contains("You owe"), "gated (no override) the page reads no obligations: the one line, nothing owed")
+	ObligationsLedger.path_override = obligations_path
+	garage.show_page(Garage.Page.JOBS)
+	rows = garage.page_rows()
 	var listed_plain := false
 	for candidate: Dictionary in rows:
 		listed_plain = listed_plain or candidate.id == plain.id or candidate.kind != "job"
@@ -665,7 +766,9 @@ func _payment() -> void:
 	runner.load_catalog()
 	scene.queue_free()
 	await process_frame
+	ObligationsLedger.path_override = ""
 	DirAccess.remove_absolute(ledger_path)
+	DirAccess.remove_absolute(obligations_path)
 	DirAccess.remove_absolute(campaign_path)
 
 # =============================================================================
@@ -824,6 +927,7 @@ func _purchase() -> void:
 func _ring() -> void:
 	var runner := MissionRunner.of(self)
 	CreditsLedger.path_override = ledger_path
+	ObligationsLedger.path_override = obligations_path
 	CampaignStore.path_override = campaign_path
 	var packed: PackedScene = load(RING_SCENE)
 	await physics_frame
@@ -834,6 +938,7 @@ func _ring() -> void:
 	var car: ArcadeCar = scene.get_node("Car")
 	var garage: Garage = scene.get_node("Garage")
 	var ledger := CreditsLedger.new()
+	var owed := ObligationsLedger.new()
 	runner.configure(car, scene.get_node("HUD"))
 	ok(car.road_profile is WorldRoadProfile and runner.environment_matches("ring") and not runner.environment_matches("pad"), "the Ring's car stands on a world profile: the ring is the jobs' environment")
 
@@ -844,7 +949,8 @@ func _ring() -> void:
 	var locked := rows.size() == JOB_IDS.size()
 	for i in mini(rows.size(), JOB_IDS.size()):
 		locked = locked and rows[i].id == JOB_IDS[i] and not rows[i].enabled and rows[i].hint.contains("Locked: Requires junior")
-	ok(locked and not runner.start(PASS_JOB) and garage.page_text().contains("CREDITS: 0"), "a driver who is not enrolled sees the four jobs locked and cannot start one")
+	# was `contains("CREDITS: 0")` -> the TROC board's own lines.
+	ok(locked and not runner.start(PASS_JOB) and garage.page_text().contains("JOB BOARD") and not garage.page_text().contains("CREDITS:") and garage.page_text().contains("The board trades by TROC") and garage.page_text().contains("Nothing owed to you or by you yet."), "a driver who is not enrolled sees the four jobs locked and cannot start one; the board reads TROC, nothing owed either way (was: CREDITS: 0)")
 
 	# Enrolled: every job is open, no chain.
 	runner.campaign.reconcile(LicenceExams.LICENCE_L1)
@@ -853,8 +959,9 @@ func _ring() -> void:
 	var open := rows.size() == JOB_IDS.size()
 	for i in mini(rows.size(), JOB_IDS.size()):
 		var job: Dictionary = runner.catalog[JOB_IDS[i]]
-		open = open and rows[i].kind == "job" and rows[i].id == JOB_IDS[i] and rows[i].enabled and rows[i].label == "%s — %s  —  courier  —  %d credits" % [JOB_IDS[i], job.title, int(job.reward_credits)] and rows[i].hint.contains("Enter to start — ring") and rows[i].hint.contains(job.briefing)
-	ok(open, "an enrolled junior sees the four jobs open on the Ring: id, title, kind, pay, none marked done")
+		open = open and rows[i].kind == "job" and rows[i].id == JOB_IDS[i] and rows[i].enabled and rows[i].label == "%s — %s  —  courier" % [JOB_IDS[i], job.title] and not rows[i].label.contains("credits") and rows[i].hint.contains("Enter to start — ring") and rows[i].hint.contains(job.briefing) and rows[i].hint.ends_with("\nPosted by %s — on delivery they owe you: %s — tip: %s" % [JOB_POSTERS[JOB_IDS[i]], JOB_OWED[JOB_IDS[i]], JOB_OFFERS[JOB_IDS[i]]])
+	# was label "<id> — <title>  —  courier  —  <n> credits", "id, title, kind, pay".
+	ok(open, "an enrolled junior sees the four jobs open on the Ring: id, title, kind, no pay on the label (was: —  <n> credits), the poster, what they will owe and their tip in the hint, none marked done")
 	garage.show_page(Garage.Page.MISSIONS)
 	var ladder_rows := 0
 	var ladder_open := 0
@@ -867,8 +974,9 @@ func _ring() -> void:
 	# A real pass: the shipped job, the shipped controls, the pay. First, on
 	# the fresh car: the recorded trace is open-loop, the car it was
 	# recorded on had cold tyres and a full tank.
-	ok(not FileAccess.file_exists(ledger_path), "no ledger file before the first job is delivered")
+	ok(not FileAccess.file_exists(obligations_path) and not FileAccess.file_exists(ledger_path), "no ledger file, obligations or credits, before the first job is delivered")
 	var job: Dictionary = runner.catalog[PASS_JOB]
+	var pass_record := {"id": "OBL-0001", "creditor": "player", "debtor": "DISPATCH-E2.4", "owed": "one parcel delivery: Paddock station to Döttinger Höhe", "kind": "delivery", "origin": "job:%s/episode-%d" % [PASS_JOB, runner._episode + 1], "status": "open", "redemptions": [], "transfers": []}
 	var odometer_before := car.odometer_m
 	ok(runner.start(PASS_JOB, true), PASS_JOB + " starts scripted on the Ring car")
 	var airborne := 0
@@ -886,16 +994,21 @@ func _ring() -> void:
 	ok(measured > 0 and measured <= job.scoring.time_limit_s and bands.gold == ceil(measured * 1.05) and bands.silver == ceil(measured * 1.25) and bands.bronze == ceil(measured * 1.50), PASS_JOB + " medal bands derive from this real pass inside the limit")
 	ok(absf((car.odometer_m - odometer_before) - job.provenance.route.driven_m) < 0.1 and airborne == 0, PASS_JOB + " drove its recorded distance with a wheel on the road every tick")
 	ok(car.global_position.distance_to(Vector3(job.episode[5].position[0], job.episode[5].position[1], job.episode[5].position[2])) <= STATION_RADIUS_M + 1.0, PASS_JOB + " ends at the delivery station's gate")
-	ok(result.get("credits") == int(job.reward_credits) and result.get("saved", false), "the pass pays the job's reward")
-	ledger.load_state()
-	ok(ledger.balance() == int(job.reward_credits) and ledger.transactions() == [{"seq": 1, "kind": "earn", "amount": int(job.reward_credits), "reason": "job:" + PASS_JOB}] and ledger.problems.is_empty(), "the credits land: one transaction on disk")
-	ok(runner.pay_last_result() == 0 and ledger.transactions().size() == 1 and read_text(ledger_path).count("\"seq\"") == 1, "and cannot be collected twice")
+	# was `result.get("credits") == int(job.reward_credits)`.
+	ok(result.get("obligation") == pass_record and not result.has("credits") and result.get("saved", false) and runner.result_text().ends_with(" — owed by DISPATCH-E2.4: one parcel delivery: Paddock station to Döttinger Höhe"), "the pass leaves the poster owing: DISPATCH-E2.4's obligation in the result and in its text (was: pays the job's reward in credits)")
+	print("  the record: " + JSON.stringify(result.get("obligation", {})))
+	owed.load_state()
+	# was `ledger.balance() == reward and transactions() == [the earn]`: the
+	# credits ledger is never written by a job now.
+	ok(owed.open_view("", "DISPATCH-E2.4") == [pass_record] and owed.open_view("player") == [pass_record] and owed.records().size() == 1 and owed.problems.is_empty() and not FileAccess.file_exists(ledger_path), "the obligation lands: the one open record on disk, owed by DISPATCH-E2.4 to the player; the job's pay never created credits.json (was: the credits land, one transaction)")
+	ok(runner.pay_last_result() == {} and read_text(obligations_path).count("\"id\"") == 1, "and cannot be collected twice")
 	ok(not Input.is_action_pressed("accelerate") and not Input.is_action_pressed("brake") and runner.get_child_count() == 0 and not runner.is_physics_processing(), "inputs released, the runner inert again")
 
 	# A real failure: the shipped controls, a deadline the route cannot meet.
 	# After the pass, on the same car (warm tyres, less fuel): the deadline
 	# fails it whatever line the controls now drive.
-	var paid_bytes := read_text(ledger_path)
+	# was `read_text(ledger_path)`: the pay's file is the obligations one.
+	var paid_bytes := read_text(obligations_path)
 	var spawn_origin := car.get_spawn_transform().origin
 	var shipped_scoring: Dictionary = runner.catalog[FAIL_JOB].scoring
 	runner.catalog[FAIL_JOB].scoring = {"time_limit_s": FAIL_DEADLINE_S, "medal_times": {"gold": FAIL_DEADLINE_S * 0.25, "silver": FAIL_DEADLINE_S * 0.5, "bronze": FAIL_DEADLINE_S * 0.75}, "failure_conditions": []}
@@ -905,9 +1018,9 @@ func _ring() -> void:
 		await physics_frame
 		if runner.active.is_empty():
 			break
-	ok(runner.active.is_empty() and not runner.last_result.get("passed", true) and runner.last_result.get("reason") == "time limit" and runner.last_result.credits == 0, FAIL_JOB + " fails on the actual Ring car: the deadline passes")
+	ok(runner.active.is_empty() and not runner.last_result.get("passed", true) and runner.last_result.get("reason") == "time limit" and runner.last_result.get("obligation") == {} and not runner.last_result.has("credits"), FAIL_JOB + " fails on the actual Ring car: the deadline passes, no obligation in the result (was: credits == 0)")
 	ok(car.global_position.distance_to(spawn_origin) > 100.0, FAIL_JOB + " shipped controls drove the car away from the pit before the deadline")
-	ok(read_text(ledger_path) == paid_bytes and runner.pay_last_result() == 0 and read_text(ledger_path) == paid_bytes, "the failed job pays nothing: the ledger's bytes are the same, asked again or not")
+	ok(read_text(obligations_path) == paid_bytes and runner.pay_last_result() == {} and read_text(obligations_path) == paid_bytes and not FileAccess.file_exists(ledger_path), "the failed job creates no obligation: the obligations file's bytes are the same, asked again or not (was: no credits written)")
 	ok(not Input.is_action_pressed("accelerate") and not Input.is_action_pressed("brake") and not Input.is_action_pressed("steer_left") and not Input.is_action_pressed("steer_right"), "script inputs released after the failure")
 	runner.catalog[FAIL_JOB].scoring = shipped_scoring
 	ok(runner.campaign.state.results[FAIL_JOB].attempts == 1 and runner.campaign.state.results[FAIL_JOB].medal == "", "the failed attempt is counted and completes nothing")
@@ -915,14 +1028,24 @@ func _ring() -> void:
 	# The board afterwards.
 	garage.show_page(Garage.Page.JOBS)
 	rows = garage.page_rows()
-	ok(garage.page_text().contains("CREDITS: %d" % int(job.reward_credits)) and garage.page_text().contains("Payments received: 1") and garage.page_text().contains("job:" + PASS_JOB), "the board shows the credits earned")
+	# was `contains("CREDITS: 95") and contains("Payments received: 1") and
+	# contains("job:JOB-01")`.
+	var board := garage.page_text()
+	print("  the board:\n    " + board.replace("\n", "\n    "))
+	ok(board.count("Owed to you by") == 1 and board.contains("Owed to you by DISPATCH-E2.4: one parcel delivery: Paddock station to Döttinger Höhe") and not board.contains("You owe") and not board.contains("Nothing owed") and not board.contains("CREDITS:") and not board.contains("Payments received"), "the board shows what the delivery left owed: DISPATCH-E2.4's parcel delivery, owed to the driver; the driver owes nothing yet (was: the credits earned)")
 	ok(rows[0].id == PASS_JOB and rows[0].label.begins_with("DONE — " + PASS_JOB) and rows[0].hint.contains("gold") and rows[0].hint.contains("1 attempts") and rows[0].enabled, "the delivered job is marked done and can be driven again")
 	ok(rows[1].id == FAIL_JOB and not rows[1].label.begins_with("DONE") and rows[1].hint.contains("not yet delivered") and rows[1].hint.contains("1 attempts") and rows[1].enabled, "the failed job is not")
 	var persisted := CampaignStore.new()
 	persisted.load_state()
 	ok(persisted.state.rank == "junior" and persisted.state.results[PASS_JOB].medal == "gold" and persisted.state.results[FAIL_JOB].medal == "" and not persisted.state.rewards.test_driver, "the campaign keeps both results; a job promotes nobody")
+	# was funded by the job's pay (JOB-01's 95 credits); jobs pay obligations
+	# now, so the fuel test stakes its own credits: the same 95, the fuel
+	# arithmetic below bit-exact as it was.
+	ok(not FileAccess.file_exists(ledger_path) and ledger.earn(95, "staked-for-fuel-test") == {"seq": 1, "kind": "earn", "amount": 95, "reason": "staked-for-fuel-test"} and ledger.balance() == 95, "the fuel test's own stake: 95 credits earned by the test into a credits file no job wrote (was funded by the job's pay)")
 	await _fuel(scene, car, runner, ledger)
-	ok(files() == PackedStringArray(["campaign.json", "credits.json"]), "the test's folder holds the two stores it opted into, no temporary file")
+	# was ["campaign.json", "credits.json"], the two stores.
+	ok(files() == PackedStringArray(["campaign.json", "credits.json", "obligations.json"]), "the test's folder holds the three stores it opted into, no temporary file (was two: the obligations file is the jobs' pay now)")
+	ok(read_text(obligations_path) == paid_bytes, "paid fuel never touched the obligations file: its bytes are the job's one record still")
 	root.remove_child(scene)
 	scene.free()
 	await physics_frame
@@ -932,7 +1055,8 @@ func _ring() -> void:
 # =============================================================================
 
 ## The Ring's shipped Refuel node, wired to the runner's ledger (the test's
-## file, the job's 95 credits in it): the dry run away from every station,
+## file, the test's own 95-credit stake in it; was the job's pay, which is
+## an obligation now): the dry run away from every station,
 ## the paid fill at E2.4 by the ceil rule, the line's texts, the
 ## unaffordable fill, the exact-balance fill, and the gated (unwired) free
 ## fill.
@@ -960,7 +1084,7 @@ func _fuel(scene: Node, car: ArcadeCar, runner: MissionRunner, ledger: CreditsLe
 	Input.action_release(Refuel.ACTION)
 	ok(refuel.near == null and not refuel.hint_visible() and refuel.fill_count == 0 and refuel.paid_credits == 0 and refuel.refused_count == 0 and car.fuel_l == PART_TANK_L and read_text(ledger_path) == bytes, "100 m off E2.4 the key held 30 ticks fills nothing, pays nothing, the ledger untouched")
 
-	# At the station with the job's 95 credits, 44 L short: 88 credits.
+	# At the station with the staked 95 credits (was the job's), 44 L short: 88 credits.
 	car.reset_to(Transform3D(car.global_basis, Vector3(at.x, 0.0, at.y)))
 	_engine_off(car)
 	car.fuel_l = PART_TANK_L
@@ -971,7 +1095,7 @@ func _fuel(scene: Node, car: ArcadeCar, runner: MissionRunner, ledger: CreditsLe
 	await physics_frame
 	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == 1 and refuel.paid_credits == 88 and refuel.refused_count == 0, "the first tick with the key held: the tank filled to capacity, 88 credits paid")
 	ledger.load_state()
-	ok(ledger.balance() == 7 and ledger.transactions().size() == 2 and ledger.transactions()[1] == {"seq": 2, "kind": "spend", "amount": 88, "reason": "fuel"} and spends.size() == 1 and spends[0].amount == 88, "the ledger: one spend of 88 with reason fuel after the job's pay, 7 credits left, one spent signal")
+	ok(ledger.balance() == 7 and ledger.transactions().size() == 2 and ledger.transactions()[1] == {"seq": 2, "kind": "spend", "amount": 88, "reason": "fuel"} and spends.size() == 1 and spends[0].amount == 88, "the ledger: one spend of 88 with reason fuel after the test's stake (was the job's pay), 7 credits left, one spent signal")
 	for i in 30:
 		await physics_frame
 	Input.action_release(Refuel.ACTION)

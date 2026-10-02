@@ -5,13 +5,19 @@ extends Node
 ## physics processing, input processing, car changes or periodic store writes.
 ## ECON-1: jobs are missions that carry reward_credits. They live in
 ## JOBS_DIR, join the one catalog and start through the same start(); a
-## PASSED job pays the credits ledger once (pay_last_result). A mission
-## without reward_credits never reaches the ledger.
+## PASSED job pays once (pay_last_result). A mission without reward_credits
+## never reaches a ledger.
+## TROC-1 slice 2: rewards are no longer credits. A job carries its poster
+## and what the poster will owe (poster, poster_owed); a PASSED job creates
+## the poster's obligation to the player in the obligations ledger, once per
+## episode. reward_credits is inert: nothing pays it. The credits ledger
+## stays for the dealership and paid fuel until slices 3-4.
 signal episode_finished(result: Dictionary)
 const CATALOG_DIR := "res://configs/missions"
 const JOBS_DIR := "res://configs/jobs"
 var campaign := CampaignStore.new()
 var credits := CreditsLedger.new()
+var obligations := ObligationsLedger.new()
 var catalog: Dictionary = {}
 var active: Dictionary = {}
 var last_result: Dictionary = {}
@@ -285,33 +291,36 @@ func finish(passed: bool, reason: String) -> void:
 	var medal := MissionSchema.medal(mission.scoring, elapsed) if passed else ""
 	last_result = {"id": mission.id, "passed": passed and medal != "", "time_s": elapsed, "medal": medal, "reason": reason}
 	last_result["saved"] = campaign.record_result(mission, elapsed, last_result.passed)
-	# The pay does not wait on the campaign record: a job done is a job paid,
-	# whether or not the result could be saved.
-	if mission.has("reward_credits"):
+	# The pay does not wait on the campaign record: a job done is a job owed
+	# for, whether or not the result could be saved.
+	# was `has("reward_credits")` and last_result["credits"] -> the poster's
+	# obligation (TROC-1 slice 2).
+	if mission.has("poster"):
 		_payable = mission
-		last_result["credits"] = pay_last_result()
+		last_result["obligation"] = pay_last_result()
 	_cleanup()
 	if is_instance_valid(hud):
 		hud.show_mission_banner("PASSED" if last_result.passed else "FAILED", result_text(), Color.GOLD)
 	episode_finished.emit(last_result.duplicate(true))
 
-## Pays the job finish() last closed, once: the credits written, 0 when
+## Pays the job finish() last closed, once: the poster's obligation to the
+## player as written (was: the credits written, 0 when nothing was), {} when
 ## nothing was. Single-shot per episode: start() numbers the episodes and a
 ## committed payment remembers its number, so calling this again for the
 ## same result - a retry, a listener, a second finish() - pays nothing. A
 ## failed or aborted episode has nothing payable; passing the job again is
 ## a new episode and new pay. A payment the ledger refused (gated, a write
 ## that failed) is not remembered: the retry may still commit it, once.
-func pay_last_result() -> int:
+func pay_last_result() -> Dictionary:
 	if _payable.is_empty() or _paid_episode == _episode:
-		return 0
+		return {}
 	if last_result.get("id") != _payable.get("id") or not last_result.get("passed", false):
-		return 0
-	var written := credits.earn(int(_payable.reward_credits), "job:" + str(_payable.id))
+		return {}
+	var written := obligations.create("player", str(_payable.poster), str(_payable.poster_owed), "delivery", "job:" + str(_payable.id) + "/episode-" + str(_episode))
 	if written.is_empty():
-		return 0
+		return {}
 	_paid_episode = _episode
-	return written.amount
+	return written
 
 func abort() -> void:
 	if active.is_empty():
@@ -356,8 +365,8 @@ func result_text() -> String:
 	if last_result.is_empty():
 		return "No episode result yet."
 	var line := "episode result: %s — %.3f s — %s — %s%s" % [last_result.id, last_result.time_s, last_result.medal, last_result.reason, " (save failed)" if not last_result.saved else ""]
-	if last_result.get("credits", 0) > 0:
-		line += " — paid %d credits" % last_result.credits
+	if not last_result.get("obligation", {}).is_empty():
+		line += " — owed by %s: %s" % [last_result.obligation.debtor, last_result.obligation.owed]
 	return line
 
 ## Only the current target is revealed; props have no physics bodies or areas.
