@@ -126,8 +126,21 @@ the overrides cleared (the free fill, the old line, the folder gone) and the dri
 `obligations.json` stamped and held; the trade's pure pins (`fill_litres`, `owed_text`,
 `troc_line`) and the dormant path's (`fill_cost`, `hint_line`, the flag off) beside the
 key pins.
-The sound test adds 92 checks (`SOUND TEST PASSED`), measured on the
-host (was 91 -> SOUND-4's one measured check on the built PCM, the band ceiling: the
+The sound test adds 134 checks (`SOUND TEST PASSED`), measured on the
+host (was 92 -> SOUND-5's forty-two, the cat mix as a setting: the `SoundSettings` store
+pure and on a file of the test's own - the defaults with NO cat mix chosen (the Conductor's
+amendment: an absent file is today's `FD_CAT` semantics, not cat_mix true), the seed list's
+seventh file, the clamp and the snap, the atomic write with exactly the three fields, a
+trim-only file carrying no `cat_mix`, the tolerant reader's corners and a later build's
+file refused, the gated store writing nothing; the precedence as one pure function,
+exhaustive - `FD_CAT` unset / `0` / `1` / exotic x the file absent / cat on / cat off,
+twelve pins - and `FD_SOUND=0` over all of them on a real car; the file-present corners on
+bare cars (OFF under `FD_CAT=1`, ON under unset, the caller's `0` over ON); the master
+trim +3 on four live loops and a thump with the fields untrimmed, the stopped engine
+staying muted, -24 flooring the faint wind at `MUTE_DB`, 0 bit-identical to no file;
+every earlier pin standing without a seam; the seed-list pins of the first run, credits and
+obligations tests moved to the seven files, `sound_settings.json` last, each with its was->;
+was 91 -> SOUND-4's one measured check on the built PCM, the band ceiling: the
 squeal's RMS over 2000..4000 Hz at 0.000023 of its RMS over 300..1800 Hz, 0.1 at most - the
 pin is on an absence - and the 300..1800 Hz band 99.95% of the buffer's energy - with the
 table (46 partials over 300..1300 Hz, no two closer than 25 cycles), zero-crossing (1802 a
@@ -178,6 +191,12 @@ the gap share, the feathers, every card's texture window, the wall texture's sky
 column gaps - 120 checks since ROAD-3 (the carve and the road body), was 118, was 113; the bubble test's named tree is index 12369, was 12355;
 since LOADING-1 the menu test has one check more,
 its Ring row's route through the loading scene, and the suite has the async build test's 15;
+since SOUND-5 the menu test has ten checks more, 165 (was 155): the SETTINGS page's four
+rows (was two - the folder rows; the cat mix and master trim rows after them, over a sound
+settings file of the test's own with `FD_CAT` taken off and `FD_TELEMETRY=0` for the
+section, restored), `Enter` flipping and choosing the cat mix, stepping the trim, wrapping
+from the floor to the ceiling, the store's clamps in the labels, a caller's `FD_CAT=0`
+named in the label, `FD_CAT=1` with and without the file, and the gated rows greyed;
 since L2-STREAMING-1 the async build test has 25 checks, was 17: the handover's and the
 completion's pins apart, the per-child digests, the scheduler's counters, the tail's frames
 and the released claim; the menu test's additive check unloads its Ring two frames after the

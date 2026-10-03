@@ -42,7 +42,11 @@ extends CanvasLayer
 ##              takes, and the licence book's own text (LicenceManager),
 ##   SETTINGS   the data folder (DataDir: where it is, choose another, back
 ##              to the default - a native folder dialog, opened only from
-##              here), the HUD bar legend (HUD.bar_legend) and the keys.
+##              here), the sound settings (SOUND-5: SoundSettings, the cat
+##              mix on / off and the master trim, two rows that write
+##              user://sound_settings.json and take effect on the next
+##              sound node - the next drive), the HUD bar legend
+##              (HUD.bar_legend) and the keys.
 ##   MISSIONS   campaign rank, episodes, promotion credentials and entitlements.
 ##   JOBS       the job board (ECON-1): the credits held, and every paid job
 ##              in the runner's catalog - its kind, its pay, whether it has
@@ -178,6 +182,9 @@ var _idle_last_tick := false
 
 ## What the SETTINGS page last said about a folder chosen or refused.
 var _folder_status := ""
+
+## SOUND-5: what the last sound-settings row did, shown under the rows.
+var _sound_status := ""
 
 ## What the dealership's last row did (FirstCar.take's dictionary), for
 ## whoever asks (tests).
@@ -1120,6 +1127,17 @@ func _build_settings_page() -> void:
 	_add_row("Use the default folder", "Forgets the chosen folder (the FD_DATA_DIR variable, if set, still wins). Takes effect at the next start.", "default_folder", _use_default_folder, true)
 	if _folder_status != "":
 		_add_text(_folder_status, COLOR_TITLE)
+	# SOUND-5: the sound settings, two rows over the store (read once per
+	# build; the rows are live where the store names a file - gated, headless
+	# without an override, they are shown with the defaults and disabled).
+	_add_heading("SOUND")
+	var sound := SoundSettings.current()
+	var live := SoundSettings.active_path() != ""
+	_add_text(sound_settings_text(sound, live), COLOR_TEXT)
+	_add_row(cat_mix_label(sound.cat_mix_chosen(), sound.cat_mix(), OS.get_environment(SoundNode.CAT_ENV_VAR)), "Enter flips what is heard and keeps it. The household's cat mix (CAT-AWARE-1): the squeal pitched down and 6 dB quieter, the thumps softened, a gentle low-pass on every sound. Takes effect on the next drive (the next sound node made). FD_CAT set to anything but 1 by the caller overrides it with the realistic mix; FD_SOUND=0 is silence whatever this says.", "cat_mix", _flip_cat_mix, live)
+	_add_row(master_trim_label(sound.master_trim_db()), "Enter: %.1f dB quieter each press, down to %.0f dB, then round to %+.0f dB. One offset on every sound the game writes (the engine, the rumble, the squeal, the wind, the thumps); a muted channel stays muted. Takes effect on the next drive." % [SoundSettings.TRIM_STEP_DB, SoundSettings.TRIM_DB_MIN, SoundSettings.TRIM_DB_MAX], "master_trim", _step_master_trim, live)
+	if _sound_status != "":
+		_add_text(_sound_status, COLOR_TITLE)
 	_add_heading("HUD BARS: WHAT EVERY BAR MEANS")
 	_add_text(HUD.bar_legend(), COLOR_TEXT)
 	_add_heading("CONTROLS")
@@ -1178,6 +1196,78 @@ func _use_default_folder() -> void:
 	var problem := DataDir.set_bootstrap("")
 	_folder_status = "Not taken: %s" % problem if problem != "" else "The default folder again from the next start on."
 	show_page(Page.SETTINGS)
+
+
+## SOUND-5: the cat mix row's label, pure: the mix a sound node made now
+## would play (SoundNode.cat_mode_effective of the FD_CAT `env`, whether a
+## cat mix is `chosen` in the store and the chosen `on`), in words - and
+## where the store does not decide it, why: not chosen yet (the
+## environment's semantics as shipped), or chosen but overridden by a
+## caller's FD_CAT.
+static func cat_mix_label(chosen: bool, on: bool, env: String) -> String:
+	var heard := SoundNode.cat_mode_effective(env, chosen, on)
+	var text := "Cat mix: ON — the squeal down-pitched, thumps softened (the cat's hearing)" if heard else "Cat mix: OFF — the realistic mix"
+	if not chosen:
+		return text + " (not chosen here yet: as launched, FD_CAT %s)" % ("unset" if env == "" else env)
+	if env != "" and env != "1":
+		return text + " (the caller's FD_CAT=%s overrides the %s chosen here this run)" % [env, "ON" if on else "OFF"]
+	return text
+
+
+## SOUND-5: the master trim row's label, pure: the trim as the store keeps
+## it (clamped, snapped), signed.
+static func master_trim_label(db: float) -> String:
+	return "Master trim: %+.1f dB — one offset on every sound" % SoundSettings.trim_of(db)
+
+
+## SOUND-5: where the sound settings live this run and what is read, for
+## the SETTINGS page; `live` whether the store names a file (the rows are
+## live) - gated, the defaults are shown and nothing can be written.
+static func sound_settings_text(sound: SoundSettings, live: bool) -> String:
+	var lines := PackedStringArray()
+	if live:
+		lines.append("Kept in %s beside the rest of the data (no file until a row is pressed: until then the launch decides the mix, FD_CAT=1 the cat mix as run.sh sets it, and there is no trim)." % SoundSettings.PATH.trim_prefix("user://"))
+	else:
+		lines.append("The store is off this run (no window, nothing recorded): the defaults are shown and the rows cannot write.")
+	for problem in sound.problems:
+		lines.append("Read with a problem: %s" % problem)
+	return "\n".join(lines)
+
+
+## SOUND-5: the cat mix row - the mix a node would play now, flipped and
+## written as the chosen one (the first press chooses: the opposite of what
+## the environment gives), the page rebuilt with the new label and a status
+## line.
+func _flip_cat_mix() -> void:
+	var sound := SoundSettings.current()
+	var heard := SoundNode.cat_mode_effective(OS.get_environment(SoundNode.CAT_ENV_VAR), sound.cat_mix_chosen(), sound.cat_mix())
+	var written := sound.set_cat_mix(not heard)
+	if written.is_empty():
+		_sound_status = "Not taken: %s" % _sound_refusal(sound)
+	else:
+		_sound_status = "Cat mix %s from the next drive on." % ("ON" if written.cat_mix else "OFF")
+	show_page(Page.SETTINGS)
+
+
+## SOUND-5: the master trim row - one step quieter (SoundSettings.trim_stepped:
+## TRIM_STEP_DB down, round to TRIM_DB_MAX past TRIM_DB_MIN), written.
+func _step_master_trim() -> void:
+	var sound := SoundSettings.current()
+	var written := sound.set_master_trim_db(SoundSettings.trim_stepped(sound.master_trim_db()))
+	if written.is_empty():
+		_sound_status = "Not taken: %s" % _sound_refusal(sound)
+	else:
+		_sound_status = "Master trim %+.1f dB from the next drive on." % written.master_trim_db
+	show_page(Page.SETTINGS)
+
+
+## Why a sound-settings write was refused, in words.
+static func _sound_refusal(sound: SoundSettings) -> String:
+	if SoundSettings.active_path() == "":
+		return "the store is off this run."
+	if sound.newer_file:
+		return "%s is a later build's file; it is left alone." % SoundSettings.PATH
+	return "%s could not be written." % SoundSettings.PATH
 
 
 # =============================================================================

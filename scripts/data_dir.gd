@@ -63,7 +63,12 @@ const MARKER_FILE := ".factory-driver-data"
 # (ObligationsLedger.PATH, the obligations log; TROC-1 slice 2 closing
 # slice 1's known gap): a fresh data folder seeded without it would lose
 # every obligation, owed to the driver or by them.
-const SEEDED_FILES: Array[String] = ["cars.json", "issues.json", "world.json", "campaign.json", "credits.json", "obligations.json"]
+# was six files -> sound_settings.json follows the driver to a chosen folder
+# (SoundSettings.PATH, the garage's sound settings; SOUND-5, in the list
+# from the store's birth): a fresh data folder seeded without it would not
+# carry the cat mix / master trim choice over, and the household's cat
+# would hear the defaults again.
+const SEEDED_FILES: Array[String] = ["cars.json", "issues.json", "world.json", "campaign.json", "credits.json", "obligations.json", "sound_settings.json"]
 const SEEDED_DIRS: Array[String] = ["telemetry"]
 
 ## Where the game kept its data before it had a folder of its own: Godot's

@@ -1,7 +1,7 @@
 extends SceneTree
 ## Headless menu test: the garage, THE STUDY, the car's condition, the
-## licence panel, the data folder and the bar legend. Run via
-## tests/run_tests.sh, or:
+## licence panel, the data folder, the sound settings (SOUND-5) and the bar
+## legend. Run via tests/run_tests.sh, or:
 ##
 ##   godot --headless --path . --import
 ##   godot --headless --fixed-fps 60 --path . --script res://tests/menu_test.gd
@@ -36,7 +36,16 @@ extends SceneTree
 ## the telemetry kept for good (a recorder started over 25 stored sessions
 ## deletes none of them - was: the oldest five -, the index tolerating
 ## sessions whose files are gone, a missing index.json recreated); the bar
-## legend naming every bar;
+## legend naming every bar; SOUND-5's two SETTINGS rows over a sound
+## settings file of this test's own (SoundSettings.path_override, FD_CAT
+## taken off and FD_TELEMETRY=0 for the section, both restored): no file,
+## the cat row OFF as launched and not chosen, the trim row +0.0; Enter
+## flips and CHOOSES the cat mix (true, then false, the file's three
+## fields), steps the trim 0.5 dB down, wraps from the -24 floor to the +6
+## ceiling and down again; the store's clamps (-30 -> -24, 9 -> +6) in the
+## labels; a caller's FD_CAT=0 over a chosen ON named in the label; FD_CAT=1
+## with and without the file; gated (no override) the rows greyed, Enter
+## nothing, the page saying so;
 ## the keys in the map, Tab among them; and no folder dialog ever made.
 ## The DRIVE page's "World map" row (4B-6): after the two maps, before the
 ## tests, opening the first-run map layer (scripts/world_map.gd) not
@@ -980,14 +989,72 @@ func _check_legend_and_keys() -> void:
 	for bar_name: String in names:
 		named = named and legend.contains(bar_name)
 	_check(named and legend.contains("%.0f %%" % (HUD.FUEL_RESERVE_FRACTION * 100.0)) and legend.contains("110 C") and legend.contains("250 C"), "the bar legend names every bar and lamp of the HUD, the study's display and the CAR page, with the lines their colours turn at")
+	# SOUND-5: the sound rows over a file of this test's own; FD_CAT taken
+	# off and the store pinned off (FD_TELEMETRY=0) for the labels and the
+	# gated corner, both restored below.
+	var cat_env_before := OS.get_environment(SoundNode.CAT_ENV_VAR)
+	var telemetry_before := OS.get_environment("FD_TELEMETRY")
+	OS.set_environment(SoundNode.CAT_ENV_VAR, "")
+	OS.set_environment("FD_TELEMETRY", "0")
+	var sound_file := _tmp_dir.path_join("sound_settings.json")
+	SoundSettings.path_override = sound_file
 	_garage.open()
 	_garage.show_page(Garage.Page.SETTINGS)
 	var page := _garage.page_text()
 	var rows := _garage.page_rows()
 	_check(page.contains(legend) and page.contains(Garage.CONTROLS_TEXT) and page.contains("This run:") and page.contains(DataDir.BOOTSTRAP_PATH), "the SETTINGS page shows the data location, the legend and the controls")
 	_check(page.contains(Garage.OSM_ATTRIBUTION) and Garage.OSM_ATTRIBUTION.begins_with("© OpenStreetMap contributors") and Garage.OSM_ATTRIBUTION.contains("ODbL 1.0") and Garage.OSM_ATTRIBUTION.contains("https://www.openstreetmap.org/copyright"), "and the road data's attribution beside the data location: OpenStreetMap's exact string (data-pipeline.md §8; 4B-4)")
-	_check(rows.size() == 2 and rows[0].kind == "choose_folder" and rows[1].kind == "default_folder" and not _garage.folder_dialog_opened(), "its two rows choose a folder and go back to the default; no folder dialog has been made")
+	# was rows.size() == 2, the two folder rows -> four: SOUND-5 added the
+	# cat mix and master trim rows after them.
+	_check(rows.size() == 4 and rows[0].kind == "choose_folder" and rows[1].kind == "default_folder" and rows[2].kind == "cat_mix" and rows[3].kind == "master_trim" and not _garage.folder_dialog_opened(), "its four rows (was two) choose a folder, go back to the default, flip the cat mix and step the master trim; no folder dialog has been made")
+	_check(rows[2].enabled and rows[3].enabled and rows[2].label == Garage.cat_mix_label(false, false, "") and rows[2].label.begins_with("Cat mix: OFF — the realistic mix") and rows[2].label.contains("not chosen here yet") and rows[2].label.contains("FD_CAT unset") and rows[3].label == "Master trim: +0.0 dB — one offset on every sound" and rows[3].label == Garage.master_trim_label(0.0) and not FileAccess.file_exists(sound_file) and page.contains("SOUND") and page.contains("no file until a row is pressed"), "SOUND-5, no file yet: the cat row says OFF as launched (FD_CAT unset: the realistic mix, as shipped) and not chosen here yet, the trim row +0.0 dB; both live (the store names this test's file); the build wrote nothing")
+	var flipped := _garage.activate_row(2)
+	var after := SoundSettings.current()
+	rows = _garage.page_rows()
+	_check(flipped and _garage.is_open and after.cat_mix_chosen() and after.cat_mix() and after.master_trim_db() == 0.0 and FileAccess.get_file_as_string(sound_file) == JSON.stringify({"version": 1, "cat_mix": true, "master_trim_db": 0.0}, "  ") and rows.size() == 4 and rows[2].label == Garage.cat_mix_label(true, true, "") and rows[2].label == "Cat mix: ON — the squeal down-pitched, thumps softened (the cat's hearing)" and _garage.page_text().contains("Cat mix ON from the next drive on."), "Enter on the cat row: the mix a node would play now (realistic) is flipped and CHOSEN - cat_mix true written to the file with the three fields, the page rebuilt with the plain ON label and the status line")
+	flipped = _garage.activate_row(2)
+	after = SoundSettings.current()
+	rows = _garage.page_rows()
+	_check(flipped and after.cat_mix_chosen() and not after.cat_mix() and rows[2].label == Garage.cat_mix_label(true, false, "") and rows[2].label == "Cat mix: OFF — the realistic mix" and _garage.page_text().contains("Cat mix OFF from the next drive on."), "Enter again: OFF, chosen (cat_mix false in the file), the plain OFF label")
+	var stepped := _garage.activate_row(3)
+	after = SoundSettings.current()
+	rows = _garage.page_rows()
+	_check(stepped and after.master_trim_db() == -0.5 and after.cat_mix_chosen() and not after.cat_mix() and rows[3].label == "Master trim: -0.5 dB — one offset on every sound" and _garage.page_text().contains("Master trim -0.5 dB from the next drive on."), "Enter on the trim row: 0.5 dB quieter, -0.5 written, the chosen cat mix kept beside it, the label and the status line following")
+	SoundSettings.new().set_master_trim_db(-30.0)
+	_garage.show_page(Garage.Page.SETTINGS)
+	var at_floor: String = _garage.page_rows()[3].label
+	stepped = _garage.activate_row(3)
+	after = SoundSettings.current()
+	rows = _garage.page_rows()
+	_check(at_floor == "Master trim: -24.0 dB — one offset on every sound" and stepped and after.master_trim_db() == 6.0 and rows[3].label == "Master trim: +6.0 dB — one offset on every sound", "the bounds: -30 set through the store is clamped to -24, the floor, and the label says so; Enter at the floor wraps round to +6.0, the ceiling")
+	stepped = _garage.activate_row(3)
+	after = SoundSettings.current()
+	SoundSettings.new().set_master_trim_db(9.0)
+	_garage.show_page(Garage.Page.SETTINGS)
+	rows = _garage.page_rows()
+	_check(stepped and absf(after.master_trim_db() - 5.5) < 1.0e-9 and SoundSettings.current().master_trim_db() == 6.0 and rows[3].label == "Master trim: +6.0 dB — one offset on every sound", "from the ceiling the next press is 5.5 (the one row walks the whole range, 0.5 dB a press); 9 set through the store is clamped to +6")
+	OS.set_environment(SoundNode.CAT_ENV_VAR, "0")
+	SoundSettings.new().set_cat_mix(true)
+	_garage.show_page(Garage.Page.SETTINGS)
+	rows = _garage.page_rows()
+	_check(rows[2].label == Garage.cat_mix_label(true, true, "0") and rows[2].label.begins_with("Cat mix: OFF — the realistic mix") and rows[2].label.contains("the caller's FD_CAT=0 overrides the ON chosen here"), "the cat mix chosen ON under a caller's FD_CAT=0: the row says OFF (what a node would play) and that the caller's override is why")
+	OS.set_environment(SoundNode.CAT_ENV_VAR, "1")
+	_garage.show_page(Garage.Page.SETTINGS)
+	var chosen_under_one: String = _garage.page_rows()[2].label
+	DirAccess.remove_absolute(sound_file)
+	_garage.show_page(Garage.Page.SETTINGS)
+	rows = _garage.page_rows()
+	_check(chosen_under_one == Garage.cat_mix_label(true, true, "1") and chosen_under_one == "Cat mix: ON — the squeal down-pitched, thumps softened (the cat's hearing)" and rows[2].label == Garage.cat_mix_label(false, false, "1") and rows[2].label.begins_with("Cat mix: ON") and rows[2].label.contains("not chosen here yet: as launched, FD_CAT 1"), "under FD_CAT=1 (run.sh's default): chosen ON is the plain ON label; the file removed, ON as launched and not chosen here yet - today's semantics until a row is pressed")
+	OS.set_environment(SoundNode.CAT_ENV_VAR, "")
+	SoundSettings.path_override = ""
+	_garage.show_page(Garage.Page.SETTINGS)
+	rows = _garage.page_rows()
+	page = _garage.page_text()
+	_check(SoundSettings.active_path() == "" and rows.size() == 4 and not rows[2].enabled and not rows[3].enabled and not _garage.activate_row(2) and not _garage.activate_row(3) and rows[2].label == Garage.cat_mix_label(false, false, "") and rows[3].label == Garage.master_trim_label(0.0) and page.contains("The store is off this run"), "gated (FD_TELEMETRY=0, no override): the two rows are shown with the defaults and greyed, Enter does nothing, the page says the store is off - the driver's folder untouched")
 	_garage.close()
+	OS.set_environment(SoundNode.CAT_ENV_VAR, cat_env_before)
+	OS.set_environment("FD_TELEMETRY", telemetry_before)
+	_check(OS.get_environment(SoundNode.CAT_ENV_VAR) == cat_env_before and OS.get_environment("FD_TELEMETRY") == telemetry_before and SoundSettings.path_override == "", "FD_CAT and FD_TELEMETRY restored to what they were (%s / %s), SoundSettings.path_override \"\"" % ["unset" if cat_env_before == "" else cat_env_before, "unset" if telemetry_before == "" else telemetry_before])
 	var mapped := true
 	for action in LISTED_ACTIONS:
 		mapped = mapped and InputMap.has_action(action)

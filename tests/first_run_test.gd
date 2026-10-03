@@ -240,7 +240,9 @@ func _check_seed() -> void:
 	# seeded without it zeroed the balance and lost every car bought from it).
 	# was five -> six: TROC-1 slice 2 the obligations log follows it too (a
 	# fresh folder seeded without it lost every obligation).
-	_check(DataDir.SEEDED_FILES == ["cars.json", "issues.json", "world.json", "campaign.json", "credits.json", "obligations.json"], "DataDir.SEEDED_FILES holds obligations.json beside cars.json, issues.json, world.json, campaign.json and credits.json (was the five)")
+	# was six -> seven: SOUND-5 the sound settings follow it too (a fresh
+	# folder seeded without them would not carry the cat mix / trim choice).
+	_check(DataDir.SEEDED_FILES == ["cars.json", "issues.json", "world.json", "campaign.json", "credits.json", "obligations.json", "sound_settings.json"], "DataDir.SEEDED_FILES holds sound_settings.json last, after obligations.json, beside cars.json, issues.json, world.json, campaign.json and credits.json (was the six)")
 	var src := _tmp_dir.path_join("seed_src")
 	var dst := _tmp_dir.path_join("seed_dst")
 	DirAccess.make_dir_recursive_absolute(src)

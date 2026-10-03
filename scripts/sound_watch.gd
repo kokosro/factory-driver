@@ -27,6 +27,13 @@ extends Node
 ## game, off with no window (the test suite: its baseline is untouched -
 ## tests/sound_test.gd sets "1" for its own scenes and restores). Read at
 ## each attach, so a test may toggle it between scenes.
+## SOUND-5 (2026-10-03): the garage's sound settings (scripts/sound_settings.gd,
+## user://sound_settings.json: the cat mix and the master trim) are read by
+## the NODE in its _ready, never here - the profile only shapes the mix of
+## a sound this switch already allows, it never turns sound on or off:
+## should_attach is FD_SOUND's alone, exactly as it was, and FD_SOUND "0"
+## wins over every setting (no node, no bus, no trim). The watcher holds no
+## FD_CAT and no volume of its own (it never did).
 ##
 ## A SCENE KEEPS ITS OWN: a scene root that already carries a sound of its
 ## own for this car - a SoundNode, or an audio player wired to the car -

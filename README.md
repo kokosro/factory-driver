@@ -2230,9 +2230,12 @@ does all of it too:
   licence book's own text under it - the same book `L` opens.
 - **SETTINGS** - the data folder (see [Data location](#data-location): where it is this
   run and why, the folder chosen, a native folder dialog to choose another, a row to go
-  back to the default), the HUD bar legend (every bar and lamp on the HUD, on the
-  study's input display and on the CAR page, with the temperatures and shares their
-  colours turn at: `HUD.bar_legend`), and the controls.
+  back to the default), the sound settings (SOUND-5, see
+  [The cat mix as a setting](#sound-sound-1-sound-2-sound-3-sound-4-sound-5): a row that
+  flips the household's cat mix and keeps the choice, a row that steps a master trim 0.5 dB
+  quieter a press, both taking effect on the next drive), the HUD bar legend (every bar
+  and lamp on the HUD, on the study's input display and on the CAR page, with the
+  temperatures and shares their colours turn at: `HUD.bar_legend`), and the controls.
 
 The garage reads and never writes: the one thing it changes is the bootstrap file when
 a folder is chosen. Nothing of it runs in the headless suite unless the test opens it.
@@ -2388,7 +2391,9 @@ with a **copy** of what the previous location holds: the default `factory-driver
 when a custom folder is used, or the pre-4A Godot default
 (`<OS data dir>/Godot/app_userdata/Factory Driver`, where everything was kept before this
 iteration) - the first of the two that holds any data. `cars.json`, `issues.json`
-(was: `cars.json` alone - a fresh folder lost the issue store, fixed 2026-09-24) and
+(was: `cars.json` alone - a fresh folder lost the issue store, fixed 2026-09-24), the
+later stores (`world.json`, `campaign.json`, `credits.json`, `obligations.json` and, since
+SOUND-5, `sound_settings.json`) and
 the whole of `telemetry/` are copied file by file, never over a file the new folder
 already has, and
 nothing in the old location is moved or deleted: it is left exactly as it was, a backup.
@@ -2711,7 +2716,7 @@ records to the bit.
 even with no window, unset on in the game and off headless - so the test suite sees no
 layer unless a test asks (`tests/marks_test.gd` does, for its own scenes, and restores).
 
-### Sound (SOUND-1, SOUND-2, SOUND-3, SOUND-4)
+### Sound (SOUND-1, SOUND-2, SOUND-3, SOUND-4, SOUND-5)
 
 The game was silent (backlog U-1). The first sound goes everywhere the car goes, the way the
 marks do: the `SoundWatch` autoload (`scripts/sound_watch.gd`, registered in `project.godot`
@@ -2903,6 +2908,54 @@ test suite's baseline is unaffected (the suite never reads `run.sh`, and
 battery and restores it). The node's `state()` dictionary carries sixteen values (was twelve
 -> the cat mode, the squeal's written pitch and volume under it and the thump's pitch), and
 `describe()` ends in `cat mix on` / `cat mix off` (was: ended at the ticks).
+
+**The cat mix as a setting (SOUND-5).** The driver's ask (plan task A675B305): the cat mix
+was an environment variable alone; make it a garage setting that persists, with a master
+trim. The store is `scripts/sound_settings.gd` (`SoundSettings`), one small file beside
+the rest of the data, `user://sound_settings.json`, on the obligations ledger's discipline
+(the atomic tmp+rename write, a later build's version refused and never written over, a
+tolerant reader that reports and invents nothing, the `path_override` test seam, the
+`OdometerStore.enabled` gating - headless the store names no file and writes nothing):
+`{"version": 1, "cat_mix": false, "master_trim_db": -3.0}` at most, exactly those
+fields - `cat_mix` is written only once the driver has chosen it in the garage, and
+`master_trim_db` is clamped to -24..+6 dB and snapped to 0.001 on every load and set. The
+file is seeded with the rest of the data folder (`DataDir.SEEDED_FILES`, seventh, after
+`obligations.json`; was six files). The SETTINGS page gains two rows under a SOUND
+heading: `Cat mix: ON — the squeal down-pitched, thumps softened (the cat's hearing)` /
+`Cat mix: OFF — the realistic mix` (`Enter` flips what a sound node made now would play
+and keeps it; until a choice is made the label adds `not chosen here yet: as launched,
+FD_CAT ...`, and a caller's `FD_CAT=0` over a chosen ON is named as the override) and
+`Master trim: +0.0 dB — one offset on every sound` (`Enter` is 0.5 dB quieter a press,
+down to -24, then round to +6: the one row walks the whole range). Both take effect on the
+next sound node made - the next drive, the next scene - not on the one already playing;
+a status line under the rows says so. Gated (no window), the rows are shown with the
+defaults and greyed.
+
+The precedence is the ruled shape with the Conductor's amendment of 2026-10-03 on the
+absent-file corner, one pure function, `SoundNode.cat_mode_effective`, applied once per
+node in `_ready` beside the `FD_CAT` read: `FD_SOUND=0` wins over everything (no node, no
+bus, no trim - the profile never turns sound on or off; `SoundWatcher.should_attach` is
+`FD_SOUND`'s alone, untouched); NO CAT MIX CHOSEN (no file, a file without `cat_mix`, a
+file that cannot be trusted) is today's environment semantics exactly - `FD_CAT=1` the
+cat mix, unset or anything else the realistic mix, byte for byte as CAT-AWARE-1 landed it
+(the file comes into being only when a sound row is pressed, so every run before that and
+every direct godot launch behaves as the game ships; the brief's cat_mix-default-true was
+amended away); a cat mix CHOSEN: `FD_CAT` present and anything but `1` is the caller's
+override (necessarily caller-set: `run.sh` fills only an unset `FD_CAT` with `1`), the
+realistic mix, the file ignored; `FD_CAT` unset or `1` lets the file decide. So the
+setting exists to turn the household's cat mix OFF from the garage, persistently, under
+`run.sh`'s default. The master trim applies always, the environment never overrides it:
+one offset on every volume the node writes to a player - the four loops and the thumps -
+through `trimmed_db`, trim-then-floors (snapped, never under `MUTE_DB`, a muted channel
+staying muted); the node's own fields and `state()` stay the mapped values, so at a trim of
+0 every written value is the mapped one to the bit and both mixes are what SOUND-4 landed.
+The mix knobs (`CAT_SKID_PITCH`, `CAT_SKID_DB_TRIM`, `CAT_THUMP_PITCH`,
+`CAT_THUMP_DB_TRIM`, `CAT_LOWPASS_HZ`) and the cat functions are unchanged; `describe()`
+ends in the trim (`master trim +0.0 dB`). `tests/sound_test.gd` pins the store, the
+twelve precedence corners (`FD_CAT` unset / `0` / `1` / exotic x the file absent / on /
+off) with `FD_SOUND=0` over them, the file-present corners on bare cars and the trim;
+`tests/menu_test.gd` the rows; every earlier sound pin stands without a seam - headless
+the store reads "no cat mix chosen" and the environment decides, as it always did.
 
 ### Weather (WEATHER-1)
 

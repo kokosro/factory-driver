@@ -97,6 +97,47 @@ extends Node
 ## the bit; in every mode. The pitch mapping now sweeps a noise band's
 ## playback rate, not a note.
 ##
+## SOUND-5 (2026-10-03): the cat mix becomes a SETTING. The household's cat
+## mix was FD_CAT=1 alone (run.sh exports it where the caller has not set
+## it); the driver asked for it in the garage, persisted, with a master trim
+## beside it (plan task A675B305). THE STORE is scripts/sound_settings.gd
+## (SoundSettings, user://sound_settings.json: {"version": 1, "cat_mix":
+## false, "master_trim_db": -3.0}; the obligations ledger's discipline,
+## seeded with the data folder), THE ROWS are the garage's SETTINGS page.
+## THE PRECEDENCE, the ruled shape (the Conductor's amendment of 2026-10-03
+## on the absent-file corner), cat_mode_effective below (pure) and applied
+## ONCE PER NODE in _ready beside the FD_CAT read: FD_SOUND "0" wins over
+## everything (no node: the watcher's switch, untouched - the profile NEVER
+## turns sound on or off); NO CAT MIX CHOSEN (no file, a file without
+## cat_mix, a file that cannot be trusted) is TODAY'S environment semantics
+## exactly, cat_mode_of(FD_CAT) - "1" the cat mix, unset or anything else
+## the realistic mix, byte for byte as CAT-AWARE-1 landed it (was-> the
+## brief's cat_mix default true with no file: amended, NOT that - the
+## file exists only once the driver touches a sound row, so every run
+## before that behaves as the game ships); a cat mix CHOSEN: FD_CAT present
+## and anything but "1" is the caller's override, the realistic mix, the
+## profile ignored; FD_CAT unset or "1" (run.sh's household default) lets
+## the PROFILE decide, cat_mix true the cat mix, false the realistic one.
+## cat_mode_of itself is unchanged (the pure corner the tests pin). THE MIX
+## KNOBS (CAT_SKID_PITCH, CAT_SKID_DB_TRIM, CAT_THUMP_PITCH,
+## CAT_THUMP_DB_TRIM, CAT_LOWPASS_HZ) and the cat functions are what they
+## were, to the bit; only WHICH mix a node plays gained the profile seam.
+## THE MASTER TRIM, master_trim_db, read from the profile always (the
+## environment never overrides it; 0 with no file): ONE offset on every
+## volume the node writes to a player - the four loops in _write_players,
+## the thump in _fire_thump - through trimmed_db(base, master_trim_db),
+## trim-then-floors: snapped, never under MUTE_DB, a muted base staying
+## muted. The node's own fields (engine_db, surface_db, skid_db, wind_db,
+## thump_db) and state() stay the mapped values, untrimmed; at a trim of 0
+## every written value is the mapped one to the bit (trimmed_db's identity
+## at 0), so the realistic and the cat mixes under no trim are byte for
+## byte what SOUND-4 landed. THE SUITE: headless the store is gated
+## (OdometerStore.enabled false) and reads the defaults - no cat mix
+## chosen, the environment's semantics - so every existing pin of
+## tests/sound_test.gd stands without a seam; its SOUND-5 battery points
+## SoundSettings.path_override at a file of its own for the file-present
+## corners and the trim, and restores it (the FD_CAT idiom).
+##
 ## FOUR LOOPING PLAYERS AND A BURST POOL (was-> THREE PLAYERS, THREE LOOPS:
 ## SOUND-3 added the wind loop and the thump pool): the node holds four
 ## looping AudioStreamPlayer children (ENGINE_PLAYER, SURFACE_PLAYER,
@@ -685,16 +726,28 @@ var surface_offset_db := 0.0
 var ticks := 0
 var read_ticks := 0
 
-## CAT-AWARE-1: whether this node plays the cat-aware mix (FD_CAT read once,
-## in _ready; false: the SOUND-2/3 realistic mix to the bit).
+## CAT-AWARE-1: whether this node plays the cat-aware mix (FD_CAT and the
+## profile read once, in _ready - SOUND-5, cat_mode_effective; false: the
+## SOUND-2/3 realistic mix to the bit).
 var cat_mode := false
+
+## SOUND-5: the master trim [dB] from the profile (read once, in _ready):
+## the one offset on every volume written to a player (trimmed_db). 0 with
+## no file: every written value the mapped one to the bit.
+var master_trim_db := SoundSettings.DEFAULT_TRIM_DB
 
 
 func _ready() -> void:
 	process_physics_priority = -1
 	# CAT-AWARE-1: the switch read once (the FD_SOUND convention), and in cat
 	# mode the bus made BEFORE the players, which are routed to it at creation.
-	cat_mode = cat_mode_of(OS.get_environment(CAT_ENV_VAR))
+	# was-> cat_mode = cat_mode_of(OS.get_environment(CAT_ENV_VAR)) (SOUND-5:
+	# the profile read once beside it - no cat mix chosen is that line to
+	# the bit; chosen, FD_CAT unset or "1" lets the profile decide, anything
+	# else is the caller's override - and the master trim with it).
+	var settings := SoundSettings.current()
+	cat_mode = cat_mode_effective(OS.get_environment(CAT_ENV_VAR), settings.cat_mix_chosen(), settings.cat_mix())
+	master_trim_db = settings.master_trim_db()
 	if cat_mode:
 		cat_nodes += 1
 		_ensure_cat_bus()
@@ -886,6 +939,22 @@ static func trimmed_db(base: float, offset: float) -> float:
 ## anything else (unset, "0", any other text) does not.
 static func cat_mode_of(setting: String) -> bool:
 	return setting == "1"
+
+
+## SOUND-5, which mix a node plays, pure (the ruled precedence, amended on
+## the absent corner): no cat mix `chosen` (no file, the file without the
+## field) is cat_mode_of(`setting`) - today's FD_CAT semantics exactly, "1"
+## on, unset or anything else off; chosen, the FD_CAT `setting` present
+## and anything but "1" is the caller's override, the realistic mix (false)
+## whatever the profile says, and unset ("") or "1" lets the profile decide
+## - `profile_cat_mix`, the SoundSettings file's cat_mix. FD_SOUND "0" is
+## decided before this is ever asked: no node is made.
+static func cat_mode_effective(setting: String, chosen: bool, profile_cat_mix: bool) -> bool:
+	if not chosen:
+		return cat_mode_of(setting)
+	if setting != "" and not cat_mode_of(setting):
+		return false
+	return profile_cat_mix
 
 
 ## The squeal's written pitch: in `cat` mode the mapped `base_pitch` times
@@ -1260,14 +1329,18 @@ func _skid_intensity() -> float:
 func _write_players() -> void:
 	if engine_player == null:
 		return
+	# was-> <player>.volume_db = <channel>_db written as is (SOUND-5: the
+	# master trim on every written volume through trimmed_db - the mapped
+	# value itself to the bit at a trim of 0, never under MUTE_DB, a muted
+	# channel staying muted; the node's fields stay the mapped values).
 	engine_player.pitch_scale = engine_pitch
-	engine_player.volume_db = engine_db
+	engine_player.volume_db = trimmed_db(engine_db, master_trim_db)
 	surface_player.pitch_scale = surface_pitch
-	surface_player.volume_db = surface_db
+	surface_player.volume_db = trimmed_db(surface_db, master_trim_db)
 	skid_player.pitch_scale = skid_pitch
-	skid_player.volume_db = skid_db
+	skid_player.volume_db = trimmed_db(skid_db, master_trim_db)
 	wind_player.pitch_scale = WIND_PITCH
-	wind_player.volume_db = wind_db
+	wind_player.volume_db = trimmed_db(wind_db, master_trim_db)
 
 
 ## SOUND-3: a thump on this tick's mapped impact, if any and if the cooldown
@@ -1285,7 +1358,9 @@ func _fire_thump() -> void:
 	# base; in cat mode the written volume is trimmed and the burst plays
 	# slower - the pitch is written in cat mode only, a realistic thump's
 	# player is never touched beyond its volume and play()).
-	player.volume_db = cat_thump_db_of(thump_db, cat_mode)
+	# was-> player.volume_db = cat_thump_db_of(thump_db, cat_mode) (SOUND-5:
+	# the master trim on top, trim-then-floors; the mapped value itself at 0).
+	player.volume_db = trimmed_db(cat_thump_db_of(thump_db, cat_mode), master_trim_db)
 	if cat_mode:
 		player.pitch_scale = cat_thump_pitch_of(cat_mode)
 	player.play()
@@ -1335,7 +1410,8 @@ func state() -> Dictionary:
 	}
 
 
-## One line for the eye (was-> ending at the ticks: CAT-AWARE-1 added the
-## cat mix's on / off at the tail).
+## One line for the eye (was-> ending at the cat mix's on / off: SOUND-5
+## added the master trim at the tail; was-> ending at the ticks: CAT-AWARE-1
+## added the cat mix's on / off).
 func describe() -> String:
-	return "sound: engine %.3f x / %.1f dB (%.0f rpm, throttle %.2f), surface %.3f x / %.1f dB (drag %.2f, grip %.2f / %.2f, %.1f m/s), skid %.3f x / %.1f dB (intensity %.3f), wind %.1f dB, openness %.3f (nearest shell %.1f m, trims %.2f / %+.2f dB), %d thumps (last %.3f at %.1f dB), %d ticks, cat mix %s" % [engine_pitch, engine_db, last_rpm, last_throttle, surface_pitch, surface_db, last_drag, last_grip_front, last_grip_rear, last_speed, skid_pitch, skid_db, skid_intensity, wind_db, openness, nearest_shell_m, wind_offset_db, surface_offset_db, impacts_fired, thump_intensity, thump_db, ticks, "on" if cat_mode else "off"]
+	return "sound: engine %.3f x / %.1f dB (%.0f rpm, throttle %.2f), surface %.3f x / %.1f dB (drag %.2f, grip %.2f / %.2f, %.1f m/s), skid %.3f x / %.1f dB (intensity %.3f), wind %.1f dB, openness %.3f (nearest shell %.1f m, trims %.2f / %+.2f dB), %d thumps (last %.3f at %.1f dB), %d ticks, cat mix %s, master trim %+.1f dB" % [engine_pitch, engine_db, last_rpm, last_throttle, surface_pitch, surface_db, last_drag, last_grip_front, last_grip_rear, last_speed, skid_pitch, skid_db, skid_intensity, wind_db, openness, nearest_shell_m, wind_offset_db, surface_offset_db, impacts_fired, thump_intensity, thump_db, ticks, "on" if cat_mode else "off", master_trim_db]

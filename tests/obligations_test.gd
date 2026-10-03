@@ -414,7 +414,9 @@ func _failed_write() -> void:
 	ok(ledger.redeem("OBL-0001", "fuel 64 L", "E2.4", "refuel") == record({"status": "settled", "redemptions": [REDEMPTION]}) and on_disk().records[0].status == "settled", "the retry commits it")
 	# was `not has("obligations.json")`, slice 1's known seed gap pinned ->
 	# closed (TROC-1 slice 2).
-	ok(DataDir.SEEDED_FILES.has("obligations.json") and DataDir.SEEDED_FILES[-1] == "obligations.json" and DataDir.SEEDED_FILES[-2] == "credits.json", "the data folder's seed carries obligations.json, last after credits.json (was: pinned absent, slice 1's known gap, closed by slice 2)")
+	# was `[-1] == "obligations.json" and [-2] == "credits.json"` -> SOUND-5
+	# appends sound_settings.json after it: obligations.json is [-2] now.
+	ok(DataDir.SEEDED_FILES.has("obligations.json") and DataDir.SEEDED_FILES[-2] == "obligations.json" and DataDir.SEEDED_FILES[-3] == "credits.json" and DataDir.SEEDED_FILES[-1] == "sound_settings.json", "the data folder's seed carries obligations.json after credits.json, with sound_settings.json after it (was: obligations.json last, SOUND-5; was: pinned absent, slice 1's known gap, closed by slice 2)")
 	DirAccess.remove_absolute(ledger_path)
 
 # =============================================================================

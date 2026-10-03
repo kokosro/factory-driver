@@ -147,6 +147,39 @@ extends SceneTree
 ## pitch pin's literal (0.9 at solid) stands, its message on the new band.
 ## 92 checks (was-> 91; the final ruling moved pins, the count stayed).
 ##
+## SOUND-5 (2026-10-03, the cat mix a garage setting; the Conductor's
+## amendment on the absent-file corner): the last section, _check_settings,
+## runs after the cat battery. THE STORE (scripts/sound_settings.gd,
+## SoundSettings) pure and on a file of this test's own through
+## path_override: the defaults (NO cat mix chosen - null, never a bool - and
+## the trim 0: an absent file is today's FD_CAT semantics, not cat_mix
+## true), the seed list's seventh file, trim_of and trim_stepped at their
+## corners, the atomic write with exactly the three fields, a fresh load, the
+## clamp and the snap on every set, a trim-only file carrying no cat_mix,
+## the tolerant reader (not JSON, no object, a later build's version
+## refused with the bytes kept, version 0 read as 1, a cat_mix that is no
+## bool not chosen, a trim that is no number 0, an unknown field left out
+## and dropped by the next write, a trim of 40 clamped), the gated store
+## writing nothing. THE PRECEDENCE as one pure function, exhaustive:
+## cat_mode_effective over FD_CAT {unset, "0", "1", "true"} x the file
+## {absent, cat on, cat off} - twelve pins, absent = cat_mode_of to the bit
+## - a not-chosen cat_mix ignored whatever it holds, and FD_SOUND=0 over all
+## of them on a real car (the file ON at +6 under FD_CAT=1: no node, no bus).
+## THE FILE-PRESENT CORNERS on bare cars: OFF in the file under FD_CAT=1
+## (the setting's purpose: the realistic mix, no bus), ON under FD_CAT unset
+## (the cat mix, the bus, every player on it), ON under the caller's "0"
+## (the override). THE MASTER TRIM: +3 in the file, four live loops each
+## written at the mapped value + 3 (the fields and state() untrimmed, so
+## _players_match no longer holds), a hand-fired thump at -2 + 3, the
+## stopped engine staying at MUTE_DB; -24 on a fresh node (the file read
+## again) flooring the faint wind at MUTE_DB while the idle engine takes the
+## whole -24; a trim of 0 in the file bit-identical to no file (the eight
+## player values and the sixteen-value state); path_override "" restored
+## and pinned. EVERY EARLIER PIN STANDS UNCHANGED AND UNSEAMED: headless the
+## store is gated and names no file, so the realistic sections read "no cat
+## mix chosen" and the environment decides, as it always did.
+## 134 checks (was-> 92; SOUND-5's forty-two, measured on the host).
+##
 ## The store pinned off (FD_TELEMETRY=0, the marks test's idiom); FD_SOUND
 ## restored at the end. Exits 0 on success, 1 on any failed check.
 
@@ -233,6 +266,8 @@ func _run() -> void:
 	print("-- FD_CAT: the cat-aware mix (CAT-AWARE-1)")
 	OS.set_environment(SoundWatcher.ENV_VAR, "1")
 	await _check_cat()
+	print("-- SOUND-5: the settings store, the precedence, the master trim")
+	await _check_settings()
 	OS.set_environment(SoundWatcher.ENV_VAR, _sound_env_before)
 	_check(OS.get_environment(SoundWatcher.ENV_VAR) == _sound_env_before, "FD_SOUND restored to what it was (%s)" % ("unset" if _sound_env_before == "" else _sound_env_before))
 	OS.set_environment(SoundNode.CAT_ENV_VAR, _cat_env_before)
@@ -1066,6 +1101,265 @@ func _check_cat() -> void:
 	root.remove_child(plain)
 	await _step(2)
 	plain.free()
+
+
+# =============================================================================
+#  SOUND-5: the settings store, the precedence, the master trim
+# =============================================================================
+
+## SOUND-5 (FD_SOUND "1" and FD_CAT unset by the caller, the cat battery's
+## leavings): the store on a file of this test's own (the defaults, the
+## atomic write with the minimal schema, the clamp and the snap, a trim-only
+## file without cat_mix, the tolerant reader's corners, a later build's
+## file refused, the gated store writing nothing); THE PRECEDENCE as one
+## pure function, exhaustive - FD_CAT {unset, "0", "1", exotic} x the file
+## {absent, cat on, cat off} - and FD_SOUND=0 over all of them on a real
+## car; the file-present corners on bare cars (OFF under FD_CAT=1, ON under
+## FD_CAT unset, the caller's "0" over ON); the master trim on every written
+## volume (+3 on four live loops and a thump, the muted engine staying
+## muted, -24 flooring the faint wind at MUTE_DB, 0 bit-identical to no
+## file, a fresh node reading the file again). Leaves FD_CAT unset, FD_SOUND
+## "1" and SoundSettings.path_override "" (pinned).
+func _check_settings() -> void:
+	var watch := SoundWatcher.of(self)
+	var buses_before := AudioServer.bus_count
+	var file := _tmp_dir.path_join("sound_settings.json")
+	var defaults := SoundSettings.defaults()
+
+	# The store, pure.
+	_check(SoundSettings.PATH == "user://sound_settings.json" and SoundSettings.VERSION == 1 and SoundSettings.path_override == "" and SoundSettings.active_path() == "" and not OdometerStore.enabled(), "THE STORE (SOUND-5): user://sound_settings.json, version 1; gated headless (FD_TELEMETRY=0, no override) it names no file - every section above read the defaults, no cat mix chosen, and never the driver's folder")
+	var fresh := SoundSettings.new()
+	_check(defaults == {"version": 1, "cat_mix": null, "master_trim_db": 0.0} and not fresh.cat_mix_chosen() and not fresh.cat_mix() and fresh.master_trim_db() == 0.0 and fresh.problems.is_empty() and not fresh.newer_file and fresh.state == defaults, "the defaults: NO cat mix chosen (null, never a bool) and the trim 0 - not cat_mix true (the Conductor's amendment: an absent file is today's environment semantics, byte for byte)")
+	_check(DataDir.SEEDED_FILES.size() == 7 and DataDir.SEEDED_FILES[6] == "sound_settings.json" and DataDir.SEEDED_FILES[5] == "obligations.json", "sound_settings.json is the last of DataDir.SEEDED_FILES, after obligations.json (seven files; was six): a chosen data folder carries the cat mix and the trim")
+	_check(SoundSettings.trim_of(3.0) == 3.0 and SoundSettings.trim_of(-30.0) == SoundSettings.TRIM_DB_MIN and SoundSettings.trim_of(9.0) == SoundSettings.TRIM_DB_MAX and _near(SoundSettings.trim_of(1.23456), 1.235) and SoundSettings.trim_of(-0.0004) == 0.0 and SoundSettings.trim_of(INF) == 0.0 and SoundSettings.trim_of(NAN) == 0.0 and SoundSettings.trim_of("loud") == 0.0 and SoundSettings.trim_of(null) == 0.0 and SoundSettings.trim_of(2) == 2.0 and SoundSettings.TRIM_DB_MIN == -24.0 and SoundSettings.TRIM_DB_MAX == 6.0 and SoundSettings.TRIM_SNAP == 0.001, "trim_of, pure: clamped to -24..+6 dB, snapped to 0.001, an int a float, anything that is no finite number 0")
+	_check(_near(SoundSettings.trim_stepped(0.0), -0.5) and SoundSettings.trim_stepped(-23.8) == -24.0 and SoundSettings.trim_stepped(-24.0) == 6.0 and SoundSettings.trim_stepped(-30.0) == 6.0 and _near(SoundSettings.trim_stepped(6.0), 5.5) and _near(SoundSettings.trim_stepped(0.3), -0.2) and SoundSettings.TRIM_STEP_DB == 0.5, "trim_stepped, pure (the garage's one row): 0.5 dB quieter a press, never under -24, from -24 (or under it) round to +6, from +6 down to 5.5")
+
+	# The store on a file.
+	SoundSettings.path_override = file
+	var store := SoundSettings.new()
+	store.load_state()
+	_check(SoundSettings.active_path() == file and not FileAccess.file_exists(file) and store.state == defaults and store.problems.is_empty(), "path_override names this test's own file, absent yet: the load is the defaults, no problem reported, nothing written (reads never write)")
+	var written := store.set_cat_mix(false)
+	var expected_text := JSON.stringify({"version": 1, "cat_mix": false, "master_trim_db": 0.0}, "  ")
+	_check(written == {"version": 1, "cat_mix": false, "master_trim_db": 0.0} and store.state == written and FileAccess.get_file_as_string(file) == expected_text and not FileAccess.file_exists(file + ".tmp"), "set_cat_mix(false): the file written atomically with exactly the three fields - version 1, cat_mix false, master_trim_db 0.0 - the state the written one, no .tmp left")
+	var again := SoundSettings.new()
+	again.load_state()
+	_check(again.cat_mix_chosen() and not again.cat_mix() and again.master_trim_db() == 0.0 and again.problems.is_empty() and not again.newer_file, "a fresh store loads it: the cat mix chosen, off, the trim 0, no problem")
+	written = again.set_master_trim_db(3.0)
+	_check(written.get("master_trim_db") == 3.0 and written.get("cat_mix") == false and FileAccess.get_file_as_string(file) == JSON.stringify({"version": 1, "cat_mix": false, "master_trim_db": 3.0}, "  "), "set_master_trim_db(3.0): the trim written, the chosen cat mix kept as it stands on disk")
+	_check(again.set_master_trim_db(-30.0).get("master_trim_db") == -24.0 and again.set_master_trim_db(9.0).get("master_trim_db") == 6.0 and _near(again.set_master_trim_db(1.23456).get("master_trim_db"), 1.235) and again.set_master_trim_db(NAN).is_empty() and again.set_master_trim_db(INF).is_empty() and _near(SoundSettings.current().master_trim_db(), 1.235), "the trim is clamped to -24..+6 and snapped to 0.001 on every set; NaN and INF are refused and the file keeps 1.235")
+	DirAccess.remove_absolute(file)
+	var trim_only := SoundSettings.new().set_master_trim_db(-2.0)
+	var trim_only_text := FileAccess.get_file_as_string(file)
+	var trim_only_loaded := SoundSettings.current()
+	_check(trim_only.get("cat_mix") == null and trim_only_text == JSON.stringify({"version": 1, "master_trim_db": -2.0}, "  ") and not trim_only_text.contains("cat_mix") and not trim_only_loaded.cat_mix_chosen() and trim_only_loaded.master_trim_db() == -2.0 and trim_only_loaded.problems.is_empty(), "a trim set before any cat mix is chosen writes a file WITHOUT cat_mix (never null on disk): loaded, the trim -2 and still no cat mix chosen - the environment keeps deciding the mix")
+
+	# The tolerant reader.
+	_write_file(file, "nonsense")
+	var corrupt := SoundSettings.current()
+	_write_file(file, "[1, 2]")
+	var list := SoundSettings.current()
+	_check(corrupt.state == defaults and corrupt.problems.size() == 1 and corrupt.problems[0].contains("not JSON") and FileAccess.get_file_as_string(file) == "[1, 2]" and list.state == defaults and list.problems.size() == 1 and list.problems[0].contains("not an object"), "a file that is not JSON, or no object, reads as the defaults with one problem each, and is not rewritten")
+	_write_file(file, JSON.stringify({"version": 2, "cat_mix": true, "master_trim_db": 1.0}))
+	var newer := SoundSettings.current()
+	var newer_bytes := FileAccess.get_file_as_string(file)
+	_check(newer.newer_file and newer.state == defaults and newer.set_cat_mix(false).is_empty() and newer.set_master_trim_db(1.0).is_empty() and FileAccess.get_file_as_string(file) == newer_bytes and newer.problems.size() == 1 and newer.problems[0].contains("later build"), "a version-2 file is a later build's: the defaults are read, every set refuses and the bytes stay")
+	_write_file(file, JSON.stringify({"version": 0, "cat_mix": "yes", "master_trim_db": "loud", "colour": "red"}))
+	var odd := SoundSettings.current()
+	_check(not odd.cat_mix_chosen() and odd.master_trim_db() == 0.0 and odd.problems.size() == 3 and not odd.newer_file, "version 0 reads as 1; a cat_mix that is no bool is not chosen, a trim that is no number is 0, a field none of the store's is left out - three problems reported: %s" % "; ".join(odd.problems).replace(file, "<the file>"))
+	var stamped := odd.set_cat_mix(true)
+	_check(stamped == {"version": 1, "cat_mix": true, "master_trim_db": 0.0} and FileAccess.get_file_as_string(file) == JSON.stringify(stamped, "  "), "the next set stamps version 1 and writes the store's own fields alone: the unknown field is gone")
+	_write_file(file, JSON.stringify({"version": 1, "cat_mix": true, "master_trim_db": 40.0}))
+	var over := SoundSettings.current()
+	_check(over.cat_mix_chosen() and over.cat_mix() and over.master_trim_db() == 6.0 and over.problems.size() == 1 and over.problems[0].contains("outside"), "a trim of 40 on disk reads clamped to +6 with the problem reported; the cat mix beside it kept")
+	SoundSettings.path_override = ""
+	var gated := SoundSettings.new()
+	_check(SoundSettings.active_path() == "" and gated.set_cat_mix(true).is_empty() and gated.set_master_trim_db(1.0).is_empty() and gated.state == defaults, "the override off: gated headless the store names no file, every set returns {} and keeps nothing (the driver's folder is never written by this test)")
+
+	# THE PRECEDENCE, one pure function, exhaustive.
+	var envs: Array[String] = ["", "0", "1", "true"]
+	var env_names: Array[String] = ["unset", "\"0\"", "\"1\"", "\"true\" (exotic)"]
+	var files: Array = [[false, false, "absent (no cat mix chosen)"], [true, true, "cat_mix true"], [true, false, "cat_mix false"]]
+	for e in envs.size():
+		for f: Array in files:
+			var chosen: bool = f[0]
+			var on: bool = f[1]
+			var expected: bool
+			var why: String
+			if not chosen:
+				expected = envs[e] == "1"
+				why = "no cat mix chosen: today's FD_CAT semantics exactly, as CAT-AWARE-1 shipped"
+			elif envs[e] != "" and envs[e] != "1":
+				expected = false
+				why = "the caller's FD_CAT overrides the file"
+			else:
+				expected = on
+				why = "the file decides under FD_CAT unset or \"1\""
+			_check(SoundNode.cat_mode_effective(envs[e], chosen, on) == expected, "PRECEDENCE, pure: FD_CAT %s x the file %s -> %s (%s)" % [env_names[e], f[2], "the cat mix" if expected else "the realistic mix", why])
+	var ignored := true
+	for setting in envs:
+		ignored = ignored and SoundNode.cat_mode_effective(setting, false, true) == SoundNode.cat_mode_of(setting) and SoundNode.cat_mode_effective(setting, false, false) == SoundNode.cat_mode_of(setting)
+	_check(ignored, "a cat_mix that is not chosen is ignored whatever it holds: cat_mode_effective is cat_mode_of for every FD_CAT")
+
+	# FD_SOUND=0 over all of them: the loudest corner for the cat (the file
+	# ON, FD_CAT=1) gets no node at all.
+	OS.set_environment(SoundWatcher.ENV_VAR, "0")
+	SoundSettings.path_override = file
+	_write_file(file, JSON.stringify({"version": 1, "cat_mix": true, "master_trim_db": 6.0}))
+	OS.set_environment(SoundNode.CAT_ENV_VAR, "1")
+	var silent: ArcadeCar = (load(CAR_SCENE) as PackedScene).instantiate()
+	root.add_child(silent)
+	await _step(SETTLE_FRAMES)
+	_check(not SoundWatcher.should_attach() and watch.sound_for(silent) == null and _sounds_under(root).is_empty() and _players_under(root).is_empty() and not SoundNode.cat_bus_ready() and SoundNode.cat_nodes == 0 and AudioServer.bus_count == buses_before, "FD_SOUND=0 over every corner: with the file's cat_mix true, its trim +6 and FD_CAT=1 a bare car gets no node, no player, no bus - silence trumps every setting")
+	root.remove_child(silent)
+	await _step(2)
+	silent.free()
+	OS.set_environment(SoundWatcher.ENV_VAR, "1")
+
+	# The file-present corners on bare cars.
+	_write_file(file, JSON.stringify({"version": 1, "cat_mix": false, "master_trim_db": 0.0}))
+	OS.set_environment(SoundNode.CAT_ENV_VAR, "1")
+	var off_car: ArcadeCar = (load(CAR_SCENE) as PackedScene).instantiate()
+	root.add_child(off_car)
+	await _step(SETTLE_FRAMES)
+	var off_sound := watch.sound_for(off_car)
+	_check(off_sound != null and not off_sound.cat_mode and SoundNode.cat_nodes == 0 and not SoundNode.cat_bus_ready() and AudioServer.bus_count == buses_before and off_sound.master_trim_db == 0.0 and String(off_sound.skid_player.bus) == AudioServer.get_bus_name(0), "THE SETTING'S PURPOSE: cat_mix false in the file under FD_CAT=1 (run.sh's household default): the bare car's node plays the REALISTIC mix - no cat node, no cat bus, the players on the default bus - the garage's OFF outranks the launch")
+	root.remove_child(off_car)
+	await _step(2)
+	off_car.free()
+	_write_file(file, JSON.stringify({"version": 1, "cat_mix": true, "master_trim_db": 0.0}))
+	OS.set_environment(SoundNode.CAT_ENV_VAR, "")
+	var on_car: ArcadeCar = (load(CAR_SCENE) as PackedScene).instantiate()
+	root.add_child(on_car)
+	await _step(SETTLE_FRAMES)
+	var on_sound := watch.sound_for(on_car)
+	var on_bus := on_sound != null
+	if on_sound != null:
+		for player in _players_under(on_sound):
+			on_bus = on_bus and String((player as AudioStreamPlayer).bus) == SoundNode.CAT_BUS_NAME
+	_check(on_sound != null and on_sound.cat_mode and SoundNode.cat_nodes == 1 and SoundNode.cat_bus_ready() and AudioServer.bus_count == buses_before + 1 and on_bus, "cat_mix true in the file under FD_CAT unset (a direct godot launch, without run.sh): the cat mix, the \"%s\" bus made, every player on it - the file decides" % SoundNode.CAT_BUS_NAME)
+	root.remove_child(on_car)
+	await _step(2)
+	on_car.free()
+	OS.set_environment(SoundNode.CAT_ENV_VAR, "0")
+	var over_car: ArcadeCar = (load(CAR_SCENE) as PackedScene).instantiate()
+	root.add_child(over_car)
+	await _step(SETTLE_FRAMES)
+	var over_sound := watch.sound_for(over_car)
+	_check(over_sound != null and not over_sound.cat_mode and SoundNode.cat_nodes == 0 and not SoundNode.cat_bus_ready() and AudioServer.bus_count == buses_before, "cat_mix true in the file under FD_CAT=0 (necessarily the caller's: run.sh fills only an unset FD_CAT): the caller's override, the realistic mix, the file ignored, the bus gone with the last cat node")
+	root.remove_child(over_car)
+	await _step(2)
+	over_car.free()
+	OS.set_environment(SoundNode.CAT_ENV_VAR, "")
+
+	# THE MASTER TRIM: +3 on every live channel and a thump; a muted
+	# channel stays muted.
+	_write_file(file, JSON.stringify({"version": 1, "master_trim_db": 3.0}))
+	var car: ArcadeCar = (load(CAR_SCENE) as PackedScene).instantiate()
+	root.add_child(car)
+	await _step(SETTLE_FRAMES)
+	var sound := watch.sound_for(car)
+	if not _check(sound != null and sound.master_trim_db == 3.0 and not sound.cat_mode and SoundNode.cat_nodes == 0, "a file holding master_trim_db 3 and no cat mix: the node read the trim once in _ready; the mix realistic (FD_CAT unset, nothing chosen)"):
+		root.remove_child(car)
+		await _step(2)
+		car.free()
+		SoundSettings.path_override = ""
+		return
+	var idle: float = ArcadeCar.IDLE_RPM
+	var limiter: float = ArcadeCar.REDLINE_RPM
+	car.engine_rpm = 5000.0
+	car.throttle_pedal = 1.0
+	_write_surface(car, 0.7, 0.6, 1.6, 10.0)
+	_write_slips(car, 0.0, 0.0, 0.0, 2.0, 10.0)
+	await physics_frame
+	var trim := 3.0
+	var live: bool = sound.engine_db > SoundNode.MUTE_DB and sound.surface_db > SoundNode.MUTE_DB and sound.skid_db > SoundNode.MUTE_DB and sound.wind_db > SoundNode.MUTE_DB
+	var mapped: bool = sound.engine_db == SoundNode.engine_db_of(sound.last_rpm, 1.0, true, idle, limiter) and sound.surface_db == SoundNode.surface_db_of(1.6, 0.6, 10.0) and sound.skid_db == SoundNode.skid_db_of(1.0, 10.0) and sound.wind_db == SoundNode.wind_db_of(10.0) and sound.state().engine_db == sound.engine_db and sound.state().skid_db == sound.skid_db and sound.state().size() == 16
+	var trimmed: bool = absf(sound.engine_player.volume_db - (sound.engine_db + trim)) < PLAYER_TOLERANCE and absf(sound.surface_player.volume_db - (sound.surface_db + trim)) < PLAYER_TOLERANCE and absf(sound.skid_player.volume_db - (sound.skid_db + trim)) < PLAYER_TOLERANCE and absf(sound.wind_player.volume_db - (sound.wind_db + trim)) < PLAYER_TOLERANCE
+	var by_function: bool = absf(sound.engine_player.volume_db - SoundNode.trimmed_db(sound.engine_db, trim)) < PLAYER_TOLERANCE and absf(sound.skid_player.volume_db - SoundNode.trimmed_db(sound.skid_db, trim)) < PLAYER_TOLERANCE and absf(sound.engine_player.pitch_scale - sound.engine_pitch) < PLAYER_TOLERANCE and absf(sound.skid_player.pitch_scale - sound.skid_pitch) < PLAYER_TOLERANCE
+	_check(live and mapped and trimmed and by_function and not _players_match(sound), "THE MASTER TRIM: fed live reads on every channel (5000 rpm full throttle, gravel at 10 m/s, a spinning rear) each player's volume_db is the node's mapped value + 3.0 dB (trimmed_db, snapped: engine %.1f -> %.1f, rumble %.1f -> %.1f, squeal %.1f -> %.1f, wind %.1f -> %.1f), the pitches untouched; the node's own fields and its sixteen-value state() stay the mapped values untrimmed (so _players_match, which reads them, no longer matches: the trim is in the players alone)" % [sound.engine_db, sound.engine_player.volume_db, sound.surface_db, sound.surface_player.volume_db, sound.skid_db, sound.skid_player.volume_db, sound.wind_db, sound.wind_player.volume_db])
+	var full_thump_db := SoundNode.impact_db_of(1.0)
+	var slot := sound.next_thump
+	sound.impact_intensity = 1.0
+	sound.last_impact_tick = sound.ticks - SoundNode.IMPACT_COOLDOWN_FRAMES
+	sound._fire_thump()
+	var thump: AudioStreamPlayer = sound.thump_players[slot]
+	_check(thump.playing and sound.thump_db == full_thump_db and absf(thump.volume_db - (full_thump_db + trim)) < PLAYER_TOLERANCE and absf(thump.volume_db - SoundNode.trimmed_db(SoundNode.cat_thump_db_of(full_thump_db, false), trim)) < PLAYER_TOLERANCE and thump.pitch_scale == 1.0, "a full thump fired through _fire_thump plays at the mapped %.1f + 3.0 = %.1f dB (trimmed_db over the realistic cat_thump_db_of), thump_db the mapped base, the pitch 1" % [full_thump_db, thump.volume_db])
+	car.engine_running = false
+	await physics_frame
+	_check(not sound.last_running and sound.engine_db == SoundNode.MUTE_DB and sound.engine_player.volume_db == SoundNode.MUTE_DB, "a muted channel stays muted under a positive trim: the engine stopped writes %.0f dB to its player, not %.0f (trimmed_db's rule: a trim never wakes a silent channel)" % [SoundNode.MUTE_DB, SoundNode.MUTE_DB + trim])
+	print("  ", sound.describe())
+	_write_slips(car, 0.0, 0.0, 0.0, 0.0, 0.0)
+	_write_surface(car, 1.0, 1.0, 0.0, 0.0)
+	root.remove_child(car)
+	await _step(2)
+	car.free()
+
+	# -24: trim-then-floors on a faint channel; a fresh node reads the file again.
+	_write_file(file, JSON.stringify({"version": 1, "master_trim_db": -24.0}))
+	var faint: ArcadeCar = (load(CAR_SCENE) as PackedScene).instantiate()
+	root.add_child(faint)
+	await _step(SETTLE_FRAMES)
+	var faint_sound := watch.sound_for(faint)
+	var faint_speed := SoundNode.WIND_SPEED_MIN + 1.0
+	_write_surface(faint, 1.0, 1.0, 0.0, faint_speed)
+	await physics_frame
+	_check(faint_sound != null and faint_sound.master_trim_db == -24.0 and faint_sound.wind_db > SoundNode.MUTE_DB and faint_sound.wind_db - 24.0 < SoundNode.MUTE_DB and faint_sound.wind_player.volume_db == SoundNode.MUTE_DB and faint_sound.engine_db > SoundNode.MUTE_DB and faint_sound.engine_db - 24.0 > SoundNode.MUTE_DB and absf(faint_sound.engine_player.volume_db - (faint_sound.engine_db - 24.0)) < PLAYER_TOLERANCE, "a fresh node reads the file again, the trim now -24 (the floor): the idle engine's %.1f dB is written %.1f; the faint wind at %.1f m/s (%.1f dB) would go under %.0f and is written %.0f - trim-then-floors, never under MUTE_DB" % [faint_sound.engine_db, faint_sound.engine_player.volume_db, faint_speed, faint_sound.wind_db, SoundNode.MUTE_DB, SoundNode.MUTE_DB])
+	_write_surface(faint, 1.0, 1.0, 0.0, 0.0)
+	root.remove_child(faint)
+	await _step(2)
+	faint.free()
+
+	# 0 in the file is bit-identical to no file at all.
+	_write_file(file, JSON.stringify({"version": 1, "cat_mix": false, "master_trim_db": 0.0}))
+	var zero: ArcadeCar = (load(CAR_SCENE) as PackedScene).instantiate()
+	root.add_child(zero)
+	await _step(SETTLE_FRAMES)
+	var zero_sound := watch.sound_for(zero)
+	if not _check(zero_sound != null, "a file with cat_mix false and a trim of 0: the bare car's node is up"):
+		root.remove_child(zero)
+		await _step(2)
+		zero.free()
+		SoundSettings.path_override = ""
+		return
+	_write_reads(zero, SAME_READS)
+	await physics_frame
+	var zero_players := _player_values(zero_sound)
+	var zero_state := zero_sound.state()
+	var zero_ok: bool = zero_sound != null and zero_sound.master_trim_db == 0.0 and not zero_sound.cat_mode and _players_match(zero_sound)
+	_write_reads(zero, {"rpm": SAME_READS.rpm, "throttle": 0.0, "running": true, "grip_front": 1.0, "grip_rear": 1.0, "drag": 0.0, "speed": 0.0, "front_angle": 0.0, "front_ratio": 0.0, "rear_angle": 0.0, "rear_ratio": 0.0})
+	root.remove_child(zero)
+	await _step(2)
+	zero.free()
+	SoundSettings.path_override = ""
+	var none: ArcadeCar = (load(CAR_SCENE) as PackedScene).instantiate()
+	root.add_child(none)
+	await _step(SETTLE_FRAMES)
+	var none_sound := watch.sound_for(none)
+	_write_reads(none, SAME_READS)
+	await physics_frame
+	var none_players := _player_values(none_sound)
+	_check(zero_ok and none_sound != null and zero_players == none_players and zero_state == none_sound.state() and none_sound.master_trim_db == 0.0 and not none_sound.cat_mode and _players_match(none_sound) and zero_players.size() == 8, "a trim of 0 in the file (cat_mix false, FD_CAT unset) is bit-identical to no file at all: fed the same reads the two nodes write the same eight player values and the same sixteen-value state - the realistic mix as SOUND-4 landed it: %s vs %s; %s vs %s" % [zero_players, none_players, zero_state, none_sound.state()])
+	_write_reads(none, {"rpm": SAME_READS.rpm, "throttle": 0.0, "running": true, "grip_front": 1.0, "grip_rear": 1.0, "drag": 0.0, "speed": 0.0, "front_angle": 0.0, "front_ratio": 0.0, "rear_angle": 0.0, "rear_ratio": 0.0})
+	root.remove_child(none)
+	await _step(2)
+	none.free()
+	_check(SoundSettings.path_override == "" and SoundSettings.active_path() == "" and not FileAccess.file_exists(file + ".tmp"), "SoundSettings.path_override restored to \"\" (the store gated again, naming no file); no .tmp left behind")
+
+
+## The four loops' written pitch and volume, in order (the trim pin).
+func _player_values(sound: SoundNode) -> Array:
+	return [sound.engine_player.pitch_scale, sound.engine_player.volume_db, sound.surface_player.pitch_scale, sound.surface_player.volume_db, sound.skid_player.pitch_scale, sound.skid_player.volume_db, sound.wind_player.pitch_scale, sound.wind_player.volume_db]
+
+
+func _write_file(path: String, text: String) -> void:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	file.store_string(text)
+	file.close()
+
+
+func _near(a: float, b: float) -> bool:
+	return absf(a - b) < 1.0e-9
 
 
 # =============================================================================

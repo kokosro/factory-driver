@@ -279,7 +279,8 @@ func _ledger() -> void:
 	# was `not has("credits.json")`, ECON-1's known gap pinned -> closed (ECON-2).
 	# was `[-1] == "credits.json" and [-2] == "campaign.json"`, the five files
 	# -> the six: obligations.json follows it (TROC-1 slice 2).
-	ok(DataDir.SEEDED_FILES == ["cars.json", "issues.json", "world.json", "campaign.json", "credits.json", "obligations.json"], "the data folder's seed carries credits.json after campaign.json (was ECON-1's known gap), and obligations.json after it (was the five, credits.json last)")
+	# was the six -> the seven: sound_settings.json follows it, last (SOUND-5).
+	ok(DataDir.SEEDED_FILES == ["cars.json", "issues.json", "world.json", "campaign.json", "credits.json", "obligations.json", "sound_settings.json"], "the data folder's seed carries credits.json after campaign.json (was ECON-1's known gap), obligations.json after it, and sound_settings.json last (was the six, obligations.json last)")
 	DirAccess.remove_absolute(ledger_path)
 
 # =============================================================================
