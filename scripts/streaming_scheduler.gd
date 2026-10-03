@@ -1,11 +1,12 @@
 class_name StreamingScheduler
 extends Node
-## The L2 streaming scheduler (L2-STREAMING-1 slices 1+2; decisions.org
-## C07BE6F1, the driver's canon of 2026-09-27: "no freezing load,
-## world-around-the-car streaming"; the ruling FD79B028 of 2026-10-01:
-## about 2 km of dressed vicinity is enough, the loading screen vanishes
-## the moment the car can roll, the tail streams with no bar, every road's
-## mesh stays resident; docs/design/l2-streaming-design.md). An autoload
+## The L2 streaming scheduler (L2-STREAMING-1 slices 1+2 and 3;
+## decisions.org C07BE6F1, the driver's canon of 2026-09-27: "no freezing
+## load, world-around-the-car streaming"; the ruling FD79B028 of
+## 2026-10-01: about 2 km of dressed vicinity is enough, the loading
+## screen vanishes the moment the car can roll, the tail streams with no
+## bar, every road's mesh stays resident, far chunks RETIRE and rebuild on
+## return; docs/design/l2-streaming-design.md). An autoload
 ## (project.godot, Streaming) on the ShellsWatch / MarksWatch pattern: it
 ## watches the tree's node_added, no builder is edited for it and no scene
 ## file names it.
@@ -63,16 +64,56 @@ extends Node
 ## and in whatever order it is built. No RNG; the wall clock is read only
 ## for the frame's node budget and the probe line, never into a result.
 ## step() is one pass over the chunk table per free flight slot (some
-## hundreds of entries, squared distances) and allocates nothing: the
-## table is packed arrays sized at the split, the flight queue a packed
-## array with two cursors. step(at) is public so a test drives it by hand.
+## hundreds of entries, squared distances) and, once the tail has
+## completed, one more for the retire bands; the table is packed arrays
+## sized at the split, the flight queue a packed ring of DATA_THREADS
+## slots with two cursors. Nothing is allocated but at a transition: a
+## rebuild's job record and the copy of its builder's totals (below).
+## step(at) is public so a test drives it by hand.
 ##
 ## THE COUNTS. A builder's counts and describe() are session totals merged
 ## at each add (their own add_job): at the handover they read the resident
 ## set plus the vicinity, and they reach the one-shot build's values to
-## the integer when the tail completes. This node's own counters are
-## additive and new: chunks_total, chunks_at_handover, chunks_streamed.
-## Nothing built is retired in this landing (slices 3 and 4).
+## the integer when the tail completes - and stay there: a retirement
+## takes nothing from them and a rebuild adds nothing to them. This node's
+## own counters are additive and never fall while the Ring is claimed:
+## chunks_total, chunks_at_handover, chunks_streamed, chunks_retired,
+## chunks_rebuilt.
+##
+## THE RETIREMENT (slice 3, the ruling's "RETIRE far chunks and accept a
+## rebuild on return", the bubble's hysteresis). Once the tail has
+## completed - every chunk built once, the builders' totals whole: the
+## step that completes it retires nothing, so tail_completed fires on a
+## whole Ring - each step holds the tail's chunks against two radii, the
+## distance again the car's to the chunk's box:
+##   - a chunk standing whose box is farther than R_RETIRE_OUT_M is
+##     RETIRED: its node (the MeshInstance3D and the mesh it holds) is
+##     taken from under its builder and freed; its job record - the name
+##     and the inputs of its data stage - is kept, and so is every tally;
+##   - a retired chunk whose box is nearer than R_RETIRE_IN_M goes back to
+##     the pending set and is REBUILT by the tail's own path: nearest
+##     first by the same key, its data stage on a worker (the builder's
+##     add_job released the first build's arrays, so the stage runs again
+##     on a fresh copy of the record, as mesh_jobs() made it - a pure
+##     function of the checked-in files: the same bytes), its node stage
+##     on the main thread under the same budget;
+##   - between the two radii nothing changes: a chunk standing stays, a
+##     retired one stays retired (a car idling at one radius never
+##     flickers a chunk), and exactly at a radius likewise - the bubble's
+##     strict comparisons. A rebuild still pending when its box passes
+##     R_RETIRE_OUT_M again is dropped from the pending set, unbuilt; one
+##     already in flight lands and retires in a later step.
+## The decision is a function of the car's position and the chunk states
+## alone. The frees share the frame's NODE_BUDGET_MS with the adds (the
+## adds first: they are what the driver is near), in the order (builder,
+## CHUNK_ORDER); the budget decides only how many frames a standing car's
+## retirements take, never their order nor the state they end in.
+## ONLY the tail's chunks retire: the vicinity's (built behind the bar by
+## the loading scene, never this node's) and every resident job stand for
+## the session, as does everything on a Ring this node never claimed.
+## A terrain near chunk retires WITHOUT a stand-in in this landing: past
+## the band a hole shows where the Near_ chunk was (a picture missing,
+## never a height) until slice 4 gives it its 50 m one.
 ##
 ## CANCELLING. The tail belongs to this node, not to the loading scene
 ## (which is freed at the handover; its own contract, "a task never
@@ -91,15 +132,21 @@ extends Node
 ## looks at it; the pad has no builders at all.
 ##
 ## FD_LOADING_FRAMES=1 in the environment prints one line per streamed
-## chunk and a summary when the tail completes (the loading scene's probe,
-## extended; never in the suite's lines).
+## chunk, a summary when the tail completes and one line per retirement
+## and per rebuild (the loading scene's probe, extended; never in the
+## suite's lines).
 
 ## The claimed Ring entered the tree and its tail began to stream.
 signal tail_started(ring: Node)
 ## One tail chunk was added under its builder.
 signal chunk_streamed(builder: String, chunk: String)
-## Every tail chunk is in: the Ring stands whole.
+## Every tail chunk is in: the Ring stands whole (once per claimed Ring;
+## the retirements begin with the next step).
 signal tail_completed(ring: Node)
+## One tail chunk past R_RETIRE_OUT_M was freed from under its builder.
+signal chunk_retired(builder: String, chunk: String)
+## One retired chunk back within R_RETIRE_IN_M was added again.
+signal chunk_rebuilt(builder: String, chunk: String)
 
 ## The autoload's node name under the tree's root (project.godot's
 ## [autoload] key), reached by name through of().
@@ -110,6 +157,12 @@ const AUTOLOAD_NAME := "Streaming"
 const R_HANDOVER_M := 2000.0
 ## A band's width [m] in the tail's order: the chunk's own size.
 const BAND_M := 1000.0
+## The retire band [m] (the ruling; the bubble's 80 / 110 ratio): a tail
+## chunk whose box is farther than R_RETIRE_OUT_M from the car is retired,
+## a retired one nearer than R_RETIRE_IN_M is rebuilt, between them
+## nothing changes.
+const R_RETIRE_IN_M := 3000.0
+const R_RETIRE_OUT_M := 4500.0
 
 ## The tail's workers and the node stage's frame budget [ms]: the loading
 ## scene's DATA_THREADS and NODE_BUDGET_MS, the same numbers.
@@ -126,39 +179,50 @@ const BUILDINGS := 2
 const PENDING := 0
 const FLYING := 1
 const ADDED := 2
+const RETIRED := 3
 
 ## The rank's stride per builder (a builder's list is some thousands of
 ## jobs at most) and the key's per band.
 const RANK_STRIDE := 1 << 20
 const BAND_STRIDE := 1 << 24
 
-## The claimed Ring (null: nothing claimed) and whether its tail streams.
+## The claimed Ring (null: nothing claimed), whether its tail streams and
+## whether the tail has completed (every chunk built once: from the next
+## step the retire band is watched).
 var ring: Node = null
 var streaming := false
+var tail_done := false
 ## The car's start position the vicinity was measured from.
 var origin := Vector3.ZERO
 ## The counters: streamable chunks in all, those built before the handover
-## (the vicinity), those streamed after it.
+## (the vicinity), those streamed after it; the retirements and the
+## rebuilds since (a chunk counts each time).
 var chunks_total := 0
 var chunks_at_handover := 0
 var chunks_streamed := 0
+var chunks_retired := 0
+var chunks_rebuilt := 0
 ## The tail's arrival order, "<Builder>/<chunk name>" per chunk added.
 var arrivals := PackedStringArray()
 
 var _car: Node3D = null
 var _nodes: Array = [null, null, null]
 var _origin_set := false
-## The tail's table, one entry per chunk: the job, its builder, its rank
-## (builder, CHUNK_ORDER index), its box (x_lo, z_lo, x_hi, z_hi), its
-## state and its pool task.
+## The tail's table, one entry per chunk: the job (kept after the add as
+## the chunk's record: a rebuild's data stage is made from it), its
+## builder, its rank (builder, CHUNK_ORDER index), its box (x_lo, z_lo,
+## x_hi, z_hi), its state and its pool task; and the table's indices by
+## rank, the retire pass's order.
 var _jobs: Array = []
 var _builder := PackedByteArray()
 var _rank := PackedInt32Array()
 var _boxes := PackedFloat64Array()
 var _state := PackedByteArray()
 var _task := PackedInt64Array()
-## The flight queue: table indices in dispatch order, the head the next
-## to add, the tail the next free slot.
+var _by_rank := PackedInt32Array()
+## The flight queue: table indices in dispatch order, a ring of
+## DATA_THREADS slots (a cursor's slot is the cursor modulo that), the
+## head the next to add, the tail the next free slot.
 var _flight := PackedInt32Array()
 var _flight_head := 0
 var _flight_tail := 0
@@ -227,7 +291,7 @@ func release(scene: Node) -> void:
 ## vicinity chunks, in CHUNK_ORDER - and files the others as the tail.
 ## Main thread, once per builder. An unclaimed scheduler returns `jobs`.
 func split(builder: int, jobs: Array) -> Array:
-	if ring == null or streaming:
+	if ring == null or streaming or tail_done:
 		return jobs
 	if not _origin_set:
 		# The Ring is outside the tree: the car's own transform under the
@@ -253,7 +317,7 @@ func split(builder: int, jobs: Array) -> Array:
 		_state.append(PENDING)
 		_task.append(-1)
 	_pending = _jobs.size()
-	_flight.resize(_jobs.size())
+	_flight.resize(DATA_THREADS)
 	return now
 
 
@@ -308,7 +372,7 @@ static func band_of(distance: float) -> int:
 # =============================================================================
 
 func _on_node_added(node: Node) -> void:
-	if ring != null and node == ring and not streaming:
+	if ring != null and node == ring and not streaming and not tail_done:
 		_begin()
 
 
@@ -317,6 +381,9 @@ func _begin() -> void:
 	streaming = true
 	_cancelled = false
 	_began_ms = Time.get_ticks_msec()
+	var by_rank: Array = range(_jobs.size())
+	by_rank.sort_custom(func(a: int, b: int) -> bool: return _rank[a] < _rank[b])
+	_by_rank = PackedInt32Array(by_rank)
 	ring.tree_exiting.connect(_on_ring_exiting, CONNECT_ONE_SHOT)
 	if _log:
 		print("streaming: the handover with %d of %d chunks within %.0f m of (%.0f, %.0f); %d to stream" % [chunks_at_handover, chunks_total, R_HANDOVER_M, origin.x, origin.z, _pending])
@@ -331,35 +398,110 @@ func _on_ring_exiting() -> void:
 
 
 func _process(_delta: float) -> void:
-	if not streaming:
+	if not streaming and not tail_done:
 		return
 	step(_car.global_position if _car != null and _car.is_inside_tree() else origin)
 
 
 ## One frame of the tail with the car at `at`: the chunks whose data stage
 ## is done are added in dispatch order until the frame's node budget is
-## spent, then the free flight slots are filled with the nearest pending
-## chunks (the header's THE ORDER).
+## spent; once the tail has completed, the retire band is watched (the
+## header's THE RETIREMENT; the frees on what is left of the budget); then
+## the free flight slots are filled with the nearest pending chunks (the
+## header's THE ORDER).
 func step(at: Vector3) -> void:
-	if not streaming:
+	if not streaming and not tail_done:
 		return
 	var until := Time.get_ticks_usec() + int(NODE_BUDGET_MS * 1000.0)
 	while _flight_head < _flight_tail and Time.get_ticks_usec() < until:
-		var i := _flight[_flight_head]
+		var i := _flight[_flight_head % DATA_THREADS]
 		if not WorkerThreadPool.is_task_completed(_task[i]):
 			break
 		WorkerThreadPool.wait_for_task_completion(_task[i])
 		_flight_head += 1
 		_add(i)
+	if tail_done:
+		_watch(at.x, at.z, until)
 	while _pending > 0 and _flight_tail - _flight_head < DATA_THREADS:
 		var next := _next_pending(at.x, at.z)
+		if tail_done:
+			_jobs[next] = _record_again(_builder[next], _jobs[next])
 		_state[next] = FLYING
 		_pending -= 1
-		_flight[_flight_tail] = next
+		_flight[_flight_tail % DATA_THREADS] = next
 		_flight_tail += 1
 		_task[next] = WorkerThreadPool.add_task(_run.bind(next), false, "streaming")
-	if _pending == 0 and _flight_head == _flight_tail:
+	if streaming and _pending == 0 and _flight_head == _flight_tail:
 		_complete()
+
+
+## The retire band for a car at (x, z), the table walked in the order
+## (builder, CHUNK_ORDER): a standing chunk past R_RETIRE_OUT_M is retired
+## while the frame's budget lasts (`until`, the clock's; the others wait
+## for the next step), a retired one inside R_RETIRE_IN_M joins the
+## pending set, a rebuild still pending past R_RETIRE_OUT_M leaves it.
+## Every pending chunk here is a rebuild: the tail has completed.
+func _watch(x: float, z: float, until: int) -> void:
+	var in_sq := R_RETIRE_IN_M * R_RETIRE_IN_M
+	var out_sq := R_RETIRE_OUT_M * R_RETIRE_OUT_M
+	for k: int in _by_rank.size():
+		var i := _by_rank[k]
+		var state := _state[i]
+		if state == FLYING:
+			continue
+		var d_sq := box_distance_squared(_boxes, x, z, i * 4)
+		if state == RETIRED:
+			if d_sq < in_sq:
+				_state[i] = PENDING
+				_pending += 1
+		elif d_sq > out_sq:
+			if state == PENDING:
+				_state[i] = RETIRED
+				_pending -= 1
+			elif Time.get_ticks_usec() < until:
+				_retire(i)
+
+
+## One standing chunk retired (main thread): its node taken from under its
+## builder and freed with the mesh it holds - none for a near chunk with
+## nothing in it, which never had one - its record and every tally kept.
+func _retire(i: int) -> void:
+	var node: Node = _nodes[_builder[i]]
+	var chunk_name: String = _jobs[i].get("name")
+	var child := node.get_node_or_null(NodePath(chunk_name))
+	if child != null:
+		node.remove_child(child)
+		child.free()
+	_state[i] = RETIRED
+	chunks_retired += 1
+	var builder_name := BUILDERS[_builder[i]]
+	if _log:
+		print("streaming retire %d: %s/%s" % [chunks_retired, builder_name, chunk_name])
+	chunk_retired.emit(builder_name, chunk_name)
+
+
+## A retired chunk's job as its builder's mesh_jobs() made it, from the
+## record kept: the same name and inputs, nothing of the first run (the
+## arrays went into the mesh at the add; the tallies were merged there).
+static func _record_again(builder: int, job: RefCounted) -> RefCounted:
+	match builder:
+		TERRAIN:
+			var near := job as TerrainBuilder.MeshJob
+			return TerrainBuilder.MeshJob.make(near.kind, near.name, near.index, near.index2)
+		FOREST:
+			var chunk := job as ForestWalls.MeshJob
+			var again := ForestWalls.MeshJob.make(chunk.kind, chunk.name, chunk.key)
+			again.members = chunk.members
+			again.by_archetype = chunk.by_archetype
+			return again
+		BUILDINGS:
+			var group := job as BuildingsShells.MeshJob
+			var again := BuildingsShells.MeshJob.new()
+			again.name = group.name
+			again.element = group.element
+			again.members = group.members
+			return again
+	return job
 
 
 ## The pending chunk with the smallest (band, builder, CHUNK_ORDER index)
@@ -386,23 +528,43 @@ func _run(i: int) -> void:
 
 
 ## The node stage of one chunk (main thread): the builder's own add_job.
+## The job stays in the table as the chunk's record (add_job released its
+## arrays). A rebuild's add leaves the builder's counts and elements as
+## they stood: the totals are the session's, and they hold this chunk
+## since its first add.
 func _add(i: int) -> void:
 	var job: RefCounted = _jobs[i]
-	_nodes[_builder[i]].add_job(job)
-	_jobs[i] = null
-	_state[i] = ADDED
-	chunks_streamed += 1
+	var node: Variant = _nodes[_builder[i]]
 	var builder_name := BUILDERS[_builder[i]]
 	var chunk_name: String = job.get("name")
+	_state[i] = ADDED
+	if tail_done:
+		var counts: Dictionary = node.counts.duplicate()
+		var elements: Dictionary = node.elements.duplicate()
+		node.add_job(job)
+		node.counts.clear()
+		node.counts.merge(counts)
+		node.elements.clear()
+		node.elements.merge(elements)
+		chunks_rebuilt += 1
+		if _log:
+			print("streaming rebuild %d: %s/%s" % [chunks_rebuilt, builder_name, chunk_name])
+		chunk_rebuilt.emit(builder_name, chunk_name)
+		return
+	node.add_job(job)
+	chunks_streamed += 1
 	arrivals.append(builder_name + "/" + chunk_name)
 	if _log:
 		print("streaming chunk %d / %d: %s/%s" % [chunks_streamed, _jobs.size(), builder_name, chunk_name])
 	chunk_streamed.emit(builder_name, chunk_name)
 
 
+## The tail is in: the Ring stands whole, and from the next step the
+## retire band is watched (nothing to watch where no chunk streamed).
 func _complete() -> void:
 	streaming = false
-	set_process(false)
+	tail_done = true
+	set_process(not _jobs.is_empty())
 	if _log:
 		print("streaming done: %d chunks in %d ms after the handover; %s" % [chunks_streamed, Time.get_ticks_msec() - _began_ms, describe()])
 	tail_completed.emit(ring)
@@ -414,16 +576,19 @@ func _complete() -> void:
 func _drop() -> void:
 	_cancelled = true
 	while _flight_head < _flight_tail:
-		WorkerThreadPool.wait_for_task_completion(_task[_flight[_flight_head]])
+		WorkerThreadPool.wait_for_task_completion(_task[_flight[_flight_head % DATA_THREADS]])
 		_flight_head += 1
 	if ring != null and is_instance_valid(ring) and ring.tree_exiting.is_connected(_on_ring_exiting):
 		ring.tree_exiting.disconnect(_on_ring_exiting)
 	chunks_total = 0
 	chunks_at_handover = 0
 	chunks_streamed = 0
+	chunks_retired = 0
+	chunks_rebuilt = 0
 	arrivals = PackedStringArray()
 	ring = null
 	streaming = false
+	tail_done = false
 	set_process(false)
 	_car = null
 	_nodes = [null, null, null]
@@ -434,17 +599,25 @@ func _drop() -> void:
 	_boxes = PackedFloat64Array()
 	_state = PackedByteArray()
 	_task = PackedInt64Array()
+	_by_rank = PackedInt32Array()
 	_flight = PackedInt32Array()
 	_flight_head = 0
 	_flight_tail = 0
 	_pending = 0
 
 
-## How many tail chunks are still to come (pending or in flight).
+## How many tail chunks are still to come (pending or in flight): the
+## tail's while it streams, the rebuilds' after it.
 func chunks_remaining() -> int:
 	return _pending + _flight_tail - _flight_head
 
 
+## How many of the tail's chunks are retired now (a state, not a counter:
+## chunks_retired counts the retirements).
+func chunks_away() -> int:
+	return _state.count(RETIRED)
+
+
 ## One line: the counters and the state.
 func describe() -> String:
-	return "%d streamable chunks, %d at the handover (within %.0f m), %d streamed after it, %d to come, %s" % [chunks_total, chunks_at_handover, R_HANDOVER_M, chunks_streamed, chunks_remaining(), "streaming" if streaming else ("claimed" if ring != null else "idle")]
+	return "%d streamable chunks, %d at the handover (within %.0f m), %d streamed after it, %d to come, %d retired and %d rebuilt since (%d away), %s" % [chunks_total, chunks_at_handover, R_HANDOVER_M, chunks_streamed, chunks_remaining(), chunks_retired, chunks_rebuilt, chunks_away(), "streaming" if streaming else ("claimed" if ring != null else "idle")]

@@ -211,8 +211,8 @@ godot --headless --path . --import
 godot --headless --fixed-fps 60 --path . --script res://tests/streaming_test.gd
 ```
 
-About five minutes: it builds the Ring five times (once the ordinary way, four times
-through the loading scene) and drives 2 km twice. It checks the `Streaming` autoload
+About five and a half minutes: it builds the Ring five times (once the ordinary way, four
+times through the loading scene) and drives 2 km twice. It checks the `Streaming` autoload
 (`scripts/streaming_scheduler.gd`: registered after every other autoload, the ruling's
 2 000 m vicinity, the loading scene's four workers and 8 ms node budget, the box distance
 and the band as pure functions, `claim()` refusing a Ring in the tree, a Ring whose builders
@@ -235,6 +235,35 @@ byte-equal, the car standing on the profile there; and a Ring unloaded in the fr
 its handover, the tail in flight, leaving the scheduler idle and the root as it was. It
 pins `FD_TELEMETRY=0`, writes nothing anywhere and prints no wall time: the lines are the
 same on every machine (`STREAMING TEST PASSED`).
+
+THE RETIREMENT (slice 3) rides on the same three streamed Rings, no build more. What the
+scheduler does: once the tail has completed, a chunk it streamed whose box is farther
+than `R_RETIRE_OUT_M` = 4 500 m from the car is retired (its `MeshInstance3D` and mesh
+freed, its job record and every tally kept); a retired one nearer than `R_RETIRE_IN_M` =
+3 000 m is rebuilt through the tail's own pending set; between the radii and exactly on
+them nothing changes. Only the tail's chunks retire - never the vicinity's, a resident
+job, anything under Road, a one-shot Ring or the pad. The counters `chunks_retired` and
+`chunks_rebuilt` are additive (a chunk counts each time; `chunks_away()` is the state);
+the builders' `describe()` lines and counts never move. What the test pins, every
+expected set and order from ITS OWN state machine over the job names and boxes
+(`_expect_stop`, squared distances, strict comparisons), never the scheduler's:
+
+| check | how | pinned |
+|---|---|---|
+| (a) the standing car | the scheduler's own `_process`, the car at the Karussell and at Aremberg | the streamed chunks past 4 500 m retire (123 of 262; 162 of 289) in the order (builder, CHUNK_ORDER), their nodes and meshes dead (instance ids and weak references taken at the completion), the others alive, nothing rebuilt; `describe()` and every count the one-shot's; every child standing byte-equal |
+| (a) the moving car | the scheduler's own `_process` along the pit's 2 km drive | every retirement of a tail chunk farther than 4 500 m from the car in that frame, every rebuild of a chunk retired before; the car stopped, the state is the state machine's. No count printed: when the tail completes along the drive is the wall clock's |
+| (b) away and back | by hand: `set_process(false)`, `step(at)` | to the other corner (4.9 km) and back: the retirements in order, the rebuilds in the order (band from the car, builder, CHUNK_ORDER), each rebuilt child's SHA-256 its first build's and the reference's; chunks in the 3 000-4 500 m band unmoved on the return, both kinds |
+| (c) the radii | by hand, west of one forest chunk's own box at 2999, 3750, 4499, 4500, 4501, 4500, 3750, 3001, 3000, 2999 m | standing, standing, standing, standing (exactly on the radius), RETIRED, retired, retired (where it stood on the way out), retired, retired (exactly on the radius), REBUILT; at each stop every other tail chunk as the state machine says |
+| (d) what never retires | by hand, the car 57 km off | every tail chunk retired, the children under the three builders the handover's names in the handover's order, Road's the reference's; a one-shot Ring and the pad stepped the same way lose nothing, the scheduler idle |
+| (b) every chunk | by hand, 30 stops of a 4 000 m lattice across the tail's chunks, then home | every chunk of the tail retired and rebuilt at least once, each rebuild in the pinned order and byte-identical to its first build and to the reference |
+| (e) no count drift | after the whole trip (738 retirements and 536 rebuilds at the Karussell, 817 and 600 at Aremberg) | the four `describe()` lines and every count the one-shot's; `chunks_total`, `chunks_at_handover`, `chunks_streamed` as at the completion; `chunks_retired - chunks_rebuilt == chunks_away()`; every child standing byte-equal; the Ring unloaded with chunks retired leaves the scheduler idle, every counter zero |
+
+THE MOVED PIN (was -> now): the tail's completion (the children's set, the per-child
+SHA-256, the `describe()` lines, "nothing pending") was read when the test's loop next saw
+the tail done - at the pit, after the 2 km drive; now it is taken in `tail_completed`'s
+own frame, by the signal, because from the next step on the far chunks retire. The same
+three checks with the same words and values. 57 checks (was 36: +1 the band's numbers, +2
+the one-shot Ring and the pad, +2 at the pit, +8 at each corner).
 
 ## Gating a commit, not a working tree
 

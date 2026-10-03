@@ -928,9 +928,10 @@ vicinity and the rest streams behind the driving car - the next section.
 The canon's second half (decisions.org C07BE6F1: "world-around-the-car streaming") under
 the driver's ruling FD79B028 of 2026-10-01 on `docs/design/l2-streaming-design.md`: about
 2 km of dressed vicinity is enough, the loading screen vanishes the moment the car can
-roll, the tail streams with no bar, and every road's mesh stays resident. This landing is
-the design's slices 1 and 2; nothing built is ever retired yet (slices 3 and 4), and the
-screen itself is as it was (slice 5).
+roll, the tail streams with no bar, every road's mesh stays resident, and far chunks
+retire and rebuild on return. Landed: the design's slices 1 and 2 (the thin handover, the
+tail) and slice 3 (THE RETIREMENT below). Not yet: the terrain's 50 m stand-in for a
+retired near chunk (slice 4), and the screen itself is as it was (slice 5).
 
 THE SCHEDULER (`scripts/streaming_scheduler.gd`, class `StreamingScheduler`, the autoload
 `Streaming`, registered after every other autoload) follows the ShellsWatch / MarksWatch
@@ -975,8 +976,53 @@ was absent at the handover - once on a one-shot build and once starting at the h
 with the tail still streaming, and lands on the same odometer and position to the bit.
 A builder's `counts` and `describe()` are session totals merged per add: at the handover
 they read the base plus the vicinity and reach the one-shot build's values to the integer
-when the tail completes; the scheduler's own counters (`chunks_total`,
-`chunks_at_handover`, `chunks_streamed`) are new and additive.
+when the tail completes - and stay there: a retirement takes nothing from them and a
+rebuild adds nothing to them. The scheduler's own counters (`chunks_total`,
+`chunks_at_handover`, `chunks_streamed`, and since slice 3 `chunks_retired` and
+`chunks_rebuilt`) are additive: none of them ever falls while the Ring is claimed.
+
+THE RETIREMENT (slice 3; the ruling: "RETIRE far chunks and accept a rebuild on return -
+bubble-style hysteresis"). Once the tail has completed - every chunk built once, the
+builders' totals whole; the step that completes it retires nothing, so `tail_completed`
+fires on a whole Ring - every step of the scheduler holds the tail's chunks against two
+radii, the distance again the car's to the chunk's box: `R_RETIRE_OUT_M` = 4 500 m and
+`R_RETIRE_IN_M` = 3 000 m. A chunk standing whose box is FARTHER than 4 500 m is retired:
+its node (the `MeshInstance3D` and the `ArrayMesh` it holds) is taken from under its
+builder and freed; its job record (the name and the inputs of its data stage) is kept,
+and so is every tally. A retired chunk whose box comes NEARER than 3 000 m goes back into
+the tail's own pending set and is rebuilt by the tail's own path - no second one: nearest
+first by the same (band, builder, CHUNK_ORDER) key, its data stage on a worker (the
+builder's `add_job` released the first build's arrays, so the stage runs again on a fresh
+copy of the record - a pure function of the checked-in files: the same bytes), its node
+stage on the main thread. Between the two radii, and exactly on either, nothing changes:
+a chunk standing stays, a retired one stays retired, so a car idling at one radius never
+flickers a chunk. The frees share the frame's 8 ms node budget with the adds (the adds
+first), in the order (builder, CHUNK_ORDER); the decision is a function of the car's
+position and the chunk states alone - the budget decides how many frames a standing car's
+retirements take, never their order nor where they end. WHAT RETIRES is only what the
+scheduler streamed - the tail's `Near_`, `Walls_` / `Trees_` and buildings mesh chunks.
+What never does: the vicinity's chunks (built behind the bar by the loading scene, within
+2 000 m of where the car started - they stand for the session wherever the car goes),
+every resident job (Mid, Far, Water, the aprons, the continuation, the trunk, rail and
+solid bodies), everything under Road, and anything on a Ring the scheduler never claimed
+(a one-shot Ring, the pad). THE ACCEPTED TRADE until slice 4: a terrain near chunk retires
+WITHOUT a stand-in, so past 4.5 km a hole shows where the `Near_` chunk was (the roads'
+aprons, resident, still lie beside every road); the car's physics reads none of it.
+`FD_LOADING_FRAMES=1` adds one line per retirement and per rebuild.
+
+MEASURED, the retirement (this machine, 2026-10-03, headless, the car standing at the pit
+anchor): of the 259 chunks of the tail 125 lie past 4 500 m and retire in the first frame
+after the tail's completion (one frame, 6.5 ms) - 3 terrain near chunks, 6 forest chunks
+and 116 buildings meshes; 86 lie in the 3 000-4 500 m band and 48 inside 3 000 m and
+stand; the 94 of the vicinity are never the scheduler's. At the Karussell 123 of 262
+retire, at Aremberg 162 of 289. THE HONEST SIZE OF THE GAIN, again: the process's static
+memory reads 1 141 MB at the handover, 1 210 MB with the Ring whole and 1 199 MB after
+those 125 retirements - 11 MB back of the tail's 70, about 1 % of the whole, because the
+streamable chunks are a small part of what stands (the roads and their 3 304 aprons are
+resident by the ruling) and the Ring's 42 km² core is mostly within 4.5 km of anywhere on
+it: from the pit only 3 of the 42 near chunks are far enough to retire. What this landing
+gives is, as before, the mechanism: the retire path, its hysteresis, the rebuild's byte
+pins and the additive counters that slice 4 and any wider streaming stand on.
 
 MEASURED (this machine, 2026-10-01, headless, `.scratch/streaming-1/`, untracked): of 353
 streamable chunks 94 stand at the handover from the pit anchor and 259 stream after it,
@@ -1560,7 +1606,17 @@ wheels carried and inside the paved width every tick, then at the tail's complet
 child byte-equal, the `describe()` lines and counts the one-shot's, the scheduler's
 counters adding up; the streamed Ring with the car put at the Karussell and at Aremberg -
 another vicinity each, the tail in the pinned order for the standing car, every child
-byte-equal; and a Ring unloaded with its tail in flight leaving the scheduler idle. Then
+byte-equal; THE RETIREMENT (slice 3), every expected set and order the test's own state
+machine over the chunk boxes - the standing car's streamed chunks past 4 500 m retired in
+order with their meshes freed and no tally moved, the same along the pit's 2 km drive;
+by hand (`step(at)`) away to the other corner and back, both radii walked on one chunk's
+own box (standing to 4 500 m exactly, retired past it and all the way back in to 3 000 m
+exactly, rebuilt inside it), 40 km off the Ring the handover's Ring again name for name,
+then a 4 000 m lattice of stops across the tail until every one of its chunks has been
+retired and rebuilt at least once, each rebuild through the scheduler's pending set in
+the pinned order and byte-identical to its first build and to the one-shot reference;
+a one-shot Ring and the pad never retired; no count drift, the scheduler's counters only
+ever risen; and a Ring unloaded with its tail in flight leaving the scheduler idle. Then
 `tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the
