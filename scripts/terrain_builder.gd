@@ -144,6 +144,42 @@ extends Node3D
 ## describe() as before (tests/async_build_test.gd hashes the two builds
 ## against each other).
 ##
+## THE STAND-IN (L2-STREAMING-1 slice 4; decisions.org FD79B028, "terrain
+## near-band retirement with the 50 m stand-in"; the lifecycle is the
+## scheduler's, scripts/streaming_scheduler.gd): a near chunk retired far
+## from the car keeps its place as Standin_<row>_<col> - standin_job(), a
+## pure function of the same fields the near job reads (the heights, the
+## reach, the tile plan, the nodes' colours, the lattice's normals), and
+## add_standin(), its node stage. THE ROAD RULE: a near tile with no node
+## inside a road's reach is ONE quad at its four corner nodes (the mid
+## band's 50 m quad: 2 triangles for the near mesh's 50); a near tile
+## with one keeps its 10 m cells, each kept or dropped by the near mesh's
+## own rule (a cell with a node inside a road's reach is the apron's, and
+## the aprons are resident). A 50 m chord across a reached tile would
+## roof a road in a cutting, and a reached tile left out would open a
+## 50 m slit beside every road: this way the stand-in covers exactly the
+## cells the near mesh covers, and no quad lies over a road (measured:
+## every ribbon's paved width and shoulder sampled each metre, 2 232 505
+## samples in near tiles, none in a tile drawn at 50 m). THE SKIRTS: a
+## 50 m quad's edge hangs the LOD skirt (SKIRT_M) where the tile across
+## it draws finer - a reached tile of the same chunk, or any near tile of
+## the next chunk (whether that chunk stands at 10 m or as its own
+## stand-in: the rule never reads another chunk's state) - and none
+## toward a mid tile (the mid band hangs its own toward every near tile)
+## nor between two 50 m quads. NOT A JOB: never in CHUNK_ORDER, never
+## through add_job - the counts, the elements and describe() are the
+## session's totals of the near meshes and do not move for a stand-in.
+## THE SIZE, as measured (2026-10-03): the Ring has 3 304 ribbons and
+## about half its near cells lie in tiles one reaches, so over the 42
+## near chunks 593 266 triangles become 280 238 (47 %) - a chunk's
+## stand-in 2 842 to 8 892 for a near mesh of 7 398 to 16 820, from 24 %
+## (Near_5_4: 3 796 for 16 018) to 69 % (Near_5_1: 5 102 for 7 398) - and
+## 20.8 MB of arrays 13.1 MB: the stand-in keeps 63 % of the near mesh's
+## arrays BY DESIGN (its coverage is the near mesh's unreached cells: no
+## slit, no roof) and a retirement gives back 37 %. standin_job() runs
+## 3.3 to 7.4 ms a chunk (mean 6.3 ms) on the calling thread - the
+## scheduler's retirement, the main thread - and add_standin() 0.25 ms.
+##
 ## THE REGION TABLE: dressing.json beside focus.json (region_dressing(),
 ## validate_dressing()) names the region's choices - the sky set, the
 ## haze, the sun's bearing, the palette's tints, the density ceilings - and
@@ -1524,6 +1560,112 @@ func _far_job(job: MeshJob) -> void:
 					continue
 				if tile_class[(nbi * per_block) * tile_cols + nbj * per_block] != TILE_FAR:
 					_skirt(job, corners[side], corners[(side + 1) % 4], true)
+
+
+## THE STAND-IN of the near chunk (row `ci`, column `cj`) - the header's
+## THE STAND-IN: every near tile of the chunk no road reaches as ONE quad
+## at its corners (the mid band's quad, 2 triangles for the near mesh's
+## 50), every near tile a road reaches at the lattice's 10 m, each cell
+## kept or dropped by the near mesh's own rule; a skirt under each edge of
+## a 50 m quad whose neighbour draws finer - a reached tile of the chunk,
+## or any near tile across the chunk's edge (that chunk may stand at 10 m).
+## A pure function of the fields into a job of its own: not in
+## CHUNK_ORDER, never through add_job - its tallies are dropped with it.
+## Measured: 2 842 to 8 892 triangles a chunk (the near mesh's 7 398 to
+## 16 820), 3.3 to 7.4 ms (the header's THE SIZE).
+func standin_job(ci: int, cj: int) -> MeshJob:
+	var job := MeshJob.make("standin", "Standin_%d_%d" % [ci, cj], ci, cj)
+	var cells := int(TILE_M / step)
+	var tiles_per_chunk := int(CHUNK_M / TILE_M)
+	var ti_lo := ci * tiles_per_chunk
+	var tj_lo := cj * tiles_per_chunk
+	var ti_hi := mini((ci + 1) * tiles_per_chunk, tile_rows)
+	var tj_hi := mini((cj + 1) * tiles_per_chunk, tile_cols)
+	var wide := tj_hi - tj_lo
+	var reached := PackedByteArray()
+	reached.resize(maxi(ti_hi - ti_lo, 0) * maxi(wide, 0))
+	for ti: int in range(ti_lo, ti_hi):
+		for tj: int in range(tj_lo, tj_hi):
+			reached[(ti - ti_lo) * wide + tj - tj_lo] = 1 if _tile_reached(ti, tj) else 0
+	# The chunk's nodes by their vertex in the job (its index plus one; 0:
+	# none yet), row-major from the chunk's first node.
+	var across := wide * cells + 1
+	var seen := PackedInt32Array()
+	seen.resize((maxi(ti_hi - ti_lo, 0) * cells + 1) * across)
+	for ti: int in range(ti_lo, ti_hi):
+		for tj: int in range(tj_lo, tj_hi):
+			if tile_class[ti * tile_cols + tj] != TILE_NEAR:
+				continue
+			if reached[(ti - ti_lo) * wide + tj - tj_lo] == 1:
+				for a: int in cells:
+					var n00 := (ti * cells + a) * cols + tj * cells
+					var s00 := ((ti - ti_lo) * cells + a) * across + (tj - tj_lo) * cells
+					for b: int in cells:
+						if reach[n00] == 0 and reach[n00 + 1] == 0 and reach[n00 + cols] == 0 and reach[n00 + cols + 1] == 0:
+							var v00 := _standin_vertex(job, seen, s00, n00)
+							var v01 := _standin_vertex(job, seen, s00 + 1, n00 + 1)
+							var v10 := _standin_vertex(job, seen, s00 + across, n00 + cols)
+							var v11 := _standin_vertex(job, seen, s00 + across + 1, n00 + cols + 1)
+							job.indices.append_array(PackedInt32Array([v00, v01, v11, v00, v11, v10]))
+						n00 += 1
+						s00 += 1
+				continue
+			var corners := [Vector2i(ti * cells, tj * cells), Vector2i(ti * cells, (tj + 1) * cells), Vector2i((ti + 1) * cells, (tj + 1) * cells), Vector2i((ti + 1) * cells, tj * cells)]
+			_quad(job, corners, false)
+			for side: int in 4:
+				var ni: int = ti + [-1, 0, 1, 0][side]
+				var nj: int = tj + [0, 1, 0, -1][side]
+				if ni < 0 or ni >= tile_rows or nj < 0 or nj >= tile_cols:
+					continue
+				if tile_class[ni * tile_cols + nj] != TILE_NEAR:
+					continue
+				var within := ni >= ti_lo and ni < ti_hi and nj >= tj_lo and nj < tj_hi
+				if not within or reached[(ni - ti_lo) * wide + nj - tj_lo] == 1:
+					_skirt(job, corners[side], corners[(side + 1) % 4], false)
+	job.done = true
+	return job
+
+
+## A lattice node's vertex in a stand-in's arrays, appended on first use
+## (_lattice_vertex's vertex without its tally; `seen` at `slot` keeps it).
+func _standin_vertex(job: MeshJob, seen: PackedInt32Array, slot: int, node: int) -> int:
+	var index := seen[slot] - 1
+	if index >= 0:
+		return index
+	var i := node / cols
+	var j := node % cols
+	index = job.vertices.size()
+	job.vertices.append(Vector3(x0 + j * step, heights[node], z0 + i * step))
+	job.normals.append(_lattice_normal(i, j))
+	job.colours.append(node_colours[node])
+	seen[slot] = index + 1
+	return index
+
+
+## Whether a road reaches the tile: a node of it inside a road's reach, so
+## a cell of it the near mesh drops.
+func _tile_reached(ti: int, tj: int) -> bool:
+	var cells := int(TILE_M / step)
+	for a: int in cells + 1:
+		var row := (ti * cells + a) * cols + tj * cells
+		for b: int in cells + 1:
+			if reach[row + b] == 1:
+				return true
+	return false
+
+
+## THE NODE STAGE of a stand-in (main thread): its mesh under Terrain in
+## the terrain's own material, or null for a chunk with nothing to stand
+## for. Nothing is merged: the counts and the elements are the session's
+## totals of the near mesh it stands for, and stay as they stood.
+func add_standin(job: MeshJob) -> MeshInstance3D:
+	if job.indices.is_empty():
+		return null
+	var mesh := _add_mesh(job.name, job.vertices, job.normals, job.colours, job.indices, _material)
+	# _add_mesh counts what it adds; a stand-in is no part of the totals.
+	counts.vertices -= job.vertices.size()
+	counts.triangles -= job.indices.size() / 3
+	return mesh
 
 
 ## One quad over four lattice nodes (row, col), clockwise from above.

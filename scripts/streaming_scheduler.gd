@@ -1,6 +1,6 @@
 class_name StreamingScheduler
 extends Node
-## The L2 streaming scheduler (L2-STREAMING-1 slices 1+2 and 3;
+## The L2 streaming scheduler (L2-STREAMING-1 slices 1+2, 3 and 4;
 ## decisions.org C07BE6F1, the driver's canon of 2026-09-27: "no freezing
 ## load, world-around-the-car streaming"; the ruling FD79B028 of
 ## 2026-10-01: about 2 km of dressed vicinity is enough, the loading
@@ -68,7 +68,8 @@ extends Node
 ## completed, one more for the retire bands; the table is packed arrays
 ## sized at the split, the flight queue a packed ring of DATA_THREADS
 ## slots with two cursors. Nothing is allocated but at a transition: a
-## rebuild's job record and the copy of its builder's totals (below).
+## rebuild's job record and the copy of its builder's totals, a retired
+## near chunk's stand-in (below).
 ## step(at) is public so a test drives it by hand.
 ##
 ## THE COUNTS. A builder's counts and describe() are session totals merged
@@ -111,9 +112,56 @@ extends Node
 ## ONLY the tail's chunks retire: the vicinity's (built behind the bar by
 ## the loading scene, never this node's) and every resident job stand for
 ## the session, as does everything on a Ring this node never claimed.
-## A terrain near chunk retires WITHOUT a stand-in in this landing: past
-## the band a hole shows where the Near_ chunk was (a picture missing,
-## never a height) until slice 4 gives it its 50 m one.
+##
+## THE STAND-IN (slice 4, the ruling's "terrain near-band retirement with
+## the 50 m stand-in"; the design's "a retiring near chunk swaps to one
+## Mid-style 50 m quad per tile built from the same fields (pure), so no
+## hole shows; rebuild restores the fine mesh"). A terrain near chunk that
+## retires leaves its place to a stand-in, Standin_<row>_<col> under
+## Terrain: TerrainBuilder.standin_job(), a pure function of the same
+## resident fields the near mesh reads, built and added in the retirement
+## itself, on the main thread, after the fine child is freed - at the fine
+## child's own index among Terrain's children, so the children's order is
+## the transitions' and never the frames'. The rebuild's add frees the
+## stand-in FIRST and adds the fine mesh after it, in one call: no frame
+## shows both, none shows neither. A near chunk with nothing in it never
+## had a child and gets no stand-in; a forest or buildings chunk has none
+## (their retirement leaves air, as slice 3 left it).
+## WHAT IT IS (TerrainBuilder's header, THE STAND-IN): a near tile no road
+## reaches is ONE 50 m quad at its corners; a near tile a road reaches
+## keeps its 10 m cells, each kept or dropped by the near mesh's own rule
+## (a cell with a node inside a road's reach is the road's apron's, which
+## is resident) - a 50 m chord across a road in a cutting would roof it,
+## and a tile left out would open a 50 m slit beside every road. The
+## stand-in covers exactly the cells the near mesh covered, BY DESIGN: no
+## hole, no slit, no roof - the trade slice 4 makes for the hole it
+## closes is what that coverage keeps resident. No tally anywhere: the
+## builder's counts, elements and describe() are the session's totals of
+## the near meshes and never move for a stand-in, and none of this node's
+## five counters counts one (chunks_stood_in() is the state). The
+## stand-ins are the Ring's children and go with it: this node forgets
+## them wherever it forgets the Ring.
+## MEASURED (2026-10-03, this machine, headless). Triangles, over the
+## Ring's 42 near chunks: 593 266 -> 280 238 (47 %); a chunk's stand-in
+## 2 842 to 8 892 for a near mesh of 7 398 to 16 820 - from 24 %
+## (Near_5_4: 3 796 for 16 018) to 69 % (Near_5_1: 5 102 for 7 398), the
+## largest Near_2_4's 8 892 for 12 992 (68 %): the Ring has 3 304 roads
+## and about half its near cells lie in tiles one reaches. Arrays as
+## built: 20.8 MB -> 13.1 MB, so a retired near chunk gives back 37 % of
+## its near mesh's arrays and keeps 63 %; in the process's static memory
+## the pit anchor's 24 near chunks of the tail hold 6.38 MB standing and
+## 4.39 MB as stand-ins (69 % kept). The main thread, inside the
+## retirement: the stand-in's data stage 3.3 to 7.4 ms a chunk (mean
+## 6.3 ms, GDScript), its add 0.25 ms. NODE_BUDGET_MS (8.0) is read
+## before each retirement, so one begins only while the frame's budget
+## lasts and the one that runs past it is the frame's last: a step with
+## one terrain retirement measured 4.1 to 9.4 ms, with two 11.3 to
+## 15.6 ms (stepped by hand at the pit anchor, then 57 km off at once:
+## the tail's 24 near chunks over 13 steps), a step of 122 forest and
+## buildings retirements 0.7 ms. THE NAMED FOLLOW-UP, not
+## built: the stand-in's data stage on a worker, as the rebuild's is - a
+## prefetch or an asynchronous retirement, either one new machinery and
+## new pins - if the driver ever feels that frame.
 ##
 ## CANCELLING. The tail belongs to this node, not to the loading scene
 ## (which is freed at the handover; its own contract, "a task never
@@ -132,9 +180,9 @@ extends Node
 ## looks at it; the pad has no builders at all.
 ##
 ## FD_LOADING_FRAMES=1 in the environment prints one line per streamed
-## chunk, a summary when the tail completes and one line per retirement
-## and per rebuild (the loading scene's probe, extended; never in the
-## suite's lines).
+## chunk, a summary when the tail completes, one line per retirement and
+## per rebuild and one per stand-in put up and taken down (the loading
+## scene's probe, extended; never in the suite's lines).
 
 ## The claimed Ring entered the tree and its tail began to stream.
 signal tail_started(ring: Node)
@@ -143,9 +191,11 @@ signal chunk_streamed(builder: String, chunk: String)
 ## Every tail chunk is in: the Ring stands whole (once per claimed Ring;
 ## the retirements begin with the next step).
 signal tail_completed(ring: Node)
-## One tail chunk past R_RETIRE_OUT_M was freed from under its builder.
+## One tail chunk past R_RETIRE_OUT_M was freed from under its builder (a
+## terrain near chunk's stand-in already in its place).
 signal chunk_retired(builder: String, chunk: String)
-## One retired chunk back within R_RETIRE_IN_M was added again.
+## One retired chunk back within R_RETIRE_IN_M was added again (its
+## stand-in already freed).
 signal chunk_rebuilt(builder: String, chunk: String)
 
 ## The autoload's node name under the tree's root (project.godot's
@@ -220,6 +270,9 @@ var _boxes := PackedFloat64Array()
 var _state := PackedByteArray()
 var _task := PackedInt64Array()
 var _by_rank := PackedInt32Array()
+## The stand-ins standing (THE STAND-IN), by the retired near chunk's
+## table index: the MeshInstance3D under Terrain.
+var _standins: Dictionary = {}
 ## The flight queue: table indices in dispatch order, a ring of
 ## DATA_THREADS slots (a cursor's slot is the cursor modulo that), the
 ## head the next to add, the tail the next free slot.
@@ -465,19 +518,54 @@ func _watch(x: float, z: float, until: int) -> void:
 ## One standing chunk retired (main thread): its node taken from under its
 ## builder and freed with the mesh it holds - none for a near chunk with
 ## nothing in it, which never had one - its record and every tally kept.
+## A terrain near chunk's stand-in takes the freed child's place (THE
+## STAND-IN: built here from the builder's fields, added at the child's
+## own index, no tally touched).
 func _retire(i: int) -> void:
 	var node: Node = _nodes[_builder[i]]
 	var chunk_name: String = _jobs[i].get("name")
 	var child := node.get_node_or_null(NodePath(chunk_name))
 	if child != null:
+		var place := child.get_index()
 		node.remove_child(child)
 		child.free()
+		if _builder[i] == TERRAIN:
+			_stand_in(i, place)
 	_state[i] = RETIRED
 	chunks_retired += 1
 	var builder_name := BUILDERS[_builder[i]]
 	if _log:
 		print("streaming retire %d: %s/%s" % [chunks_retired, builder_name, chunk_name])
 	chunk_retired.emit(builder_name, chunk_name)
+
+
+## The stand-in of the terrain near chunk `i`, put up at index `place`
+## among Terrain's children (the fine child's, just freed).
+func _stand_in(i: int, place: int) -> void:
+	var terrain := _nodes[TERRAIN] as TerrainBuilder
+	var near := _jobs[i] as TerrainBuilder.MeshJob
+	var job := terrain.standin_job(near.index, near.index2)
+	var standin := terrain.add_standin(job)
+	if standin == null:
+		return
+	terrain.move_child(standin, place)
+	_standins[i] = standin
+	if _log:
+		print("streaming stand-in up: Terrain/%s (%d triangles), %d standing" % [job.name, job.indices.size() / 3, _standins.size()])
+
+
+## The stand-in of chunk `i` taken down and freed with its mesh, where one
+## stands (the rebuild's add: before the fine mesh is added).
+func _stand_down(i: int) -> void:
+	if not _standins.has(i):
+		return
+	var standin: Node = _standins[i]
+	_standins.erase(i)
+	var standin_name := String(standin.name)
+	standin.get_parent().remove_child(standin)
+	standin.free()
+	if _log:
+		print("streaming stand-in down: Terrain/%s, %d standing" % [standin_name, _standins.size()])
 
 
 ## A retired chunk's job as its builder's mesh_jobs() made it, from the
@@ -531,7 +619,8 @@ func _run(i: int) -> void:
 ## The job stays in the table as the chunk's record (add_job released its
 ## arrays). A rebuild's add leaves the builder's counts and elements as
 ## they stood: the totals are the session's, and they hold this chunk
-## since its first add.
+## since its first add; a near chunk's stand-in is freed first, the fine
+## mesh added after it (THE STAND-IN: never both, never neither).
 func _add(i: int) -> void:
 	var job: RefCounted = _jobs[i]
 	var node: Variant = _nodes[_builder[i]]
@@ -539,6 +628,7 @@ func _add(i: int) -> void:
 	var chunk_name: String = job.get("name")
 	_state[i] = ADDED
 	if tail_done:
+		_stand_down(i)
 		var counts: Dictionary = node.counts.duplicate()
 		var elements: Dictionary = node.elements.duplicate()
 		node.add_job(job)
@@ -572,7 +662,8 @@ func _complete() -> void:
 
 ## Cancels what is in flight, waits for it and forgets the Ring (the
 ## header's CANCELLING): the counters and the arrivals are the claimed
-## Ring's and go with it.
+## Ring's and go with it, and so do the stand-ins - the Ring's children,
+## freed with it, here only forgotten.
 func _drop() -> void:
 	_cancelled = true
 	while _flight_head < _flight_tail:
@@ -600,6 +691,7 @@ func _drop() -> void:
 	_state = PackedByteArray()
 	_task = PackedInt64Array()
 	_by_rank = PackedInt32Array()
+	_standins = {}
 	_flight = PackedInt32Array()
 	_flight_head = 0
 	_flight_tail = 0
@@ -616,6 +708,12 @@ func chunks_remaining() -> int:
 ## chunks_retired counts the retirements).
 func chunks_away() -> int:
 	return _state.count(RETIRED)
+
+
+## How many stand-ins stand now (a state, as chunks_away() is: one per
+## retired terrain near chunk that had a mesh).
+func chunks_stood_in() -> int:
+	return _standins.size()
 
 
 ## One line: the counters and the state.

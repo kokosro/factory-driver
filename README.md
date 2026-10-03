@@ -930,8 +930,8 @@ the driver's ruling FD79B028 of 2026-10-01 on `docs/design/l2-streaming-design.m
 2 km of dressed vicinity is enough, the loading screen vanishes the moment the car can
 roll, the tail streams with no bar, every road's mesh stays resident, and far chunks
 retire and rebuild on return. Landed: the design's slices 1 and 2 (the thin handover, the
-tail) and slice 3 (THE RETIREMENT below). Not yet: the terrain's 50 m stand-in for a
-retired near chunk (slice 4), and the screen itself is as it was (slice 5).
+tail), slice 3 (THE RETIREMENT below) and slice 4 (THE STAND-IN below it: a retired
+terrain near chunk's 50 m stand-in). Not yet: the screen itself is as it was (slice 5).
 
 THE SCHEDULER (`scripts/streaming_scheduler.gd`, class `StreamingScheduler`, the autoload
 `Streaming`, registered after every other autoload) follows the ShellsWatch / MarksWatch
@@ -1005,10 +1005,62 @@ What never does: the vicinity's chunks (built behind the bar by the loading scen
 2 000 m of where the car started - they stand for the session wherever the car goes),
 every resident job (Mid, Far, Water, the aprons, the continuation, the trunk, rail and
 solid bodies), everything under Road, and anything on a Ring the scheduler never claimed
-(a one-shot Ring, the pad). THE ACCEPTED TRADE until slice 4: a terrain near chunk retires
-WITHOUT a stand-in, so past 4.5 km a hole shows where the `Near_` chunk was (the roads'
-aprons, resident, still lie beside every road); the car's physics reads none of it.
-`FD_LOADING_FRAMES=1` adds one line per retirement and per rebuild.
+(a one-shot Ring, the pad). A retired forest or buildings chunk leaves air; a retired
+terrain near chunk leaves its stand-in (THE STAND-IN, next - until slice 4 it left a hole);
+the car's physics reads none of it. `FD_LOADING_FRAMES=1` adds one line per retirement and
+per rebuild.
+
+THE STAND-IN (slice 4; the ruling: "terrain near-band retirement with the 50 m stand-in";
+the design: "a retiring near chunk swaps to one Mid-style 50 m quad per tile built from
+the same fields (pure), so no hole shows; rebuild restores the fine mesh"). A terrain near
+chunk that retires leaves `Standin_<row>_<col>` in its place under Terrain:
+`TerrainBuilder.standin_job()`, a pure function of the same resident fields the near mesh
+reads (the heights, the reach, the tile plan, the nodes' colours, the lattice's normals),
+built and added by the scheduler inside the retirement itself, on the main thread, after
+the near mesh is freed and at that child's own index - so the children's order is the
+transitions', never the frames'. The rebuild's add frees the stand-in FIRST and adds the
+near mesh after it, in one call: no frame shows both, none shows neither. The stand-in
+retires with its chunk and comes back with it - nothing of it stands for the session - and
+it is in no tally: it never goes through `add_job`, the builders' `counts`, `elements` and
+`describe()` and the scheduler's five counters do not move for one (`chunks_stood_in()` is
+the state). A new claim and a Ring's exit forget every stand-in: they are the Ring's
+children and are freed with it. THE ROAD RULE: a near tile with no lattice node inside a
+road's reach is ONE quad at its four corner nodes (the mid band's 50 m quad, 2 triangles
+for the near mesh's 50); a near tile with one keeps its 10 m cells, each kept or dropped
+by the near mesh's own rule (a cell with a node inside a road's reach is the apron's, and
+the aprons are resident). A 50 m chord across a reached tile would roof a road in a
+cutting, and a reached tile left out would open a 50 m slit beside every road; this way
+the stand-in covers exactly the cells the near mesh covered and no quad lies over a road
+(probed: every ribbon's paved width and shoulder sampled each metre, 2 232 505 samples in
+near tiles, 0 inside a tile drawn at 50 m). THE SKIRTS: a 50 m quad's edge hangs the LOD
+skirt (6 m) where the tile across it draws finer - a reached tile of the same chunk, or
+any near tile of the next chunk, whether that chunk stands at 10 m or as its own stand-in
+(the rule never reads another chunk's state) - and none toward a mid tile (the mid band
+hangs its own) nor between two 50 m quads. The same material, the same colour reads; no
+body, no shape. `FD_LOADING_FRAMES=1` adds one line per stand-in put up and taken down.
+
+MEASURED, the stand-in (this machine, 2026-10-03, headless; `standin_job()` over every
+near chunk of a one-shot Ring, and the streamed Ring at the pit anchor stepped by hand).
+THE HONEST SIZE: the stand-in keeps what its coverage needs, BY DESIGN, and the Ring has
+3 304 roads - about half its near cells lie in tiles one reaches. Triangles, over the 42
+near chunks: 593 266 -> 280 238 (47 %); a chunk's stand-in 2 842 to 8 892 for a near mesh
+of 7 398 to 16 820, from 24 % (`Near_5_4`: 3 796 for 16 018) to 69 % (`Near_5_1`: 5 102
+for 7 398), the largest `Near_2_4`'s 8 892 for 12 992 (68 %). Arrays as built: 20.8 MB ->
+13.1 MB - a retired near chunk gives back 37 % of its near mesh's arrays and keeps 63 %;
+that is the trade slice 4 makes for the hole it closes. In the process's static memory:
+the pit anchor's tail has 24 near chunks, which hold 6.38 MB standing and 4.39 MB as
+stand-ins (69 % kept); with the car standing at the pit 3 of them are away and their
+stand-ins hold 0.50 MB (1 199.74 MB against 1 199.25 MB with the three freed by hand,
+slice 3's state); with the whole tail away 1 146.4 MB against slice 3's 1 142.0 MB. THE
+MAIN THREAD: the stand-in's data stage runs inside the retirement, 3.3 to 7.4 ms a chunk
+(mean 6.3 ms, GDScript), its add 0.25 ms. The 8 ms node budget is read before each
+retirement, so one begins only while the frame's budget lasts and the one that runs past
+it is the frame's last: a step with one terrain retirement measured 4.1 to 9.4 ms, with
+two 11.3 to 15.6 ms (the pit, then the car put 57 km off at once: 24 near chunks over 13
+steps), a step of 122 forest and buildings retirements 0.7 ms. THE NAMED FOLLOW-UP, not
+built: the stand-in's data stage on a worker, as the rebuild's is - a prefetch or an
+asynchronous retirement, either one new machinery and new pins - if the driver ever feels
+that frame at the 4.5 km radius.
 
 MEASURED, the retirement (this machine, 2026-10-03, headless, the car standing at the pit
 anchor): of the 259 chunks of the tail 125 lie past 4 500 m and retire in the first frame
@@ -1611,12 +1663,24 @@ machine over the chunk boxes - the standing car's streamed chunks past 4 500 m r
 order with their meshes freed and no tally moved, the same along the pit's 2 km drive;
 by hand (`step(at)`) away to the other corner and back, both radii walked on one chunk's
 own box (standing to 4 500 m exactly, retired past it and all the way back in to 3 000 m
-exactly, rebuilt inside it), 40 km off the Ring the handover's Ring again name for name,
+exactly, rebuilt inside it), 40 km off the Ring the handover's Ring again name for name
+(since slice 4 with the stand-ins of the tail's near chunks after its children),
 then a 4 000 m lattice of stops across the tail until every one of its chunks has been
 retired and rebuilt at least once, each rebuild through the scheduler's pending set in
 the pinned order and byte-identical to its first build and to the one-shot reference;
 a one-shot Ring and the pad never retired; no count drift, the scheduler's counters only
-ever risen; and a Ring unloaded with its tail in flight leaving the scheduler idle. Then
+ever risen; THE STAND-IN (slice 4), what one has to be from the test's own arithmetic on
+the builder's fields, never the builder's function - every stand-in standing (the car at
+each corner, then far off the Ring: every near chunk of the tail) covering exactly the
+cells its near mesh covered, the unreached tiles as one 50 m quad, the reached tiles at
+10 m, nothing over a reached cell, the skirts under the edges that meet a finer tile and no
+other, every vertex a lattice node at `heights[]` to the bit, no tally moved; THE ROAD
+RULE on the Karussell's near chunk walked by hand through both radii twice at the pit -
+its coverage cell for cell the near mesh's, two mutants (the rule inverted: a quad on
+every near tile; the reached tiles left out) failing the same judge, the stand-in freed at
+the rebuild with the near mesh back to the byte and the second stand-in the first one's
+bytes; a new claim and a Ring's exit forgetting every stand-in; and a Ring unloaded with
+its tail in flight leaving the scheduler idle. Then
 `tests/smoke_test.gd`, which loads the main scene and
 drives the car with simulated input (including the fences round the force model: power
 against coasting through the same corner, cornering force building tick by tick, the

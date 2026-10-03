@@ -1,5 +1,5 @@
 extends SceneTree
-## Headless streaming test (L2-STREAMING-1 slices 1+2 and 3; decisions.org
+## Headless streaming test (L2-STREAMING-1 slices 1+2, 3 and 4; decisions.org
 ## C07BE6F1 "no freezing load, world-around-the-car streaming"; the ruling
 ## FD79B028 of 2026-10-01: about 2 km of dressed vicinity is enough, the
 ## loading screen vanishes the moment the car can roll, the tail streams
@@ -94,6 +94,68 @@ extends SceneTree
 ## in tail_completed's own frame, by the signal: from the next step on
 ## the far chunks retire, and after the drive the Ring is no longer
 ## whole. The same three checks, the same words, the same values.
+##
+## THE STAND-IN (slice 4, the ruling's "terrain near-band retirement with
+## the 50 m stand-in"; on the same three streamed Rings, no build more). A
+## retired near chunk that had a mesh leaves Standin_<row>_<col> in its
+## child's place under Terrain; the rebuild frees it before the near mesh
+## is added. The state machine follows it (_follow: a retirement swaps the
+## name in place, a rebuild takes the stand-in out and puts the near mesh
+## at the end), so every stop of the trips above holds the stand-ins too,
+## name for name in order, and each one put up again to its first one's
+## bytes. What a stand-in IS is THIS TEST'S OWN ARITHMETIC on the
+## builder's fields, never the builder's function (_plan_of over the tile
+## plan and the reach; _read_mesh over the mesh's own arrays; _judge):
+##   (f) every stand-in standing, with the car standing at the corner and
+##       again 40 km off (every near chunk of the tail): each covers
+##       exactly the cells its near mesh covered, once - a near tile no
+##       road reaches as one 50 m quad at its corner nodes, a near tile a
+##       road reaches at the lattice's 10 m with the reached cells left to
+##       the aprons, nothing over a reached cell - with a skirt under
+##       every edge of a 50 m quad that meets a finer tile (a reached tile
+##       of the chunk, a near tile of the next chunk) and under no other;
+##       every vertex a lattice node at heights[] to the bit (a skirt's
+##       foot SKIRT_M under one); the terrain's own material, no child;
+##       the triangles counted against the near meshes'; the terrain's
+##       describe() line, counts and elements unmoved;
+##   (g) THE ROAD RULE on the near chunk the Karussell lies in (roads
+##       through it; 3.3 km from the pit, in the pit anchor's tail),
+##       walked BY HAND through the radii twice on the pit anchor's Ring
+##       (WALK_M, WALK_STANDS: the L2-3 walk, on a near chunk; at the
+##       pit, so that no corner's trip - and no count slice 3 pinned
+##       there - is lengthened by it): the stand-in's coverage is cell
+##       for cell the coverage read off the near mesh that stood there
+##       (why a 50 m quad on an unreached tile never lies over a road:
+##       TerrainBuilder's header, THE STAND-IN - every ribbon's paved
+##       width and shoulder sampled each metre, 2 232 505 samples in
+##       near tiles, 0 in a tile with no node inside a road's reach);
+##       TWO MUTANTS built here fail the same judge - a
+##       50 m quad on every near tile, the reached ones too, roofs
+##       reached cells; the reached tiles left out opens holes; the cycle
+##       itself - the near mesh standing to 4 500 m exactly, the stand-in
+##       in its place past it and all the way back in to 3 000 m exactly,
+##       freed (node and mesh dead) inside it with the near mesh back to
+##       the byte, the second stand-in another node with the first one's
+##       bytes - the terrain's tallies the one-shot build's at every stop;
+##   (e) no stand-in drift after the whole trip: put up less taken down
+##       is the number standing, the scheduler's own count, the Standin_
+##       children under Terrain; every one its first one's bytes;
+##   (h) the stand-ins go with the Ring: a new claim (another Ring, at
+##       the pit anchor with the car 40 km off) forgets every one and
+##       leaves them standing on the Ring it gave up; a Ring's exit frees
+##       every one, the scheduler holding none.
+##
+## THE MOVED PIN (slice 4; was -> now): (d), 40 km off - was "the Ring is
+## the handover's Ring again, name for name": the children under the
+## three builders were the handover's lists and nothing else; now the
+## handover's lists stand as they did, name for name in their order, and
+## AFTER them under Terrain stand the stand-ins of the tail's near chunks
+## (25 at the Karussell, 31 at Aremberg; nothing else, nothing under
+## Forest or Buildings). The check's words are kept and say so at their
+## end; its counts are unmoved. Every other check of slices 1 to 3 has
+## its words and its values: where one says "every child standing is the
+## reference's to the byte" it counts the children the reference has - a
+## stand-in is no chunk of the one-shot build and is held by (f) instead.
 ##
 ## THE CANCEL: a Ring unloaded in the frame after its handover, the tail
 ## in flight - the scheduler waits for its tasks and forgets the Ring:
@@ -243,11 +305,14 @@ func _run() -> void:
 	_ok(streamed_drive.odometer == sync_drive.odometer and streamed_drive.position == sync_drive.position and streamed_drive.ticks == sync_drive.ticks, "the streamed build drives like the one-shot build TO THE BIT: the same odometer (%.6f m), the same position (%s), the same %d ticks - the car reads the profile and the floor slab, never a chunk" % [streamed_drive.odometer, streamed_drive.position, streamed_drive.ticks], "the drives differ: odometer %.9f vs %.9f, position %s vs %s, ticks %d vs %d" % [streamed_drive.odometer, sync_drive.odometer, streamed_drive.position, sync_drive.position, streamed_drive.ticks, sync_drive.ticks])
 	await _await_tail(scheduler)
 	_check_completion(scheduler, pit, reference, "the pit anchor")
-	await _check_drive_retirement(scheduler, pit, reference, lattice_origin)
+	var pit_trip := await _check_drive_retirement(scheduler, pit, reference, lattice_origin)
 	_check_counts(scheduler, pit, reference, lattice_origin, PIT_ANCHOR)
+	await _check_standin_cycle(scheduler, pit_trip, CORNERS[0])
+	var pit_standins := await _check_claim(scheduler, pit_trip)
 	unload_current_scene()
 	await _step(2)
 	_ok(current_scene == null and root.get_child_count() == root_children_before and _idle(scheduler), "the Ring unloaded: the root holds what it held, the scheduler forgot the Ring")
+	_ok(not pit_standins.is_empty() and _alive(pit_standins) == 0, "(h) the stand-ins went with the Ring the scheduler had given up: each of the %d that stood on it is freed (the instances dead)" % pit_standins.size(), "%d stand-ins stood, %d alive after the unload" % [pit_standins.size(), _alive(pit_standins)])
 
 	for c: int in CORNERS.size():
 		var corner: Dictionary = CORNERS[c]
@@ -274,14 +339,19 @@ func _run() -> void:
 		print("-- the retirement at %s" % corner.name)
 		var trip := _trip(outcome, reference, lattice_origin, corner.at)
 		await _check_standing_retirement(scheduler, outcome, trip, corner.at, corner.name)
+		_check_standins(scheduler, trip, "the car standing at %s" % corner.name)
 		await _check_away_and_back(scheduler, trip, corner, other)
 		await _check_radii(scheduler, trip)
 		await _check_sweep(scheduler, outcome, trip, corner)
 		_check_no_drift(scheduler, outcome, trip, corner.name)
+		_check_standin_drift(scheduler, trip, corner.name)
 		var away_at_unload := scheduler.chunks_away()
+		var standins_at_unload := _standin_ids(outcome.ring)
+		var stood_at_unload := scheduler.chunks_stood_in()
 		unload_current_scene()
 		await _step(2)
 		_ok(away_at_unload > 0 and current_scene == null and root.get_child_count() == root_children_before and _idle(scheduler), "the Ring at %s unloaded with %d of its chunks retired: the root holds what it held, the scheduler forgot the Ring, every counter zero" % [corner.name, away_at_unload], "away %d, current %s, root children %d (was %d), the scheduler %s" % [away_at_unload, current_scene, root.get_child_count(), root_children_before, scheduler.describe()])
+		_ok(not standins_at_unload.is_empty() and stood_at_unload == standins_at_unload.size() and _alive(standins_at_unload) == 0 and scheduler.chunks_stood_in() == 0, "(h) the Ring's exit at %s took its %d stand-ins: every one freed with the Ring (the instances dead), none kept by the scheduler" % [corner.name, standins_at_unload.size()], "%d stand-ins stood (the scheduler's count %d), %d alive after the unload, the scheduler keeps %d" % [standins_at_unload.size(), stood_at_unload, _alive(standins_at_unload), scheduler.chunks_stood_in()])
 
 	print("-- the cancel")
 	var cancelled := await _load_streamed(scheduler, null)
@@ -320,9 +390,10 @@ func _check_scheduler() -> StreamingScheduler:
 	return scheduler
 
 
-## Nothing claimed, nothing streaming, nothing retired, every counter zero.
+## Nothing claimed, nothing streaming, nothing retired, no stand-in kept,
+## every counter zero.
 func _idle(scheduler: StreamingScheduler) -> bool:
-	return scheduler.ring == null and not scheduler.streaming and not scheduler.tail_done and scheduler.chunks_total == 0 and scheduler.chunks_at_handover == 0 and scheduler.chunks_streamed == 0 and scheduler.chunks_retired == 0 and scheduler.chunks_rebuilt == 0 and scheduler.chunks_away() == 0 and scheduler.chunks_remaining() == 0 and scheduler.arrivals.is_empty()
+	return scheduler.ring == null and not scheduler.streaming and not scheduler.tail_done and scheduler.chunks_total == 0 and scheduler.chunks_at_handover == 0 and scheduler.chunks_streamed == 0 and scheduler.chunks_retired == 0 and scheduler.chunks_rebuilt == 0 and scheduler.chunks_away() == 0 and scheduler.chunks_stood_in() == 0 and scheduler.chunks_remaining() == 0 and scheduler.arrivals.is_empty()
 
 
 ## claim() takes only the loading scene's Ring: outside the tree, its
@@ -565,8 +636,11 @@ func _check_standing(ring: Node, where: String) -> void:
 ## CHUNK_ORDER), each {key, builder, name, b, k, box} - whether each has a
 ## child (a near chunk with nothing in it is a job, never a child), which
 ## are away, the children each builder should hold (the completion's; a
-## retirement takes a name out, a rebuild puts it at the end), the
-## transitions counted and the chunks rebuilt since the last reset.
+## retirement takes a name out - a near chunk's with a mesh is swapped in
+## place for its stand-in's - and a rebuild puts it at the end, taking the
+## stand-in out), the transitions counted and the chunks rebuilt since the
+## last reset; THE STAND-IN's: which stand now, each one's first SHA-256,
+## how many were put up, taken down and put up again to the first's bytes.
 func _trip(outcome: Dictionary, reference: Dictionary, lattice_origin: Vector2, at: Vector2) -> Dictionary:
 	var ring: Node = outcome.ring
 	var first: Dictionary = outcome.completion.snapshot
@@ -591,7 +665,7 @@ func _trip(outcome: Dictionary, reference: Dictionary, lattice_origin: Vector2, 
 			var key := builder + "/" + job_name
 			tail.append({"key": key, "builder": builder, "name": job_name, "b": b, "k": k, "box": box})
 			child[key] = reference.chunks[builder].has(job_name)
-	return {"ring": ring, "reference": reference, "first": first, "tail": tail, "child": child, "away": {}, "standing": standing, "retirements": 0, "rebuilds": 0, "rebuilt_once": {}}
+	return {"ring": ring, "reference": reference, "first": first, "tail": tail, "child": child, "away": {}, "standing": standing, "retirements": 0, "rebuilds": 0, "rebuilt_once": {}, "handles": outcome.completion.handles, "standins": {}, "standin_first": {}, "standin_again": 0, "ups": 0, "downs": 0}
 
 
 ## THIS TEST'S OWN STATE MACHINE, one stop of the car at `p`: a chunk
@@ -626,7 +700,9 @@ func _expect_stop(trip: Dictionary, p: Vector2) -> Dictionary:
 
 
 ## `trip` after these retirements and rebuilds: the chunks away, the
-## children each builder should hold, the counts.
+## children each builder should hold, the counts. THE STAND-IN: a retired
+## near chunk that has a mesh leaves its stand-in's name where its own
+## stood; its rebuild takes that name out.
 func _follow(trip: Dictionary, retired: PackedStringArray, rebuilt: PackedStringArray) -> void:
 	for key: String in retired:
 		trip.away[key] = true
@@ -635,10 +711,23 @@ func _follow(trip: Dictionary, retired: PackedStringArray, rebuilt: PackedString
 	var gone := {}
 	for key: String in retired:
 		gone[key] = true
+		if _stood_in(trip, key):
+			trip.standins[key] = true
+			trip.ups += 1
+	var down := {}
+	for key: String in rebuilt:
+		if _stood_in(trip, key):
+			down[_standin_name(key.get_slice("/", 1))] = true
+			trip.standins.erase(key)
+			trip.downs += 1
 	for builder: String in STREAMED:
 		var held := PackedStringArray()
 		for child_name: String in trip.standing[builder]:
-			if not gone.has(builder + "/" + child_name):
+			var key := builder + "/" + child_name
+			if gone.has(key):
+				if _stood_in(trip, key):
+					held.append(_standin_name(child_name))
+			elif not (builder == "Terrain" and down.has(child_name)):
 				held.append(child_name)
 		for key: String in rebuilt:
 			if key.get_slice("/", 0) == builder and trip.child[key]:
@@ -676,7 +765,9 @@ func _stop(scheduler: StreamingScheduler, trip: Dictionary, p: Vector2) -> Dicti
 ## order; the children under the three builders, name for name in order,
 ## and Road's the reference's; every rebuilt chunk's child BYTE-IDENTICAL
 ## to its first build and to the one-shot reference (none for a chunk
-## that never had one). {ok, retired, rebuilt, why}.
+## that never had one); every stand-in put up there, and put up again
+## BYTE-IDENTICAL to the first time; the scheduler's count of them the
+## state machine's. {ok, retired, rebuilt, why}.
 func _held(trip: Dictionary, expected: Dictionary, from: int) -> Dictionary:
 	var retired := PackedStringArray()
 	var rebuilt := PackedStringArray()
@@ -709,16 +800,37 @@ func _held(trip: Dictionary, expected: Dictionary, from: int) -> Dictionary:
 			why.append("%s rebuilt has a child it never had" % key)
 			continue
 		trip.rebuilt_once[key] = true
+	for key: String in expected.retired:
+		if not _stood_in(trip, key):
+			continue
+		var standin: Node = trip.ring.get_node("Terrain").get_node_or_null(NodePath(_standin_name(key.get_slice("/", 1))))
+		if standin == null:
+			why.append("%s retired left no stand-in" % key)
+			continue
+		var digest := _digest(standin)
+		if not trip.standin_first.has(key):
+			trip.standin_first[key] = digest
+		elif digest == trip.standin_first[key]:
+			trip.standin_again += 1
+		else:
+			why.append("%s's stand-in is not its first one's bytes" % key)
+	var stood := StreamingScheduler.of(self).chunks_stood_in()
+	if stood != trip.standins.size():
+		why.append("the scheduler keeps %d stand-ins, %d expected" % [stood, trip.standins.size()])
 	return {"ok": why.is_empty(), "retired": expected.retired.size(), "rebuilt": expected.rebuilt.size(), "why": "; ".join(why)}
 
 
 ## The children standing under the three builders that are not the
-## reference's child of the same name to the byte, and how many stand.
+## reference's child of the same name to the byte, and how many stand. A
+## stand-in is no child of the reference's and is not counted here: (f)
+## holds it, by this test's own arithmetic.
 func _standing_faults(now: Dictionary, reference: Dictionary) -> Dictionary:
 	var faults := PackedStringArray()
 	var standing := 0
 	for builder: String in STREAMED:
 		for child_name: String in now.chunks[builder]:
+			if builder == "Terrain" and child_name.begins_with("Standin_"):
+				continue
 			standing += 1
 			if now.chunks[builder][child_name] != reference.chunks[builder].get(child_name, ""):
 				faults.append(builder + "/" + child_name)
@@ -731,10 +843,10 @@ func _standing_faults(now: Dictionary, reference: Dictionary) -> Dictionary:
 ## the car where it stopped - one stop by hand against the state machine,
 ## and (e) the tallies. WHEN the tail completed along the drive is the
 ## wall clock's, so which chunks the band took is too: no count of them
-## is printed.
-func _check_drive_retirement(scheduler: StreamingScheduler, outcome: Dictionary, reference: Dictionary, lattice_origin: Vector2) -> void:
+## is printed. Returns the trip (empty where the tail never completed).
+func _check_drive_retirement(scheduler: StreamingScheduler, outcome: Dictionary, reference: Dictionary, lattice_origin: Vector2) -> Dictionary:
 	if outcome.completion.is_empty():
-		return
+		return {}
 	# The car stands (the drive left it on the brakes): the retirements
 	# for its place happen, the rebuilds in flight land.
 	await _step(HOLD_FRAMES)
@@ -769,6 +881,7 @@ func _check_drive_retirement(scheduler: StreamingScheduler, outcome: Dictionary,
 	var bytes := _standing_faults(now, reference)
 	var counters: bool = scheduler.chunks_total == outcome.total and scheduler.chunks_at_handover == outcome.at_handover and scheduler.chunks_streamed == outcome.to_stream and scheduler.chunks_retired == trip.retirements and scheduler.chunks_rebuilt == trip.rebuilds and scheduler.chunks_away() == trip.away.size() and scheduler.chunks_retired - scheduler.chunks_rebuilt == scheduler.chunks_away() and scheduler.chunks_remaining() == 0 and scheduler.arrivals == outcome.completion.arrivals
 	_ok(now.report == reference.report and bytes.faults.is_empty() and counters, "(e) no count drift along the drive: with chunks retired the four describe() lines and every count are the one-shot build's to the character and the integer still; every child standing is the reference's to the byte; the scheduler's counters only rose - the retirements less the rebuilds are the chunks away, the %d streamable, %d at the handover and %d streamed as they were" % [scheduler.chunks_total, scheduler.chunks_at_handover, scheduler.chunks_streamed], "report equal %s; %d children differ (the first: %s); the scheduler %s against %d retirements, %d rebuilds, %d away" % [now.report == reference.report, bytes.faults.size(), bytes.faults[0] if not bytes.faults.is_empty() else "none", scheduler.describe(), trip.retirements, trip.rebuilds, trip.away.size()])
+	return trip
 
 
 ## (a) the standing car at a corner, the scheduler on its own _process:
@@ -862,7 +975,9 @@ func _check_radii(scheduler: StreamingScheduler, trip: Dictionary) -> void:
 	_ok(faults.is_empty(), "(c) the two radii BY HAND on %s's own box, the car west of its edge: the chunk stands at 2999 m, at 3750 m, at 4499 m and at %.0f m exactly; is retired at 4501 m; is retired still back at %.0f m, at 3750 m - where it stood on the way out - at 3001 m and at %.0f m exactly; is rebuilt at 2999 m, to the byte. At each of the %d stops every other chunk of the tail moved as this test's own arithmetic on its box says (%d retirements, %d rebuilds in all)" % [chunk.key, R_RETIRE_OUT_M, R_RETIRE_OUT_M, R_RETIRE_IN_M, WALK_M.size(), retired, rebuilt], "%d faults on %s: %s" % [faults.size(), chunk.get("key", ""), "; ".join(faults)])
 
 
-## (d) 40 km off, the handover's Ring again; (b) from there the sweep: a
+## (d) 40 km off, the handover's Ring again and after its children the
+## stand-ins of the tail's near chunks (THE MOVED PIN, slice 4), each
+## judged (f); (b) from there the sweep: a
 ## SWEEP_M lattice of stops across the box of the tail's chunks, row by
 ## row, and home - every chunk of the tail rebuilt at least once.
 func _check_sweep(scheduler: StreamingScheduler, outcome: Dictionary, trip: Dictionary, corner: Dictionary) -> void:
@@ -870,10 +985,18 @@ func _check_sweep(scheduler: StreamingScheduler, outcome: Dictionary, trip: Dict
 	var children := _children_of(trip.ring)
 	var handed := 0
 	var as_handed: bool = far.ok and trip.away.size() == trip.tail.size() and scheduler.chunks_away() == trip.tail.size() and children.Road == trip.reference.children.Road
+	var after := 0
 	for builder: String in STREAMED:
-		as_handed = as_handed and children[builder] == outcome.children[builder]
-		handed += children[builder].size()
-	_ok(as_handed, "(d) nothing but the tail's chunks ever retires: with the car %.0f km off every one of the %d chunks streamed after the handover is retired and the Ring is the handover's Ring again, name for name in its order - the %d children under Terrain, Forest and Buildings that stood at the handover (the resident set and the vicinity's %d chunks, never the scheduler's) and all %d under Road" % [NOWHERE.length() / 1000.0, trip.tail.size(), handed, outcome.at_handover, children.Road.size()], "%s; %d away of %d; the scheduler %s" % [far.why, trip.away.size(), trip.tail.size(), scheduler.describe()])
+		var held: PackedStringArray = children[builder]
+		var at_handover: PackedStringArray = outcome.children[builder]
+		as_handed = as_handed and held.slice(0, at_handover.size()) == at_handover
+		for k: int in range(at_handover.size(), held.size()):
+			as_handed = as_handed and builder == "Terrain" and held[k].begins_with("Standin_")
+			after += 1
+		handed += at_handover.size()
+	as_handed = as_handed and after == trip.standins.size() and after > 0
+	_ok(as_handed, "(d) nothing but the tail's chunks ever retires: with the car %.0f km off every one of the %d chunks streamed after the handover is retired and the Ring is the handover's Ring again, name for name in its order - the %d children under Terrain, Forest and Buildings that stood at the handover (the resident set and the vicinity's %d chunks, never the scheduler's) and all %d under Road - and after them, under Terrain alone, the %d stand-ins of the tail's near chunks, nothing else" % [NOWHERE.length() / 1000.0, trip.tail.size(), handed, outcome.at_handover, children.Road.size(), after], "%s; %d away of %d; %d children after the handover's against %d stand-ins expected; the scheduler %s" % [far.why, trip.away.size(), trip.tail.size(), after, trip.standins.size(), scheduler.describe()])
+	_check_standins(scheduler, trip, "the car %.0f km off" % (NOWHERE.length() / 1000.0))
 	var lo := Vector2(INF, INF)
 	var hi := Vector2(-INF, -INF)
 	for chunk: Dictionary in trip.tail:
@@ -910,6 +1033,496 @@ func _check_no_drift(scheduler: StreamingScheduler, outcome: Dictionary, trip: D
 	_ok(now.report == trip.reference.report and bytes.faults.is_empty() and counters and trip.rebuilds > 0, "(e) no count drift at %s after %d retirements and %d rebuilds: the four describe() lines and every count are the one-shot build's to the character and the integer still; the scheduler's counters only rose - %d streamable chunks, %d at the handover and %d streamed as at the tail's completion, %d retired, %d rebuilt, %d away now (%d - %d); each of the %d children standing is the reference's to the byte" % [where, trip.retirements, trip.rebuilds, scheduler.chunks_total, scheduler.chunks_at_handover, scheduler.chunks_streamed, scheduler.chunks_retired, scheduler.chunks_rebuilt, scheduler.chunks_away(), scheduler.chunks_retired, scheduler.chunks_rebuilt, bytes.standing], "report equal %s; %d children differ (the first: %s); the scheduler %s against %d retirements, %d rebuilds, %d away" % [now.report == trip.reference.report, bytes.faults.size(), bytes.faults[0] if not bytes.faults.is_empty() else "none", scheduler.describe(), trip.retirements, trip.rebuilds, trip.away.size()])
 
 
+# =============================================================================
+#  The stand-in (slice 4)
+# =============================================================================
+
+## A near chunk's stand-in's name, by this test's own reading of the
+## names: Near_<row>_<col> -> Standin_<row>_<col>.
+func _standin_name(near_name: String) -> String:
+	return "Standin_" + near_name.trim_prefix("Near_")
+
+
+## Whether a chunk of the tail is one a stand-in stands for: a terrain
+## near chunk with a mesh.
+func _stood_in(trip: Dictionary, key: String) -> bool:
+	return key.begins_with("Terrain/Near_") and trip.child.get(key, false)
+
+
+## A near chunk's (row, column) off its name.
+func _near_cell(near_name: String) -> Vector2i:
+	var parts := near_name.split("_")
+	return Vector2i(int(parts[1]), int(parts[2]))
+
+
+## The terrain's tallies as a snapshot's report holds them.
+func _terrain_report(terrain: TerrainBuilder) -> Dictionary:
+	return {"describe": terrain.describe(), "counts": terrain.counts.duplicate(), "elements": terrain.elements.duplicate()}
+
+
+## The instance ids of the stand-ins standing under a Ring's Terrain.
+func _standin_ids(ring: Node) -> PackedInt64Array:
+	var ids := PackedInt64Array()
+	for child: Node in ring.get_node("Terrain").get_children():
+		if String(child.name).begins_with("Standin_"):
+			ids.append(child.get_instance_id())
+	return ids
+
+
+## How many of these instances are alive.
+func _alive(ids: PackedInt64Array) -> int:
+	var alive := 0
+	for id: int in ids:
+		if is_instance_id_valid(id):
+			alive += 1
+	return alive
+
+
+## Whether a road reaches a 50 m tile, by this test's own loop: a node of
+## the tile (its 6 x 6) inside a road's reach.
+func _reached(terrain: TerrainBuilder, ti: int, tj: int) -> bool:
+	var cells := int(TerrainBuilder.TILE_M / terrain.step)
+	for a: int in cells + 1:
+		for b: int in cells + 1:
+			if terrain.reach[(ti * cells + a) * terrain.cols + tj * cells + b] == 1:
+				return true
+	return false
+
+
+## THIS TEST'S OWN ARITHMETIC, what a near chunk's stand-in has to be,
+## from the builder's fields (the tile plan, the reach): per 10 m cell of
+## the chunk (row-major from its first cell) the size of the quad that
+## covers it - 0 none, 1 its own cell, 5 its whole tile - and whether it
+## is a near tile's cell a road reaches (`banned`: the apron's); the edges
+## a skirt hangs under, by their two nodes; the tiles and cells counted.
+func _plan_of(terrain: TerrainBuilder, ci: int, cj: int) -> Dictionary:
+	var cells := int(TerrainBuilder.TILE_M / terrain.step)
+	var per_chunk := int(CHUNK_M / TerrainBuilder.TILE_M)
+	var ti_lo := ci * per_chunk
+	var tj_lo := cj * per_chunk
+	var ti_hi := mini(ti_lo + per_chunk, terrain.tile_rows)
+	var tj_hi := mini(tj_lo + per_chunk, terrain.tile_cols)
+	var wide := (tj_hi - tj_lo) * cells
+	var high := (ti_hi - ti_lo) * cells
+	var size := PackedByteArray()
+	size.resize(wide * high)
+	var banned := PackedByteArray()
+	banned.resize(wide * high)
+	var skirts := {}
+	var open := 0
+	var reached_tiles := 0
+	var kept := 0
+	var covered := 0
+	var reached_cells := 0
+	for ti: int in range(ti_lo, ti_hi):
+		for tj: int in range(tj_lo, tj_hi):
+			if terrain.tile_class[ti * terrain.tile_cols + tj] != TerrainBuilder.TILE_NEAR:
+				continue
+			var reached := _reached(terrain, ti, tj)
+			for a: int in cells:
+				for b: int in cells:
+					var i := ti * cells + a
+					var j := tj * cells + b
+					var node := i * terrain.cols + j
+					var at := (i - ti_lo * cells) * wide + j - tj_lo * cells
+					if terrain.reach[node] == 1 or terrain.reach[node + 1] == 1 or terrain.reach[node + terrain.cols] == 1 or terrain.reach[node + terrain.cols + 1] == 1:
+						banned[at] = 1
+						reached_cells += 1
+						continue
+					covered += 1
+					if reached:
+						size[at] = 1
+						kept += 1
+					else:
+						size[at] = cells
+			if reached:
+				reached_tiles += 1
+				continue
+			open += 1
+			# The tile's four edges - north, east, south, west - each by its
+			# two nodes (row, column) and the tile across it.
+			var north := ti * cells
+			var south := (ti + 1) * cells
+			var west := tj * cells
+			var east := (tj + 1) * cells
+			var edges := [
+				[ti - 1, tj, Vector2i(north, west), Vector2i(north, east)],
+				[ti, tj + 1, Vector2i(north, east), Vector2i(south, east)],
+				[ti + 1, tj, Vector2i(south, west), Vector2i(south, east)],
+				[ti, tj - 1, Vector2i(north, west), Vector2i(south, west)],
+			]
+			for edge: Array in edges:
+				var ni: int = edge[0]
+				var nj: int = edge[1]
+				if ni < 0 or ni >= terrain.tile_rows or nj < 0 or nj >= terrain.tile_cols:
+					continue
+				if terrain.tile_class[ni * terrain.tile_cols + nj] != TerrainBuilder.TILE_NEAR:
+					continue
+				var same_chunk := ni >= ti_lo and ni < ti_hi and nj >= tj_lo and nj < tj_hi
+				if same_chunk and not _reached(terrain, ni, nj):
+					continue
+				skirts[Vector2i(edge[2].x * terrain.cols + edge[2].y, edge[3].x * terrain.cols + edge[3].y)] = true
+	return {"row": ti_lo * cells, "col": tj_lo * cells, "wide": wide, "high": high, "size": size, "banned": banned, "skirts": skirts, "open": open, "reached_tiles": reached_tiles, "kept": kept, "covered": covered, "reached_cells": reached_cells}
+
+
+## A mesh's own arrays read against the lattice, for a chunk's plan: every
+## vertex has to be a lattice node's place at heights[] TO THE BIT, or a
+## skirt's foot SKIRT_M under one; every triangle with no foot has to be
+## one half of a square on the lattice - a 10 m cell or a 50 m tile on the
+## tile grid, cut along the builder's diagonal, clockwise from above - and
+## marks its half on every cell under it (`halves`: 1, 2, both 3; `size`
+## the square's cells a side); every triangle with a foot hangs under one
+## edge, counted by the edge's two nodes. {halves, size, skirts,
+## triangles, faults}.
+func _read_mesh(terrain: TerrainBuilder, plan: Dictionary, arrays: Array) -> Dictionary:
+	var vertices: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var cells := int(TerrainBuilder.TILE_M / terrain.step)
+	var faults := PackedStringArray()
+	var nodes := PackedInt32Array()
+	var feet := PackedByteArray()
+	nodes.resize(vertices.size())
+	feet.resize(vertices.size())
+	for v: int in vertices.size():
+		var vertex := vertices[v]
+		var j := roundi((vertex.x - terrain.x0) / terrain.step)
+		var i := roundi((vertex.z - terrain.z0) / terrain.step)
+		if i < 0 or i >= terrain.rows or j < 0 or j >= terrain.cols:
+			nodes[v] = -1
+			faults.append("vertex %d is outside the lattice" % v)
+			continue
+		var node := i * terrain.cols + j
+		var top := Vector3(terrain.x0 + j * terrain.step, terrain.heights[node], terrain.z0 + i * terrain.step)
+		nodes[v] = node
+		if vertex == top:
+			feet[v] = 0
+		elif vertex == top - Vector3(0.0, TerrainBuilder.SKIRT_M, 0.0):
+			feet[v] = 1
+		else:
+			nodes[v] = -1
+			faults.append("vertex %d at %s is not node %d's place at its height %s" % [v, vertex, node, top])
+	var halves := PackedByteArray()
+	halves.resize(plan.wide * plan.high)
+	var size := PackedByteArray()
+	size.resize(plan.wide * plan.high)
+	var skirts := {}
+	for t: int in range(0, indices.size(), 3):
+		var a := nodes[indices[t]]
+		var b := nodes[indices[t + 1]]
+		var c := nodes[indices[t + 2]]
+		if a < 0 or b < 0 or c < 0:
+			continue
+		if feet[indices[t]] + feet[indices[t + 1]] + feet[indices[t + 2]] > 0:
+			var lo := mini(a, mini(b, c))
+			var hi := maxi(a, maxi(b, c))
+			if (a != lo and a != hi) or (b != lo and b != hi) or (c != lo and c != hi) or lo == hi:
+				faults.append("triangle %d has a skirt's foot and is under no one edge" % (t / 3))
+				continue
+			skirts[Vector2i(lo, hi)] = skirts.get(Vector2i(lo, hi), 0) + 1
+			continue
+		var ai := a / terrain.cols
+		var aj := a % terrain.cols
+		var bi := b / terrain.cols
+		var bj := b % terrain.cols
+		var ci := c / terrain.cols
+		var cj := c % terrain.cols
+		var i_lo := mini(ai, mini(bi, ci))
+		var j_lo := mini(aj, mini(bj, cj))
+		var side := maxi(ai, maxi(bi, ci)) - i_lo
+		# Twice the area, signed: positive clockwise from above (x east, z south).
+		var turn := (bj - aj) * (ci - ai) - (bi - ai) * (cj - aj)
+		if side != maxi(aj, maxi(bj, cj)) - j_lo or (side != 1 and side != cells) or turn != side * side or (side == cells and (i_lo % cells != 0 or j_lo % cells != 0)):
+			faults.append("triangle %d is no half of a cell or of a tile, clockwise" % (t / 3))
+			continue
+		# The square's north-east corner is in one half, its south-west in the other.
+		var north_east := i_lo * terrain.cols + j_lo + side
+		var south_west := (i_lo + side) * terrain.cols + j_lo
+		var has_ne := a == north_east or b == north_east or c == north_east
+		var has_sw := a == south_west or b == south_west or c == south_west
+		if has_ne == has_sw:
+			faults.append("triangle %d is cut along the other diagonal" % (t / 3))
+			continue
+		var half := 1 if has_ne else 2
+		var row := i_lo - int(plan.row)
+		var col := j_lo - int(plan.col)
+		if row < 0 or col < 0 or row + side > plan.high or col + side > plan.wide:
+			faults.append("triangle %d lies outside the chunk" % (t / 3))
+			continue
+		for da: int in side:
+			for db: int in side:
+				var at: int = (row + da) * int(plan.wide) + col + db
+				if halves[at] & half != 0 or (size[at] != 0 and size[at] != side):
+					faults.append("triangle %d covers a cell twice" % (t / 3))
+				halves[at] |= half
+				size[at] = side
+	for edge: Vector2i in skirts:
+		if skirts[edge] != 2:
+			faults.append("the skirt under %s has %d triangles" % [edge, skirts[edge]])
+	return {"halves": halves, "size": size, "skirts": skirts, "triangles": indices.size() / 3, "faults": faults}
+
+
+## A mesh as read against the chunk's plan: {ok, why, roofed (reached
+## cells with a triangle over them), holes (cells the plan covers that
+## the mesh does not cover whole), coarse (cells covered at the wrong
+## size), stray, skirts_missing, skirts_extra}.
+func _judge(plan: Dictionary, read: Dictionary) -> Dictionary:
+	var roofed := 0
+	var holes := 0
+	var coarse := 0
+	var stray := 0
+	for at: int in plan.size.size():
+		if plan.size[at] == 0:
+			if read.halves[at] != 0:
+				if plan.banned[at] == 1:
+					roofed += 1
+				else:
+					stray += 1
+		elif read.halves[at] != 3:
+			holes += 1
+		elif read.size[at] != plan.size[at]:
+			coarse += 1
+	var skirts_missing := 0
+	var skirts_extra := 0
+	for edge: Vector2i in plan.skirts:
+		if not read.skirts.has(edge):
+			skirts_missing += 1
+	for edge: Vector2i in read.skirts:
+		if not plan.skirts.has(edge):
+			skirts_extra += 1
+	var expected: int = 2 * (plan.open + plan.kept + plan.skirts.size())
+	var ok: bool = read.faults.is_empty() and roofed == 0 and holes == 0 and coarse == 0 and stray == 0 and skirts_missing == 0 and skirts_extra == 0 and read.triangles == expected
+	var why := "%d reached cells roofed, %d cells of holes, %d at the wrong size, %d stray, %d skirts missing, %d extra, %d triangles against %d, %d malformed (the first: %s)" % [roofed, holes, coarse, stray, skirts_missing, skirts_extra, read.triangles, expected, read.faults.size(), read.faults[0] if not read.faults.is_empty() else "none"]
+	return {"ok": ok, "why": why, "roofed": roofed, "holes": holes, "coarse": coarse, "stray": stray, "skirts_missing": skirts_missing, "skirts_extra": skirts_extra}
+
+
+## A MUTANT stand-in's arrays for a chunk, built here: a 50 m quad at the
+## corner nodes of every near tile no road reaches - and, `roof`, of every
+## near tile a road reaches too (the road rule inverted: quads over the
+## reached cells); without it the reached tiles are left out (the slits).
+func _mutant(terrain: TerrainBuilder, ci: int, cj: int, roof: bool) -> Array:
+	var cells := int(TerrainBuilder.TILE_M / terrain.step)
+	var per_chunk := int(CHUNK_M / TerrainBuilder.TILE_M)
+	var vertices := PackedVector3Array()
+	var indices := PackedInt32Array()
+	for ti: int in range(ci * per_chunk, mini((ci + 1) * per_chunk, terrain.tile_rows)):
+		for tj: int in range(cj * per_chunk, mini((cj + 1) * per_chunk, terrain.tile_cols)):
+			if terrain.tile_class[ti * terrain.tile_cols + tj] != TerrainBuilder.TILE_NEAR:
+				continue
+			if _reached(terrain, ti, tj) and not roof:
+				continue
+			var base := vertices.size()
+			for corner: Vector2i in [Vector2i(ti * cells, tj * cells), Vector2i(ti * cells, (tj + 1) * cells), Vector2i((ti + 1) * cells, (tj + 1) * cells), Vector2i((ti + 1) * cells, tj * cells)]:
+				vertices.append(Vector3(terrain.x0 + corner.y * terrain.step, terrain.heights[corner.x * terrain.cols + corner.y], terrain.z0 + corner.x * terrain.step))
+			indices.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = vertices
+	arrays[Mesh.ARRAY_INDEX] = indices
+	return arrays
+
+
+## (f) every stand-in standing now, judged by this test's own arithmetic:
+## one for each near chunk of the tail that is away and has a mesh, none
+## else anywhere; each a bare mesh in the terrain's own material that
+## covers what its near mesh covered, at the plan's sizes, with the
+## plan's skirts; the near meshes' own triangles (taken at the tail's
+## completion) the plan's cells; the terrain's tallies unmoved.
+func _check_standins(scheduler: StreamingScheduler, trip: Dictionary, when: String) -> void:
+	var terrain: TerrainBuilder = trip.ring.get_node("Terrain")
+	var material := (terrain.get_node("Mid") as MeshInstance3D).mesh.surface_get_material(0)
+	var faults := PackedStringArray()
+	var standing := 0
+	var open := 0
+	var reached_tiles := 0
+	var kept := 0
+	var reached_cells := 0
+	var skirts := 0
+	var triangles := 0
+	var fine := 0
+	for chunk: Dictionary in trip.tail:
+		if chunk.builder != "Terrain":
+			continue
+		var node := terrain.get_node_or_null(NodePath(_standin_name(chunk.name))) as MeshInstance3D
+		if (node != null) != trip.standins.has(chunk.key):
+			faults.append("%s: the stand-in %s" % [chunk.key, "stands" if node != null else "is missing"])
+			continue
+		if node == null:
+			continue
+		standing += 1
+		var cell := _near_cell(chunk.name)
+		var plan := _plan_of(terrain, cell.x, cell.y)
+		var read := _read_mesh(terrain, plan, node.mesh.surface_get_arrays(0))
+		var verdict := _judge(plan, read)
+		if not verdict.ok:
+			faults.append("%s: %s" % [node.name, verdict.why])
+		if node.get_child_count() != 0 or node.mesh.get_surface_count() != 1 or node.mesh.surface_get_material(0) != material:
+			faults.append("%s is not a bare mesh in the terrain's material" % node.name)
+		if int(trip.handles[chunk.key].triangles) != 2 * int(plan.covered):
+			faults.append("%s's near mesh had %d triangles, the plan's cells make %d" % [chunk.key, trip.handles[chunk.key].triangles, 2 * int(plan.covered)])
+		open += plan.open
+		reached_tiles += plan.reached_tiles
+		kept += plan.kept
+		reached_cells += plan.reached_cells
+		skirts += plan.skirts.size()
+		triangles += read.triangles
+		fine += trip.handles[chunk.key].triangles
+	var named := 0
+	for builder: String in STREAMED:
+		for child: Node in trip.ring.get_node(builder).get_children():
+			if String(child.name).begins_with("Standin_"):
+				named += 1
+	var tallies: bool = _terrain_report(terrain) == trip.reference.report.terrain
+	_ok(faults.is_empty() and standing > 0 and named == standing and scheduler.chunks_stood_in() == standing and trip.standins.size() == standing and tallies, "(f) the stand-ins, %s: each of the %d near chunks of the tail that is away and has a mesh left Standin_<row>_<col> in its Near_ child's place under Terrain (none under Forest or Buildings), a bare mesh in the terrain's own material. By this test's own arithmetic on the builder's fields each covers exactly the cells its near mesh covered, once: the %d near tiles no road reaches as ONE 50 m quad each at the tile's corner nodes, the %d cells no road reaches of the %d near tiles one does at the lattice's 10 m, NOTHING over the %d cells a road reaches (the aprons', resident); a skirt under each of the %d edges of a 50 m quad that meet a finer tile - a reached tile of the chunk, a near tile of the next chunk - and under no other; every vertex a lattice node's place at heights[] to the bit (a skirt's foot %.0f m under one). %d triangles stand in for the near meshes' %d. The terrain's describe() line, counts and elements are the one-shot build's still" % [when, standing, open, kept, reached_tiles, reached_cells, skirts, TerrainBuilder.SKIRT_M, triangles, fine], "%d stand-ins judged, %d Standin_ children, the scheduler keeps %d, %d expected; tallies equal %s; %d faults (the first: %s)" % [standing, named, scheduler.chunks_stood_in(), trip.standins.size(), tallies, faults.size(), faults[0] if not faults.is_empty() else "none"])
+
+
+## (g) ONE near chunk through the radii BY HAND, twice, on the pit
+## anchor's Ring (no trip of the corners' is lengthened by it: their
+## counts stand as slice 3 pinned them): the tail's near chunk `corner`
+## lies in - the Karussell's, roads through it - first with the car 40 km
+## off (every chunk of the tail away: the walk's counts are then the
+## walk's alone, whatever the drive left), then the car west of the
+## chunk's western edge at WALK_M, level with its middle - the L2-3 walk
+## and its pins (WALK_STANDS), on a chunk with a stand-in. THE ROAD RULE on it
+## (the stand-in judged against the plan and against the coverage read
+## off the near mesh that stood), the two mutants against the same judge,
+## and the cycle: the near mesh XOR the stand-in at every stop, each
+## stand-in dead once the near mesh is back, the second one the first's
+## bytes, the terrain's tallies the reference's at every stop.
+func _check_standin_cycle(scheduler: StreamingScheduler, trip: Dictionary, corner: Dictionary) -> void:
+	if trip.is_empty():
+		_ok(false, "", "no trip at the pit anchor to walk the stand-in on")
+		return
+	var terrain: TerrainBuilder = trip.ring.get_node("Terrain")
+	var chunk := {}
+	for candidate: Dictionary in trip.tail:
+		if candidate.builder == "Terrain" and trip.child[candidate.key] and _box_distance(candidate.box, corner.at) == 0.0:
+			chunk = candidate
+			break
+	if chunk.is_empty():
+		_ok(false, "", "no near chunk of the tail under %s to walk the stand-in on" % corner.name)
+		return
+	var far := await _stop(scheduler, trip, NOWHERE)
+	var cell := _near_cell(chunk.name)
+	var plan := _plan_of(terrain, cell.x, cell.y)
+	var standin_name := _standin_name(chunk.name)
+	var faults := PackedStringArray()
+	if not far.ok:
+		faults.append("%.0f km off: %s" % [NOWHERE.length() / 1000.0, far.why])
+	var near_read := {}
+	var standin_read := {}
+	var verdict := {}
+	var digests := PackedStringArray()
+	var ids := PackedInt64Array()
+	var meshes: Array = []
+	var retired := 0
+	var rebuilt := 0
+	var stops := 0
+	for lap: int in 2:
+		for s: int in WALK_M.size():
+			var p := Vector2(chunk.box[0] - WALK_M[s], (chunk.box[1] + chunk.box[3]) * 0.5)
+			if _box_distance(chunk.box, p) != WALK_M[s]:
+				faults.append("the stop at %.0f m is %.6f m from the box" % [WALK_M[s], _box_distance(chunk.box, p)])
+			var held := await _stop(scheduler, trip, p)
+			if not held.ok:
+				faults.append("lap %d at %.0f m: %s" % [lap + 1, WALK_M[s], held.why])
+			stops += 1
+			retired += held.retired
+			rebuilt += held.rebuilt
+			var near := terrain.get_node_or_null(NodePath(chunk.name)) as MeshInstance3D
+			var standin := terrain.get_node_or_null(NodePath(standin_name)) as MeshInstance3D
+			if (near != null) != WALK_STANDS[s] or (standin != null) == WALK_STANDS[s] or trip.away.has(chunk.key) == WALK_STANDS[s]:
+				faults.append("lap %d at %.0f m (stop %d): the near mesh %s, the stand-in %s" % [lap + 1, WALK_M[s], s, "stands" if near != null else "is away", "stands" if standin != null else "is not there"])
+			if _terrain_report(terrain) != trip.reference.report.terrain:
+				faults.append("lap %d at %.0f m: the terrain's tallies moved" % [lap + 1, WALK_M[s]])
+			if near != null:
+				if _alive(ids) != 0:
+					faults.append("lap %d at %.0f m: a stand-in's node outlived the rebuild" % [lap + 1, WALK_M[s]])
+				for mesh: WeakRef in meshes:
+					if mesh.get_ref() != null:
+						faults.append("lap %d at %.0f m: a stand-in's mesh outlived the rebuild" % [lap + 1, WALK_M[s]])
+				if _digest(near) != trip.reference.chunks.Terrain[chunk.name] or _digest(near) != trip.first.chunks.Terrain[chunk.name]:
+					faults.append("lap %d at %.0f m: the near mesh is not its first build's bytes" % [lap + 1, WALK_M[s]])
+				if near_read.is_empty():
+					near_read = _read_mesh(terrain, plan, near.mesh.surface_get_arrays(0))
+			elif standin != null and not ids.has(standin.get_instance_id()):
+				ids.append(standin.get_instance_id())
+				meshes.append(weakref(standin.mesh))
+				digests.append(_digest(standin))
+				if standin.get_index() != trip.standing.Terrain.find(standin_name):
+					faults.append("lap %d: the stand-in stands at index %d under Terrain" % [lap + 1, standin.get_index()])
+				if standin_read.is_empty():
+					standin_read = _read_mesh(terrain, plan, standin.mesh.surface_get_arrays(0))
+					verdict = _judge(plan, standin_read)
+	if near_read.is_empty() or standin_read.is_empty():
+		_ok(false, "", "the walk on %s never saw both meshes: %s" % [chunk.key, "; ".join(faults)])
+		return
+	# The near mesh's own coverage, read off the mesh that stood: every
+	# cell it covers whole, at 10 m; the stand-in's has to be the same set.
+	var same_cover: bool = near_read.faults.is_empty() and near_read.skirts.is_empty()
+	var near_cells := 0
+	for at: int in plan.size.size():
+		same_cover = same_cover and (near_read.halves[at] == 0 or (near_read.halves[at] == 3 and near_read.size[at] == 1)) and near_read.halves[at] == standin_read.halves[at]
+		if near_read.halves[at] == 3:
+			near_cells += 1
+	_ok(verdict.ok and same_cover and near_cells == plan.covered and near_read.triangles == 2 * near_cells, "(g) THE ROAD RULE on %s, the near chunk %s lies in: its stand-in draws the %d near tiles no road reaches as one 50 m quad each and the %d near tiles one does at 10 m - %d of their cells kept, the %d a road reaches left to the aprons with NO triangle over any of them - and its coverage is, cell for cell, the coverage read off the near mesh that stood there (%d cells, %d triangles); %d skirts; %d triangles stand in for those %d" % [chunk.key, corner.name, plan.open, plan.reached_tiles, plan.kept, plan.reached_cells, near_cells, near_read.triangles, plan.skirts.size(), standin_read.triangles, near_read.triangles], "%s: %s; the same cover as the near mesh %s (%d cells against the plan's %d; %d malformed)" % [chunk.key, verdict.why, same_cover, near_cells, plan.covered, near_read.faults.size()])
+	var roof := _judge(plan, _read_mesh(terrain, plan, _mutant(terrain, cell.x, cell.y, true)))
+	var slit := _judge(plan, _read_mesh(terrain, plan, _mutant(terrain, cell.x, cell.y, false)))
+	_ok(not roof.ok and roof.roofed == plan.reached_cells and roof.roofed > 0 and roof.holes == 0 and not slit.ok and slit.roofed == 0 and slit.holes == plan.kept and slit.holes > 0, "(g) the mutants FAIL the same judge on %s: the road rule inverted - a 50 m quad on every near tile, the reached ones too - puts triangles over all %d of the cells a road reaches (the roof over a road in a cutting); the reached tiles left out opens %d cells of holes (the slits beside every road)" % [chunk.key, roof.roofed, slit.holes], "the roof mutant: ok %s, %s; the slit mutant: ok %s, %s" % [roof.ok, roof.why, slit.ok, slit.why])
+	_ok(faults.is_empty() and ids.size() == 2 and digests.size() == 2 and digests[0] == digests[1] and ids[0] != ids[1], "(g) the stand-in's cycle BY HAND on %s, the car west of its edge, the radii's walk twice: the near mesh stands at 2999 m, at 3750 m, at 4499 m and at %.0f m exactly; at 4501 m it is freed and the stand-in stands in its place, and stands still back at %.0f m, at 3750 m, at 3001 m and at %.0f m exactly; at 2999 m the stand-in is freed (its node and its mesh dead) and the near mesh is back, BYTE-IDENTICAL to its first build and to the one-shot reference - never both, never neither. The second lap's stand-in is another node with the first one's bytes (SHA-256 %s...). At each of the %d stops the terrain's describe() line, counts and elements are the one-shot build's, and every other chunk of the tail moved as this test's own arithmetic on its box says (%d retirements, %d rebuilds in all)" % [chunk.key, R_RETIRE_OUT_M, R_RETIRE_OUT_M, R_RETIRE_IN_M, digests[0].left(16) if not digests.is_empty() else "", stops, retired, rebuilt], "%d faults on %s: %s; %d stand-ins seen, %d digests" % [faults.size(), chunk.key, "; ".join(faults), ids.size(), digests.size()])
+
+
+## (e) no stand-in drift after the whole trip: the stand-ins put up less
+## the ones taken down are the ones standing - this test's count, the
+## scheduler's and the Standin_ children under Terrain - and each is its
+## first one's bytes.
+func _check_standin_drift(scheduler: StreamingScheduler, trip: Dictionary, where: String) -> void:
+	var terrain: TerrainBuilder = trip.ring.get_node("Terrain")
+	var faults := PackedStringArray()
+	for key: String in trip.standins:
+		var standin := terrain.get_node_or_null(NodePath(_standin_name(key.get_slice("/", 1))))
+		if standin == null or _digest(standin) != trip.standin_first.get(key, ""):
+			faults.append(key)
+	var named := _standin_ids(trip.ring).size()
+	var standing: int = trip.standins.size()
+	_ok(faults.is_empty() and trip.ups - trip.downs == standing and scheduler.chunks_stood_in() == standing and named == standing and standing > 0 and trip.downs > 0 and trip.standin_again > 0 and _terrain_report(terrain) == trip.reference.report.terrain, "(e) no stand-in drift at %s: over the whole trip %d stand-ins were put up and %d taken down, and %d - %d are the %d standing now - the scheduler's own count and the Standin_ children under Terrain, one for each near chunk away that has a mesh; %d times a stand-in was put up again where one had stood before, each time its first one's bytes, and each one standing now is; the terrain's describe() line, counts and elements never moved for one" % [where, trip.ups, trip.downs, trip.ups, trip.downs, standing, trip.standin_again], "%d up, %d down, %d expected standing, the scheduler keeps %d, %d Standin_ children; %d put up again; %d differ from their first (the first: %s)" % [trip.ups, trip.downs, standing, scheduler.chunks_stood_in(), named, trip.standin_again, faults.size(), faults[0] if not faults.is_empty() else "none"])
+
+
+## (h) a new claim forgets every stand-in. BY HAND at the pit anchor: the
+## car 40 km off, every near chunk of the tail a stand-in; another Ring -
+## outside the tree, its four builders deferred, as the loading scene
+## makes one - is claimed: the scheduler is that Ring's, nothing kept of
+## the first; the first Ring's stand-ins stand untouched (its children,
+## no longer anyone's to rebuild) however the scheduler is stepped; the
+## claim released, the scheduler idle. Returns the stand-ins' instance
+## ids (they go with the Ring at its unload).
+func _check_claim(scheduler: StreamingScheduler, trip: Dictionary) -> PackedInt64Array:
+	if trip.is_empty():
+		_ok(false, "", "no trip at the pit anchor to claim over")
+		return PackedInt64Array()
+	var far := await _stop(scheduler, trip, NOWHERE)
+	var ids := _standin_ids(trip.ring)
+	var stood := scheduler.chunks_stood_in()
+	var children := _children_of(trip.ring)
+	var other: Node = (load(RING_SCENE) as PackedScene).instantiate()
+	(other.get_node("Road") as RoadBuilder).build_deferred = true
+	(other.get_node("Terrain") as TerrainBuilder).build_deferred = true
+	(other.get_node("Forest") as ForestWalls).build_deferred = true
+	BuildingsShells.of(other).build_deferred = true
+	var claimed := scheduler.claim(other)
+	var forgot: bool = scheduler.ring == other and not scheduler.streaming and not scheduler.tail_done and scheduler.chunks_stood_in() == 0 and scheduler.chunks_retired == 0 and scheduler.chunks_rebuilt == 0 and scheduler.chunks_away() == 0 and scheduler.chunks_remaining() == 0
+	# The pit anchor: every chunk of the first Ring's tail is within
+	# R_RETIRE_IN_M of somewhere near - were it still the scheduler's, these
+	# steps would take stand-ins down.
+	for k: int in INERT_STEPS:
+		scheduler.step(Vector3(PIT_ANCHOR.x, 0.0, PIT_ANCHOR.y))
+		await process_frame
+	var untouched: bool = _children_of(trip.ring) == children and _alive(ids) == ids.size() and scheduler.chunks_stood_in() == 0
+	scheduler.release(other)
+	other.free()
+	_ok(far.ok and not ids.is_empty() and stood == ids.size() and ids.size() == trip.standins.size() and claimed and forgot and untouched and _idle(scheduler), "(h) a new claim forgets every stand-in: at the pit anchor with the car %.0f km off, %d stand-ins standing (every near chunk of the tail that has a mesh), another Ring is claimed - outside the tree, its four builders deferred - and the scheduler is that Ring's alone: no stand-in kept, nothing retired, nothing away; the first Ring's %d stand-ins stand on untouched, name for name with every other child, however the scheduler is stepped; the claim released, the scheduler idle" % [NOWHERE.length() / 1000.0, ids.size(), ids.size()], "%s; %d stand-ins standing, the scheduler kept %d (%d expected); claimed %s, forgot %s, untouched %s; the scheduler %s" % [far.why, ids.size(), stood, trip.standins.size(), claimed, forgot, untouched, scheduler.describe()])
+	return ids
+
+
 ## The car's (x, z) in the current scene, or null where there is none.
 func _car_place() -> Variant:
 	if current_scene == null:
@@ -921,13 +1534,15 @@ func _car_place() -> Variant:
 
 
 ## The instance id of every MeshInstance3D child under the three streamed
-## builders and a weak reference to its mesh, by "<Builder>/<name>".
+## builders, a weak reference to its mesh and its first surface's
+## triangles, by "<Builder>/<name>".
 func _handles(ring: Node) -> Dictionary:
 	var handles := {}
 	for builder: String in STREAMED:
 		for child: Node in ring.get_node(builder).get_children():
 			if child is MeshInstance3D and (child as MeshInstance3D).mesh != null:
-				handles[builder + "/" + String(child.name)] = {"id": child.get_instance_id(), "mesh": weakref((child as MeshInstance3D).mesh)}
+				var mesh := (child as MeshInstance3D).mesh
+				handles[builder + "/" + String(child.name)] = {"id": child.get_instance_id(), "mesh": weakref(mesh), "triangles": (mesh as ArrayMesh).surface_get_array_index_len(0) / 3 if mesh is ArrayMesh else 0}
 	return handles
 
 

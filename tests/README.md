@@ -265,6 +265,45 @@ own frame, by the signal, because from the next step on the far chunks retire. T
 three checks with the same words and values. 57 checks (was 36: +1 the band's numbers, +2
 the one-shot Ring and the pad, +2 at the pit, +8 at each corner).
 
+THE STAND-IN (slice 4) rides on the same three streamed Rings again, no build more. What
+the scheduler does: a retired terrain near chunk that had a mesh leaves
+`Standin_<row>_<col>` at its `Near_` child's own index under Terrain
+(`TerrainBuilder.standin_job()`, built and added inside the retirement); the rebuild's add
+frees it before the near mesh is added; no tally moves for one; a new claim and a Ring's
+exit forget them all. The test's state machine follows it (`_follow`: a retirement swaps
+the name in place, a rebuild takes the stand-in out and puts the near mesh at the end), so
+every stop of the slice-3 trips holds the stand-ins too - name for name in order, each
+one put up again to its first one's SHA-256, the scheduler's `chunks_stood_in()` the state
+machine's count. What a stand-in IS comes from THE TEST'S OWN ARITHMETIC on the builder's
+fields (`_plan_of` over the tile plan and the reach, `_read_mesh` over the mesh's own
+arrays, `_judge`), never from the builder's function:
+
+| check | how | pinned |
+|---|---|---|
+| (f) every stand-in standing | the car standing at the Karussell (3 stand-ins) and at Aremberg (13); then 57 km off, every near chunk of the tail (25; 31) | each covers exactly the cells its near mesh covered, once: a near tile no road reaches as ONE 50 m quad at its corner nodes, a near tile one does at the lattice's 10 m, NOTHING over a cell a road reaches; a skirt under every edge of a 50 m quad that meets a finer tile (a reached tile of the chunk, a near tile of the next chunk) and under no other; every vertex a lattice node at `heights[]` to the bit (a skirt's foot 6 m under one); every triangle a half of a cell or of a tile, clockwise, on the builder's diagonal; a bare mesh in the terrain's own material; the near meshes' triangles (taken at the completion) the plan's cells; 14 982 triangles for 37 368 and 157 174 for 348 344 at the Karussell, 75 674 for 188 582 and 200 760 for 435 338 at Aremberg; the terrain's `describe()`, counts and elements the one-shot's |
+| (g) THE ROAD RULE | at the pit anchor, on `Near_1_4` - the near chunk the Karussell lies in, 3.3 km from the pit, roads through it | the stand-in draws its 118 unreached near tiles as one 50 m quad each and its 282 reached ones at 10 m, 3 972 cells kept, no triangle over the 3 078 a road reaches; its coverage is, cell for cell, the coverage read off the near mesh that stood there (6 922 cells, 13 844 triangles); 244 skirts; 8 668 triangles for 13 844 |
+| (g) the mutants | built in the test, through the same `_read_mesh` and `_judge` | the road rule inverted - a 50 m quad on every near tile, the reached ones too - FAILS: triangles over all 3 078 reached cells (the roof over a road in a cutting); the reached tiles left out FAILS: 3 972 cells of holes (the slits) |
+| (g) the cycle | by hand at the pit, from 57 km off, west of `Near_1_4`'s own box through the slice-3 walk (2999 ... 4501 ... 2999 m) TWICE | the near mesh stands to 4 500 m exactly; at 4 501 m it is freed and the stand-in stands at its index; the stand-in stands all the way back in to 3 000 m exactly; at 2 999 m it is freed (node and mesh dead) and the near mesh is back, byte-identical to its first build and to the reference - never both, never neither; the second lap's stand-in another node, the first one's bytes; at each of the 20 stops the terrain's tallies the one-shot's and every other tail chunk as the state machine says |
+| (e) no stand-in drift | after the whole trip at each corner | put up less taken down are the ones standing (70 - 54 = 16 at the Karussell, 93 - 71 = 22 at Aremberg) - the state machine's count, `chunks_stood_in()` and the `Standin_` children under Terrain; 45 and 62 times a stand-in was put up again, each time its first one's bytes; the terrain's tallies never moved |
+| (h) a new claim | at the pit, the car 57 km off, 24 stand-ins standing; another Ring (outside the tree, its builders deferred) claimed by hand | the scheduler is the new Ring's alone - no stand-in kept, nothing retired, nothing away; the first Ring's 24 stand-ins stand on untouched however the scheduler is stepped; released, the scheduler idle; at the unload all 24 instances dead |
+| (h) a Ring's exit | each corner's unload, 16 and 22 stand-ins standing | every instance dead, `chunks_stood_in()` zero (and `_idle` now asks for it everywhere) |
+
+Nothing about a stand-in's cost is in a line: the triangles above are pure functions of
+the checked-in files; the milliseconds and megabytes are in the main README (*The thin
+handover and the streaming tail*, MEASURED, the stand-in).
+
+THE MOVED PIN (slice 4; was -> now): (d), 57 km off - was "the Ring is the handover's Ring
+again, name for name": the children under the three builders were the handover's lists
+and nothing else; now the handover's lists stand as they did, name for name in their
+order, and AFTER them under Terrain stand the stand-ins of the tail's near chunks (25 at
+the Karussell, 31 at Aremberg; nothing else, nothing under Forest or Buildings). The
+check's words are kept and say so at their end; its counts are unmoved. Every other check
+of slices 1 to 3 prints the line it printed (the corners' trips are not lengthened: the
+stand-in's walk is at the pit, where no trip count is printed) - where one says "every
+child standing is the reference's to the byte" it counts the children the reference has;
+a stand-in is no chunk of the one-shot build and is held by (f). 70 checks (was 57: +5 at
+the pit - (g) x 3, (h) x 2 - and +4 at each corner - (f) x 2, (e), (h)).
+
 ## Gating a commit, not a working tree
 
 An independent verifier should gate a copy of the committed tree, not the working tree
