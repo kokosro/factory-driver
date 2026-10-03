@@ -83,8 +83,20 @@ a traded car as "already owned"; the row itself through `activate_row`; and the 
 page. Not forced by any test: a transfer refused mid-trade and a reversal that itself
 fails (neither can be provoked between two ledger writes from outside; the code paths
 are `barter_car`'s and `_reverse_trade`'s).
-The credits test has 464 checks (`CREDITS TEST PASSED`), measured on the host, since TROC-1
-slice 3 (was 427 -> the exchange-terms pins and fault rows, thirty-seven): the dealership
+The credits test has 467 checks (`CREDITS TEST PASSED`), measured on the host, since TROC-1
+slice 4 (was 464 -> the fuel section's three new pins; was 427 -> TROC-1 slice 3's
+exchange-terms pins and fault rows, thirty-seven). Since TROC-1 slice 4 its paid-fuel
+section is the station's trade, each label saying what it was: the Ring's `Refuel` node
+wired to the runner's obligations ledger and NOT to its credits one (wired as that is:
+`Refuel.CREDITS_FUEL_ENABLED == false` pinned as the shipped state), the dry run away from
+every station leaving both files untouched, the fill at E2.4 writing `OBL-0002` after the
+job's record (creditor `E2.4`, debtor `player`, owed `fuel 44 L`, kind `fuel-voucher`,
+origin `refuel`, open) with the test's own 95-credit stake still 95 and no spent signal
+(was: 88 spent, 7 left), the full-tank hold, the whole-litre rounding (`fuel 1 L` for 0.3
+L; was: 1 credit), the credits-only wiring (the obligations ledger gated: nothing is
+wired, the fill is free), a later build's obligations file (the trade refused on every
+tick, no fuel, the bytes untouched), and the fully gated free fill; the dormant price and
+line pins kept, pure. The dealership
 table's pins gained each car's desk and terms and the new faults (no dealer, an empty or
 non-text dealer, terms no list or empty, a term no object, no accepts, an unknown settle,
 count 0 / 1.5 / "2" / -1, an unknown key inside a term), the prices kept and relabelled as
@@ -100,8 +112,20 @@ for the credits ledger's, the owed-by line for "paid 95 credits", the TROC board
 `CREDITS:`/"Payments received"), the earned-signal pins became "no credit is earned, no
 credits.json is written by a job", the schema and the four job configs gained the
 `poster`/`poster_owed`/`poster_offers` pins, and the paid-fuel section stakes its own 95
-credits (was funded by JOB-01's pay) so its arithmetic stays bit-exact. The credits ledger
-and paid fuel are pinned as before.
+credits (was funded by JOB-01's pay) - since slice 4 the stake is the witness that no fill
+spends. The credits ledger is pinned as before.
+The refuel test has 64 checks (`REFUEL TEST PASSED`), measured on the host, since TROC-1
+slice 4 (was 57): its wired section is the trade now (was ECON-3's paid fill), on an
+obligations file of the test's own under TMPDIR with a credits file wired beside it as the
+dormant path's witness: the 4 L fill writing `OBL-0001` to the field (creditor `E2.4`,
+debtor `player`, owed `fuel 4 L`, kind `fuel-voucher`, origin `refuel`, open, no
+redemption, no transfer) and `last_obligation` on the node the same, the credits bytes
+unchanged, the 30-tick hold from 20 L leaving one fill and one record, the whole-litre
+rounding, a later build's file refusing the trade on every tick (no fuel, no tmp file),
+the overrides cleared (the free fill, the old line, the folder gone) and the driver's own
+`obligations.json` stamped and held; the trade's pure pins (`fill_litres`, `owed_text`,
+`troc_line`) and the dormant path's (`fill_cost`, `hint_line`, the flag off) beside the
+key pins.
 The sound test adds 92 checks (`SOUND TEST PASSED`), measured on the
 host (was 91 -> SOUND-4's one measured check on the built PCM, the band ceiling: the
 squeal's RMS over 2000..4000 Hz at 0.000023 of its RMS over 300..1800 Hz, 0.1 at most - the
@@ -229,7 +253,8 @@ landcover, the store's raw parts only where they are on the machine, no network,
 files (since 4B-ASSETS-2 the asphalt set is the Ring's road material too, read through the
 project's own imports as the scene loads it) - the suite never runs Blender; regenerating
 them is `assets/blender/README.md`'s command; the refuel
-test writes nothing: the store is off
+test writes only to a folder of its own under TMPDIR, removed at the end (TROC-1 slice 4's
+trade; was: nothing), the store off
 headless; the bubble test writes nothing: the Ring in memory, the drives on the tick
 clock; the offroad test the same, and reads the checked-in surfaces table; the async build
 test the same, in memory, no window - WorkerThreadPool works headless). No test opens a window or a

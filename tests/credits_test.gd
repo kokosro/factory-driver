@@ -21,6 +21,13 @@ extends SceneTree
 ## (Garage.CREDITS_BUY_ENABLED false): buy_car is intact and still driven
 ## here by direct calls, the refund round trip included. The barter itself
 ## is proven in tests/obligations_test.gd.
+## TROC-1 slice 4: the station trades fuel for an obligation. The paid-fuel
+## section's pins moved to the trade (each saying what it was): the fills
+## leave records in the obligations file - creditor the station, debtor
+## the player, owed "fuel <n> L", kind fuel-voucher, origin refuel - and the
+## credits ledger is never written by a fill (the stake's 95 stays 95: the
+## credits path is DORMANT, Refuel.CREDITS_FUEL_ENABLED false, wired or
+## not). The dormant path's arithmetic and line stay pinned, pure.
 var failures := 0
 var checks := 0
 var heard: Array = []
@@ -119,7 +126,7 @@ func _run() -> void:
 	await _payment()
 	print("-- the CAR page barters, the credits purchase dormant (TROC-1 slice 3; was the purchase, ECON-3)")
 	await _purchase()
-	print("-- the Ring: the board, a real pass, a real failure, paid fuel")
+	print("-- the Ring: the board, a real pass, a real failure, fuel for obligations (TROC-1 slice 4; was paid fuel)")
 	await _ring()
 	print("-- nothing of the driver's was touched")
 	CreditsLedger.path_override = ""
@@ -1153,37 +1160,48 @@ func _ring() -> void:
 	persisted.load_state()
 	ok(persisted.state.rank == "junior" and persisted.state.results[PASS_JOB].medal == "gold" and persisted.state.results[FAIL_JOB].medal == "" and not persisted.state.rewards.test_driver, "the campaign keeps both results; a job promotes nobody")
 	# was funded by the job's pay (JOB-01's 95 credits); jobs pay obligations
-	# now, so the fuel test stakes its own credits: the same 95, the fuel
-	# arithmetic below bit-exact as it was.
-	ok(not FileAccess.file_exists(ledger_path) and ledger.earn(95, "staked-for-fuel-test") == {"seq": 1, "kind": "earn", "amount": 95, "reason": "staked-for-fuel-test"} and ledger.balance() == 95, "the fuel test's own stake: 95 credits earned by the test into a credits file no job wrote (was funded by the job's pay)")
-	await _fuel(scene, car, runner, ledger)
+	# now, so the fuel test stakes its own credits: the same 95. TROC-1
+	# slice 4: the stake is the WITNESS now - no fill touches it (was: the
+	# fuel arithmetic bit-exact, 95 -> 7 -> 6 -> 3).
+	ok(not FileAccess.file_exists(ledger_path) and ledger.earn(95, "staked-for-fuel-test") == {"seq": 1, "kind": "earn", "amount": 95, "reason": "staked-for-fuel-test"} and ledger.balance() == 95, "the fuel test's own stake: 95 credits earned by the test into a credits file no job wrote (was funded by the job's pay) - the witness that no fill spends")
+	await _fuel(scene, car, runner, ledger, pass_record)
 	# was ["campaign.json", "credits.json"], the two stores.
 	ok(files() == PackedStringArray(["campaign.json", "credits.json", "obligations.json"]), "the test's folder holds the three stores it opted into, no temporary file (was two: the obligations file is the jobs' pay now)")
-	ok(read_text(obligations_path) == paid_bytes, "paid fuel never touched the obligations file: its bytes are the job's one record still")
+	owed.load_state()
+	ledger.load_state()
+	# was `read_text(obligations_path) == paid_bytes`: paid fuel never
+	# touched the obligations file.
+	ok(read_text(obligations_path) != paid_bytes and owed.records().size() == 3 and owed.records()[0] == pass_record and owed.problems.is_empty(), "the fuel trades joined the obligations file after the job's record: three records, the job's first and as it was (was: paid fuel never touched the obligations file)")
+	ok(ledger.balance() == 95 and ledger.transactions().size() == 1, "and the credits file still holds the stake alone: 95, one transaction - no fill spent (was: 3 left of the 95)")
 	root.remove_child(scene)
 	scene.free()
 	await physics_frame
 
 # =============================================================================
-#  Paid fuel (ECON-3)
+#  Fuel for obligations (TROC-1 slice 4; was paid fuel, ECON-3)
 # =============================================================================
 
-## The Ring's shipped Refuel node, wired to the runner's ledger (the test's
-## file, the test's own 95-credit stake in it; was the job's pay, which is
-## an obligation now): the dry run away from every station,
-## the paid fill at E2.4 by the ceil rule, the line's texts, the
-## unaffordable fill, the exact-balance fill, and the gated (unwired) free
-## fill.
-func _fuel(scene: Node, car: ArcadeCar, runner: MissionRunner, ledger: CreditsLedger) -> void:
+## The Ring's shipped Refuel node, wired to the runner's OBLIGATIONS ledger
+## (the test's file, the job's record already in it) with the runner's
+## credits ledger wired beside it (the test's own 95-credit stake, the
+## witness: the credits path is dormant and the stake is never touched;
+## was: the ledger a fill paid): the dry run away from every station, the
+## traded fill at E2.4 by the whole-litre rule, the line's texts, the
+## full-tank hold, the credits-only wiring (nothing wired: the free fill),
+## a later build's obligations file (the trade refused: no fuel), and the
+## gated (unwired) free fill.
+func _fuel(scene: Node, car: ArcadeCar, runner: MissionRunner, ledger: CreditsLedger, pass_record: Dictionary) -> void:
 	var refuel: Refuel = scene.get_node("Refuel")
 	var station := Buildings.record(FUEL_STATION_ID)
 	var at := station.position()
 	var spends: Array = []
 	var on_spent := func(t: Dictionary): spends.append(t)
 	runner.credits.spent.connect(on_spent)
-	ok(Refuel.LITRE_PRICE_CREDITS == 2 and Refuel.fill_cost(20.0) == 88 and Refuel.fill_cost(0.0) == 128 and Refuel.fill_cost(63.7) == 1 and Refuel.fill_cost(64.0) == 0 and Refuel.fill_cost(70.0) == 0 and Refuel.fill_cost(63.5) == 1 and Refuel.fill_cost(63.4) == 2, "the price: 2 credits a litre, the cost the gap rounded up to the whole credit (a full fill 128, 0.3 L 1, 0.6 L 2, a full tank 0)")
-	ok(Refuel.hint_line(88, 95, false) == Refuel.HINT_TEXT and Refuel.hint_line(88, 95, true) == "FUEL STATION near — hold U to fill (2 cr/L — you hold 95 cr)" and Refuel.hint_line(88, 7, true) == "FUEL STATION near — hold U to fill (2 cr/L — need ~88 cr, you hold 7 cr)" and Refuel.hint_line(88, 88, true).contains("you hold 88 cr") and not Refuel.hint_line(88, 88, true).contains("need"), "the line: the old text unwired; the price and the balance wired; the shortfall when the balance cannot cover the gap; exactly enough is enough")
-	ok(refuel.wired_ledger() == runner.credits and refuel.fill_count == 0 and refuel.paid_credits == 0 and refuel.refused_count == 0, "the Ring's Refuel node is wired to the runner's ledger; the jobs filled and paid nothing")
+	var owed := ObligationsLedger.new()
+	ok(Refuel.fill_litres(20.0) == 44 and Refuel.fill_litres(0.0) == 64 and Refuel.fill_litres(63.7) == 1 and Refuel.fill_litres(64.0) == 0 and Refuel.fill_litres(70.0) == 0 and Refuel.fill_litres(63.5) == 1 and Refuel.fill_litres(63.4) == 1 and Refuel.fill_litres(62.9) == 2 and Refuel.owed_text(20.0) == "fuel 44 L" and Refuel.owed_text(0.0) == "fuel 64 L" and Refuel.owed_text(63.7) == "fuel 1 L" and Refuel.FUEL_KIND == "fuel-voucher" and Refuel.FUEL_ORIGIN == "refuel" and Refuel.PLAYER == "player", "the trade: the litres the gap rounded up to the whole litre, owed in the station's words (fuel 44 L, a full fill fuel 64 L, 0.3 L fuel 1 L, 1.1 L fuel 2 L), kind fuel-voucher, origin refuel, the debtor player (was: the price 2 credits a litre, the cost rounded up to the whole credit)")
+	ok(Refuel.CREDITS_FUEL_ENABLED == false and Refuel.LITRE_PRICE_CREDITS == 2 and Refuel.fill_cost(20.0) == 88 and Refuel.fill_cost(0.0) == 128 and Refuel.fill_cost(63.7) == 1 and Refuel.fill_cost(64.0) == 0 and Refuel.fill_cost(70.0) == 0 and Refuel.fill_cost(63.5) == 1 and Refuel.fill_cost(63.4) == 2, "the DORMANT credits path (CREDITS_FUEL_ENABLED false, the shipped state): its price 2 credits a litre and its cost rule kept (a full fill 128, 0.3 L 1, 0.6 L 2, a full tank 0), unreached")
+	ok(Refuel.hint_line(88, 95, false) == Refuel.HINT_TEXT and Refuel.hint_line(88, 95, true) == "FUEL STATION near — hold U to fill (2 cr/L — you hold 95 cr)" and Refuel.hint_line(88, 7, true) == "FUEL STATION near — hold U to fill (2 cr/L — need ~88 cr, you hold 7 cr)" and Refuel.troc_line("E2.4", 20.0) == "FUEL STATION near — hold U to fill (barter — you will owe E2.4: fuel 44 L)" and Refuel.troc_line("E2.4", 64.0) == "FUEL STATION near — hold U to fill (barter — the tank is full)", "the line: the old text unwired; the station and what the fill leaves owed wired, or the full tank (the dormant path's price-and-balance line kept, pure, unreached)")
+	ok(refuel.wired_obligations() == runner.obligations and refuel.wired_ledger() == null and CreditsLedger.active_path() == ledger_path and refuel.fill_count == 0 and refuel.owed_count == 0 and refuel.paid_credits == 0 and refuel.refused_count == 0, "the Ring's Refuel node is wired to the runner's obligations ledger and NOT to its credits one, wired as that is (the dormant path); the jobs filled and owed nothing (was: wired to the runner's credits ledger)")
 
 	# Away from every station: the dry run.
 	car.reset_to(Transform3D(car.global_basis, Vector3(at.x + 100.0, 0.0, at.y)))
@@ -1192,71 +1210,86 @@ func _fuel(scene: Node, car: ArcadeCar, runner: MissionRunner, ledger: CreditsLe
 	for i in 20:
 		await physics_frame
 	var bytes := read_text(ledger_path)
+	var owed_bytes := read_text(obligations_path)
 	Input.action_press(Refuel.ACTION)
 	for i in 30:
 		await physics_frame
 	Input.action_release(Refuel.ACTION)
-	ok(refuel.near == null and not refuel.hint_visible() and refuel.fill_count == 0 and refuel.paid_credits == 0 and refuel.refused_count == 0 and car.fuel_l == PART_TANK_L and read_text(ledger_path) == bytes, "100 m off E2.4 the key held 30 ticks fills nothing, pays nothing, the ledger untouched")
+	ok(refuel.near == null and not refuel.hint_visible() and refuel.fill_count == 0 and refuel.owed_count == 0 and refuel.refused_count == 0 and car.fuel_l == PART_TANK_L and read_text(ledger_path) == bytes and read_text(obligations_path) == owed_bytes, "100 m off E2.4 the key held 30 ticks fills nothing, owes nothing, both files untouched (was: pays nothing, the ledger untouched)")
 
-	# At the station with the staked 95 credits (was the job's), 44 L short: 88 credits.
+	# At the station, 44 L short: one record, fuel 44 L (was: 88 credits of the staked 95).
 	car.reset_to(Transform3D(car.global_basis, Vector3(at.x, 0.0, at.y)))
 	_engine_off(car)
 	car.fuel_l = PART_TANK_L
 	for i in 20:
 		await physics_frame
-	ok(refuel.near == station and refuel.hint_visible() and car.fuel_l == PART_TANK_L and refuel.hint_text() == "FUEL STATION near — hold U to fill (2 cr/L — you hold 95 cr)", "at E2.4 with 95 credits and 44 L short: the line names the price and the balance")
+	ok(refuel.near == station and refuel.hint_visible() and car.fuel_l == PART_TANK_L and refuel.hint_text() == "FUEL STATION near — hold U to fill (barter — you will owe E2.4: fuel 44 L)", "at E2.4 with 44 L short: the line names the station and what the fill will leave owed (was: the price and the balance of 95 credits)")
 	Input.action_press(Refuel.ACTION)
 	await physics_frame
-	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == 1 and refuel.paid_credits == 88 and refuel.refused_count == 0, "the first tick with the key held: the tank filled to capacity, 88 credits paid")
+	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == 1 and refuel.owed_count == 1 and refuel.paid_credits == 0 and refuel.refused_count == 0, "the first tick with the key held: the tank filled to capacity, one obligation owed, nothing paid (was: 88 credits paid)")
+	owed.load_state()
 	ledger.load_state()
-	ok(ledger.balance() == 7 and ledger.transactions().size() == 2 and ledger.transactions()[1] == {"seq": 2, "kind": "spend", "amount": 88, "reason": "fuel"} and spends.size() == 1 and spends[0].amount == 88, "the ledger: one spend of 88 with reason fuel after the test's stake (was the job's pay), 7 credits left, one spent signal")
+	var fill_record := {"id": "OBL-0002", "creditor": FUEL_STATION_ID, "debtor": "player", "owed": "fuel 44 L", "kind": "fuel-voucher", "origin": "refuel", "status": "open", "redemptions": [], "transfers": []}
+	ok(owed.records() == [pass_record, fill_record] and refuel.last_obligation == fill_record and owed.open_view("", "player") == [fill_record] and owed.open_view(FUEL_STATION_ID) == [fill_record] and owed.open_view("player") == [pass_record], "the obligation: OBL-0002 after the job's record, the player owing E2.4 fuel 44 L, kind fuel-voucher, origin refuel, open - the one thing the driver owes, the job's record still the one thing owed to them (was: the ledger's one spend of 88 with reason fuel, 7 credits left)")
+	print("  the record: " + JSON.stringify(refuel.last_obligation))
+	ok(ledger.balance() == 95 and ledger.transactions().size() == 1 and spends.is_empty() and read_text(ledger_path) == bytes, "the credits ledger is untouched: the stake's 95 still, one transaction, no spent signal, the file's bytes the same (was: 7 left, one spent signal)")
 	for i in 30:
 		await physics_frame
 	Input.action_release(Refuel.ACTION)
-	ledger.load_state()
-	ok(refuel.fill_count == 1 and refuel.paid_credits == 88 and ledger.balance() == 7 and ledger.transactions().size() == 2, "held on at a full tank 30 ticks: nothing more filled, nothing more paid")
-	ok(refuel.hint_text() == "FUEL STATION near — hold U to fill (2 cr/L — you hold 7 cr)", "the line follows the balance")
+	owed.load_state()
+	ok(refuel.fill_count == 1 and refuel.owed_count == 1 and owed.records().size() == 2 and read_text(ledger_path) == bytes, "held on at a full tank 30 ticks: nothing more filled, nothing more owed (was: nothing more paid)")
+	ok(refuel.hint_text() == "FUEL STATION near — hold U to fill (barter — the tank is full)", "the line at a full tank: nothing to owe (was: the line follows the balance)")
 	car.fuel_l = 63.7
 	Input.action_press(Refuel.ACTION)
 	await physics_frame
 	Input.action_release(Refuel.ACTION)
+	owed.load_state()
 	ledger.load_state()
-	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == 2 and refuel.paid_credits == 89 and ledger.balance() == 6 and ledger.transactions()[-1].amount == 1, "a 0.3 L gap costs 1 credit: the station rounds up to the whole credit")
+	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == 2 and refuel.owed_count == 2 and owed.records().size() == 3 and owed.records()[2].id == "OBL-0003" and owed.records()[2].owed == "fuel 1 L" and owed.records()[2].creditor == FUEL_STATION_ID and ledger.balance() == 95, "a 0.3 L gap is owed as a whole litre: OBL-0003, fuel 1 L, the credits still 95 (was: 1 credit, the station rounds up to the whole credit)")
 
-	# Unaffordable: 6 credits, 44 L short.
+	# The credits-only wiring: the obligations ledger gated, the credits one
+	# still wired - nothing is wired (the credits path is dormant), the fill
+	# is free and the line the old text (was: the unaffordable fill).
+	ObligationsLedger.path_override = ""
+	owed_bytes = read_text(obligations_path)
 	car.fuel_l = PART_TANK_L
 	await physics_frame
-	ok(refuel.hint_text() == "FUEL STATION near — hold U to fill (2 cr/L — need ~88 cr, you hold 6 cr)", "short of credits the line says the shortfall")
-	bytes = read_text(ledger_path)
+	ok(refuel.wired_obligations() == null and refuel.wired_ledger() == null and CreditsLedger.active_path() == ledger_path and refuel.hint_text() == Refuel.HINT_TEXT, "the obligations ledger gated with the credits one still wired: nothing is wired - the credits path is dormant - and the line is exactly the old text (was: short of credits the line says the shortfall)")
+	Input.action_press(Refuel.ACTION)
+	await physics_frame
+	Input.action_release(Refuel.ACTION)
+	ledger.load_state()
+	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == 3 and refuel.owed_count == 2 and refuel.paid_credits == 0 and refuel.refused_count == 0 and ledger.balance() == 95 and spends.is_empty() and read_text(ledger_path) == bytes and read_text(obligations_path) == owed_bytes and stamp(real_path) == real_before and stamp(real_obligations_path) == real_obligations_before, "the fill is free: the tank full, nothing owed, nothing paid, both files and the driver's own untouched (the grace seam; was: the unaffordable fill refused on every tick, then the exact-balance fill)")
+
+	# A later build's obligations file (a twin of the test's own): the trade
+	# is refused, so is the fuel - trade before fuel, all or nothing.
+	var later_path := test_dir.path_join("obligations-later.json")
+	write_json(later_path, {"version": ObligationsLedger.VERSION + 1, "records": []})
+	var later_bytes := read_text(later_path)
+	ObligationsLedger.path_override = later_path
+	car.fuel_l = PART_TANK_L
+	await physics_frame
+	ok(refuel.wired_obligations() == runner.obligations and refuel.hint_text() == "FUEL STATION near — hold U to fill (barter — you will owe E2.4: fuel 44 L)", "a later build's obligations file wired: the ledger is wired and the line offers the trade")
 	Input.action_press(Refuel.ACTION)
 	for i in 30:
 		await physics_frame
 	Input.action_release(Refuel.ACTION)
-	ledger.load_state()
-	ok(car.fuel_l == PART_TANK_L and refuel.fill_count == 2 and refuel.paid_credits == 89 and refuel.refused_count == 30 and read_text(ledger_path) == bytes and ledger.balance() == 6 and spends.size() == 2, "the unaffordable fill: no fuel, no debit, every one of the 30 ticks refused (all or nothing: no partial fill)")
-	car.fuel_l = 62.5
-	Input.action_press(Refuel.ACTION)
-	await physics_frame
-	Input.action_release(Refuel.ACTION)
-	ledger.load_state()
-	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.paid_credits == 92 and ledger.balance() == 3, "1.5 L short with 6 credits: 3 paid, 3 left")
-	car.fuel_l = 60.5
-	Input.action_press(Refuel.ACTION)
-	await physics_frame
-	Input.action_release(Refuel.ACTION)
-	ledger.load_state()
-	ok(car.fuel_l == 60.5 and refuel.refused_count == 31 and ledger.balance() == 3 and refuel.hint_text().contains("need ~7 cr, you hold 3 cr"), "3.5 L short with 3 credits: refused, 7 needed")
+	ok(car.fuel_l == PART_TANK_L and refuel.fill_count == 3 and refuel.owed_count == 2 and refuel.refused_count == 30 and read_text(later_path) == later_bytes and not FileAccess.file_exists(later_path + ".tmp") and read_text(ledger_path) == bytes, "the key held 30 ticks against it: no fuel, every tick refused, the file's bytes untouched, the credits untouched (trade before fuel, all or nothing; was: 3.5 L short with 3 credits refused)")
+	DirAccess.remove_absolute(later_path)
+	ObligationsLedger.path_override = obligations_path
 
-	# Unwired: the ledger gated, the fill is free and the line the old text.
+	# Unwired: both ledgers gated, the fill is free and the line the old text.
+	ObligationsLedger.path_override = ""
 	CreditsLedger.path_override = ""
-	bytes = read_text(ledger_path)
+	car.fuel_l = PART_TANK_L
 	await physics_frame
-	ok(refuel.wired_ledger() == null and refuel.hint_text() == Refuel.HINT_TEXT, "the ledger gated: no ledger wired, the line is exactly the old text")
+	ok(refuel.wired_obligations() == null and refuel.wired_ledger() == null and refuel.hint_text() == Refuel.HINT_TEXT, "both ledgers gated: nothing wired, the line is exactly the old text")
 	Input.action_press(Refuel.ACTION)
 	await physics_frame
 	Input.action_release(Refuel.ACTION)
-	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == 4 and refuel.paid_credits == 92 and refuel.refused_count == 31 and read_text(ledger_path) == bytes and stamp(real_path) == real_before, "the fill is free: the tank full, nothing paid, the file and the driver's own untouched (the grace seam)")
+	ok(car.fuel_l == ArcadeCar.FUEL_TANK_CAPACITY_L and refuel.fill_count == 4 and refuel.owed_count == 2 and refuel.paid_credits == 0 and refuel.refused_count == 30 and read_text(ledger_path) == bytes and read_text(obligations_path) == owed_bytes and stamp(real_path) == real_before and stamp(real_obligations_path) == real_obligations_before, "the fill is free: the tank full, nothing owed, nothing paid, the files and the driver's own untouched (the grace seam)")
 	CreditsLedger.path_override = ledger_path
+	ObligationsLedger.path_override = obligations_path
 	runner.credits.spent.disconnect(on_spent)
 	Input.action_release(Refuel.ACTION)
 

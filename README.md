@@ -1882,7 +1882,17 @@ battery's wear and charge and the odometer set by hand before the fill moving no
 toward new, the line down and the key dead again 100 m off; the pad with no `Refuel` node
 by name or class, no line, the key filling nothing there and the scene file naming no
 refuel; and a fresh car under a bare `Refuel` node filled the same way holding the
-identical `fuel_l` and `fuel_mass` bits.
+identical `fuel_l` and `fuel_mass` bits. Since TROC-1 slice 4 the wired fill is a trade
+(was ECON-3's paid fill): with the obligations ledger pointed at a file of the test's own
+(and a credits file of 50 wired beside it as the witness that the dormant credits path is
+unreached), the car at E2.4 4 L short sees the line `... (barter — you will owe E2.4: fuel
+4 L)`, the first tick with the key held fills the tank and writes exactly one record
+(`OBL-0001`, creditor `E2.4`, debtor `player`, owed `fuel 4 L`, kind `fuel-voucher`, origin
+`refuel`, open) while the credits file's bytes stay as they were; the key held 30 ticks
+from 20 L leaves one fill and one more record (`fuel 44 L`), the other 29 ticks writing
+nothing; a 0.3 L gap is owed as `fuel 1 L`; a later build's obligations file refuses the
+trade on every tick and the tank stays short; the overrides cleared, the fill is free and
+the line the old text again, the driver's own `obligations.json` never touched.
 
 And telemetry everywhere (`tests/telemetry_watch_test.gd`; see [Telemetry](#telemetry)),
 the never-again fence for "telemetry missing because it wasn't in the scene": with
@@ -3182,9 +3192,9 @@ consumed by no system yet; `reward_credits` stays in the job configs, still vali
 and still what marks a job as paid work, but it is inert — nothing displays or pays it
 (the job briefings still close with their old "Pay on delivery: <n> credits" sentence,
 authored text this slice did not rewrite); nothing redeems an obligation yet. Credits
-remain live only where they are still spent: paid fuel (slice 4 pending; was: the
-dealership too, until slice 3 landed its barter, below) — with no job paying credits
-any more, a fresh driver has none to spend there until that slice lands.
+are spent nowhere now (was: paid fuel, until slice 4 landed the station's trade, below;
+and the dealership, until slice 3 landed its barter) — the credits ledger stays wired
+and dormant, written by nothing in the game.
 `obligations.json` is seeded with the rest of the data folder (`DataDir.SEEDED_FILES`,
 closing slice 1's gap).
 
@@ -3241,12 +3251,50 @@ tested by direct calls, and a car owned by trade is refused there as "already ow
 
 Honest scope: the fresh-driver credits gap is NARROWED, not closed — barter with held
 obligations is now the earn-to-own path (deliver a job -> hold the poster's obligation
--> trade it for a car), while paid fuel still charges credits until slice 4. The trade
+-> trade it for a car), while paid fuel still charged credits until slice 4 landed the
+station's trade (below). The trade
 takes the oldest held obligations; the driver does not choose which. The transferred
 obligation stays open with the desk as its creditor (the poster now owes the desk):
 nothing redeems it yet. `voucher` is validated settle vocabulary that NO shipped term
 uses and the garage does not settle: nothing grants dealership vouchers yet (the job
 board's "one dealership voucher" tips are display-only, and the first-run voucher is the
-`fd_1001` car voucher honoured at E4.1) — deferred to slice 4. The job briefings still
+`fd_1001` car voucher honoured at E4.1) — deferred past slice 4, which landed the fuel
+trade and no voucher granting. The job briefings still
 close with their authored "Pay on delivery: <n> credits" sentence. A bought or traded
 car is selected in the records only; live vehicle swapping is still pending.
+
+### Fuel for obligations (TROC-1 slice 4)
+
+The gas station trades fuel for an obligation (was: ECON-3's paid fuel, 2 credits a litre
+spent before the fill). The ruling (decisions.org `85BE93B5`): "fuel stations trade fuel
+for delivery obligations (matching the Cat Matrix rule: 10% social stations free, others
+barter)"; the design's §5 item 4 (approved by `16036083`): "refuel.gd's wired-ledger seam
+becomes a wired-trade seam: with an obligations ledger on, holding U at a station creates
+... an obligation named by the station's terms; the grace seam (free fill where nothing is
+wired) survives. The 10% social rule stays parked." On the Ring, within 30 m of a placed
+E2 station with the obligations ledger on, the line reads `FUEL STATION near — hold U to
+fill (barter — you will owe E2.4: fuel 44 L)` (or `... (barter — the tank is full)`), and
+the first tick with `U` held opens ONE record in `obligations.json` before the tank is
+filled: creditor the station's own id (`E2.4`), debtor `player`, owed `fuel <n> L` with
+the litres the gap rounded up to the whole litre (`Refuel.fill_litres`: the old price's
+rounding rule, kept on the litres), kind `fuel-voucher`, origin `refuel`, status open.
+Trade before fuel, all or nothing: a create the ledger refuses (the store gated, the file
+a later build's, a write that fails) is no fuel and the tank stays short. The tank is
+full after the first tick, so holding the key leaves one obligation, not thirty. Nothing
+is priced and nothing is summed: a 44 L fill and a 1 L fill are two records, each named
+in the station's words, never added. No credit moves: the obligation IS the debt, owed to
+the station and redeemable against whatever it later accepts. The grace seam survives:
+without a runner or with the store gated (`FD_TELEMETRY=0`, no override) the fill is free
+and the line is the bare `FUEL STATION near — hold U to fill`, exactly as before.
+
+The credits path is DORMANT, not deleted (the slice-3 ruling's shape, `Garage.CREDITS_BUY_ENABLED`):
+`Refuel.CREDITS_FUEL_ENABLED` is `false`, so `wired_ledger()` is null whatever the credits
+store's wiring, no price reaches any line and no spend is written; `LITRE_PRICE_CREDITS`,
+`fill_cost` and `hint_line` stay, pure and tested. With the flag on, ECON-3's paid fuel
+returns wherever a credits ledger is wired and no obligations ledger is (the trade wins
+where both are: TROC is the economy). What this slice does not do, honestly: nothing
+redeems an obligation at the pump (the design's "create-or-redeem" is create only here:
+a held delivery obligation cannot yet buy fuel), nothing redeems one anywhere else
+either, the 10% social stations stay parked with the cat ecology, and no system grants
+dealership vouchers. The fresh-driver gap is closed at the pump: fuel costs nothing the
+driver must first earn - it leaves them owing the station.
