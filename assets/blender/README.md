@@ -27,6 +27,7 @@ blender -b -P assets/blender/scripts/build_all.py            # everything + the 
 blender -b -P assets/blender/scripts/asphalt.py              # the road texture set alone
 blender -b -P assets/blender/scripts/foliage.py              # the vegetation textures alone
 blender -b -P assets/blender/scripts/trees.py                # the three archetypes alone
+blender -b -P assets/blender/scripts/car.py                  # the car's exterior (CARS-1; not part of build_all.py)
 blender -b -P assets/blender/scripts/build_all.py -- --preview /some/scratch/dir
 ```
 
@@ -72,6 +73,7 @@ grid divides the tile; the wheel ruts are a function of u alone.
 | `assets/meshes/tree_spruce.glb` | 6 984 | V2: 106 triangles, 121 vertices, 20 m |
 | `assets/meshes/tree_beech.glb` | 7 364 | V1: 130 triangles, 99 vertices (129 after Godot's UV-seam split), 14 m |
 | `assets/meshes/tree_row.glb` | 7 084 | V6's V1: 128 triangles, 95 vertices, 10 m |
+| `assets/meshes/car_boxster_986.glb` | 80 476 | CARS-1: the 986's exterior, 3 224 triangles in 8 meshes, no textures |
 | `assets/blender/factory_driver_assets.blend` | 312 783 | the working file, regenerated |
 
 Every asset has its Godot `.import` beside it, committed: textures VRAM-compressed
@@ -181,6 +183,77 @@ glTF. Blender 5 has no material blend mode any more, so the exporter writes alph
 BLEND for a linked alpha; the packer sets MASK / cutoff 0.5. Godot resolves the
 relative URIs to `res://assets/textures/vegetation/…` and shares the textures.
 
+### The car (`car.py`) - CARS-1 slice 1
+
+The hero car's exterior: a 1997 Boxster 986, soft top up, replacing the eight placeholder
+boxes of `scenes/car.tscn` (the canon, `docs/art-direction.md` "The cars are different":
+"Car: lovingly modeled", "correct Porsche silhouette", "wheel wells", "separate glass",
+"headlights", "taillights", "mirrors", "exhaust" - "But resist modern manufacturing-CAD
+density"). A FREE PROCEDURAL INTERPRETATION by the driver's ruling: no reference photos,
+no blueprint. `car.py` runs alone (`build_all.py` and the .blend do not carry it):
+
+```
+blender -b -P assets/blender/scripts/car.py                      # writes assets/meshes/car_boxster_986.glb
+blender -b -P assets/blender/scripts/car.py -- --preview DIR     # ... and eight Cycles views of it into DIR (scratch)
+```
+
+**How it is made.** The body is a loft: eight curves along the car (`WIDTH`,
+`SHOULDER_SHARE`, `SHOULDER_Y`, `SHOULDER_POWER`, `CENTRE_Y`, `SILL_Y`, `WIDEST_Y`,
+`DECK_BLEND`, monotone cubics through a handful of knots each) and one cross-section rule (`body_point`: a
+parabola from the sill out to the widest line, a superellipse round the shoulder, a
+smoothstep across the deck to the centre line). The ends round in, seen from above, as
+superellipses and lean, seen from the side. The wheel arches are part of the grid, not
+cut into it: the columns over each axle fan round a circle of `ARCH_RADIUS`. The cabin
+is a second, smaller loft standing on a hole in the deck (`CABIN`, eight stations). The
+lamps and the intakes are patches laid on the body's own surface a few millimetres
+proud of it, each with a skirt back under its edge. Every number is a commented
+constant at the top of the file; a different stance or roofline is an edit to a knot.
+
+**Sized to the game's physics, not to the real car** (`scripts/car.gd`,
+`scenes/car.tscn`): 4.2 m long (the collision box), 1.30 m to the roof, the sill at
+0.17 m; arches of radius 0.40 about the wheel centres car.gd drives (`HALF_TRACK` 0.86,
+axles at z -+1.3, tyre radius 0.34, width 0.26), 0.06 over the tyre all round. The game's
+track is 0.22 m wider than the real 986's, so the tyres' outer faces stand at x 0.99 and
+the fenders reach x 1.02 to cover them (the doors' waist 0.925): the body is 2.04 m wide
+at the arches, wider than the collision box (1.8) as the placeholder's wheels already
+were.
+
+**Spaces.** `car.py` is written in car space (origin on the ground under the middle of
+the car, nose -Z, +X right, +Y up). The file is stored in the Body node's space: car.tscn's
+Body sits `PIVOT_Y` 0.3 m over the origin (car.gd reads its rest height from there and
+pitches, rolls and heaves it), so every vertex is written 0.3 m lower and the instanced
+Body draws it back where it was authored.
+
+**The eight meshes, one material each** (plain glTF factors, no textures, no UVs;
+`MATERIALS` holds them as Godot shows them, sRGB, and `make_material` writes them linear):
+
+| mesh | triangles | material (albedo sRGB / metallic / roughness) | what |
+|---|---:|---|---|
+| `Paint` | 1 704 | 0.82 0.16 0.12 / 0.3 / 0.35 - the shipped red, by the driver's ruling | the shell, the two mirrors |
+| `Glass` | 46 | 0.08 0.12 0.17 / 0.5 / 0.15 - dark, tinted-opaque | windscreen, door glass, the top's rear window |
+| `SoftTop` | 62 | 0.035 0.035 0.04 / 0 / 0.9, double-sided | the fabric roof, up |
+| `Trim` | 934 | 0.05 0.05 0.055 / 0 / 0.8 | A-pillars and header, three front intakes, the side intakes ahead of the rear wheels, wheel wells, underbody, the cabin's inner sill, the exhaust's surround and bore |
+| `Headlight` | 160 | 1 0.96 0.8 / 0 / 0.25, emission 1 0.95 0.75 x 1.5 | the teardrop lens on each front fender |
+| `Taillight` | 170 | 0.7 0.05 0.05 / 0 / 0.3, emission 1 0.1 0.1 x 1.2 | the lamp round each rear corner |
+| `Indicator` | 100 | 0.95 0.5 0.05 / 0 / 0.3 | the amber section across each headlight unit's blunt end |
+| `Exhaust` | 48 | 0.8 0.8 0.82 / 0.9 / 0.25 | the single central oval tailpipe |
+
+Paint, Glass, Headlight and Taillight carry the placeholder's values (car.tscn's
+`mat_paint`, `mat_glass`, `mat_headlight`, `mat_taillight` before CARS-1); the lamps'
+energies ride in `KHR_materials_emissive_strength`, the file's only extension.
+
+**How the game uses it.** `scenes/car.tscn`'s `Body` node IS the instanced .glb (named
+Body, a Node3D, at the same transform), so the eight meshes are direct MeshInstance3D
+children of Body: `scripts/xray.gd` fades the direct children's first surface material,
+which is why each mesh has exactly one. Its `.import` carries the tree archetypes'
+parameters (no LODs, no shadow meshes, no tangents, no compression): the hero car is
+drawn as authored at every distance.
+
+**Determinism** (verified 2026-10-03): no randomness anywhere (`common.SEED` is not
+consumed), a fixed vertex and face order, Blender's own smooth normals, the JSON through
+`trees.pack_glb`; two runs in a row, and a run with `--preview` against one without,
+byte-identical (`cmp`; sha256 b8d0981e...).
+
 ## How the game uses them (this stage)
 
 `scripts/forest_walls.gd` reads each archetype's two surfaces once from the imported
@@ -193,6 +266,14 @@ asphalt set is NOT wired yet: `road_builder.gd` belongs to another job; the UV
 contract above is what it will map.
 
 ## Known limits, honestly
+
+* The car is an interpretation, not a scan: no reference photos, no blueprint, and
+  proportions bent to the game's wheel positions (short overhangs under a 2.6 m
+  wheelbase in 4.2 m, a body 2.04 m wide). No panel lines, door handles, wipers,
+  badges or plate (the plate is skipped by ruling); the lamps are flat emissive
+  patches, not lit housings; the glass is opaque and there is no interior or driver
+  (the next slice). It is one-sided but for the soft top: from the cockpit camera the
+  shell's inside is not drawn. The wheels are still `scenes/wheel.tscn`'s primitives.
 
 * The textures are procedural shader networks baked in Blender, not photographs:
   "photographic-looking" is approached by layered noise, grain, stones, seams and

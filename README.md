@@ -3351,3 +3351,29 @@ a held delivery obligation cannot yet buy fuel), nothing redeems one anywhere el
 either, the 10% social stations stay parked with the cat ecology, and no system grants
 dealership vouchers. The fresh-driver gap is closed at the pump: fuel costs nothing the
 driver must first earn - it leaves them owing the station.
+
+### The car's exterior (CARS-1 slice 1)
+
+The car is no longer eight boxes: `scenes/car.tscn`'s `Body` node is an instance of
+`assets/meshes/car_boxster_986.glb`, a Blender-authored 1997 Boxster 986 exterior with
+the soft top up (the driver's rulings: the shipped red kept, the top up, no plate, dark
+opaque glass - the interior and the driver are the next slice; a free procedural
+interpretation, no reference photos). It is eight meshes, one material each, direct
+children of `Body` - `Paint`, `Glass`, `SoftTop`, `Trim`, `Headlight`, `Taillight`,
+`Indicator`, `Exhaust` - 3 224 triangles, no textures. Nothing in the handling reads it:
+`scripts/car.gd` still pitches, rolls and heaves `Body` and places the four wheels of
+`scenes/wheel.tscn`, and the X-ray (`scripts/xray.gd`) fades every one of the eight. The
+shape is sized to the physics - the wheel arches stand 0.06 m over the tyres where
+car.gd puts them, and the fenders reach x 1.02 because the game's track is wider than the
+real car's.
+
+The source of truth is `assets/blender/scripts/car.py` (Blender 5.2.2 LTS, headless;
+every dimension a commented constant); the .glb it writes is committed and regenerates
+byte-identically:
+
+```
+blender -b -P assets/blender/scripts/car.py
+godot --headless --path . --import
+```
+
+`assets/blender/README.md` has the construction, the material table and the known limits.

@@ -45,7 +45,7 @@ const CAR_BOUNDS := AABB(Vector3(-0.9, 0.0, -2.1), Vector3(1.8, 1.4, 4.2))
 const FRONT_LEFT_WHEEL := Vector3(-0.86, 0.34, -1.3)
 
 ## The body meshes whose materials the X-ray view fades: the paint and the glass.
-const XRAY_BODY_MESHES: Array[String] = ["Body/Lower", "Body/Cabin"]
+const XRAY_BODY_MESHES: Array[String] = ["Body/Paint", "Body/Glass"]
 
 ## Looking left / right: how far the view has to turn to the side while the key
 ## is held [degrees], chase and cockpit (ChaseCamera.LOOK_CHASE_YAW_DEG 65,
